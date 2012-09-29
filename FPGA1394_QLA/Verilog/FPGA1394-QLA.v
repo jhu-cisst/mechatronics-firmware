@@ -1,0 +1,313 @@
+/*******************************************************************************
+ *
+ * Copyright(C) 2011-2012 ERC CISST, Johns Hopkins University.
+ *
+ * This is the top level module for the FPGA1394-QLA motor controller interface.
+ *
+ * Revision history
+ *     07/15/10                        Initial revision - MfgTest
+ *     10/27/11    Paul Thienphrapa    Initial revision (pault at cs.jhu.edu)
+ *     02/29/12    Zihan Chen
+ */
+
+`timescale 1ns / 1ps
+
+module FPGA1394QLA
+(
+    // ieee 1394 phy-link interface
+    input clk1394,
+    inout[7:0] data,
+    inout[1:0] ctl,
+    output wire lreq,
+    output wire reset_phy,
+
+    // serial interface
+    input wire RxD,
+    input wire RTS,
+    output wire TxD,
+
+    // debug I/Os
+    input wire clk29m,
+    input wire clk40m,
+    output wire[3:0] DEBUG,
+
+    // misc board I/Os
+    input[3:0] wenid,
+    inout[1:32] IO1,
+    inout[1:38] IO2,
+    output wire LED
+);
+
+    // -------------------------------------------------------------------------
+    // local wires to tie the instantiated modules and I/Os
+    //
+
+    wire lreq_trig;
+    wire[2:0] lreq_type;
+    wire reg_wen, blk_wen;
+    wire[7:0] reg_addr;
+    wire[31:0] reg_rdata;
+    wire[31:0] reg_wdata;
+    wire[31:0] reg_rd[0:15];
+
+//------------------------------------------------------------------------------
+// hardware description
+//
+
+BUFG clksysclk(.I(clk1394), .O(sysclk));
+
+// route read data based on read address (channel 0 is a special axis)
+assign reg_rdata = (reg_addr[7:4]==0) ? reg_rdata_chan0 : reg_rd[reg_addr[3:0]];
+assign reset_phy = 1'b1;
+
+// firewire modules ------------------------------------------------------------
+
+// phy-link interface
+PhyLinkInterface phy(
+    sysclk, reset, ~wenid,    // in: global clock, reset, board id
+    ctl, data,                // bi: phy ctl and data lines
+    reg_wen, blk_wen,
+    reg_addr,                 // out: register write signal/address
+    reg_rdata, reg_wdata,     // out/in: register read address/data
+    lreq_trig, lreq_type      // out: phy request trigger and type
+);
+
+// phy request module
+PhyRequest phyreq(
+    sysclk, reset,            // in: global clock and reset
+    lreq,                     // out: phy request line
+    lreq_trig, lreq_type,     // in: phy request trigger and type
+    reg_wdata[11:0]           // in: phy request data
+);
+
+// adcs ------------------------------------------------------------------------
+
+// ~12 MHz clock for spi communication with the adcs
+wire clkdiv2, clkadc;
+ClkDiv div2clk(sysclk, clkdiv2);
+defparam div2clk.width = 2;
+BUFG adcclk(.I(clkdiv2), .O(clkadc));
+
+
+// map 2 types of  reads to the output of the adc controller; the
+//   latter will select the correct data to output based on read address
+wire[31:0] reg_radc;
+assign reg_rd[0] = reg_radc;    // adc reads
+assign reg_rd[10] = reg_radc;   // sync cur
+
+wire clk_1mhz, clk_12hz;
+
+// adc controller routes conversion results according to address
+CtrlAdc adc(
+    .clkadc(clkadc),
+    .clk_slow(clk_12hz),
+    .reset(reset),
+    .sclk({IO1[10],IO1[28]}),
+    .conv({IO1[11],IO1[27]}),
+    .miso({IO1[12:15],IO1[26],IO1[25],IO1[24],IO1[23]}),
+    .reg_addr(reg_addr),
+    .reg_rdata(reg_radc)
+);
+
+// dacs ------------------------------------------------------------------------
+
+// the dac controller manages access to the dacs
+CtrlDac dac(
+    .sysclk(sysclk),
+    .reset(reset),
+    .sclk(IO1[21]),
+    .mosi(IO1[20]),
+    .csel(IO1[22]),
+    .reg_wen(reg_wen),
+    .blk_wen(blk_wen),
+    .reg_addr(reg_addr),
+    .reg_wdata(reg_wdata),
+    .reg_rdata(reg_rd[1])
+);
+
+// encoders --------------------------------------------------------------------
+
+// fast (~1 MHz) / slow (~12 Hz) clocks to measure encoder period / frequency
+// wire clk_1mhz, clk_12hz;
+ClkDiv divenc1(sysclk, clk_1mhz); defparam divenc1.width = 6;
+ClkDiv divenc2(sysclk, clk_12hz); defparam divenc2.width = 22;
+
+// map all types of encoder reads to the output of the encoder controller; the
+//   latter will select the correct data to output based on read address
+wire[31:0] reg_renc;
+assign reg_rd[4] = reg_renc;    // preload
+assign reg_rd[5] = reg_renc;    // quadrature
+assign reg_rd[6] = reg_renc;    // period
+assign reg_rd[7] = reg_renc;    // frequency
+assign reg_rd[8] = reg_renc;    // acceleration 
+assign reg_rd[9] = reg_renc;    // acceleration
+// assign reg_rd[10] = reg_renc;   // sync cur
+
+// encoder controller: the thing that manages encoder reads and preloads
+CtrlEnc enc(
+    .sysclk(sysclk),
+    .reset(reset),
+    .clk_1mhz(clk_1mhz),
+    .clk_12hz(clk_12hz),
+    .enc_a({IO2[23],IO2[21],IO2[19],IO2[17]}),
+    .enc_b({IO2[15],IO2[13],IO2[12],IO2[10]}),
+    .reg_addr(reg_addr),
+    .reg_rdata(reg_renc),
+    .reg_wdata(reg_wdata),
+    .reg_we(reg_wen)
+);
+
+// temperature sensors ---------------------------------------------------------
+
+// divide 40 MHz clock down to 400 kHz for temperature sensor readings
+wire clk400k_raw, clk400k;
+ClkDivI divtemp(clk40m, clk400k_raw);
+defparam divtemp.div = 100;
+BUFG clktemp(.I(clk400k_raw), .O(clk400k));
+
+// route temperature data into BoardRegs module for readout
+wire[15:0] tempsense;
+
+// tempsense module instantiations
+Max6576 T1(.clk400k(clk400k), .reset(reset), .In(IO1[29]), .Out(tempsense[15:8]));
+Max6576 T2(.clk400k(clk400k), .reset(reset), .In(IO1[30]), .Out(tempsense[7:0]));
+
+// miscellaneous board I/Os ----------------------------------------------------
+
+// 'channel 0' is a special axis that contains various board I/Os
+wire[31:0] reg_rdata_chan0;
+
+BoardRegs chan0(
+    .sysclk(sysclk),
+    .clkaux(clk40m),
+    .reset(reset),
+    .amp_disable({IO2[38],IO2[36],IO2[34],IO2[32]}),
+    .dout({IO1[19],IO1[18],IO1[17],IO1[16]}),
+    .pwr_enable(IO1[32]),
+    .relay_on(IO1[31]),
+    .neg_limit({IO2[26],IO2[24],IO2[25],IO2[22]}),
+    .pos_limit({IO2[30],IO2[29],IO2[28],IO2[27]}),
+    .home({IO2[20],IO2[18],IO2[16],IO2[14]}),
+    .fault({IO2[37],IO2[35],IO2[33],IO2[31]}),
+    .relay(IO2[9]),
+    .mv_good(IO2[11]),
+    .v_fault(IO1[9]),
+    .board_id(~wenid),
+    .temp_sense(tempsense),
+    .reg_addr(reg_addr),
+    .reg_rdata(reg_rdata_chan0),
+    .reg_wdata(reg_wdata),
+    .wr_en(reg_wen)
+);
+
+//------------------------------------------------------------------------------
+// debugging, etc.
+//
+
+wire BaudClk;
+reg[3:0] Baud;
+reg[23:0] CountC;
+reg[23:0] CountI;
+
+BUFG clkout(.I(Baud[3]), .O(BaudClk));
+always @(posedge(clk29m)) Baud <= Baud + 1'b1;
+always @(posedge(clk40m)) CountC <= CountC + 1'b1;
+always @(posedge(sysclk)) CountI <= CountI + 1'b1;
+
+assign LED = IO1[32];
+assign DEBUG = { clk_1mhz, clk_12hz, CountI[23], CountC[23] };
+assign TxD = 0;
+
+//------------------------------------------------------------------------------
+// show green 1, red 1, green 2, red 2 leds using pwm
+assign IO2[1] = pwm_signal[4];
+assign IO2[3] = pwm_signal[3];
+assign IO2[5] = pwm_signal[1];
+assign IO2[7] = pwm_signal[2];
+
+// declarations
+reg pwm_signal[1:4];                // pwm signals
+reg[31:0] count_width;              // pulse width counter
+reg[31:0] pulse_width[1:4];         // variable pulse widths
+reg[31:0] period, i;                // for cycling through lookup table
+reg[31:0] ROM_PWM[1:4][0:MPT-1];    // lookup table for pulse width patterns
+parameter MPT = 1024;               // number of lookup table elements
+
+// generate pwm signal using 187.5 Hz clock (4096 sysclk counts per period)
+ClkDiv divpwm(sysclk, clk_pwm); defparam divpwm.width = 18;
+always @(posedge(clk_1mhz) or posedge(clk_pwm))
+begin
+    if (clk_pwm)
+        count_width <= 0;
+    else begin
+        count_width <= count_width + 1'b1;
+        pwm_signal[1] <= (count_width < pulse_width[1]);
+        pwm_signal[2] <= (count_width < pulse_width[2]);
+        pwm_signal[3] <= (count_width < pulse_width[3]);
+        pwm_signal[4] <= (count_width < pulse_width[4]);
+    end
+end
+
+// vary the pulse widths, updating them at 93.75 Hz
+ClkDiv divpw(sysclk, clk_pulsewidth); defparam divpw.width = 19;
+always @(posedge(clk_pulsewidth))
+begin
+    period <= (period+1) % MPT;
+    pulse_width[1] <= ROM_PWM[1][period];
+    pulse_width[2] <= ROM_PWM[2][period];
+    pulse_width[3] <= ROM_PWM[3][period];
+    pulse_width[4] <= ROM_PWM[4][period];
+end
+
+// lookup table values for the pulse width patterns
+initial begin
+    for (i=  0; i<  1; i=i+1) ROM_PWM[1][i] = 20; // first element
+    for (i=  1; i<100; i=i+1) ROM_PWM[1][i] = ROM_PWM[1][i-1] + 20;
+    for (i=100; i<200; i=i+1) ROM_PWM[1][i] = ROM_PWM[1][i-1] - 20;
+    for (i=200; i<300; i=i+1) ROM_PWM[1][i] = 0;
+    for (i=300; i<400; i=i+1) ROM_PWM[1][i] = 0;
+    for (i=400; i<500; i=i+1) ROM_PWM[1][i] = ROM_PWM[1][i-1] + 20;
+    for (i=500; i<600; i=i+1) ROM_PWM[1][i] = ROM_PWM[1][i-1] - 20;
+    for (i=600; i<700; i=i+1) ROM_PWM[1][i] = ROM_PWM[1][i-1] + 20;
+    for (i=700; i<800; i=i+1) ROM_PWM[1][i] = ROM_PWM[1][i-1] - 20;
+    for (i=800; i<900; i=i+1) ROM_PWM[1][i] = 0;
+    for (i=900; i<MPT; i=i+1) ROM_PWM[1][i] = 0;
+
+    for (i=  0; i<  1; i=i+1) ROM_PWM[2][i] = 0; // first element
+    for (i=  1; i<100; i=i+1) ROM_PWM[2][i] = 0;
+    for (i=100; i<200; i=i+1) ROM_PWM[2][i] = 0;
+    for (i=200; i<300; i=i+1) ROM_PWM[2][i] = ROM_PWM[2][i-1] + 20;
+    for (i=300; i<400; i=i+1) ROM_PWM[2][i] = ROM_PWM[2][i-1] - 20;
+    for (i=400; i<500; i=i+1) ROM_PWM[2][i] = ROM_PWM[2][i-1] + 20;
+    for (i=500; i<600; i=i+1) ROM_PWM[2][i] = ROM_PWM[2][i-1] - 20;
+    for (i=600; i<700; i=i+1) ROM_PWM[2][i] = 0;
+    for (i=700; i<800; i=i+1) ROM_PWM[2][i] = ROM_PWM[2][i-1] + 20;
+    for (i=800; i<900; i=i+1) ROM_PWM[2][i] = ROM_PWM[2][i-1] - 20;
+    for (i=900; i<MPT; i=i+1) ROM_PWM[2][i] = 0;
+
+    for (i=  0; i< 50; i=i+1) ROM_PWM[3][i] = 0; // first element
+    for (i= 50; i<150; i=i+1) ROM_PWM[3][i] = ROM_PWM[3][i-1] + 20;
+    for (i=150; i<250; i=i+1) ROM_PWM[3][i] = ROM_PWM[3][i-1] - 20;
+    for (i=250; i<350; i=i+1) ROM_PWM[3][i] = 0;
+    for (i=350; i<450; i=i+1) ROM_PWM[3][i] = 0;
+    for (i=450; i<550; i=i+1) ROM_PWM[3][i] = ROM_PWM[3][i-1] + 20;
+    for (i=550; i<650; i=i+1) ROM_PWM[3][i] = ROM_PWM[3][i-1] - 20;
+    for (i=650; i<750; i=i+1) ROM_PWM[3][i] = ROM_PWM[3][i-1] + 20;
+    for (i=750; i<850; i=i+1) ROM_PWM[3][i] = ROM_PWM[3][i-1] - 20;
+    for (i=850; i<950; i=i+1) ROM_PWM[3][i] = 0;
+    for (i=950; i<MPT; i=i+1) ROM_PWM[3][i] = 0;
+
+    for (i=  0; i< 50; i=i+1) ROM_PWM[4][i] = 0; // first element
+    for (i= 50; i<150; i=i+1) ROM_PWM[4][i] = 0;
+    for (i=150; i<250; i=i+1) ROM_PWM[4][i] = 0;
+    for (i=250; i<350; i=i+1) ROM_PWM[4][i] = ROM_PWM[4][i-1] + 20;
+    for (i=350; i<450; i=i+1) ROM_PWM[4][i] = ROM_PWM[4][i-1] - 20;
+    for (i=450; i<550; i=i+1) ROM_PWM[4][i] = ROM_PWM[4][i-1] + 20;
+    for (i=550; i<650; i=i+1) ROM_PWM[4][i] = ROM_PWM[4][i-1] - 20;
+    for (i=650; i<750; i=i+1) ROM_PWM[4][i] = 0;
+    for (i=750; i<850; i=i+1) ROM_PWM[4][i] = ROM_PWM[4][i-1] + 20;
+    for (i=850; i<950; i=i+1) ROM_PWM[4][i] = ROM_PWM[4][i-1] - 20;
+    for (i=950; i<MPT; i=i+1) ROM_PWM[4][i] = 0;
+end
+
+endmodule
