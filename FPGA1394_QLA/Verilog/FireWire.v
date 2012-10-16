@@ -399,12 +399,12 @@ begin
                     if (data_block) begin
                         // latch DAC data from data block on quadlet boundaries
                         if (count[4:0] == 0) begin
-                            // channel address cicularly increments from 1-7
+                            // channel address cicularly increments from 1-8
                             // (chan addr and dev offset are previously set)
-                            if (reg_addr[6:4] == 7)
-                                reg_addr[6:4] <= 3'd1;
+                            if (reg_addr[7:4] == 8)
+                                reg_addr[7:4] <= 4'd1;
                             else
-                                reg_addr[6:4] <= reg_addr[6:4] + 1'b1;
+                                reg_addr[7:4] <= reg_addr[7:4] + 1'b1;
                             reg_wdata <= buffer[30:0];               // data to write
                             reg_wen <= (buffer[31] & rx_active);     // check valid bit
                         end
@@ -498,7 +498,7 @@ begin
                         160: begin
                             // flag to indicate the start of block data
                             data_block <= (rx_tcode==`TC_BWRITE) ? 1'b1 : 1'b0;
-                            reg_addr[6:4] <= 0;    // init channel address
+                            reg_addr[7:4] <= 0;    // init channel address
                             reg_addr[3:0] <= 1;    // set dac device address
                         end
                         // iffy implementation, works for now ------------------
@@ -756,14 +756,14 @@ begin
                 // latch data and update addresses on quadlet boundaries
                 if (count[4:0] == 5'd24) begin
                     buffer <= reg_rdata;
-                    // channel address cicularly increments from 1-7
-                    if (reg_addr[6:4] == 7) begin
-                        reg_addr[6:4] <= 1;
+                    // channel address cicularly increments from 1-8
+                    if (reg_addr[7:4] == 8) begin
+                        reg_addr[7:4] <= 1;
                         reg_addr[3:0] <= dev_addr[dev_index];
                         dev_index <= (dev_index<6) ? (dev_index+1'b1) : 0;
                     end
                     else
-                        reg_addr[6:4] <= reg_addr[6:4] + 1'b1;
+                        reg_addr[7:4] <= reg_addr[7:4] + 1'b1;
                 end
 
                 if (count == (numbits-16'd32)) begin
