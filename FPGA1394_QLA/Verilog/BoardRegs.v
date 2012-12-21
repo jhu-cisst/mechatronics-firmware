@@ -12,16 +12,18 @@
  */
 
 // channel 0 (board) registers
-`define REG_STATUS 4'd0         // board id (8), fault (8), enable/masks (16)
-`define REG_PHYCTRL 4'd1        // phy request bitstream (to request reg r/w)
-`define REG_PHYDATA 4'd2        // holder for phy register read contents
-`define REG_TIMEOUT 4'd3        // watchdog timer period register
-`define REG_VERSION 4'd4        // read-only version number address
-`define REG_TEMPSNS 4'd5        // temperature sensors (2x 8 bits concatenated)
-`define REG_DIGIOUT 4'd6        // programmable digital outputs
+`define REG_STATUS 4'd0            // board id (8), fault (8), enable/masks (16)
+`define REG_PHYCTRL 4'd1           // phy request bitstream (to request reg r/w)
+`define REG_PHYDATA 4'd2           // holder for phy register read contents
+`define REG_TIMEOUT 4'd3           // watchdog timer period register
+`define REG_VERSION 4'd4           // read-only version number address
+`define REG_TEMPSNS 4'd5           // temperature sensors (2x 8 bits concatenated)
+`define REG_DIGIOUT 4'd6           // programmable digital outputs
+`define REG_FIRMWARE_VERSION 4'd7  // firmware version
 
-`define VERSION 32'hC0FFEE      // hard-wired version number
-`define WIDTH_WATCHDOG 8        // period = 5.208333 us (2^8 / 49.152 MHz)
+`define VERSION 32'h514C4131       // hard-wired version number "QLA1" = 0x514C4131 
+`define FW_VERSION 32'h01          // firmware version = 1  
+`define WIDTH_WATCHDOG 8           // period = 5.208333 us (2^8 / 49.152 MHz)
 
 module BoardRegs(
     sysclk, clkaux, reset,
@@ -146,6 +148,7 @@ begin
         `REG_VERSION: reg_rdata <= `VERSION;
         `REG_TEMPSNS: reg_rdata <= temp_sense;
         `REG_DIGIOUT: reg_rdata <= dout;
+        `REG_FIRMWARE_VERSION: reg_rdata <= `FW_VERSION;
         default: reg_rdata <= { 16'd0, 1'b0, relay, mv_good, v_fault, neg_limit, pos_limit, home };
         endcase
     end
