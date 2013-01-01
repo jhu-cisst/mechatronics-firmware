@@ -15,27 +15,33 @@
 module FPGA1394QLA
 (
     // ieee 1394 phy-link interface
-    input clk1394,
-    inout[7:0] data,
-    inout[1:0] ctl,
-    output wire lreq,
-    output wire reset_phy,
+    input         clk1394,
+    inout [7:0]      data,
+    inout [1:0]      ctl,
+    output wire      lreq,
+    output wire      reset_phy,
 
     // serial interface
-    input wire RxD,
-    input wire RTS,
-    output wire TxD,
+    input wire 	     RxD,
+    input wire 	     RTS,
+    output wire      TxD,
 
     // debug I/Os
-    input wire clk29m,
-    input wire clk40m,
-    output wire[3:0] DEBUG,
+    input wire       clk29m,
+    input wire       clk40m,
+    output wire [3:0] DEBUG,
 
     // misc board I/Os
-    input[3:0] wenid,
-    inout[1:32] IO1,
-    inout[1:38] IO2,
-    output wire LED
+    input [3:0]      wenid,
+    inout [1:32]     IO1,
+    inout [1:38]     IO2,
+    output wire      LED,
+
+    // SPI interface to PROM
+    output           XCCLK,
+    input            XMISO,
+    output           XMOSI,
+    output           XCSn
 );
 
     // -------------------------------------------------------------------------
@@ -174,6 +180,11 @@ Max6576 T2(.clk400k(clk400k), .reset(reset), .In(IO1[30]), .Out(tempsense[7:0]))
 
 // miscellaneous board I/Os ----------------------------------------------------
 
+// Route PROM cmd and result between BoardRegs module and M25P16
+wire[31:0] PROM_Command;
+wire[31:0] PROM_Result;
+wire PROM_Command_Clear;
+   
 // 'channel 0' is a special axis that contains various board I/Os
 wire[31:0] reg_rdata_chan0;
 
@@ -197,9 +208,24 @@ BoardRegs chan0(
     .reg_addr(reg_addr),
     .reg_rdata(reg_rdata_chan0),
     .reg_wdata(reg_wdata),
-    .wr_en(reg_wen)
+    .wr_en(reg_wen),
+    .prom_cmd(PROM_Command),
+    .prom_cmd_clear(PROM_Command_Clear),
+    .prom_result(PROM_Result)
 );
 
+M25P16 prom(
+    .clk(sysclk),
+    .reset(reset),
+    .prom_cmd(PROM_Command),
+    .prom_cmd_clear(PROM_Command_Clear),
+    .prom_result(PROM_Result),
+    .prom_mosi(XMOSI),
+    .prom_miso(XMISO),
+    .prom_sclk(XCCLK),
+    .prom_cs(XCSn)
+);
+   
 //------------------------------------------------------------------------------
 // debugging, etc.
 //

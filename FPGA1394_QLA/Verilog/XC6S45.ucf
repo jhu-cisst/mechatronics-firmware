@@ -114,16 +114,17 @@ NET  "RTS"        LOC = "W1"      | IOSTANDARD = "LVCMOS33" | PULLUP;
 # NET  "DSR"        LOC = "U1"      | IOSTANDARD = "LVCMOS33";
 
 ################################################################################
-# SPI Interface
+# SPI Interface to M25P16 PROM
 ################################################################################
-# NET  "XSCLK"      LOC = "Y21"     | IOSTANDARD = "LVCMOS33";
-# NET  "XMISO"      LOC = "AA20"    | IOSTANDARD = "LVCMOS33" | PULLUP;
-# NET  "XMOSI"      LOC = "AB20"    | IOSTANDARD = "LVCMOS33";
+NET  "XCCLK"      LOC = "Y21"     | IOSTANDARD = "LVCMOS33" | PULLUP |  DRIVE=24;
+NET  "XMISO"      LOC = "AA20"    | IOSTANDARD = "LVCMOS33" | PULLUP;
+NET  "XMOSI"      LOC = "AB20"    | IOSTANDARD = "LVCMOS33";
+NET  "XCSn"       LOC = "T5"      | IOSTANDARD = "LVCMOS33";
 
 ################################################################################
 # LED Output
 ################################################################################
-NET  "LED"        LOC = "N22"     | IOSTANDARD = "LVCMOS33";
+NET  "LED"        LOC = "N22"     | IOSTANDARD = "LVCMOS33";
 ################################################################################
 # Board ID
 ################################################################################

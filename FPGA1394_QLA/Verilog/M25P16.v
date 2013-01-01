@@ -38,9 +38,9 @@ parameter PROM_IDLE = 0,
 reg       io_disabled;
 reg[2:0]  state;
 reg[6:0]  seqn;            // 7-bit counter for sequencing operation
-reg[5:0]  SendBits;
-reg[5:0]  RecvBits;
-reg[31:0] prom_data;     // data to write to PROM
+reg[6:0]  SendCnt;         // 2*NumBits-1
+reg[6:0]  RecvCnt;         // 2*NumBits-1 (0 if no bits to receive)
+reg[31:0] prom_data;       // data to write to PROM
    
    
 assign prom_mosi = io_disabled ? 1'bz : prom_data[31];
@@ -67,38 +67,38 @@ begin
                8'h00: begin    // Do nothing
                end
                8'h06: begin    // Write Enable
-                  SendBits <= 6'd8;
-                  RecvBits <= 6'd0;
+                  SendCnt <= 7'd15;
+                  RecvCnt <= 7'd0;
                   state <= PROM_CHIP_SELECT;
                end
                8'h04: begin    // Write Disable
-                  SendBits <= 6'd8;
-                  RecvBits <= 6'd0;
+                  SendCnt <= 7'd15;
+                  RecvCnt <= 7'd0;
                   state <= PROM_CHIP_SELECT;
                end
                8'h9f: begin    // Read ID (only first 3 bytes)
-                  SendBits <= 6'd8;
-                  RecvBits <= 6'd24;
+                  SendCnt <= 7'd15;
+                  RecvCnt <= 7'd47;
                   state <= PROM_CHIP_SELECT;
                end
                8'h05: begin    // Read Status Register
-                  SendBits <= 6'd8;
-                  RecvBits <= 6'd8;
+                  SendCnt <= 7'd15;
+                  RecvCnt <= 7'd15;
                   state <= PROM_CHIP_SELECT;
                end
                8'h01: begin    // Write Status Register
-                  SendBits <= 6'd16;
-                  RecvBits <= 6'd0;
+                  SendCnt <= 7'd31;
+                  RecvCnt <= 7'd0;
                   state <= PROM_CHIP_SELECT;
                end
                8'h03: begin    // Read Data (for now, just 4 bytes)
-                  SendBits <= 6'd32;
-                  RecvBits <= 6'd32;
+                  SendCnt <= 7'd63;
+                  RecvCnt <= 7'd63;
                   state <= PROM_CHIP_SELECT;
                end
                8'h0B: begin    // Fast Read Data (for now, just 4 bytes)
-                  SendBits <= 6'd48;   // needs a dummy byte
-                  RecvBits <= 6'd32;
+                  SendCnt <= 7'd97;   // needs a dummy byte
+                  RecvCnt <= 7'd63;
                   state <= PROM_CHIP_SELECT;
                end
                8'h02: begin    // Page Program (not implemented yet)
@@ -106,23 +106,23 @@ begin
                   state <= PROM_WAIT_CLEAR;
                end
                8'hD8: begin    // Sector Erase
-                  SendBits <= 6'd32;
-                  RecvBits <= 6'd0;
+                  SendCnt <= 7'd63;
+                  RecvCnt <= 7'd0;
                   state <= PROM_CHIP_SELECT;
                end
                8'hC7: begin    // Bulk Erase
-                  SendBits <= 6'd8;
-                  RecvBits <= 6'd0;
+                  SendCnt <= 7'd15;
+                  RecvCnt <= 7'd0;
                   state <= PROM_CHIP_SELECT;
                end
                8'hB9: begin    // Deep Power Down
-                  SendBits <= 6'd8;
-                  RecvBits <= 6'd0;
+                  SendCnt <= 7'd15;
+                  RecvCnt <= 7'd0;
                   state <= PROM_CHIP_SELECT;
                end
                8'hAB: begin    // Release from deep power down
-                  SendBits <= 6'd32;    // 3 dummy bytes
-                  RecvBits <= 6'd8;     // "old style" ID = 0x14
+                  SendCnt <= 7'd63;    // 3 dummy bytes
+                  RecvCnt <= 7'd15;     // "old style" ID = 0x14
                   state <= PROM_CHIP_SELECT;
                end
                8'hFF: begin    // Bit I/O for debugging
@@ -146,8 +146,8 @@ begin
             if (prom_sclk == 1'b1) begin     // update data on falling sclk
                 prom_data <= prom_data<<1;
             end
-            if (seqn == {SendBits-1,1'b1}) begin
-               state <= (RecvBits == 6'd0) ? PROM_CHIP_DESELECT : PROM_READ;
+            if (seqn == SendCnt) begin
+               state <= (RecvCnt == 7'd0) ? PROM_CHIP_DESELECT : PROM_READ;
                seqn <= 7'd0;
             end
             else seqn <= seqn + 1'b1;             // counter, also creates sclk
@@ -159,7 +159,7 @@ begin
             if (prom_sclk == 1'b0) begin
                prom_result <= { prom_result[30:0], prom_miso };
             end
-            if (seqn == {RecvBits-1,1'b1}) begin
+            if (seqn == RecvCnt) begin
                state <= PROM_CHIP_DESELECT;
             end
         end

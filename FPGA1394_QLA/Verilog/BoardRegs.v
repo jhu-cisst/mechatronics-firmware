@@ -20,6 +20,8 @@
 `define REG_TEMPSNS 4'd5           // temperature sensors (2x 8 bits concatenated)
 `define REG_DIGIOUT 4'd6           // programmable digital outputs
 `define REG_FIRMWARE_VERSION 4'd7  // firmware version
+`define REG_PROMCMD 4'd8           // PROM command (to M25P16)
+`define REG_PROMRES 4'd9           // PROM result (from M25P16)
 
 `define VERSION 32'h514C4131       // hard-wired version number "QLA1" = 0x514C4131 
 `define FW_VERSION 32'h01          // firmware version = 1  
@@ -32,7 +34,8 @@ module BoardRegs(
     relay, mv_good, v_fault,
     board_id, temp_sense,
     reg_addr, reg_rdata,
-    reg_wdata, wr_en
+    reg_wdata, wr_en,
+    prom_cmd, prom_cmd_clear, prom_result
 );
 
     // -------------------------------------------------------------------------
@@ -62,6 +65,11 @@ module BoardRegs(
     output[31:0] reg_rdata;
     input[31:0] reg_wdata;
 
+    // PROM I/O
+    output[31:0] prom_cmd;
+    input  prom_cmd_clear;
+    input[31:0]  prom_result;
+
     // -------------------------------------------------------------------------
     // define wires and registers
     //
@@ -72,6 +80,9 @@ module BoardRegs(
     reg[15:0] phy_ctrl;         // for phy request bitstream
     reg[15:0] phy_data;         // for phy register transfer data
 
+    // for interface to M25P16 PROM
+    reg[31:0] prom_cmd;
+ 
     // board inputs (PC writes)
     reg[4:1] dout;              // digital outputs
     reg pwr_enable;             // enable motor power
@@ -98,7 +109,7 @@ module BoardRegs(
 assign amp_disable = wdog_timeout ? 4'b1111 : reg_disable[3:0];
 
 // clocked process simulating a register file
-always @(posedge(sysclk) or negedge(reset))
+always @(posedge(sysclk) or negedge(reset) or posedge(prom_cmd_clear))
 begin
     // what to do on reset/startup
     if (reset == 0) begin
@@ -111,8 +122,14 @@ begin
         wdog_period <= 0;        // disables watchdog by default
         relay_on <= 0;           // start with safety relay off
         dout <= 0;               // clear digital outputs
+        prom_cmd <= 0;           // clear PROM command
     end
 
+    // Clear PROM cmd when requested 
+    else if (prom_cmd_clear == 1) begin
+        prom_cmd <= 0;
+    end
+   
     // set register values for writes
     else if (reg_addr[7:4]==0 && wr_en) begin
         case (reg_addr[3:0])
@@ -134,6 +151,7 @@ begin
         `REG_PHYDATA: phy_data <= reg_wdata[15:0];
         `REG_TIMEOUT: wdog_period <= reg_wdata[15:0];
         `REG_DIGIOUT: dout <= reg_wdata[3:0];
+        `REG_PROMCMD: prom_cmd <= prom_cmd_clear ? 0 : reg_wdata;
         endcase
     end
 
@@ -149,9 +167,12 @@ begin
         `REG_TEMPSNS: reg_rdata <= temp_sense;
         `REG_DIGIOUT: reg_rdata <= dout;
         `REG_FIRMWARE_VERSION: reg_rdata <= `FW_VERSION;
+        `REG_PROMCMD: reg_rdata <= prom_cmd;
+        `REG_PROMRES: reg_rdata <= prom_result;
         default: reg_rdata <= { 16'd0, 1'b0, relay, mv_good, v_fault, neg_limit, pos_limit, home };
         endcase
     end
+
 end
 
 // derive watchdog clock
