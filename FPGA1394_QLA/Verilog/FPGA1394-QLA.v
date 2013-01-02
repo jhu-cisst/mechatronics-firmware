@@ -50,7 +50,7 @@ module FPGA1394QLA
 
     wire lreq_trig;
     wire[2:0] lreq_type;
-    wire reg_wen, blk_wen;
+    wire reg_wen, blk_wen, blk_wact;
     wire[7:0] reg_addr;
     wire[31:0] reg_rdata;
     wire[31:0] reg_wdata;
@@ -72,7 +72,7 @@ assign reset_phy = 1'b1;
 PhyLinkInterface phy(
     sysclk, reset, ~wenid,    // in: global clock, reset, board id
     ctl, data,                // bi: phy ctl and data lines
-    reg_wen, blk_wen,
+    reg_wen, blk_wen, blk_wact,
     reg_addr,                 // out: register write signal/address
     reg_rdata, reg_wdata,     // out/in: register read address/data
     lreq_trig, lreq_type      // out: phy request trigger and type
@@ -180,10 +180,9 @@ Max6576 T2(.clk400k(clk400k), .reset(reset), .In(IO1[30]), .Out(tempsense[7:0]))
 
 // miscellaneous board I/Os ----------------------------------------------------
 
-// Route PROM cmd and result between BoardRegs module and M25P16
-wire[31:0] PROM_Command;
+// Route PROM status result between M25P16 and BoardRegs modules
+wire [31:0] PROM_Status;
 wire[31:0] PROM_Result;
-wire PROM_Command_Clear;
    
 // 'channel 0' is a special axis that contains various board I/Os
 wire[31:0] reg_rdata_chan0;
@@ -209,17 +208,31 @@ BoardRegs chan0(
     .reg_rdata(reg_rdata_chan0),
     .reg_wdata(reg_wdata),
     .wr_en(reg_wen),
-    .prom_cmd(PROM_Command),
-    .prom_cmd_clear(PROM_Command_Clear),
+    .prom_status(PROM_Status),
     .prom_result(PROM_Result)
 );
 
+wire prom_reg_wen;    // for a quadlet write to PROM (register)
+wire prom_blk_start;  // start of a block write to PROM
+wire prom_blk_wen;    // for every quadlet in a block write to PROM
+wire prom_blk_end;    // for end of block write to PROM
+
+assign prom_reg_wen = (reg_addr == 8'h08) ? reg_wen : 1'b0;
+assign prom_blk_start = (reg_addr[7:6] == 2'b11) ? blk_wact : 1'b0;
+assign prom_blk_wen = (reg_addr[7:6] == 2'b11) ? reg_wen : 1'b0;
+assign prom_blk_end = (reg_addr[7:6] == 2'b11) ? blk_wen : 1'b0;
+   
 M25P16 prom(
     .clk(sysclk),
     .reset(reset),
-    .prom_cmd(PROM_Command),
-    .prom_cmd_clear(PROM_Command_Clear),
+    .prom_cmd(reg_wdata),
+    .prom_status(PROM_Status),
     .prom_result(PROM_Result),
+    .prom_blk_addr(reg_addr[5:0]),
+    .prom_reg_wen(prom_reg_wen),
+    .prom_blk_start(prom_blk_start),
+    .prom_blk_wen(prom_blk_wen),
+    .prom_blk_end(prom_blk_end),
     .prom_mosi(XMOSI),
     .prom_miso(XMISO),
     .prom_sclk(XCCLK),

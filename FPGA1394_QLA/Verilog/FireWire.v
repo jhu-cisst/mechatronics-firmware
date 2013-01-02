@@ -80,10 +80,12 @@
 `define REG_PHYDATA 4'd2          // holder for phy register read contents
 `define INVALID_SIZE -16'd1       // packet size that we should never encounter
 
+`define PAGE_PROGRAM_ADDR 8'hc0   // register address for page programming data
+
 module PhyLinkInterface(
     sysclk, reset, board_id,
     ctl_ext, data_ext,
-    reg_wen, blk_wen,
+    reg_wen, blk_wen, data_block,
     reg_addr, reg_rdata, reg_wdata,
     lreq_trig, lreq_type
 );
@@ -104,6 +106,7 @@ module PhyLinkInterface(
     // act on received packets
     output reg_wen;               // register write signal
     output blk_wen;               // block write signal
+    output data_block;            // block write being processed
 
     // register access
     output[7:0] reg_addr;         // read address to external register file
@@ -171,6 +174,7 @@ module PhyLinkInterface(
     reg[15:0] rx_dest;            // destination ID field
     reg[5:0] rx_tag;              // tag field
     reg[15:0] rx_src;             // source ID field
+    reg[15:0] rx_offset;          // destination address offset
     reg[7:0] reg_addr;            // register address
     reg[15:0] reg_dlen;           // block data length
     reg[31:0] reg_wdata;          // register write data
@@ -397,16 +401,26 @@ begin
                     // process block write data portion of incoming packet
                     //
                     if (data_block) begin
-                        // latch DAC data from data block on quadlet boundaries
+                        // latch data from data block on quadlet boundaries
                         if (count[4:0] == 0) begin
-                            // channel address cicularly increments from 1-8
-                            // (chan addr and dev offset are previously set)
-                            if (reg_addr[7:4] == 8)
-                                reg_addr[7:4] <= 4'd1;
-                            else
-                                reg_addr[7:4] <= reg_addr[7:4] + 1'b1;
-                            reg_wdata <= buffer[30:0];               // data to write
-                            reg_wen <= (buffer[31] & rx_active);     // check valid bit
+                            if (reg_addr[7:6] == 2'b11) begin  // Page Program data
+                                if (reg_addr[5:0] == 6'h3f)
+                                    reg_addr[5:0] <= 6'd0;
+                                else
+                                    reg_addr[5:0] <= reg_addr[5:0] + 1'b1;
+                                reg_wdata <= buffer;   // data to program
+                                reg_wen <= rx_active;
+                            end
+                            else begin                      // DAC data
+                                // channel address circularly increments from 1-8
+                                // (chan addr and dev offset are previously set)
+                                if (reg_addr[7:4] == 8)
+                                    reg_addr[7:4] <= 4'd1;
+                                else
+                                    reg_addr[7:4] <= reg_addr[7:4] + 1'b1;
+                                reg_wdata <= buffer[30:0];               // data to write
+                                reg_wen <= (buffer[31] & rx_active);     // check valid bit
+                            end
                         end
                         else
                             reg_wen <= 0;
@@ -414,7 +428,7 @@ begin
                         // save the computed crc of the block data
                         if (count == (numbits-16'd32))
                             crc_comp <= ~crc_in;
-                    end
+                    end // if (data_block)
 
                     // ---------------------------------------------------------
                     // on-the-fly packet processing at 32-bit boundaries
@@ -466,6 +480,7 @@ begin
                         // second quadlet --------------------------------------
                         64: begin
                             rx_src <= buffer[31:16];      // source address
+                            rx_offset <= buffer[15:0];    // destination address (offset)
                         end
                         // third quadlet --------------------------------------
                         96: begin
@@ -498,8 +513,13 @@ begin
                         160: begin
                             // flag to indicate the start of block data
                             data_block <= (rx_tcode==`TC_BWRITE) ? 1'b1 : 1'b0;
-                            reg_addr[7:4] <= 0;    // init channel address
-                            reg_addr[3:0] <= 1;    // set dac device address
+                            if (rx_offset[7:0] == `PAGE_PROGRAM_ADDR) begin
+                                reg_addr <= `PAGE_PROGRAM_ADDR;   // page programming data
+                            end
+                            else begin
+                                reg_addr[7:4] <= 0;    // init channel address
+                                reg_addr[3:0] <= 1;    // set dac device address
+                            end
                         end
                         // iffy implementation, works for now ------------------
                         default: begin
