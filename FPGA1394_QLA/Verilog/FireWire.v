@@ -80,12 +80,10 @@
 `define REG_PHYDATA 4'd2          // holder for phy register read contents
 `define INVALID_SIZE -16'd1       // packet size that we should never encounter
 
-`define PAGE_PROGRAM_ADDR 8'hc0   // register address for page programming data
-
 module PhyLinkInterface(
     sysclk, reset, board_id,
     ctl_ext, data_ext,
-    reg_wen, blk_wen, data_block,
+    reg_wen, blk_wen, blk_wstart,
     reg_addr, reg_rdata, reg_wdata,
     lreq_trig, lreq_type
 );
@@ -106,7 +104,7 @@ module PhyLinkInterface(
     // act on received packets
     output reg_wen;               // register write signal
     output blk_wen;               // block write signal
-    output data_block;            // block write being processed
+    output blk_wstart;            // block write is starting
 
     // register access
     output[7:0] reg_addr;         // read address to external register file
@@ -123,6 +121,7 @@ module PhyLinkInterface(
 
     reg[7:0] data;                // data bus register
     reg[1:0] ctl;                 // control register
+    reg blk_wstart;               // start of a block write
     reg reg_wen;                  // register write signal
     reg blk_wen;                  // block write signal
 
@@ -174,7 +173,6 @@ module PhyLinkInterface(
     reg[15:0] rx_dest;            // destination ID field
     reg[5:0] rx_tag;              // tag field
     reg[15:0] rx_src;             // source ID field
-    reg[15:0] rx_offset;          // destination address offset
     reg[7:0] reg_addr;            // register address
     reg[15:0] reg_dlen;           // block data length
     reg[31:0] reg_wdata;          // register write data
@@ -271,6 +269,7 @@ begin
         st_buff <= 0;             // status value receive buffer
         stcount <= 0;             // received status bits counter
         rx_speed <= 0;            // clear the received speed code
+        blk_wstart <= 0;          // clear the block write started flag
         reg_wen <= 0;             // keep register writes inactive by default
         blk_wen <= 0;             // keep block writes inactive by default
         lreq_trig <= 0;           // clear the phy request trigger
@@ -294,6 +293,7 @@ begin
 
         ST_IDLE:
         begin
+            blk_wstart <= 0;                       // block write not started
             reg_wen <= 0;                          // no register write events
             blk_wen <= 0;                          // no block write events
             crc_tx <= 0;                           // not in a transmit state
@@ -403,6 +403,7 @@ begin
                     if (data_block) begin
                         // latch data from data block on quadlet boundaries
                         if (count[4:0] == 0) begin
+                            blk_wstart <= 0;   // Clear write started signal
                             if (reg_addr[7:6] == 2'b11) begin  // Page Program data
                                 if (reg_addr[5:0] == 6'h3f)
                                     reg_addr[5:0] <= 6'd0;
@@ -480,7 +481,6 @@ begin
                         // second quadlet --------------------------------------
                         64: begin
                             rx_src <= buffer[31:16];      // source address
-                            rx_offset <= buffer[15:0];    // destination address (offset)
                         end
                         // third quadlet --------------------------------------
                         96: begin
@@ -513,8 +513,9 @@ begin
                         160: begin
                             // flag to indicate the start of block data
                             data_block <= (rx_tcode==`TC_BWRITE) ? 1'b1 : 1'b0;
-                            if (rx_offset[7:0] == `PAGE_PROGRAM_ADDR) begin
-                                reg_addr <= `PAGE_PROGRAM_ADDR;   // page programming data
+                            blk_wstart <= (rx_tcode==`TC_BWRITE) ? 1'b1 : 1'b0;
+                            if (reg_addr[7:6] == 2'b11) begin
+                                reg_addr[5:0] <= 6'h3f;  // page programming data
                             end
                             else begin
                                 reg_addr[7:4] <= 0;    // init channel address
