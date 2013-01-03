@@ -46,13 +46,14 @@ reg[6:0]  SendCnt;         // 2*NumBits-1
 reg[6:0]  RecvCnt;         // 2*NumBits-1 (0 if no bits to receive)
 reg[31:0] prom_data;       // data to write to PROM
 reg       blk_wrt;         // true if a block write is in progress (and hasn't been aborted due to an error)
+reg[15:0] prom_debug;
 
 reg[31:0] data_block[0:65];  // Up to 65 quadlets of data, received via block write
 reg [6:0] wr_index;          // Current write index (7-bit), set from prom_blk_addr (6-bit),
                              // with wrap-around allowed
 reg [6:0] rd_index;          // Current read index (7-bit), incremented in this module
    
-assign prom_status[31:16] = 16'd0;
+assign prom_status[31:16] = prom_debug;
 assign prom_status[15:9] = 7'd0;
 assign prom_status[8] = io_disabled;
 assign prom_status[7] = prom_cs;
@@ -71,6 +72,7 @@ begin
         io_disabled <= 1'b1;
         prom_cs     <= 1'bz;
         prom_result <= 32'd0;
+        prom_debug  <= 16'd0;
         blk_wrt     <= 1'b0;
         wr_index    <= 7'd0;
         rd_index    <= 7'd0;
@@ -86,6 +88,7 @@ begin
                 wr_index <= wr_index + 1'b1;
             end
             else  begin // error, unexpected block write address
+                prom_debug <= { 2'b0, prom_blk_addr, 1'b0, wr_index };
             end
         end
 
@@ -176,7 +179,7 @@ begin
               RecvCnt <= 7'd0;
               blk_wrt <= 1'b1;
               wr_index <= 7'd0;
-              rd_index <= 7'd0;
+              prom_debug <= 16'd0;
               // Select the chip, then stay in IDLE state until data
               // is available to be written to PROM
               io_disabled <= 1'b0;
@@ -185,6 +188,9 @@ begin
           end
           else if (blk_wrt && (wr_index != 7'd0)) begin
               // Data is available, so start writing to PROM
+              prom_data <= data_block[0];
+              rd_index <= 7'd1;
+              seqn <= 7'd0;
               state <= PROM_WRITE_BLOCK;
           end
 
