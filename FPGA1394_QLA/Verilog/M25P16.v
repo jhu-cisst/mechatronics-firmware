@@ -34,9 +34,10 @@ module M25P16(
 parameter PROM_IDLE = 0,
           PROM_CHIP_SELECT = 1,
           PROM_WRITE = 2,
-          PROM_READ = 3,
-          PROM_CHIP_DESELECT = 4,
-          PROM_IO_DISABLE = 5;
+          PROM_WRITE_BLOCK = 3,
+          PROM_READ = 4,
+          PROM_CHIP_DESELECT = 5,
+          PROM_IO_DISABLE = 6;
 
 reg       io_disabled;
 reg[2:0]  state;
@@ -44,10 +45,15 @@ reg[6:0]  seqn;            // 7-bit counter for sequencing operation
 reg[6:0]  SendCnt;         // 2*NumBits-1
 reg[6:0]  RecvCnt;         // 2*NumBits-1 (0 if no bits to receive)
 reg[31:0] prom_data;       // data to write to PROM
-reg[8:0]  next_blk_addr;   // next address of data being programmed (block write)
 reg       blk_wrt;         // true if a block write is in progress (and hasn't been aborted due to an error)
 
-assign prom_status[31:10] = 23'd0;
+reg[31:0] data_block[0:65];  // Up to 65 quadlets of data, received via block write
+reg [6:0] wr_index;          // Current write index (7-bit), set from prom_blk_addr (6-bit),
+                             // with wrap-around allowed
+reg [6:0] rd_index;          // Current read index (7-bit), incremented in this module
+   
+assign prom_status[31:16] = 16'd0;
+assign prom_status[15:9] = 7'd0;
 assign prom_status[8] = io_disabled;
 assign prom_status[7] = prom_cs;
 assign prom_status[6] = prom_sclk;
@@ -66,10 +72,28 @@ begin
         prom_cs     <= 1'bz;
         prom_result <= 32'd0;
         blk_wrt     <= 1'b0;
-        state <= PROM_IDLE;
+        wr_index    <= 7'd0;
+        rd_index    <= 7'd0;
+        state       <= PROM_IDLE;
     end
 
     else begin
+
+        if (prom_blk_wen && blk_wrt) begin       // receive one quadlet of the block write
+            if (prom_blk_addr == wr_index[6:0]) begin
+                data_block[wr_index] <= prom_cmd;
+                // Update write index
+                wr_index <= wr_index + 1'b1;
+            end
+            else  begin // error, unexpected block write address
+            end
+        end
+
+        else if (prom_blk_end) begin 
+            // finish receiving data from block write; will still be writing to PROM
+            blk_wrt <= 1'b0;
+        end
+
         case (state)
 
         PROM_IDLE: begin
@@ -151,42 +175,26 @@ begin
               SendCnt <= 7'd63;
               RecvCnt <= 7'd0;
               blk_wrt <= 1'b1;
-              next_blk_addr <= 9'd0;
-              state <= PROM_CHIP_SELECT;
+              wr_index <= 7'd0;
+              rd_index <= 7'd0;
+              // Select the chip, then stay in IDLE state until data
+              // is available to be written to PROM
+              io_disabled <= 1'b0;
+              prom_cs     <= 1'b0;
+              prom_result <= 32'd0;
+          end
+          else if (blk_wrt && (wr_index != 7'd0)) begin
+              // Data is available, so start writing to PROM
+              state <= PROM_WRITE_BLOCK;
           end
 
-          else if (prom_blk_wen && blk_wrt) begin       // write one quadlet of the block
-              if (prom_blk_addr == next_blk_addr[5:0]) begin
-                  // SendCnt and RecvCnt already set at start
-                  prom_data <= prom_cmd;
-                  seqn <= 7'd0;
-                  state <= PROM_WRITE;
-              end
-              else begin
-                  // Error -- we must have missed one; abort the write
-                  blk_wrt <= 1'b0;
-                  prom_result <= { 8'b1, 7'b0, next_blk_addr, 2'b0, prom_blk_addr };
-                  state <= PROM_CHIP_DESELECT;
-              end
-          end
-
-          else if (prom_blk_end) begin       // finish the block write
-              if (blk_wrt) begin
-                  blk_wrt <= 1'b0;
-                  prom_result <= { 23'd0, next_blk_addr };
-                  state <= PROM_CHIP_DESELECT;
-              end
-              else begin
-                  state <= PROM_CHIP_DESELECT;
-              end
-          end
         end // case: PROM_IDLE
 
         PROM_CHIP_SELECT: begin
            io_disabled <= 1'b0;
            prom_cs     <= 1'b0;
            prom_result <= 32'd0;
-           state <= blk_wrt ? PROM_IDLE : PROM_WRITE;
+           state <= PROM_WRITE;
         end
            
         PROM_WRITE: begin
@@ -194,17 +202,32 @@ begin
                 prom_data <= prom_data<<1;
             end
             if (seqn == SendCnt) begin
-               if (blk_wrt) begin      // if block write
-                  state <= PROM_IDLE;
-                  next_blk_addr <= next_blk_addr + 1'd1;
-               end
-               else begin                            // all other commands
-                  state <= (RecvCnt == 7'd0) ? PROM_CHIP_DESELECT : PROM_READ;
-               end
+               state <= (RecvCnt == 7'd0) ? PROM_CHIP_DESELECT : PROM_READ;
                seqn <= 7'd0;
             end
-            else seqn <= seqn + 1'b1;             // counter, also creates sclk
+            else seqn <= seqn + 1'b1;        // counter, also creates sclk
         end // case: PROM_WRITE
+
+        PROM_WRITE_BLOCK: begin
+            if (prom_sclk == 1'b1) begin     // update data on falling sclk
+                prom_data <= prom_data<<1;
+            end
+            if (seqn == SendCnt) begin
+               seqn <= 7'd0;
+               // Because the writer (Firewire block) is much faster than the reader,
+               // we assume we are done when the reader catches up to the writer.
+               if (rd_index == wr_index) begin
+                  // Return number of characters written
+                  prom_result <= { 25'd0, rd_index };
+                  state <= PROM_CHIP_DESELECT;
+               end
+               else begin
+                  prom_data <= data_block[rd_index];
+                  rd_index <= rd_index + 1'd1;
+               end
+            end
+            else seqn <= seqn + 1'b1;             // counter, also creates sclk
+        end // case: PROM_WRITE_BLOCK
 
         PROM_READ: begin
             seqn <= seqn + 1'b1;
@@ -217,7 +240,7 @@ begin
         end
           
         PROM_CHIP_DESELECT: begin
-           prom_cs <= (prom_cs == 1'bz) ? 1'bz : 1'b1;   // deselect chip if not tri-state
+           prom_cs <= 1'b1;
            state <= PROM_IO_DISABLE;
         end
 
