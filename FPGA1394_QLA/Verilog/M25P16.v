@@ -19,7 +19,9 @@ module M25P16(
     input[31:0]  prom_cmd,        // command input (from Firewire)
     output[31:0] prom_status,     // PROM interface status
     output reg[31:0] prom_result, // result (to Firewire)
+    output reg[31:0] prom_rdata,  // result (to Firewire)
     input[5:0] prom_blk_addr,     // address of data for block write
+    input  prom_blk_enable,       // if block read/write is enabled
     input  prom_reg_wen,          // write enable for quadlet write
     input  prom_blk_start,        // start of block write
     input  prom_blk_wen,          // write enable for each quadlet in block write
@@ -95,6 +97,10 @@ begin
         else if (prom_blk_end) begin 
             // finish receiving data from block write; will still be writing to PROM
             blk_wrt <= 1'b0;
+        end
+
+        else if (prom_blk_enable && !prom_reg_wen && !prom_blk_start) begin   // handle block reads
+            prom_rdata <= data_block[prom_blk_addr];
         end
 
         case (state)

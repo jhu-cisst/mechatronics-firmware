@@ -62,8 +62,12 @@ module FPGA1394QLA
 
 BUFG clksysclk(.I(clk1394), .O(sysclk));
 
+wire prom_blk_enable;
+assign prom_blk_enable = (reg_addr[7:6] == 2'b11) ? 1'b1 : 1'b0;
+
 // route read data based on read address (channel 0 is a special axis)
-assign reg_rdata = (reg_addr[7:4]==0) ? reg_rdata_chan0 : reg_rd[reg_addr[3:0]];
+assign reg_rdata = (reg_addr[7:4] == 0) ? reg_rdata_chan0
+                   : (prom_blk_enable ? reg_rdata_prom : reg_rd[reg_addr[3:0]]);
 assign reset_phy = 1'b1;
 
 // firewire modules ------------------------------------------------------------
@@ -183,6 +187,8 @@ Max6576 T2(.clk400k(clk400k), .reset(reset), .In(IO1[30]), .Out(tempsense[7:0]))
 // Route PROM status result between M25P16 and BoardRegs modules
 wire [31:0] PROM_Status;
 wire[31:0] PROM_Result;
+// reg_rdata_prom is for block reads from PROM
+wire[31:0] reg_rdata_prom;
    
 // 'channel 0' is a special axis that contains various board I/Os
 wire[31:0] reg_rdata_chan0;
@@ -218,9 +224,9 @@ wire prom_blk_wen;    // for every quadlet in a block write to PROM
 wire prom_blk_end;    // for end of block write to PROM
 
 assign prom_reg_wen = (reg_addr == 8'h08) ? reg_wen : 1'b0;
-assign prom_blk_start = (reg_addr[7:6] == 2'b11) ? blk_wact : 1'b0;
-assign prom_blk_wen = (reg_addr[7:6] == 2'b11) ? reg_wen : 1'b0;
-assign prom_blk_end = (reg_addr[7:6] == 2'b11) ? blk_wen : 1'b0;
+assign prom_blk_start = prom_blk_enable ? blk_wact : 1'b0;
+assign prom_blk_wen = prom_blk_enable ? reg_wen : 1'b0;
+assign prom_blk_end = prom_blk_enable ? blk_wen : 1'b0;
    
 M25P16 prom(
     .clk(sysclk),
@@ -228,7 +234,9 @@ M25P16 prom(
     .prom_cmd(reg_wdata),
     .prom_status(PROM_Status),
     .prom_result(PROM_Result),
+    .prom_rdata(reg_rdata_prom),
     .prom_blk_addr(reg_addr[5:0]),
+    .prom_blk_enable(prom_blk_enable),
     .prom_reg_wen(prom_reg_wen),
     .prom_blk_start(prom_blk_start),
     .prom_blk_wen(prom_blk_wen),

@@ -142,7 +142,7 @@ begin
         `REG_PHYDATA: phy_data <= reg_wdata[15:0];
         `REG_TIMEOUT: wdog_period <= reg_wdata[15:0];
         `REG_DIGIOUT: dout <= reg_wdata[3:0];
-        // Write to PROM command register (8) is handled in M25P16
+        // Write to PROM command register (8) is handled in M25P16.v
         endcase
     end
 

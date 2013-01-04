@@ -404,7 +404,7 @@ begin
                         // latch data from data block on quadlet boundaries
                         if (count[4:0] == 0) begin
                             blk_wstart <= 0;   // Clear write started signal
-                            if (reg_addr[7:6] == 2'b11) begin  // Page Program data
+                            if (reg_addr[7:6] == 2'b11) begin  // block write to PROM (M25P16)
                                 if (reg_addr[5:0] == 6'h3f)
                                     reg_addr[5:0] <= 6'd0;
                                 else
@@ -515,7 +515,7 @@ begin
                             data_block <= (rx_tcode==`TC_BWRITE) ? 1'b1 : 1'b0;
                             blk_wstart <= (rx_tcode==`TC_BWRITE) ? 1'b1 : 1'b0;
                             if (reg_addr[7:6] == 2'b11) begin
-                                reg_addr[5:0] <= 6'h3f;  // page programming data
+                                reg_addr[5:0] <= 6'h3f;  // block write to PROM (M25P16)
                             end
                             else begin
                                 reg_addr[7:4] <= 0;    // init channel address
@@ -777,14 +777,22 @@ begin
                 // latch data and update addresses on quadlet boundaries
                 if (count[4:0] == 5'd24) begin
                     buffer <= reg_rdata;
-                    // channel address cicularly increments from 1-8
-                    if (reg_addr[7:4] == 8) begin
-                        reg_addr[7:4] <= 1;
-                        reg_addr[3:0] <= dev_addr[dev_index];
-                        dev_index <= (dev_index<6) ? (dev_index+1'b1) : 0;
+                    if (reg_addr[7:6] == 2'b11) begin   // block read from PROM (M25P16)
+                        if (reg_addr[5:0] == 6'h3f)
+                            reg_addr[5:0] <= 6'd0;
+                        else
+                            reg_addr[5:0] <= reg_addr[5:0] + 1'b1;
                     end
-                    else
-                        reg_addr[7:4] <= reg_addr[7:4] + 1'b1;
+                    else begin   // block read of real-time sensor data
+                        // channel address circularly increments from 1-8
+                        if (reg_addr[7:4] == 8) begin
+                            reg_addr[7:4] <= 1;
+                            reg_addr[3:0] <= dev_addr[dev_index];
+                            dev_index <= (dev_index<6) ? (dev_index+1'b1) : 0;
+                        end
+                        else
+                            reg_addr[7:4] <= reg_addr[7:4] + 1'b1;
+                    end
                 end
 
                 if (count == (numbits-16'd32)) begin
