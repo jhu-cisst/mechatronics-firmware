@@ -82,7 +82,7 @@ begin
     else begin
 
         if (prom_blk_wen && blk_wrt) begin       // receive one quadlet of the block write
-            if (prom_blk_addr == wr_index[6:0]) begin
+            if (prom_blk_addr == wr_index[5:0]) begin
                 data_block[wr_index] <= prom_cmd;
                 // Update write index
                 wr_index <= wr_index + 1'b1;
