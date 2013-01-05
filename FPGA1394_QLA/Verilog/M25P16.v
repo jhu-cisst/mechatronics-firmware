@@ -46,6 +46,7 @@ reg[2:0]  state;
 reg[6:0]  seqn;            // 7-bit counter for sequencing operation
 reg[6:0]  SendCnt;         // 2*NumBits-1
 reg[6:0]  RecvCnt;         // 2*NumBits-1 (0 if no bits to receive)
+reg[5:0]  RecvQuadCnt;     // Number of quadlets to read, minus 1
 reg[31:0] prom_data;       // data to write to PROM
 reg       blk_wrt;         // true if a block write is in progress (and hasn't been aborted due to an error)
 reg[15:0] prom_debug;
@@ -111,62 +112,74 @@ begin
             seqn <= 7'd0;
             prom_data <= prom_cmd;
             blk_wrt <= 1'b0;
+            wr_index <= 7'd0;
             case (prom_cmd[31:24])
                8'h00: begin    // Do nothing
                end
                8'h06: begin    // Write Enable
                   SendCnt <= 7'd15;
                   RecvCnt <= 7'd0;
+                  RecvQuadCnt <= 6'd0;
                   state <= PROM_CHIP_SELECT;
                end
                8'h04: begin    // Write Disable
                   SendCnt <= 7'd15;
                   RecvCnt <= 7'd0;
+                  RecvQuadCnt <= 6'd0;
                   state <= PROM_CHIP_SELECT;
                end
                8'h9f: begin    // Read ID (only first 3 bytes)
                   SendCnt <= 7'd15;
                   RecvCnt <= 7'd47;
+                  RecvQuadCnt <= 6'd0;
                   state <= PROM_CHIP_SELECT;
                end
                8'h05: begin    // Read Status Register
                   SendCnt <= 7'd15;
                   RecvCnt <= 7'd15;
+                  RecvQuadCnt <= 6'd0;
                   state <= PROM_CHIP_SELECT;
                end
                8'h01: begin    // Write Status Register
                   SendCnt <= 7'd31;
                   RecvCnt <= 7'd0;
+                  RecvQuadCnt <= 6'd0;
                   state <= PROM_CHIP_SELECT;
                end
-               8'h03: begin    // Read Data (for now, just 4 bytes)
+               8'h03: begin    // Read Data (256 bytes)
                   SendCnt <= 7'd63;
                   RecvCnt <= 7'd63;
+                  RecvQuadCnt <= 6'h3f;
                   state <= PROM_CHIP_SELECT;
                end
-               8'h0B: begin    // Fast Read Data (for now, just 4 bytes)
+               8'h0B: begin    // Fast Read Data (256 bytes)
                   SendCnt <= 7'd97;   // needs a dummy byte
                   RecvCnt <= 7'd63;
+                  RecvQuadCnt <= 6'h3f;
                   state <= PROM_CHIP_SELECT;
                end
                8'hD8: begin    // Sector Erase
                   SendCnt <= 7'd63;
                   RecvCnt <= 7'd0;
+                  RecvQuadCnt <= 6'd0;
                   state <= PROM_CHIP_SELECT;
                end
                8'hC7: begin    // Bulk Erase
                   SendCnt <= 7'd15;
                   RecvCnt <= 7'd0;
+                  RecvQuadCnt <= 6'd0;
                   state <= PROM_CHIP_SELECT;
                end
                8'hB9: begin    // Deep Power Down
                   SendCnt <= 7'd15;
                   RecvCnt <= 7'd0;
+                  RecvQuadCnt <= 6'd0;
                   state <= PROM_CHIP_SELECT;
                end
                8'hAB: begin    // Release from deep power down
                   SendCnt <= 7'd63;     // 3 dummy bytes
                   RecvCnt <= 7'd15;     // "old style" ID = 0x14
+                  RecvQuadCnt <= 6'd0;
                   state <= PROM_CHIP_SELECT;
                end
                8'hFF: begin    // Bit I/O for debugging
@@ -242,13 +255,21 @@ begin
         end // case: PROM_WRITE_BLOCK
 
         PROM_READ: begin
-            seqn <= seqn + 1'b1;
             if (prom_sclk == 1'b0) begin
                prom_result <= { prom_result[30:0], prom_miso };
             end
             if (seqn == RecvCnt) begin
-               state <= PROM_CHIP_DESELECT;
+               if (RecvQuadCnt != 6'd0) begin   // if reading more than one quad
+                   seqn <= 7'd0;
+                   data_block[wr_index[5:0]] <= prom_result;
+                   prom_result <= { 25'd0, (wr_index + 1'b1) };  // number of bytes stored
+                   wr_index[5:0] <= wr_index[5:0] + 1'b1;
+               end
+               if (wr_index[5:0] == RecvQuadCnt)
+                   state <= PROM_CHIP_DESELECT;
             end
+            else
+                seqn <= seqn + 1'b1;
         end
           
         PROM_CHIP_DESELECT: begin

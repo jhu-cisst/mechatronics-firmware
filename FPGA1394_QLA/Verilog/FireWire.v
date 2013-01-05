@@ -515,7 +515,10 @@ begin
                             data_block <= (rx_tcode==`TC_BWRITE) ? 1'b1 : 1'b0;
                             blk_wstart <= (rx_tcode==`TC_BWRITE) ? 1'b1 : 1'b0;
                             if (reg_addr[7:6] == 2'b11) begin
-                                reg_addr[5:0] <= 6'h3f;  // block write to PROM (M25P16)
+                                if (rx_tcode==`TC_BWRITE)
+                                    reg_addr[5:0] <= 6'h3f;  // block write to PROM (M25P16)
+                                else
+                                    reg_addr[5:0] <= 6'd0;   // block read from PROM (M25P16)
                             end
                             else begin
                                 reg_addr[7:4] <= 0;    // init channel address
@@ -740,18 +743,29 @@ begin
 
                 // latch timestamp, setup address for status, restart crc
                 152: begin
-                    buffer <= timestamp;
-                    ts_reset <= 1;
-                    reg_addr <= 0;
+                    if (reg_addr[7:6] == 2'b11) begin  // block read from PROM (M25P16)
+                        buffer <= reg_rdata;
+                        reg_addr[5:0] <= 6'd1;
+                    end
+                    else begin                         // block read of real-time feedback
+                        buffer <= timestamp;
+                        reg_addr <= 0;
+                        ts_reset <= 1;
+                    end
                     crc_ini <= 0;
                 end
 
                 // latch status data, setup address, go to block data state
                 184: begin
                     buffer <= reg_rdata;
-                    ts_reset <= 0;
-                    reg_addr <= 8'h10;
-                    dev_index <= 1;
+                    if (reg_addr[7:6] == 2'b11) begin
+                        reg_addr[5:0] <= 6'd2;    // block read from PROM (M25P16)
+                    end
+                    else begin
+                        reg_addr <= 8'h10;        // block read of real-time feedback
+                        ts_reset <= 0;
+                        dev_index <= 1;
+                    end
                     state <= ST_TX_DATA;
                 end
             endcase
