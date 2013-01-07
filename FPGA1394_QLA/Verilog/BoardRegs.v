@@ -76,7 +76,7 @@ module BoardRegs(
 
     // registered data
     reg[31:0] reg_rdata;        // register the data output
-    reg[15:0] reg_disable;      // register the disable signals
+    reg[7:0] reg_disable;       // register the disable signals
     reg[15:0] phy_ctrl;         // for phy request bitstream
     reg[15:0] phy_data;         // for phy register transfer data
 
@@ -112,8 +112,7 @@ begin
     if (reset == 0) begin
         reg_rdata <= 0;          // clear read output register
         reg_disable <= 8'hff;    // start up all disabled
-        //pwr_enable <= 0;         // start up with power off
-        pwr_enable <= 1;         // start up with power on
+        pwr_enable <= 0;         // start up with power off
         phy_ctrl <= 0;           // clear phy command register
         phy_data <= 0;           // clear phy data output register
         wdog_period <= 0;        // disables watchdog by default
@@ -126,7 +125,6 @@ begin
         case (reg_addr[3:0])
         `REG_STATUS: begin
             // mask reg_wdata[15:8] with [7:0] for disable (~enable) control
-            reg_disable[15:8] <= reg_wdata[15:8];
             reg_disable[7] <= reg_wdata[15] ? ~reg_wdata[7] : reg_disable[7];
             reg_disable[6] <= reg_wdata[14] ? ~reg_wdata[6] : reg_disable[6];
             reg_disable[5] <= reg_wdata[13] ? ~reg_wdata[5] : reg_disable[5];
@@ -135,13 +133,20 @@ begin
             reg_disable[2] <= reg_wdata[10] ? ~reg_wdata[2] : reg_disable[2];
             reg_disable[1] <= reg_wdata[9] ? ~reg_wdata[1] : reg_disable[1];
             reg_disable[0] <= reg_wdata[8] ? ~reg_wdata[0] : reg_disable[0];
-            // pwr_enable is always on
-            relay_on <= reg_wdata[16];
+            // mask reg_wdata[17] with [16] for safety relay control
+            relay_on <= reg_wdata[17] ? reg_wdata[16] : relay_on;
+            // mask reg_wdata[19] with [18] for pwr_enable
+            pwr_enable <= reg_wdata[19] ? reg_wdata[18] : pwr_enable;
         end
         `REG_PHYCTRL: phy_ctrl <= reg_wdata[15:0];
         `REG_PHYDATA: phy_data <= reg_wdata[15:0];
         `REG_TIMEOUT: wdog_period <= reg_wdata[15:0];
-        `REG_DIGIOUT: dout <= reg_wdata[3:0];
+        `REG_DIGIOUT: begin
+            dout[1] <= reg_wdata[8] ? reg_wdata[0] : dout[1];
+            dout[2] <= reg_wdata[9] ? reg_wdata[1] : dout[2];
+            dout[3] <= reg_wdata[10] ? reg_wdata[2] : dout[3];
+            dout[4] <= reg_wdata[11] ? reg_wdata[3] : dout[4];
+        end
         // Write to PROM command register (8) is handled in M25P16.v
         endcase
     end
@@ -149,18 +154,22 @@ begin
     // return register data for reads
     else begin
         case (reg_addr[3:0])
-        //// TODO: return neg_limit/pos_limit/home[4:1], temp_sense in status?
-        `REG_STATUS: reg_rdata <= { 2'd0, pwr_enable, relay_on, board_id, wdog_timeout, 3'd0, fault, reg_disable[15:8], ~reg_disable[7:0] };
+        `REG_STATUS: reg_rdata <= { 
+                4'd0, board_id,                // Byte 3: 0, board id
+                wdog_timeout, 3'd0,            // Byte 2: watchdog timeout, motor voltage good,
+                mv_good, pwr_enable, ~relay, relay_on,   // power enable, safety relay state, safety relay control
+                4'd0, fault,                   // Byte 1: 1 -> amplifier on, 0 -> fault (up to 8 axes)
+                ~reg_disable[7:0] };           // Byte 0: 1 -> amplifier enabled, 0 -> disabled (up to 8 axes)
         `REG_PHYCTRL: reg_rdata <= phy_ctrl;
         `REG_PHYDATA: reg_rdata <= phy_data;
         `REG_TIMEOUT: reg_rdata <= wdog_period;
         `REG_VERSION: reg_rdata <= `VERSION;
-        `REG_TEMPSNS: reg_rdata <= temp_sense;
+        `REG_TEMPSNS: reg_rdata <= {16'd0, temp_sense};
         `REG_DIGIOUT: reg_rdata <= dout;
         `REG_FIRMWARE_VERSION: reg_rdata <= `FW_VERSION;
         `REG_PROMSTAT: reg_rdata <= prom_status;
         `REG_PROMRES: reg_rdata <= prom_result;
-        `REG_DIGIN: reg_rdata <= { 16'd0, 1'b0, relay, mv_good, v_fault, neg_limit, pos_limit, home };
+        `REG_DIGIN: reg_rdata <= { 15'd0, v_fault, dout, neg_limit, pos_limit, home };
          default:  reg_rdata <= 32'd0;
         endcase
     end

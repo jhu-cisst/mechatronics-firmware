@@ -749,25 +749,48 @@ begin
                     end
                     else begin                         // block read of real-time feedback
                         buffer <= timestamp;
-                        reg_addr <= 0;
+                        reg_addr <= 0;                 // 0: status
                         ts_reset <= 1;
                     end
                     crc_ini <= 0;
                 end
 
-                // latch status data, setup address, go to block data state
+                // latch status data, setup address for digital inputs
                 184: begin
                     buffer <= reg_rdata;
-                    if (reg_addr[7:6] == 2'b11) begin
-                        reg_addr[5:0] <= 6'd2;    // block read from PROM (M25P16)
+                    if (reg_addr[7:6] == 2'b11) begin  // block read from PROM (M25P16)
+                        reg_addr[5:0] <= 6'd2;
                     end
-                    else begin
-                        reg_addr <= 8'h10;        // block read of real-time feedback
+                    else begin                         // block read of real-time feedback
+                        reg_addr <= 8'd10;             // 10: digital inputs
                         ts_reset <= 0;
+                    end
+                end
+
+                // latch digital inputs, setup address for temperature sensors
+                216: begin
+                    buffer <= reg_rdata;
+                    if (reg_addr[7:6] == 2'b11) begin  // block read from PROM (M25P16)
+                        reg_addr[5:0] <= 6'd3;
+                    end
+                    else begin                         // block read of real-time feedback
+                        reg_addr <= 8'h5;              // 5: temperature sensors
+                    end
+                end
+
+                // latch temperature sensors, go to block data state
+                248: begin
+                    buffer <= reg_rdata;
+                    if (reg_addr[7:6] == 2'b11) begin  // block read from PROM (M25P16)
+                        reg_addr[5:0] <= 6'd4;
+                    end
+                    else begin                         // block read of real-time feedback
+                        reg_addr <= 8'h10;             // start cycling through channels
                         dev_index <= 1;
                     end
                     state <= ST_TX_DATA;
                 end
+
             endcase
         end
 
