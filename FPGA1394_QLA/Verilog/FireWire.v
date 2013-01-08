@@ -184,6 +184,8 @@ module PhyLinkInterface(
     reg ts_reset;                 // timestamp counter reset signal
     reg data_block;               // flag for block write data being received
 
+    parameter num_channels = 4;
+
     // state machine states
     parameter[3:0]
         ST_IDLE = 0,              // wait for phy event
@@ -413,9 +415,9 @@ begin
                                 reg_wen <= rx_active;
                             end
                             else begin                      // DAC data
-                                // channel address circularly increments from 1-8
+                                // channel address circularly increments from 1 to num_channels
                                 // (chan addr and dev offset are previously set)
-                                if (reg_addr[7:4] == 8)
+                                if (reg_addr[7:4] == num_channels)
                                     reg_addr[7:4] <= 4'd1;
                                 else
                                     reg_addr[7:4] <= reg_addr[7:4] + 1'b1;
@@ -821,8 +823,8 @@ begin
                             reg_addr[5:0] <= reg_addr[5:0] + 1'b1;
                     end
                     else begin   // block read of real-time sensor data
-                        // channel address circularly increments from 1-8
-                        if (reg_addr[7:4] == 8) begin
+                        // channel address circularly increments from 1 to num_channels
+                        if (reg_addr[7:4] == num_channels) begin
                             reg_addr[7:4] <= 1;
                             reg_addr[3:0] <= dev_addr[dev_index];
                             dev_index <= (dev_index<6) ? (dev_index+1'b1) : 0;

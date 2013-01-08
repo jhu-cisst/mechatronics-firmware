@@ -76,7 +76,7 @@ module BoardRegs(
 
     // registered data
     reg[31:0] reg_rdata;        // register the data output
-    reg[7:0] reg_disable;       // register the disable signals
+    reg[3:0] reg_disable;       // register the disable signals
     reg[15:0] phy_ctrl;         // for phy request bitstream
     reg[15:0] phy_data;         // for phy register transfer data
 
@@ -111,7 +111,7 @@ begin
     // what to do on reset/startup
     if (reset == 0) begin
         reg_rdata <= 0;          // clear read output register
-        reg_disable <= 8'hff;    // start up all disabled
+        reg_disable <= 4'hf;    // start up all disabled
         pwr_enable <= 0;         // start up with power off
         phy_ctrl <= 0;           // clear phy command register
         phy_data <= 0;           // clear phy data output register
@@ -125,10 +125,7 @@ begin
         case (reg_addr[3:0])
         `REG_STATUS: begin
             // mask reg_wdata[15:8] with [7:0] for disable (~enable) control
-            reg_disable[7] <= reg_wdata[15] ? ~reg_wdata[7] : reg_disable[7];
-            reg_disable[6] <= reg_wdata[14] ? ~reg_wdata[6] : reg_disable[6];
-            reg_disable[5] <= reg_wdata[13] ? ~reg_wdata[5] : reg_disable[5];
-            reg_disable[4] <= reg_wdata[12] ? ~reg_wdata[4] : reg_disable[4];
+            // ([15:12] and [7:4] are for an 8-axis system)
             reg_disable[3] <= reg_wdata[11] ? ~reg_wdata[3] : reg_disable[3];
             reg_disable[2] <= reg_wdata[10] ? ~reg_wdata[2] : reg_disable[2];
             reg_disable[1] <= reg_wdata[9] ? ~reg_wdata[1] : reg_disable[1];
@@ -155,11 +152,11 @@ begin
     else begin
         case (reg_addr[3:0])
         `REG_STATUS: reg_rdata <= { 
-                4'd0, board_id,                // Byte 3: 0, board id
+                4'd4, board_id,                // Byte 3: num channels (4), board id
                 wdog_timeout, 3'd0,            // Byte 2: watchdog timeout, motor voltage good,
                 mv_good, pwr_enable, ~relay, relay_on,   // power enable, safety relay state, safety relay control
                 4'd0, fault,                   // Byte 1: 1 -> amplifier on, 0 -> fault (up to 8 axes)
-                ~reg_disable[7:0] };           // Byte 0: 1 -> amplifier enabled, 0 -> disabled (up to 8 axes)
+                4'd0, ~reg_disable[3:0] };     // Byte 0: 1 -> amplifier enabled, 0 -> disabled (up to 8 axes)
         `REG_PHYCTRL: reg_rdata <= phy_ctrl;
         `REG_PHYDATA: reg_rdata <= phy_data;
         `REG_TIMEOUT: reg_rdata <= wdog_period;
