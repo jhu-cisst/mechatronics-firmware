@@ -178,7 +178,9 @@ module PhyLinkInterface(
     reg[31:0] reg_wdata;          // register write data
 
     // real-time read stuff
-    wire[3:0] dev_addr[0:6];      // order of device addresses for block read
+    // an array of 4 4-bits device address
+    // adc enc_pos enc_period enc_freq
+    wire[3:0] dev_addr[0:3];      // order of device addresses for block read
     reg[2:0] dev_index;           // selects device address from map
     reg[31:0] timestamp;          // timestamp counter register
     reg ts_reset;                 // timestamp counter reset signal
@@ -240,9 +242,6 @@ assign dev_addr[0] = 4'd0;        // adc device address
 assign dev_addr[1] = 4'd5;        // enc position address
 assign dev_addr[2] = 4'd6;        // enc period address
 assign dev_addr[3] = 4'd7;        // enc frequency address
-assign dev_addr[4] = 4'd8;        // enc acc1 address
-assign dev_addr[5] = 4'd9;        // enc acc2 address
-assign dev_addr[6] = 4'd10;       // enc scur address
 
 // timestamp counts number of clocks between block reads
 always @(posedge(sysclk) or posedge(ts_reset) or negedge(reset))
@@ -827,7 +826,7 @@ begin
                         if (reg_addr[7:4] == num_channels) begin
                             reg_addr[7:4] <= 1;
                             reg_addr[3:0] <= dev_addr[dev_index];
-                            dev_index <= (dev_index<6) ? (dev_index+1'b1) : 0;
+                            dev_index <= (dev_index<3) ? (dev_index+1'b1) : 0;
                         end
                         else
                             reg_addr[7:4] <= reg_addr[7:4] + 1'b1;

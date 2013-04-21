@@ -25,7 +25,6 @@
 `define OFF_ENC_DATA 4'd5          // enc quadrature register offset
 `define OFF_PER_DATA 4'd6          // enc period register offset
 `define OFF_FREQ_DATA 4'd7         // enc frequency register offset
-`define OFF_ACC_DATA 4'd8          // enc acceleration register offset
 
 `define DAC_CMD_WRU 4'h3           // dac write and update command
 `define DAC_CMD_NOP 4'hF           // dac nop command

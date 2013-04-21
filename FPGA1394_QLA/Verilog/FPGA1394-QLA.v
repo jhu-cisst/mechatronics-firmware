@@ -110,7 +110,6 @@ wire clk_1mhz, clk_12hz;
 // adc controller routes conversion results according to address
 CtrlAdc adc(
     .clkadc(clkadc),
-    .clk_slow(clk_12hz),
     .reset(reset),
     .sclk({IO1[10],IO1[28]}),
     .conv({IO1[11],IO1[27]}),
@@ -151,7 +150,7 @@ assign reg_rd[6] = reg_renc;    // period
 assign reg_rd[7] = reg_renc;    // frequency
 assign reg_rd[8] = reg_renc;    // acceleration 
 assign reg_rd[9] = reg_renc;    // acceleration
-// assign reg_rd[10] = reg_renc;   // sync cur
+
 
 // encoder controller: the thing that manages encoder reads and preloads
 CtrlEnc enc(

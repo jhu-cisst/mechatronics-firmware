@@ -20,9 +20,6 @@
 `define OFF_ENC_DATA 4'd5          // enc quadrature register offset
 `define OFF_PER_DATA 4'd6          // enc period register offset
 `define OFF_FREQ_DATA 4'd7         // enc frequency register offset
-`define OFF_ACC1_DATA 4'd8         // enc acc1 register offset
-`define OFF_ACC2_DATA 4'd9         // enc acc2 register offset 
-//`define OFF_SCUR_DATA 4'd10        // enc sync motor cur offset 
 
 module CtrlEnc(
     sysclk, reset,
@@ -61,9 +58,6 @@ module CtrlEnc(
     wire[24:0] quad_data[0:15];    // transition count FROM encoder (ovf msb)
     wire[15:0] per_data[0:15];     // encoder period measurement
     wire[15:0] freq_data[0:15];    // encoder frequency measurement
-    wire[15:0] acc1_data[0:15];    // encoder acc1 value
-    wire[15:0] acc2_data[0:15];    // encoder acc2 value
-    wire[15:0] scur_data[0:15];    // encoder sync motor cur
     
     wire[31:0] reg_rdata;          // outgoing register file data
 
@@ -89,22 +83,18 @@ Debounce filter_b4(sysclk, reset, enc_b[4], enc_b_filt[4]);
 EncQuad EncQuad1(sysclk, reset, enc_a_filt[1], enc_b_filt[1], set_enc[1], preload[1], quad_data[1], dir[1]);
 EncPeriod EncPer1(clk_1mhz, reset, enc_b_filt[1], dir[1], per_data[1]);
 EncFreq EncFreq1(sysclk, clk_12hz, reset, enc_b_filt[1], dir[1], freq_data[1]);
-EncAcc EncAcc1(clk_12hz, reset, per_data[1], acc1_data[1], acc2_data[1], scur_data[1]);
 // channel 2
 EncQuad EncQuad2(sysclk, reset, enc_a_filt[2], enc_b_filt[2], set_enc[2], preload[2], quad_data[2], dir[2]);
 EncPeriod EncPer2(clk_1mhz, reset, enc_b_filt[2], dir[2], per_data[2]);
 EncFreq EncFreq2(sysclk, clk_12hz, reset, enc_b_filt[2], dir[2], freq_data[2]);
-EncAcc EncAcc2(clk_12hz, reset, per_data[2], acc1_data[2], acc2_data[2], scur_data[2]);
 // channel 3
 EncQuad EncQuad3(sysclk, reset, enc_a_filt[3], enc_b_filt[3], set_enc[3], preload[3], quad_data[3], dir[3]);
 EncPeriod EncPer3(clk_1mhz, reset, enc_b_filt[3], dir[3], per_data[3]);
 EncFreq EncFreq3(sysclk, clk_12hz, reset, enc_b_filt[3], dir[3], freq_data[3]);
-EncAcc EncAcc3(clk_12hz, reset, per_data[3], acc1_data[3], acc2_data[3], scur_data[3]);
 // channel 4
 EncQuad EncQuad4(sysclk, reset, enc_a_filt[4], enc_b_filt[4], set_enc[4], preload[4], quad_data[4], dir[4]);
 EncPeriod EncPer4(clk_1mhz, reset, enc_b_filt[4], dir[4], per_data[4]);
 EncFreq EncFreq4(sysclk, clk_12hz, reset, enc_b_filt[4], dir[4], freq_data[4]);
-EncAcc EncAcc4(clk_12hz, reset, per_data[4], acc1_data[4], acc2_data[4], scur_data[4]);
 
 // create a pulse when encoder preload is written
 always @(posedge(sysclk) or negedge(reset))
@@ -135,32 +125,20 @@ assign mem_data[1][`OFF_ENC_LOAD] = preload[1];
 assign mem_data[1][`OFF_ENC_DATA] = quad_data[1];
 assign mem_data[1][`OFF_PER_DATA] = per_data[1];
 assign mem_data[1][`OFF_FREQ_DATA] = freq_data[1];
-assign mem_data[1][`OFF_ACC1_DATA] = acc1_data[1];
-assign mem_data[1][`OFF_ACC2_DATA] = acc2_data[1];
-//assign mem_data[1][`OFF_SCUR_DATA] = scur_data[1];
 // channel 2
 assign mem_data[2][`OFF_ENC_LOAD] = preload[2];
 assign mem_data[2][`OFF_ENC_DATA] = quad_data[2];
 assign mem_data[2][`OFF_PER_DATA] = per_data[2];
 assign mem_data[2][`OFF_FREQ_DATA] = freq_data[2];
-assign mem_data[2][`OFF_ACC1_DATA] = acc1_data[2];
-assign mem_data[2][`OFF_ACC2_DATA] = acc2_data[2];
-//assign mem_data[2][`OFF_SCUR_DATA] = scur_data[2];
 // channel 3
 assign mem_data[3][`OFF_ENC_LOAD] = preload[3];
 assign mem_data[3][`OFF_ENC_DATA] = quad_data[3];
 assign mem_data[3][`OFF_PER_DATA] = per_data[3];
 assign mem_data[3][`OFF_FREQ_DATA] = freq_data[3];
-assign mem_data[3][`OFF_ACC1_DATA] = acc1_data[3];
-assign mem_data[3][`OFF_ACC2_DATA] = acc2_data[3];
-//assign mem_data[3][`OFF_SCUR_DATA] = scur_data[3];
 // channel 4
 assign mem_data[4][`OFF_ENC_LOAD] = preload[4];
 assign mem_data[4][`OFF_ENC_DATA] = quad_data[4];
 assign mem_data[4][`OFF_PER_DATA] = per_data[4];
 assign mem_data[4][`OFF_FREQ_DATA] = freq_data[4];
-assign mem_data[4][`OFF_ACC1_DATA] = acc1_data[4];
-assign mem_data[4][`OFF_ACC2_DATA] = acc2_data[4];
-//assign mem_data[4][`OFF_SCUR_DATA] = scur_data[4];
 
 endmodule

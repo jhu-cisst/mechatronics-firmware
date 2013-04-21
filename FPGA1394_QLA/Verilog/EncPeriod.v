@@ -30,7 +30,6 @@ module EncPeriod(clk_fast, reset, ticks, dir, count);
     reg[15:0] count;          // latched counter measurement
     reg[15:0] count_temp;     // register for counter
     reg[15:0] count_2;        // intermediate count register
-//    reg[15:0] count_prev;     // previous count register
 
     // overflow value for signed 16-bit number
     parameter overflow = 16'h7FFF;
