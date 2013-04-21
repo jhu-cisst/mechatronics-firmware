@@ -103,22 +103,28 @@ module BoardRegs(
 // hardware description
 //
 
+// if wdog_timeout disable all ampifier 
 assign amp_disable = wdog_timeout ? 4'b1111 : reg_disable[3:0];
-
+//assign amp_disable = reg_disable[3:0]; 
+   
 // clocked process simulating a register file
 always @(posedge(sysclk) or negedge(reset))
 begin
     // what to do on reset/startup
     if (reset == 0) begin
         reg_rdata <= 0;          // clear read output register
-        reg_disable <= 4'hf;    // start up all disabled
+        reg_disable <= 4'hf;     // start up all disabled
         pwr_enable <= 0;         // start up with power off
         phy_ctrl <= 0;           // clear phy command register
         phy_data <= 0;           // clear phy data output register
-        wdog_period <= 0;        // disables watchdog by default
+        wdog_period <= 16'hffff; // disables watchdog by default
         relay_on <= 0;           // start with safety relay off
-        dout <= 0;               // clear digital outputs
+        dout <= 0;               // clear digital outputs 
     end
+	 
+//	 else if (wdog_timeout == 1) begin
+//        reg_disable <= 4'b1111;  // disable all axis when wdog timeout
+//	 end
 
     // set register values for writes
     else if (reg_addr[7:4]==0 && wr_en) begin
