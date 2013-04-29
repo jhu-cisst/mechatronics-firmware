@@ -95,6 +95,7 @@ module BoardRegs(
     initial begin
         reset_shift = 0;
         reset = 1;
+//        wdog_amp_disable = 4'd0; 
     end
 
 //------------------------------------------------------------------------------
@@ -103,8 +104,8 @@ module BoardRegs(
 
 // if wdog_timeout disable all ampifier 
 //assign amp_disable = (reg_disable[3:0] | safety_amp_disable[4:1] | wdog_amp_disable[4:1]);
-assign amp_disable = (reg_disable[3:0] | safety_amp_disable[4:1]);
-//assign amp_disable = reg_disable[3:0];
+//assign amp_disable = (reg_disable[3:0] | safety_amp_disable[4:1]);
+assign amp_disable = reg_disable[3:0];
 
 
 // clocked process simulating a register file
@@ -121,8 +122,8 @@ always @(posedge(sysclk) or negedge(reset))
 
     if ( (wdog_amp_disable != 4'd0) || (safety_amp_disable != 4'd0) ) 
     begin
-        reg_disable[3:0] <= (reg_disable[3:0] | wdog_amp_disable[4:1]);
-//        reg_disable[3:0] <= (reg_disable[3:0] | wdog_amp_disable[4:1] | safety_amp_disable[4:1]);
+//        reg_disable[3:0] <= (reg_disable[3:0] | wdog_amp_disable[4:1]);
+        reg_disable[3:0] <= (reg_disable[3:0] | wdog_amp_disable[4:1] | safety_amp_disable[4:1]);
     end
      
      // what to do on reset/startup
@@ -212,11 +213,13 @@ begin
 
     // watchdog only works when period is set
     else if (wdog_period) begin
-        if (wdog_count < wdog_period)           // time between reg writes
+        if (wdog_count < wdog_period) begin     // time between reg writes
             wdog_count <= wdog_count + 1'b1;    // increment timer counter
-        else
+        end
+        else begin
             wdog_timeout <= 1'b1;               // raise flag
             wdog_amp_disable <= 4'b1111;        // set wdog_amp_disable
+        end
     end
 end
 
