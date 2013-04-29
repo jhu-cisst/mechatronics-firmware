@@ -11,7 +11,7 @@
  */
 
 // device register file offsets from channel base
-`define OFF_ADC_DATA 4'd0          // adc data register offset
+`define OFF_ADC_DATA 4'd0          // adc data register offset (pot + cur)
 `define OFF_DAC_CTRL 4'd1          // dac control register offset
 `define OFF_POT_CTRL 4'd2          // pot control register offset
 `define OFF_POT_DATA 4'd3          // pot data register offset
@@ -22,21 +22,23 @@
 
 
 module CtrlAdc(
-    clkadc, reset,
-    sclk, conv, miso,
-    reg_addr, reg_rdata
+    input  wire clkadc,            // adc clock
+    input  wire reset,             // system reset
+    output wire[1:2] sclk,         // sclk signal to each set of adcs
+    output wire[1:2] conv,         // conv signal to each set of adcs
+    input  wire[1:8] miso,         // data lines from each individual adc
+    input  wire[7:0] reg_addr,     // register file addr from outside world
+    output wire[31:0] reg_rdata,   // outgoing register file data
+    output wire[15:0] cur1,        // current axis 1
+    output wire[15:0] cur2,        // current axis 2
+    output wire[15:0] cur3,        // current axis 3
+    output wire[15:0] cur4         // current axis 4
 );
 
-    // define I/Os
-    input clkadc, reset; // adc clock and global reset signals
-    output[1:2] sclk;              // sclk signal to each set of adcs
-    output[1:2] conv;              // conv signal to each set of adcs
-    input[1:4] miso[1:2];          // data lines from each individual adc
-    input[7:0] reg_addr;           // register file addr from outside world
-    output[31:0] reg_rdata;        // outgoing register file data
 
     // local wires
-    wire[31:0] reg_rdata;          // outgoing register file data
+    wire[1:4] miso_pot;
+    wire[1:4] miso_cur;
     wire[15:0] potval[0:15];       // 4 channels of analog pot values
     wire[15:0] curval[0:15];       // 4 channels of current feedback values
 
@@ -46,6 +48,10 @@ module CtrlAdc(
 //------------------------------------------------------------------------------
 // hardware description
 //
+
+// assign miso to local miso wire
+assign miso_pot = miso[1:4];
+assign miso_cur = miso[5:8];
 
 // output selected read register
 assign reg_rdata = mem_data[reg_addr[7:4]][reg_addr[3:0]];
@@ -61,7 +67,7 @@ Ltc1864x4 adc_pot(
     .Out4(potval[4]),
     .sclk(sclk[1]),
     .conv(conv[1]),
-    .miso(miso[1])
+    .miso(miso_pot)
 );
 
 // cur feedback module
@@ -74,7 +80,7 @@ Ltc1864x4 adc_cur(
     .Out4(curval[4]),
     .sclk(sclk[2]),
     .conv(conv[2]),
-    .miso(miso[2])
+    .miso(miso_cur)
 );
 
 // map the data lines to access them as memory: [channel #][device #]
@@ -86,5 +92,11 @@ assign mem_data[2][`OFF_ADC_DATA] = { potval[2], curval[2] };
 assign mem_data[3][`OFF_ADC_DATA] = { potval[3], curval[3] };
 // channel 4
 assign mem_data[4][`OFF_ADC_DATA] = { potval[4], curval[4] };
+
+// connect to cur value output
+assign cur1 = curval[1];
+assign cur2 = curval[2];
+assign cur3 = curval[3];
+assign cur4 = curval[4];
 
 endmodule

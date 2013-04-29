@@ -22,77 +22,75 @@
 `define REG_FIRMWARE_VERSION 4'd7  // firmware version
 `define REG_PROMSTAT 4'd8          // PROM interface status
 `define REG_PROMRES 4'd9           // PROM result (from M25P16)
-`define REG_DIGIN 4'd10            // Digital inputs (home, neg lim, pos lim)
+`define REG_DIGIN   4'd10          // Digital inputs (home, neg lim, pos lim)
+`define REG_SAFETY  4'd11          // Safety amp disable 
+`define REG_CUR1    4'd12          // TEMP c reg current 1  
+`define REG_DAC1    4'd13          // TEMP d reg dac 1
+`define REG_WDOG    4'd14          // TEMP wdog_samp_disable
+`define REG_REGDISABLE 4'd15       // TEMP reg_disable 
+
 
 `define VERSION 32'h514C4131       // hard-wired version number "QLA1" = 0x514C4131 
 `define FW_VERSION 32'h01          // firmware version = 1  
 `define WIDTH_WATCHDOG 8           // period = 5.208333 us (2^8 / 49.152 MHz)
 
 module BoardRegs(
-    sysclk, clkaux, reset,
-    amp_disable, dout, pwr_enable, relay_on,
-    neg_limit, pos_limit, home, fault,
-    relay, mv_good, v_fault,
-    board_id, temp_sense,
-    reg_addr, reg_rdata,
-    reg_wdata, wr_en,
-    prom_status, prom_result
-);
-
-    // -------------------------------------------------------------------------
-    // define I/Os
-    //
-
-    // global clock and reset signals
-    input sysclk;
-    input clkaux;
-    output reset;
-
-    // board inputs (PC writes)
-    output[4:1] amp_disable;
-    output[4:1] dout;
-    output pwr_enable;
-    output relay_on;
-
-    // board outputs (PC reads)
-    input[4:1] neg_limit, pos_limit, home, fault;
-    input relay, mv_good, v_fault;
-    input[3:0] board_id;
-    input[15:0] temp_sense;
-
+    // glocal clock & reset 
+    input  wire sysclk, 
+    input  wire clkaux, 
+    output reg  reset,
+    
+    // board input (PC writes)
+    output wire[4:1] amp_disable,
+    output reg[4:1]  dout,          // digital outputs
+    output reg pwr_enable,          // enable motor power
+    output reg relay_on,            // enable relay for safety loop-through
+    
+    // board output (PC reads)
+    input  wire[4:1] neg_limit,     // digi input negative limit
+    input  wire[4:1] pos_limit,     // digi input positive limit
+    input  wire[4:1] home,          // digi input home position
+    input  wire[4:1] fault,
+    
+    input  wire relay,              // relay signal
+    input  wire mv_good,            // motor voltage good 
+    input  wire v_fault,           
+    input  wire[3:0] board_id,      // board id (rotary switch)
+    input  wire[15:0] temp_sense,   // temperature sensor reading
+    
     // register file interface
-    input wr_en;
-    input[7:0] reg_addr;
-    output[31:0] reg_rdata;
-    input[31:0] reg_wdata;
-
+    input  wire[7:0] reg_addr,
+    output reg[31:0] reg_rdata,
+    input  wire[31:0] reg_wdata,
+    input  wire wr_en,              // write enable from FireWire module
+    
     // PROM feedback
-    input[31:0]  prom_status;
-    input[31:0]  prom_result;
+    input  wire[31:0] prom_status,
+    input  wire[31:0] prom_result,
+    
+    // Safety amp_disable
+    input  wire[4:1] safety_amp_disable,
+    input  wire[15:0] cur1,
+    input  wire[15:0] dac1
+);
 
     // -------------------------------------------------------------------------
     // define wires and registers
     //
 
     // registered data
-    reg[31:0] reg_rdata;        // register the data output
     reg[3:0] reg_disable;       // register the disable signals
     reg[15:0] phy_ctrl;         // for phy request bitstream
     reg[15:0] phy_data;         // for phy register transfer data
-
-    // board inputs (PC writes)
-    reg[4:1] dout;              // digital outputs
-    reg pwr_enable;             // enable motor power
-    reg relay_on;               // enable relay for safety loop-through
 
     // watchdog timer
     wire wdog_clk;              // watchdog clock
     reg wdog_timeout;           // watchdog timeout status flag
     reg[15:0] wdog_period;      // watchdog period, user writable
     reg[15:0] wdog_count;       // watchdog timer counter
+    reg[4:1] wdog_amp_disable;  // watchdog amp_disable
 
     // reset signal generation
-    reg reset;                  // global reset signal
     reg[6:0] reset_shift;       // counts number of clocks after reset
     initial begin
         reset_shift = 0;
@@ -104,15 +102,28 @@ module BoardRegs(
 //
 
 // if wdog_timeout disable all ampifier 
-assign amp_disable = reg_disable[3:0];
-   
+//assign amp_disable = (reg_disable[3:0] | safety_amp_disable[4:1] | wdog_amp_disable[4:1]);
+assign amp_disable = (reg_disable[3:0] | safety_amp_disable[4:1]);
+//assign amp_disable = reg_disable[3:0];
+
+
 // clocked process simulating a register file
 always @(posedge(sysclk) or negedge(reset))
   begin
      // disable all axis when wdog timeout
-     if (wdog_timeout == 1) begin
-        reg_disable <= 4'b1111;  
-     end
+//     if (wdog_timeout == 1) begin
+//        reg_disable <= 4'b1111;
+//     end
+     
+//     if (safety_amp_disable == 4'b1111) begin
+////        reg_disable[0] <= 1'b1;
+//     end 
+
+    if ( (wdog_amp_disable != 4'd0) || (safety_amp_disable != 4'd0) ) 
+    begin
+        reg_disable[3:0] <= (reg_disable[3:0] | wdog_amp_disable[4:1]);
+//        reg_disable[3:0] <= (reg_disable[3:0] | wdog_amp_disable[4:1] | safety_amp_disable[4:1]);
+    end
      
      // what to do on reset/startup
      if (reset == 0) begin
@@ -173,6 +184,12 @@ always @(posedge(sysclk) or negedge(reset))
         `REG_PROMSTAT: reg_rdata <= prom_status;
         `REG_PROMRES: reg_rdata <= prom_result;
         `REG_DIGIN: reg_rdata <= { 15'd0, v_fault, dout, neg_limit, pos_limit, home };
+        `REG_SAFETY: reg_rdata <= { 28'd0, safety_amp_disable};
+        `REG_CUR1: reg_rdata <= {16'd0, cur1};
+        `REG_DAC1: reg_rdata <= {16'd0, dac1};
+        `REG_WDOG: reg_rdata <= {28'd0, wdog_amp_disable};
+        `REG_REGDISABLE: reg_rdata <= {28'd0, amp_disable};
+        
          default:  reg_rdata <= 32'd0;
         endcase
     end
@@ -190,6 +207,7 @@ begin
     if (reset==0 || wr_en) begin
         wdog_count <= 0;                        // reset the timer counter
         wdog_timeout <= 0;                      // clear the timeout flag
+        wdog_amp_disable <= 4'b0000;            // clear wdog_amp_disable 
     end
 
     // watchdog only works when period is set
@@ -198,8 +216,10 @@ begin
             wdog_count <= wdog_count + 1'b1;    // increment timer counter
         else
             wdog_timeout <= 1'b1;               // raise flag
+            wdog_amp_disable <= 4'b1111;        // set wdog_amp_disable
     end
 end
+
 
 // generate global reset signal, assumes reset_shift = 0 at power up per spec
 always @(posedge(clkaux))

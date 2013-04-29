@@ -1,4 +1,4 @@
-/*******************************************************************************
+/*******************************************************************************    
  *
  * Copyright(C) 2011-2012 ERC CISST, Johns Hopkins University.
  *
@@ -15,7 +15,7 @@
 module FPGA1394QLA
 (
     // ieee 1394 phy-link interface
-    input         clk1394,
+    input            clk1394,
     inout [7:0]      data,
     inout [1:0]      ctl,
     output wire      lreq,
@@ -105,7 +105,8 @@ wire[31:0] reg_radc;
 assign reg_rd[0] = reg_radc;    // adc reads
 assign reg_rd[10] = reg_radc;   // sync cur
 
-wire clk_1mhz, clk_12hz;
+// local wire for cur_fb(1-4) 
+wire[15:0] cur_fb[1:4];
 
 // adc controller routes conversion results according to address
 CtrlAdc adc(
@@ -115,10 +116,20 @@ CtrlAdc adc(
     .conv({IO1[11],IO1[27]}),
     .miso({IO1[12:15],IO1[26],IO1[25],IO1[24],IO1[23]}),
     .reg_addr(reg_addr),
-    .reg_rdata(reg_radc)
+    .reg_rdata(reg_radc),
+    .cur1(cur_fb[1]),
+    .cur2(cur_fb[2]),
+    .cur3(cur_fb[3]),
+    .cur4(cur_fb[4])
 );
 
 // dacs ------------------------------------------------------------------------
+
+// local wire for dac
+wire[31:0] reg_rdac;
+assign reg_rd[1] = reg_rdac;   // dac reads
+
+wire[15:0] cur_cmd[1:4];
 
 // the dac controller manages access to the dacs
 CtrlDac dac(
@@ -131,13 +142,17 @@ CtrlDac dac(
     .blk_wen(blk_wen),
     .reg_addr(reg_addr),
     .reg_wdata(reg_wdata),
-    .reg_rdata(reg_rd[1])
+    .reg_rdata(reg_rdac),
+    .dac1(cur_cmd[1]),
+    .dac2(cur_cmd[2]),
+    .dac3(cur_cmd[3]),
+    .dac4(cur_cmd[4])
 );
 
 // encoders --------------------------------------------------------------------
 
 // fast (~1 MHz) / slow (~12 Hz) clocks to measure encoder period / frequency
-// wire clk_1mhz, clk_12hz;
+wire clk_1mhz, clk_12hz;
 ClkDiv divenc1(sysclk, clk_1mhz); defparam divenc1.width = 6;
 ClkDiv divenc2(sysclk, clk_12hz); defparam divenc2.width = 22;
 
@@ -148,8 +163,8 @@ assign reg_rd[4] = reg_renc;    // preload
 assign reg_rd[5] = reg_renc;    // quadrature
 assign reg_rd[6] = reg_renc;    // period
 assign reg_rd[7] = reg_renc;    // frequency
-assign reg_rd[8] = reg_renc;    // acceleration 
-assign reg_rd[9] = reg_renc;    // acceleration
+//assign reg_rd[8] = reg_renc;    // acceleration 
+//assign reg_rd[9] = reg_renc;    // acceleration
 
 
 // encoder controller: the thing that manages encoder reads and preloads
@@ -188,6 +203,9 @@ wire [31:0] PROM_Status;
 wire[31:0] PROM_Result;
 // reg_rdata_prom is for block reads from PROM
 wire[31:0] reg_rdata_prom;
+
+// safety_amp_enable from SafetyCheck moudle
+wire[4:1] safety_amp_disable;
    
 // 'channel 0' is a special axis that contains various board I/Os
 wire[31:0] reg_rdata_chan0;
@@ -214,9 +232,14 @@ BoardRegs chan0(
     .reg_wdata(reg_wdata),
     .wr_en(reg_wen),
     .prom_status(PROM_Status),
-    .prom_result(PROM_Result)
+    .prom_result(PROM_Result),
+    .safety_amp_disable(safety_amp_disable),
+    .cur1(cur_fb[1]),
+    .dac1(cur_cmd[1])
 );
 
+
+// prom read/write ----------------------------------------------------
 wire prom_reg_wen;    // for a quadlet write to PROM (register)
 wire prom_blk_start;  // start of a block write to PROM
 wire prom_blk_wen;    // for every quadlet in a block write to PROM
@@ -245,6 +268,45 @@ M25P16 prom(
     .prom_sclk(XCCLK),
     .prom_cs(XCSn)
 );
+
+
+// ----------------------------------------------------------------------------
+// safety check 
+//    1. get adc feedback current & dac command current
+//    2. check if cur_fb > 2 * cur_cmd
+SafetyCheck safe1(
+    .clk(sysclk),
+    .reset(reset),
+    .cur_in(cur_fb[1]),
+    .dac_in(cur_cmd[1]),
+    .amp_disable(safety_amp_disable[1])
+);
+
+SafetyCheck safe2(
+    .clk(sysclk),
+    .reset(reset),
+    .cur_in(cur_fb[2]),
+    .dac_in(cur_cmd[2]),
+    .amp_disable(safety_amp_disable[2])
+);
+
+SafetyCheck safe3(
+    .clk(sysclk),
+    .reset(reset),
+    .cur_in(cur_fb[3]),
+    .dac_in(cur_cmd[3]),
+    .amp_disable(safety_amp_disable[3])
+);
+
+SafetyCheck safe4(
+    .clk(sysclk),
+    .reset(reset),
+    .cur_in(cur_fb[4]),
+    .dac_in(cur_cmd[4]),
+    .amp_disable(safety_amp_disable[4])
+);
+
+
    
 //------------------------------------------------------------------------------
 // debugging, etc.

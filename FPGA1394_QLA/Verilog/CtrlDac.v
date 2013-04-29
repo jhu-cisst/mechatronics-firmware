@@ -19,7 +19,7 @@
 // device register file offsets from channel base
 `define OFF_ADC_DATA 4'd0          // adc data register offset
 `define OFF_DAC_CTRL 4'd1          // dac control register offset
-`define OFF_POT_CTRL 4'd2          // pot control register offset
+`define OFF_DAC_LIMT 4'd2          // pot control register offset
 `define OFF_POT_DATA 4'd3          // pot data register offset
 `define OFF_ENC_LOAD 4'd4          // enc data preload offset
 `define OFF_ENC_DATA 4'd5          // enc quadrature register offset
@@ -43,7 +43,12 @@ module CtrlDac(
     input wire blk_wen,            // register write enable (end-of-block)
     input wire[7:0] reg_addr,      // register address
     input wire[31:0] reg_wdata,    // incoming register data
-    output wire[31:0] reg_rdata    // outgoing register data
+    output wire[31:0] reg_rdata,   // outgoing register data
+    // output dac value
+    output wire[15:0] dac1,        // register dac1 command current
+    output wire[15:0] dac2,        // register dac2 command current 
+    output wire[15:0] dac3,        // register dac3 command current
+    output wire[15:0] dac4         // register dac4 command current
 );
 
     // -------------------------------------------------------------------------
@@ -76,10 +81,16 @@ module CtrlDac(
 
 // dac module instantiation; note: dac is write-only
 LTC2601x4 dac(
-    sysclk, reset, trig,
-    dac_word, addr_dac,
-    sclk, csel, mosi,
-    busy, flush
+    .clkin(sysclk),
+    .reset(reset),
+    .trig(trig),
+    .word(dac_word),
+    .addr(addr_dac),
+    .sclk(sclk),
+    .csel(csel),
+    .mosi(mosi),
+    .busy(busy),
+    .flush(flush)
 );
 
 // select firewire or NOP data depending on if spi transfer in progress
@@ -116,5 +127,12 @@ begin
     else
         trig <= (blk_wen & (reg_addr[3:0]==`OFF_DAC_CTRL));
 end
+
+
+// connect mem_cop to dac(1-4)
+assign dac1 = mem_copy[0][15:0];
+assign dac2 = mem_copy[1][15:0];
+assign dac3 = mem_copy[2][15:0];
+assign dac4 = mem_copy[3][15:0];
 
 endmodule
