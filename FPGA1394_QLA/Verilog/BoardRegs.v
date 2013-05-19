@@ -9,6 +9,8 @@
  *     07/17/08    Paul Thienphrapa    Initial revision - SnakeFPGA-rev2
  *     12/21/11    Paul Thienphrapa    Adapted for FPGA1394_QLA
  *     02/22/12    Paul Thienphrapa    Minor fixes for power enable and reset
+ *     05/08/13    Zihan Chen          Fix watchdog 
+ *     05/19/13    Zihan Chen          Add mv_good 40 ms sleep
  */
 
 // channel 0 (board) registers
@@ -89,13 +91,17 @@ module BoardRegs(
     reg[15:0] wdog_period;      // watchdog period, user writable
     reg[15:0] wdog_count;       // watchdog timer counter
     reg[4:1] wdog_amp_disable;  // watchdog amp_disable
+    
+    // mv good timer
+    reg mv_good_start_counter;  // mv_good counter start                                                                                                                                           
+    reg[15:0] mv_good_counter;  // mv_good counter 
+    reg[4:1] mv_amp_disable;    // mv good amp_disable
 
     // reset signal generation
     reg[6:0] reset_shift;       // counts number of clocks after reset
     initial begin
         reset_shift = 0;
         reset = 1;
-//        wdog_amp_disable = 4'd0; 
     end
 
 //------------------------------------------------------------------------------
@@ -104,7 +110,7 @@ module BoardRegs(
 
 // if wdog_timeout disable all ampifier 
 //assign amp_disable = (reg_disable[3:0] | safety_amp_disable[4:1]);
-assign amp_disable = reg_disable[3:0];
+assign amp_disable = (reg_disable[3:0] | mv_amp_disable[4:1]);
 
 
 // clocked process simulating a register file
@@ -214,6 +220,28 @@ begin
     end
 end
 
+// to save resoure use wdog_clk, period = 5.208333 us
+// 40 ms = 7680 cnts
+always @(posedge(wdog_clk) or negedge(reset))
+begin
+    if (reset == 0) begin
+        mv_amp_disable <= 4'b0000;
+        mv_good_counter <= 16'd0;
+    end
+    else if ((mv_good == 1'b1) && (mv_good_counter < 16'd7680)) begin
+        mv_good_counter <= mv_good_counter + 1'b1;
+        mv_amp_disable <= 4'b1111;
+    end 
+    else if (mv_good == 1'b1) begin
+        mv_amp_disable <= 4'b0000;
+    end
+    else begin
+        mv_amp_disable <= 4'b1111;
+        mv_good_counter <= 16'd0;
+    end
+end
+
+   
 
 // generate global reset signal, assumes reset_shift = 0 at power up per spec
 always @(posedge(clkaux))
