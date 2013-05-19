@@ -103,7 +103,6 @@ module BoardRegs(
 //
 
 // if wdog_timeout disable all ampifier 
-//assign amp_disable = (reg_disable[3:0] | safety_amp_disable[4:1] | wdog_amp_disable[4:1]);
 //assign amp_disable = (reg_disable[3:0] | safety_amp_disable[4:1]);
 assign amp_disable = reg_disable[3:0];
 
@@ -111,21 +110,6 @@ assign amp_disable = reg_disable[3:0];
 // clocked process simulating a register file
 always @(posedge(sysclk) or negedge(reset))
   begin
-     // disable all axis when wdog timeout
-//     if (wdog_timeout == 1) begin
-//        reg_disable <= 4'b1111;
-//     end
-     
-//     if (safety_amp_disable == 4'b1111) begin
-////        reg_disable[0] <= 1'b1;
-//     end 
-
-    if ( (wdog_amp_disable != 4'd0) || (safety_amp_disable != 4'd0) ) 
-    begin
-//        reg_disable[3:0] <= (reg_disable[3:0] | wdog_amp_disable[4:1]);
-        reg_disable[3:0] <= (reg_disable[3:0] | wdog_amp_disable[4:1] | safety_amp_disable[4:1]);
-    end
-     
      // what to do on reset/startup
      if (reset == 0) begin
         reg_rdata <= 0;          // clear read output register
@@ -191,8 +175,15 @@ always @(posedge(sysclk) or negedge(reset))
         `REG_WDOG: reg_rdata <= {28'd0, wdog_amp_disable};
         `REG_REGDISABLE: reg_rdata <= {28'd0, amp_disable};
         
-         default:  reg_rdata <= 32'd0;
+        default:  reg_rdata <= 32'd0;
         endcase
+            
+        // disable all axis when wdog timeout     
+        if ( (wdog_amp_disable != 4'd0) || (safety_amp_disable != 4'd0) ) 
+        begin
+            reg_disable[3:0] <= (reg_disable[3:0] | wdog_amp_disable[4:1]);
+//            reg_disable[3:0] <= (reg_disable[3:0] | wdog_amp_disable[4:1] | safety_amp_disable[4:1]);
+        end
     end
 
 end
