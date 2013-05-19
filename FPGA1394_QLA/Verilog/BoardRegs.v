@@ -92,8 +92,7 @@ module BoardRegs(
     reg[15:0] wdog_count;       // watchdog timer counter
     reg[4:1] wdog_amp_disable;  // watchdog amp_disable
     
-    // mv good timer
-    reg mv_good_start_counter;  // mv_good counter start                                                                                                                                           
+    // mv good timer                                                                                                                                       
     reg[15:0] mv_good_counter;  // mv_good counter 
     reg[4:1] mv_amp_disable;    // mv good amp_disable
 
