@@ -25,12 +25,14 @@ module SafetyCheck(
     // local variable
     reg [15:0] abs_cur_in;
     reg [15:0] abs_dac_in;
+    reg [23:0] error_counter;  // error counter 
 	 
     // ---- Code Starts Here -----
     initial begin
         amp_disable <= 1'b0;
         abs_cur_in <= 16'd0;
         abs_dac_in <= 16'd0;
+        error_counter <= 24'd0;
     end
 
     always @ (posedge clk) 
@@ -53,31 +55,44 @@ module SafetyCheck(
     
     end
 	 
-	 // amp_disable
+	 // amp_disable error counter 
+    always @ (posedge(clk) or negedge(reset))
+    begin
+        if (reset == 0) begin
+            error_counter <= 24'd0;
+        end
+
+        // when current is small pass
+        else if ((cur_in < 16'h8300) && (cur_in > 16'h7d00)) begin
+            error_counter <= 24'd0;
+        end
+    
+        else if ((cur_in > 16'h7ff0) && (dac_in > 16'h7ff0) && (abs_cur_in > (abs_dac_in << 1))) begin
+            error_counter <= error_counter + 1'b1;
+        end
+    
+        else if ((cur_in < 16'h800f) && (dac_in < 16'h800f) && (abs_cur_in > (abs_dac_in << 1))) begin
+            error_counter <= error_counter + 1'b1;
+        end
+    
+        else begin  
+            error_counter <= 24'd0;
+        end
+    end
+    
+    // amp_disable
     always @ (posedge(clk) or negedge(reset))
     begin
         if (reset == 0) begin
             amp_disable <= 1'b0;
         end
-
-        // when current is small pass
-        else if ((cur_in < 16'h8300) && (cur_in > 16'h7d00)) begin
+        
+        else if (error_counter < 24'd2457600) begin
             amp_disable <= 1'b0;
         end
-    
-        else if ((cur_in > 16'h7ff0) && (dac_in > 16'h7ff0) && (abs_cur_in > (abs_dac_in << 1))) begin
+        else begin
             amp_disable <= 1'b1;
         end
-    
-        else if ((cur_in < 16'h800f) && (dac_in < 16'h800f) && (abs_cur_in > (abs_dac_in << 1))) begin
-//        else if ((cur_in < 16'h800f) && (dac_in < 16'h800f)) begin    
-            amp_disable <= 1'b1;
-        end
-    
-        else begin  
-            amp_disable <= 1'b0;
-        end
-
     end
-
+    
 endmodule

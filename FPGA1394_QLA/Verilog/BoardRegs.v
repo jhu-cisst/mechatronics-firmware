@@ -186,8 +186,8 @@ always @(posedge(sysclk) or negedge(reset))
         // disable all axis when wdog timeout     
         if ( (wdog_amp_disable != 4'd0) || (safety_amp_disable != 4'd0) ) 
         begin
-            reg_disable[3:0] <= (reg_disable[3:0] | wdog_amp_disable[4:1]);
-//            reg_disable[3:0] <= (reg_disable[3:0] | wdog_amp_disable[4:1] | safety_amp_disable[4:1]);
+//            reg_disable[3:0] <= (reg_disable[3:0] | wdog_amp_disable[4:1]);
+            reg_disable[3:0] <= (reg_disable[3:0] | wdog_amp_disable[4:1] | safety_amp_disable[4:1]);
         end
     end
 
