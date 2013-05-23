@@ -66,14 +66,18 @@ module SafetyCheck(
         else if ((cur_in < 16'h8300) && (cur_in > 16'h7d00)) begin
             error_counter <= 24'd0;
         end
-    
-        else if ((cur_in > 16'h7ff0) && (dac_in > 16'h7ff0) && (abs_cur_in > (abs_dac_in << 1))) begin
+        
+        else if (abs_cur_in > (abs_dac_in << 1)) begin
             error_counter <= error_counter + 1'b1;
         end
     
-        else if ((cur_in < 16'h800f) && (dac_in < 16'h800f) && (abs_cur_in > (abs_dac_in << 1))) begin
-            error_counter <= error_counter + 1'b1;
-        end
+//        else if ((cur_in > 16'h7ff0) && (dac_in > 16'h7ff0) && (abs_cur_in > (abs_dac_in << 1))) begin
+//            error_counter <= error_counter + 1'b1;
+//        end
+//    
+//        else if ((cur_in < 16'h800f) && (dac_in < 16'h800f) && (abs_cur_in > (abs_dac_in << 1))) begin
+//            error_counter <= error_counter + 1'b1;
+//        end
     
         else begin  
             error_counter <= 24'd0;
