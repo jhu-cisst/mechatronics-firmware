@@ -193,8 +193,15 @@ BUFG clktemp(.I(clk400k_raw), .O(clk400k));
 wire[15:0] tempsense;
 
 // tempsense module instantiations
-Max6576 T1(.clk400k(clk400k), .reset(reset), .In(IO1[29]), .Out(tempsense[15:8]));
-Max6576 T2(.clk400k(clk400k), .reset(reset), .In(IO1[30]), .Out(tempsense[7:0]));
+Max6576 T1(.clk400k(clk400k), 
+           .reset(reset), 
+           .In(IO1[29]), 
+           .Out(tempsense[15:8]));
+           
+Max6576 T2(.clk400k(clk400k), 
+           .reset(reset), 
+           .In(IO1[30]), 
+           .Out(tempsense[7:0]));
 
 // miscellaneous board I/Os ----------------------------------------------------
 

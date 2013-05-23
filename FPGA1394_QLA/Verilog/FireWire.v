@@ -826,7 +826,7 @@ begin
                         if (reg_addr[7:4] == num_channels) begin
                             reg_addr[7:4] <= 1;
                             reg_addr[3:0] <= dev_addr[dev_index];
-                            dev_index <= (dev_index<3) ? (dev_index+1'b1) : 0;
+                            dev_index <= (dev_index<3) ? (dev_index+1'b1) : 3'd0;
                         end
                         else
                             reg_addr[7:4] <= reg_addr[7:4] + 1'b1;

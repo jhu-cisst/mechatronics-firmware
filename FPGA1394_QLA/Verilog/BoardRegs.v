@@ -33,7 +33,7 @@
 
 
 `define VERSION 32'h514C4131       // hard-wired version number "QLA1" = 0x514C4131 
-`define FW_VERSION 32'h01          // firmware version = 1  
+`define FW_VERSION 32'h02          // firmware version = 1  
 `define WIDTH_WATCHDOG 8           // period = 5.208333 us (2^8 / 49.152 MHz)
 
 module BoardRegs(
