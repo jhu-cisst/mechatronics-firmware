@@ -75,6 +75,10 @@ module SafetyCheck_tb;
         cur_in <= 16'h8FFF;
         dac_in <= 16'h8300;
                 
+        #300 
+        cur_in <= 16'h8500;
+        dac_in <= 16'h8300;
+                
         #300
         $finish;
 
