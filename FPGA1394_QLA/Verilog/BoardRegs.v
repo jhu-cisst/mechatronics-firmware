@@ -235,7 +235,7 @@ begin
         mv_amp_disable <= 4'b0000;
     end
     else begin
-        mv_amp_disable <= 4'b0000;
+        mv_amp_disable <= 4'b1111;
         mv_good_counter <= 16'd0;
     end
 end

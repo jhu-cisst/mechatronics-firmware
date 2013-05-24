@@ -51,8 +51,8 @@ module SafetyCheck(
             error_counter <= 24'd0;
         end
 
-        // 16'h0600 = 293 mA 
-        else if (abs_error_cur > 16'h0600) begin
+        // 16'h1200 = 900 mA 
+        else if (abs_error_cur > 16'h1200) begin
             error_counter <= error_counter + 1'b1;
         end
         
