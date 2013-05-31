@@ -25,41 +25,42 @@ module SafetyCheck(
     // local variable
     reg [23:0] error_counter;  // error counter 
     reg [15:0] abs_error_cur;
+    reg [15:0] high_limit;
+    reg [15:0] low_limit;
 	 
     // ---- Code Starts Here -----
     initial begin
         amp_disable <= 1'b0;
-        abs_error_cur <= 16'd0;
         error_counter <= 24'd0;
     end
 
-    always @ (posedge clk) 
-    begin        
-        // abs_error_cur
-        if ( cur_in > dac_in ) begin
-            abs_error_cur <= cur_in - dac_in;
-        end
-        else begin
-            abs_error_cur <= dac_in - cur_in;
-        end  
-    end
-	 
-	 // amp_disable error counter 
-    always @ (posedge(clk) or negedge(reset))
+    always @ (posedge clk)
     begin
-        if (reset == 0) begin
-            error_counter <= 24'd0;
-        end
-
-        // 16'h1200 = 900 mA 
-        else if (abs_error_cur > 16'h1200) begin
-            error_counter <= error_counter + 1'b1;
+        // If measured current is small (150 mA), clear error counter
+        if ((cur_in < 16'h8300) && (cur_in > 16'h7d00)) begin
+           error_counter <= 24'd0;
         end
         
-        else begin  
-            error_counter <= 24'd0;
+        // else if commanded current is large, 
+        // clear error counter (margin = 0x0900 440 mA)
+        else if ((dac_in <= 16'h0900) || (dac_in >= 16'hf6ff)) begin
+           error_counter <= 24'd0;
+        end 
+          
+        // else perform safety check
+        else begin
+           high_limit = ((dac_in[15] == 1'b1) ? dac_in : ~dac_in) + 16'h0900;
+           low_limit = ((dac_in[15] == 1'b1) ? ~dac_in : dac_in) - 16'h0900;
+
+           if ((cur_in < low_limit) || (cur_in > high_limit)) begin
+               error_counter <= error_counter + 1;
+           end
+           else begin
+               error_counter <= 24'd0;
+           end
         end
     end
+
     
     // amp_disable
     always @ (posedge(clk) or negedge(reset))
@@ -68,9 +69,10 @@ module SafetyCheck(
             amp_disable <= 1'b0;
         end
         
+        // 50 mS 
         else if (error_counter < 24'd2457600) begin
         // for simulation
-        //else if (error_counter < 24'd5) begin 
+//        else if (error_counter < 24'd5) begin 
             amp_disable <= 1'b0;
         end
         else begin
