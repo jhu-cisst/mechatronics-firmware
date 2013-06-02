@@ -25,14 +25,17 @@ module SafetyCheck(
     // local variable
     reg [23:0] error_counter;  // error counter 
     reg [15:0] abs_error_cur;
-    reg [15:0] high_limit;
-    reg [15:0] low_limit;
+    wire [15:0] high_limit;
+    wire[15:0] low_limit;
 	 
     // ---- Code Starts Here -----
     initial begin
         amp_disable <= 1'b0;
         error_counter <= 24'd0;
     end
+    
+    assign high_limit = ((dac_in[15] == 1'b1) ? dac_in : ~dac_in) + 16'h0900;
+    assign low_limit = ((dac_in[15] == 1'b1) ? ~dac_in : dac_in) - 16'h0900;
 
     always @ (posedge clk)
     begin
@@ -49,9 +52,6 @@ module SafetyCheck(
           
         // else perform safety check
         else begin
-           high_limit = ((dac_in[15] == 1'b1) ? dac_in : ~dac_in) + 16'h0900;
-           low_limit = ((dac_in[15] == 1'b1) ? ~dac_in : dac_in) - 16'h0900;
-
            if ((cur_in < low_limit) || (cur_in > high_limit)) begin
                error_counter <= error_counter + 1;
            end
