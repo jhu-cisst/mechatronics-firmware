@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<wave_config>
+   <wave_state>
+   </wave_state>
+   <db_ref_list>
+      <db_ref path="/home/zihan/dev/mechatronics/FPGA1394_QLA/BoardRegs_tb_isim_beh.wdb" id="1" type="auto">
+         <top_modules>
+            <top_module name="BoardRegs_tb" />
+            <top_module name="glbl" />
+         </top_modules>
+      </db_ref>
+   </db_ref_list>
+   <WVObjectSize size="23" />
+   <wvobject fp_name="/BoardRegs_tb/reset" type="logic" db_ref_id="1">
+      <obj_property name="ElementShortName">reset</obj_property>
+      <obj_property name="ObjectShortName">reset</obj_property>
+   </wvobject>
+   <wvobject fp_name="/BoardRegs_tb/amp_disable" type="array" db_ref_id="1">
+      <obj_property name="ElementShortName">amp_disable[4:1]</obj_property>
+      <obj_property name="ObjectShortName">amp_disable[4:1]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/BoardRegs_tb/dout" type="array" db_ref_id="1">
+      <obj_property name="ElementShortName">dout[4:1]</obj_property>
+      <obj_property name="ObjectShortName">dout[4:1]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/BoardRegs_tb/pwr_enable" type="logic" db_ref_id="1">
+      <obj_property name="ElementShortName">pwr_enable</obj_property>
+      <obj_property name="ObjectShortName">pwr_enable</obj_property>
+   </wvobject>
+   <wvobject fp_name="/BoardRegs_tb/relay_on" type="logic" db_ref_id="1">
+      <obj_property name="ElementShortName">relay_on</obj_property>
+      <obj_property name="ObjectShortName">relay_on</obj_property>
+   </wvobject>
+   <wvobject fp_name="/BoardRegs_tb/reg_rdata" type="array" db_ref_id="1">
+      <obj_property name="ElementShortName">reg_rdata[31:0]</obj_property>
+      <obj_property name="ObjectShortName">reg_rdata[31:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/BoardRegs_tb/sysclk" type="logic" db_ref_id="1">
+      <obj_property name="ElementShortName">sysclk</obj_property>
+      <obj_property name="ObjectShortName">sysclk</obj_property>
+   </wvobject>
+   <wvobject fp_name="/BoardRegs_tb/clkaux" type="logic" db_ref_id="1">
+      <obj_property name="ElementShortName">clkaux</obj_property>
+      <obj_property name="ObjectShortName">clkaux</obj_property>
+   </wvobject>
+   <wvobject fp_name="/BoardRegs_tb/neg_limit" type="array" db_ref_id="1">
+      <obj_property name="ElementShortName">neg_limit[4:1]</obj_property>
+      <obj_property name="ObjectShortName">neg_limit[4:1]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/BoardRegs_tb/pos_limit" type="array" db_ref_id="1">
+      <obj_property name="ElementShortName">pos_limit[4:1]</obj_property>
+      <obj_property name="ObjectShortName">pos_limit[4:1]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/BoardRegs_tb/home" type="array" db_ref_id="1">
+      <obj_property name="ElementShortName">home[4:1]</obj_property>
+      <obj_property name="ObjectShortName">home[4:1]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/BoardRegs_tb/fault" type="array" db_ref_id="1">
+      <obj_property name="ElementShortName">fault[4:1]</obj_property>
+      <obj_property name="ObjectShortName">fault[4:1]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/BoardRegs_tb/relay" type="logic" db_ref_id="1">
+      <obj_property name="ElementShortName">relay</obj_property>
+      <obj_property name="ObjectShortName">relay</obj_property>
+   </wvobject>
+   <wvobject fp_name="/BoardRegs_tb/mv_good" type="logic" db_ref_id="1">
+      <obj_property name="ElementShortName">mv_good</obj_property>
+      <obj_property name="ObjectShortName">mv_good</obj_property>
+   </wvobject>
+   <wvobject fp_name="/BoardRegs_tb/v_fault" type="logic" db_ref_id="1">
+      <obj_property name="ElementShortName">v_fault</obj_property>
+      <obj_property name="ObjectShortName">v_fault</obj_property>
+   </wvobject>
+   <wvobject fp_name="/BoardRegs_tb/board_id" type="array" db_ref_id="1">
+      <obj_property name="ElementShortName">board_id[3:0]</obj_property>
+      <obj_property name="ObjectShortName">board_id[3:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/BoardRegs_tb/temp_sense" type="array" db_ref_id="1">
+      <obj_property name="ElementShortName">temp_sense[15:0]</obj_property>
+      <obj_property name="ObjectShortName">temp_sense[15:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/BoardRegs_tb/reg_addr" type="array" db_ref_id="1">
+      <obj_property name="ElementShortName">reg_addr[7:0]</obj_property>
+      <obj_property name="ObjectShortName">reg_addr[7:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/BoardRegs_tb/reg_wdata" type="array" db_ref_id="1">
+      <obj_property name="ElementShortName">reg_wdata[31:0]</obj_property>
+      <obj_property name="ObjectShortName">reg_wdata[31:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/BoardRegs_tb/wr_en" type="logic" db_ref_id="1">
+      <obj_property name="ElementShortName">wr_en</obj_property>
+      <obj_property name="ObjectShortName">wr_en</obj_property>
+   </wvobject>
+   <wvobject fp_name="/BoardRegs_tb/safety_amp_disable" type="array" db_ref_id="1">
+      <obj_property name="ElementShortName">safety_amp_disable[4:1]</obj_property>
+      <obj_property name="ObjectShortName">safety_amp_disable[4:1]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/BoardRegs_tb/cur1" type="array" db_ref_id="1">
+      <obj_property name="ElementShortName">cur1[15:0]</obj_property>
+      <obj_property name="ObjectShortName">cur1[15:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/BoardRegs_tb/dac1" type="array" db_ref_id="1">
+      <obj_property name="ElementShortName">dac1[15:0]</obj_property>
+      <obj_property name="ObjectShortName">dac1[15:0]</obj_property>
+   </wvobject>
+</wave_config>

@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<wave_config>
+   <wave_state>
+   </wave_state>
+   <db_ref_list>
+      <db_ref path="/home/zihan/dev/mechatronics/FPGA1394_QLA/SafetyCheck_tb_isim_beh.wdb" id="1" type="auto">
+         <top_modules>
+            <top_module name="SafetyCheck_tb" />
+            <top_module name="glbl" />
+         </top_modules>
+      </db_ref>
+   </db_ref_list>
+   <WVObjectSize size="6" />
+   <wvobject fp_name="/SafetyCheck_tb/amp_disable" type="logic" db_ref_id="1">
+      <obj_property name="ElementShortName">amp_disable</obj_property>
+      <obj_property name="ObjectShortName">amp_disable</obj_property>
+   </wvobject>
+   <wvobject fp_name="/SafetyCheck_tb/clk" type="logic" db_ref_id="1">
+      <obj_property name="ElementShortName">clk</obj_property>
+      <obj_property name="ObjectShortName">clk</obj_property>
+   </wvobject>
+   <wvobject fp_name="/SafetyCheck_tb/reset" type="logic" db_ref_id="1">
+      <obj_property name="ElementShortName">reset</obj_property>
+      <obj_property name="ObjectShortName">reset</obj_property>
+   </wvobject>
+   <wvobject fp_name="/SafetyCheck_tb/cur_in" type="array" db_ref_id="1">
+      <obj_property name="ElementShortName">cur_in[15:0]</obj_property>
+      <obj_property name="ObjectShortName">cur_in[15:0]</obj_property>
+      <obj_property name="Radix">HEXRADIX</obj_property>
+   </wvobject>
+   <wvobject fp_name="/SafetyCheck_tb/dac_in" type="array" db_ref_id="1">
+      <obj_property name="ElementShortName">dac_in[15:0]</obj_property>
+      <obj_property name="ObjectShortName">dac_in[15:0]</obj_property>
+      <obj_property name="Radix">HEXRADIX</obj_property>
+   </wvobject>
+   <wvobject fp_name="/SafetyCheck_tb/uut/abs_error_cur" type="array" db_ref_id="1">
+      <obj_property name="ElementShortName">abs_error_cur[15:0]</obj_property>
+      <obj_property name="ObjectShortName">abs_error_cur[15:0]</obj_property>
+      <obj_property name="Radix">HEXRADIX</obj_property>
+   </wvobject>
+</wave_config>
