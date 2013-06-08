@@ -240,9 +240,7 @@ BoardRegs chan0(
     .wr_en(reg_wen),
     .prom_status(PROM_Status),
     .prom_result(PROM_Result),
-    .safety_amp_disable(safety_amp_disable),
-    .cur1(cur_fb[1]),
-    .dac1(cur_cmd[1])
+    .safety_amp_disable(safety_amp_disable)
 );
 
 

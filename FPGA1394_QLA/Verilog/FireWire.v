@@ -883,18 +883,18 @@ endmodule
 // length of various request bitstreams
 `define LEN_LREQ 24
 
-module PhyRequest(sysclk, reset, lreq, trigger, rtype, data);
+module PhyRequest(
+    input  wire     sysclk,     // global system clock
+    input  wire     reset,      // global reset signal
+    output wire     lreq,       // lreq line to the phy
+    
+    input wire      trigger,    // initiates a link request
+    input wire[2:0] rtype,      // encoded requested type
+    input wire[11:0] data       // addr/data bits to send to phy
+);
 
-    // define I/Os
-    input sysclk;            // global system clock
-    input reset;             // global reset signal
-    input trigger;           // initiates a link request
-    input[2:0] rtype;        // encoded request type
-    input[11:0] data;        // addr/data bits to send to phy
-    output lreq;             // lreq line to the phy
-
-    // local registers
-    reg[16:0] request;       // formatted request bit sequence
+// local registers
+reg[16:0] request;       // formatted request bit sequence
 
 
 // -----------------------------------------------------------------------------

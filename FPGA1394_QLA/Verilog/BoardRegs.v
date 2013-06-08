@@ -26,8 +26,6 @@
 `define REG_PROMRES 4'd9           // PROM result (from M25P16)
 `define REG_DIGIN   4'd10          // Digital inputs (home, neg lim, pos lim)
 `define REG_SAFETY  4'd11          // Safety amp disable 
-`define REG_CUR1    4'd12          // TEMP c reg current 1  
-`define REG_DAC1    4'd13          // TEMP d reg dac 1
 `define REG_WDOG    4'd14          // TEMP wdog_samp_disable
 `define REG_REGDISABLE 4'd15       // TEMP reg_disable 
 
@@ -71,9 +69,7 @@ module BoardRegs(
     input  wire[31:0] prom_result,
     
     // Safety amp_disable
-    input  wire[4:1] safety_amp_disable,
-    input  wire[15:0] cur1,
-    input  wire[15:0] dac1
+    input  wire[4:1] safety_amp_disable
 );
 
     // -------------------------------------------------------------------------
@@ -107,8 +103,7 @@ module BoardRegs(
 // hardware description
 //
 
-// if wdog_timeout disable all ampifier 
-//assign amp_disable = (reg_disable[3:0] | safety_amp_disable[4:1]);
+// mv_amp_disable for 40 ms sleep after board pwr enable
 assign amp_disable = (reg_disable[3:0] | mv_amp_disable[4:1]);
 
 
@@ -175,8 +170,6 @@ always @(posedge(sysclk) or negedge(reset))
         `REG_PROMRES: reg_rdata <= prom_result;
         `REG_DIGIN: reg_rdata <= { 15'd0, v_fault, dout, neg_limit, pos_limit, home };
         `REG_SAFETY: reg_rdata <= { 28'd0, safety_amp_disable};
-        `REG_CUR1: reg_rdata <= {16'd0, cur1};
-        `REG_DAC1: reg_rdata <= {16'd0, dac1};
         `REG_WDOG: reg_rdata <= {28'd0, wdog_amp_disable};
         `REG_REGDISABLE: reg_rdata <= {28'd0, amp_disable};
         
