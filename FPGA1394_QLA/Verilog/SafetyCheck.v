@@ -19,6 +19,7 @@ module SafetyCheck(
     input  wire reset,          // global reset
     input  wire[15:0] cur_in,   // feedback current
     input  wire[15:0] dac_in,   // command current
+    input  wire reg_wen, 
     output reg  amp_disable     // amplifier disable
     );
      
@@ -63,9 +64,9 @@ module SafetyCheck(
 
     
     // amp_disable
-    always @ (posedge(clk) or negedge(reset))
+    always @ (posedge(clk) or negedge(reset) or posedge(reg_wen))
     begin
-        if (reset == 0) begin
+        if (reset == 0 || reg_wen) begin
             amp_disable <= 1'b0;
         end
         
@@ -73,7 +74,7 @@ module SafetyCheck(
         else if (error_counter < 24'd2457600) begin
         // for simulation
 //        else if (error_counter < 24'd5) begin 
-            amp_disable <= 1'b0;
+            amp_disable <= amp_disable;
         end
         else begin
             amp_disable <= 1'b1;

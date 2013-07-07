@@ -158,7 +158,7 @@ always @(posedge(sysclk) or negedge(reset))
                 wdog_timeout, 3'd0,            // Byte 2: watchdog timeout, motor voltage good,
                 mv_good, pwr_enable, ~relay, relay_on,   // power enable, safety relay state, safety relay control
                 4'd0, fault,                   // Byte 1: 1 -> amplifier on, 0 -> fault (up to 8 axes)
-                4'd0, ~reg_disable[3:0] };     // Byte 0: 1 -> amplifier enabled, 0 -> disabled (up to 8 axes)
+                safety_amp_disable[4:1], ~reg_disable[3:0] };     // Byte 0: 1 -> amplifier enabled, 0 -> disabled (up to 8 axes)
         `REG_PHYCTRL: reg_rdata <= phy_ctrl;
         `REG_PHYDATA: reg_rdata <= phy_data;
         `REG_TIMEOUT: reg_rdata <= wdog_period;

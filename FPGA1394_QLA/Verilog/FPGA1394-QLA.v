@@ -289,6 +289,7 @@ SafetyCheck safe1(
     .reset(reset),
     .cur_in(cur_fb[1]),
     .dac_in(cur_cmd[1]),
+    .reg_wen(reg_wen),
     .amp_disable(safety_amp_disable[1])
 );
 
@@ -297,6 +298,7 @@ SafetyCheck safe2(
     .reset(reset),
     .cur_in(cur_fb[2]),
     .dac_in(cur_cmd[2]),
+    .reg_wen(reg_wen),
     .amp_disable(safety_amp_disable[2])
 );
 
@@ -305,6 +307,7 @@ SafetyCheck safe3(
     .reset(reset),
     .cur_in(cur_fb[3]),
     .dac_in(cur_cmd[3]),
+    .reg_wen(reg_wen),
     .amp_disable(safety_amp_disable[3])
 );
 
@@ -313,6 +316,7 @@ SafetyCheck safe4(
     .reset(reset),
     .cur_in(cur_fb[4]),
     .dac_in(cur_cmd[4]),
+    .reg_wen(reg_wen),
     .amp_disable(safety_amp_disable[4])
 );
 
