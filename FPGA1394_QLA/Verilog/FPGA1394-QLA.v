@@ -12,6 +12,11 @@
 
 `timescale 1ns / 1ps
 
+// clock information
+// clk1394: 49.152 MHz 
+// sysclk: same as clk1394 49.152 MHz
+
+
 module FPGA1394QLA
 (
     // ieee 1394 phy-link interface
@@ -237,7 +242,7 @@ BoardRegs chan0(
     .reg_addr(reg_addr),
     .reg_rdata(reg_rdata_chan0),
     .reg_wdata(reg_wdata),
-    .wr_en(reg_wen),
+    .reg_wen(reg_wen),
     .prom_status(PROM_Status),
     .prom_result(PROM_Result),
     .safety_amp_disable(safety_amp_disable)

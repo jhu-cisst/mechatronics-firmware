@@ -62,7 +62,7 @@ module BoardRegs(
     input  wire[7:0] reg_addr,
     output reg[31:0] reg_rdata,
     input  wire[31:0] reg_wdata,
-    input  wire wr_en,              // write enable from FireWire module
+    input  wire reg_wen,            // write enable from FireWire module
     
     // PROM feedback
     input  wire[31:0] prom_status,
@@ -123,15 +123,15 @@ always @(posedge(sysclk) or negedge(reset))
      end
 
     // set register values for writes
-    else if (reg_addr[7:4]==0 && wr_en) begin
+    else if (reg_addr[7:4]==0 && reg_wen) begin
         case (reg_addr[3:0])
         `REG_STATUS: begin
             // mask reg_wdata[15:8] with [7:0] for disable (~enable) control
             // ([15:12] and [7:4] are for an 8-axis system)
-            reg_disable[3] <= reg_wdata[11] ? ~reg_wdata[3] : reg_disable[3];
-            reg_disable[2] <= reg_wdata[10] ? ~reg_wdata[2] : reg_disable[2];
-            reg_disable[1] <= reg_wdata[9] ? ~reg_wdata[1] : reg_disable[1];
-            reg_disable[0] <= reg_wdata[8] ? ~reg_wdata[0] : reg_disable[0];
+            reg_disable[3] <= ~pwr_enable || (reg_wdata[11] ? ~reg_wdata[3] : reg_disable[3]);
+            reg_disable[2] <= ~pwr_enable || (reg_wdata[10] ? ~reg_wdata[2] : reg_disable[2]);
+            reg_disable[1] <= ~pwr_enable || (reg_wdata[9] ? ~reg_wdata[1] : reg_disable[1]);
+            reg_disable[0] <= ~pwr_enable || (reg_wdata[8] ? ~reg_wdata[0] : reg_disable[0]);
             // mask reg_wdata[17] with [16] for safety relay control
             relay_on <= reg_wdata[17] ? reg_wdata[16] : relay_on;
             // mask reg_wdata[19] with [18] for pwr_enable
@@ -191,10 +191,10 @@ ClkDiv divWdog(sysclk, wdog_clk);
 defparam divWdog.width = `WIDTH_WATCHDOG;
 
 // watchdog timer and flag, resets via any register write
-always @(posedge(wdog_clk) or negedge(reset) or posedge(wr_en))
+always @(posedge(wdog_clk) or negedge(reset) or posedge(reg_wen))
 begin
     // reset counter/flag on reg write
-    if (reset==0 || wr_en) begin
+    if (reset==0 || reg_wen ) begin
         wdog_count <= 0;                        // reset the timer counter
         wdog_timeout <= 0;                      // clear the timeout flag
         wdog_amp_disable <= 4'b0000;            // clear wdog_amp_disable 
