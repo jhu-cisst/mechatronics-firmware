@@ -30,7 +30,7 @@
 `define REG_REGDISABLE 4'd15       // TEMP reg_disable 
 
 
-`define VERSION 32'h514C4131       // hard-wired version number "QLA1" = 0x514C4131 
+`define VERSION 32'h54455354       // hard-wired version number "TEST" = 0x54455354 
 `define FW_VERSION 32'h03          // firmware version = 3  
 `define WIDTH_WATCHDOG 8           // period = 5.208333 us (2^8 / 49.152 MHz)
 
@@ -179,8 +179,8 @@ always @(posedge(sysclk) or negedge(reset))
         // disable all axis when wdog timeout     
         if ( (wdog_amp_disable != 4'd0) || (safety_amp_disable != 4'd0) ) 
         begin
-//            reg_disable[3:0] <= (reg_disable[3:0] | wdog_amp_disable[4:1]);
-            reg_disable[3:0] <= (reg_disable[3:0] | wdog_amp_disable[4:1] | safety_amp_disable[4:1]);
+            reg_disable[3:0] <= (reg_disable[3:0] | wdog_amp_disable[4:1]);
+//            reg_disable[3:0] <= (reg_disable[3:0] | wdog_amp_disable[4:1] | safety_amp_disable[4:1]);
         end
     end
 

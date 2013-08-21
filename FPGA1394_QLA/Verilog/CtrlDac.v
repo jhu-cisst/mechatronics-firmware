@@ -34,6 +34,7 @@ module CtrlDac(
     // globals
     input wire sysclk,             // global input clock
     input wire reset,              // global reset signal
+    input wire[3:0] board_id,      // global board id
     // spi
     output wire sclk,              // serial clock
     output wire mosi,              // serial data out
@@ -95,19 +96,26 @@ LTC2601x4 dac(
 
 // select firewire or NOP data depending on if spi transfer in progress
 assign addr = (busy ? addr_dac : reg_addr[7:4]-1'b1);
-assign data = (busy ? data_nop : data_wru);
+//assign data = (busy ? data_nop : data_wru);
+assign data = data_wru;
 
 // shortcuts for command words nop and write/update
 assign data_nop = { 8'h00, `DAC_CMD_NOP, 4'h0, `DAC_VAL_INIT };
-assign data_wru = { 8'h00, `DAC_CMD_WRU, 4'h0, reg_wdata[15:0] };
+//assign data_wru = { 8'h00, `DAC_CMD_WRU, 4'h0, reg_wdata[15:0] };
+assign data_wru = { 8'h00, `DAC_CMD_WRU, 4'h0, board_id, 12'h000 };
 assign dac_word = mem_data[addr_dac];
 
 // register file (memory) interface
 always @(posedge(sysclk))
 begin
     // write selected register with firewire or NOP data source
-    if ((reg_wen && reg_addr[3:0]==`OFF_DAC_CTRL && ~busy) || flush)
-        mem_data[addr] <= data;
+//    if ((reg_wen && reg_addr[3:0]==`OFF_DAC_CTRL && ~busy) || flush)
+    if ((trig) || flush) begin
+        mem_data[0] <= data;
+        mem_data[1] <= data;
+        mem_data[2] <= data;
+        mem_data[3] <= data;
+    end
 end
 
 // copy of register file that doesn't get overwritten with NOPs
@@ -120,12 +128,23 @@ end
 
 // delay trigger (blk_wen) by a clock to allow quadlet data to be stored into
 //   mem_data, as blk_wen and reg_wen become active at the same time
+reg[9:0] trig_counter;
 always @(posedge(sysclk) or negedge(reset))
 begin
-    if (reset == 0)
+    if (reset == 0) begin
         trig <= 1'b0;
-    else
-        trig <= (blk_wen & (reg_addr[3:0]==`OFF_DAC_CTRL));
+        trig_counter <= 10'd0;
+    end
+    else begin
+        if (trig_counter < 10'd10)
+            trig <= 1'b1;
+        else begin
+            trig <= 1'b0;
+        end
+        
+        trig_counter <= trig_counter + 1'b1;
+    end
+//        trig <= (blk_wen & (reg_addr[3:0]==`OFF_DAC_CTRL));
 end
 
 

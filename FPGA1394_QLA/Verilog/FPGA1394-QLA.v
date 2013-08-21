@@ -140,6 +140,7 @@ wire[15:0] cur_cmd[1:4];
 CtrlDac dac(
     .sysclk(sysclk),
     .reset(reset),
+    .board_id(~wenid),
     .sclk(IO1[21]),
     .mosi(IO1[20]),
     .csel(IO1[22]),
