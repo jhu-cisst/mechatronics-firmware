@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<wave_config>
+   <wave_state>
+   </wave_state>
+   <db_ref_list>
+      <db_ref path="/home/zihan/dev/mechatronics/firmware/FPGA1394_QLA/LEDPWM_tb_isim_beh.wdb" id="1" type="auto">
+         <top_modules>
+            <top_module name="LEDPWM_tb" />
+            <top_module name="glbl" />
+         </top_modules>
+      </db_ref>
+   </db_ref_list>
+   <WVObjectSize size="6" />
+   <wvobject fp_name="/LEDPWM_tb/led_drive" type="logic" db_ref_id="1">
+      <obj_property name="ElementShortName">led_drive</obj_property>
+      <obj_property name="ObjectShortName">led_drive</obj_property>
+   </wvobject>
+   <wvobject fp_name="/LEDPWM_tb/sysclk" type="logic" db_ref_id="1">
+      <obj_property name="ElementShortName">sysclk</obj_property>
+      <obj_property name="ObjectShortName">sysclk</obj_property>
+   </wvobject>
+   <wvobject fp_name="/LEDPWM_tb/reset" type="logic" db_ref_id="1">
+      <obj_property name="ElementShortName">reset</obj_property>
+      <obj_property name="ObjectShortName">reset</obj_property>
+   </wvobject>
+   <wvobject fp_name="/LEDPWM_tb/uut/period" type="array" db_ref_id="1">
+      <obj_property name="ElementShortName">period[31:0]</obj_property>
+      <obj_property name="ObjectShortName">period[31:0]</obj_property>
+      <obj_property name="Radix">SIGNEDDECRADIX</obj_property>
+   </wvobject>
+   <wvobject fp_name="/LEDPWM_tb/uut/clk_768khz" type="logic" db_ref_id="1">
+      <obj_property name="ElementShortName">clk_768khz</obj_property>
+      <obj_property name="ObjectShortName">clk_768khz</obj_property>
+   </wvobject>
+   <wvobject fp_name="/LEDPWM_tb/uut/clk_pwm" type="logic" db_ref_id="1">
+      <obj_property name="ElementShortName">clk_pwm</obj_property>
+      <obj_property name="ObjectShortName">clk_pwm</obj_property>
+   </wvobject>
+</wave_config>

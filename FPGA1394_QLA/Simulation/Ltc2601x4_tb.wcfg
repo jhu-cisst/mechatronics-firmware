@@ -1,0 +1,186 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<wave_config>
+   <wave_state>
+   </wave_state>
+   <db_ref_list>
+      <db_ref path="/home/zihan/dev/mechatronics/firmware/FPGA1394_QLA/Ltc2601x4_tb_isim_beh.wdb" id="1" type="auto">
+         <top_modules>
+            <top_module name="Ltc2601x4_tb" />
+            <top_module name="glbl" />
+         </top_modules>
+      </db_ref>
+   </db_ref_list>
+   <WVObjectSize size="10" />
+   <wvobject fp_name="/Ltc2601x4_tb/addr" type="array" db_ref_id="1">
+      <obj_property name="ElementShortName">addr[3:0]</obj_property>
+      <obj_property name="ObjectShortName">addr[3:0]</obj_property>
+   </wvobject>
+   <wvobject fp_name="/Ltc2601x4_tb/clkin" type="logic" db_ref_id="1">
+      <obj_property name="ElementShortName">clkin</obj_property>
+      <obj_property name="ObjectShortName">clkin</obj_property>
+   </wvobject>
+   <wvobject fp_name="/Ltc2601x4_tb/sclk" type="logic" db_ref_id="1">
+      <obj_property name="ElementShortName">sclk</obj_property>
+      <obj_property name="ObjectShortName">sclk</obj_property>
+   </wvobject>
+   <wvobject fp_name="/Ltc2601x4_tb/csel" type="logic" db_ref_id="1">
+      <obj_property name="ElementShortName">csel</obj_property>
+      <obj_property name="ObjectShortName">csel</obj_property>
+   </wvobject>
+   <wvobject fp_name="/Ltc2601x4_tb/mosi" type="logic" db_ref_id="1">
+      <obj_property name="ElementShortName">mosi</obj_property>
+      <obj_property name="ObjectShortName">mosi</obj_property>
+   </wvobject>
+   <wvobject fp_name="/Ltc2601x4_tb/busy" type="logic" db_ref_id="1">
+      <obj_property name="ElementShortName">busy</obj_property>
+      <obj_property name="ObjectShortName">busy</obj_property>
+   </wvobject>
+   <wvobject fp_name="/Ltc2601x4_tb/flush" type="logic" db_ref_id="1">
+      <obj_property name="ElementShortName">flush</obj_property>
+      <obj_property name="ObjectShortName">flush</obj_property>
+   </wvobject>
+   <wvobject fp_name="/Ltc2601x4_tb/reset" type="logic" db_ref_id="1">
+      <obj_property name="ElementShortName">reset</obj_property>
+      <obj_property name="ObjectShortName">reset</obj_property>
+   </wvobject>
+   <wvobject fp_name="/Ltc2601x4_tb/trig" type="logic" db_ref_id="1">
+      <obj_property name="ElementShortName">trig</obj_property>
+      <obj_property name="ObjectShortName">trig</obj_property>
+   </wvobject>
+   <wvobject fp_name="/Ltc2601x4_tb/word" type="array" db_ref_id="1">
+      <obj_property name="DisplayName">label</obj_property>
+      <obj_property name="ElementShortName">word[31:0]</obj_property>
+      <obj_property name="ObjectShortName">word[31:0]</obj_property>
+      <obj_property name="label">word[31:0]</obj_property>
+      <wvobject fp_name="/Ltc2601x4_tb/word[31]" type="logic" db_ref_id="1">
+         <obj_property name="DisplayName">label</obj_property>
+         <obj_property name="ElementShortName">[31]</obj_property>
+         <obj_property name="ObjectShortName">word[31]</obj_property>
+         <obj_property name="label">[31]</obj_property>
+      </wvobject>
+      <wvobject fp_name="/Ltc2601x4_tb/word[30]" type="logic" db_ref_id="1">
+         <obj_property name="ElementShortName">[30]</obj_property>
+         <obj_property name="ObjectShortName">word[30]</obj_property>
+      </wvobject>
+      <wvobject fp_name="/Ltc2601x4_tb/word[29]" type="logic" db_ref_id="1">
+         <obj_property name="ElementShortName">[29]</obj_property>
+         <obj_property name="ObjectShortName">word[29]</obj_property>
+      </wvobject>
+      <wvobject fp_name="/Ltc2601x4_tb/word[28]" type="logic" db_ref_id="1">
+         <obj_property name="ElementShortName">[28]</obj_property>
+         <obj_property name="ObjectShortName">word[28]</obj_property>
+      </wvobject>
+      <wvobject fp_name="/Ltc2601x4_tb/word[27]" type="logic" db_ref_id="1">
+         <obj_property name="ElementShortName">[27]</obj_property>
+         <obj_property name="ObjectShortName">word[27]</obj_property>
+      </wvobject>
+      <wvobject fp_name="/Ltc2601x4_tb/word[26]" type="logic" db_ref_id="1">
+         <obj_property name="ElementShortName">[26]</obj_property>
+         <obj_property name="ObjectShortName">word[26]</obj_property>
+      </wvobject>
+      <wvobject fp_name="/Ltc2601x4_tb/word[25]" type="logic" db_ref_id="1">
+         <obj_property name="ElementShortName">[25]</obj_property>
+         <obj_property name="ObjectShortName">word[25]</obj_property>
+      </wvobject>
+      <wvobject fp_name="/Ltc2601x4_tb/word[24]" type="logic" db_ref_id="1">
+         <obj_property name="ElementShortName">[24]</obj_property>
+         <obj_property name="ObjectShortName">word[24]</obj_property>
+      </wvobject>
+      <wvobject fp_name="/Ltc2601x4_tb/word[23]" type="logic" db_ref_id="1">
+         <obj_property name="ElementShortName">[23]</obj_property>
+         <obj_property name="ObjectShortName">word[23]</obj_property>
+      </wvobject>
+      <wvobject fp_name="/Ltc2601x4_tb/word[22]" type="logic" db_ref_id="1">
+         <obj_property name="ElementShortName">[22]</obj_property>
+         <obj_property name="ObjectShortName">word[22]</obj_property>
+      </wvobject>
+      <wvobject fp_name="/Ltc2601x4_tb/word[21]" type="logic" db_ref_id="1">
+         <obj_property name="ElementShortName">[21]</obj_property>
+         <obj_property name="ObjectShortName">word[21]</obj_property>
+      </wvobject>
+      <wvobject fp_name="/Ltc2601x4_tb/word[20]" type="logic" db_ref_id="1">
+         <obj_property name="ElementShortName">[20]</obj_property>
+         <obj_property name="ObjectShortName">word[20]</obj_property>
+      </wvobject>
+      <wvobject fp_name="/Ltc2601x4_tb/word[19]" type="logic" db_ref_id="1">
+         <obj_property name="ElementShortName">[19]</obj_property>
+         <obj_property name="ObjectShortName">word[19]</obj_property>
+      </wvobject>
+      <wvobject fp_name="/Ltc2601x4_tb/word[18]" type="logic" db_ref_id="1">
+         <obj_property name="ElementShortName">[18]</obj_property>
+         <obj_property name="ObjectShortName">word[18]</obj_property>
+      </wvobject>
+      <wvobject fp_name="/Ltc2601x4_tb/word[17]" type="logic" db_ref_id="1">
+         <obj_property name="ElementShortName">[17]</obj_property>
+         <obj_property name="ObjectShortName">word[17]</obj_property>
+      </wvobject>
+      <wvobject fp_name="/Ltc2601x4_tb/word[16]" type="logic" db_ref_id="1">
+         <obj_property name="ElementShortName">[16]</obj_property>
+         <obj_property name="ObjectShortName">word[16]</obj_property>
+      </wvobject>
+      <wvobject fp_name="/Ltc2601x4_tb/word[15]" type="logic" db_ref_id="1">
+         <obj_property name="ElementShortName">[15]</obj_property>
+         <obj_property name="ObjectShortName">word[15]</obj_property>
+      </wvobject>
+      <wvobject fp_name="/Ltc2601x4_tb/word[14]" type="logic" db_ref_id="1">
+         <obj_property name="ElementShortName">[14]</obj_property>
+         <obj_property name="ObjectShortName">word[14]</obj_property>
+      </wvobject>
+      <wvobject fp_name="/Ltc2601x4_tb/word[13]" type="logic" db_ref_id="1">
+         <obj_property name="ElementShortName">[13]</obj_property>
+         <obj_property name="ObjectShortName">word[13]</obj_property>
+      </wvobject>
+      <wvobject fp_name="/Ltc2601x4_tb/word[12]" type="logic" db_ref_id="1">
+         <obj_property name="ElementShortName">[12]</obj_property>
+         <obj_property name="ObjectShortName">word[12]</obj_property>
+      </wvobject>
+      <wvobject fp_name="/Ltc2601x4_tb/word[11]" type="logic" db_ref_id="1">
+         <obj_property name="ElementShortName">[11]</obj_property>
+         <obj_property name="ObjectShortName">word[11]</obj_property>
+      </wvobject>
+      <wvobject fp_name="/Ltc2601x4_tb/word[10]" type="logic" db_ref_id="1">
+         <obj_property name="ElementShortName">[10]</obj_property>
+         <obj_property name="ObjectShortName">word[10]</obj_property>
+      </wvobject>
+      <wvobject fp_name="/Ltc2601x4_tb/word[9]" type="logic" db_ref_id="1">
+         <obj_property name="ElementShortName">[9]</obj_property>
+         <obj_property name="ObjectShortName">word[9]</obj_property>
+      </wvobject>
+      <wvobject fp_name="/Ltc2601x4_tb/word[8]" type="logic" db_ref_id="1">
+         <obj_property name="ElementShortName">[8]</obj_property>
+         <obj_property name="ObjectShortName">word[8]</obj_property>
+      </wvobject>
+      <wvobject fp_name="/Ltc2601x4_tb/word[7]" type="logic" db_ref_id="1">
+         <obj_property name="ElementShortName">[7]</obj_property>
+         <obj_property name="ObjectShortName">word[7]</obj_property>
+      </wvobject>
+      <wvobject fp_name="/Ltc2601x4_tb/word[6]" type="logic" db_ref_id="1">
+         <obj_property name="ElementShortName">[6]</obj_property>
+         <obj_property name="ObjectShortName">word[6]</obj_property>
+      </wvobject>
+      <wvobject fp_name="/Ltc2601x4_tb/word[5]" type="logic" db_ref_id="1">
+         <obj_property name="ElementShortName">[5]</obj_property>
+         <obj_property name="ObjectShortName">word[5]</obj_property>
+      </wvobject>
+      <wvobject fp_name="/Ltc2601x4_tb/word[4]" type="logic" db_ref_id="1">
+         <obj_property name="ElementShortName">[4]</obj_property>
+         <obj_property name="ObjectShortName">word[4]</obj_property>
+      </wvobject>
+      <wvobject fp_name="/Ltc2601x4_tb/word[3]" type="logic" db_ref_id="1">
+         <obj_property name="ElementShortName">[3]</obj_property>
+         <obj_property name="ObjectShortName">word[3]</obj_property>
+      </wvobject>
+      <wvobject fp_name="/Ltc2601x4_tb/word[2]" type="logic" db_ref_id="1">
+         <obj_property name="ElementShortName">[2]</obj_property>
+         <obj_property name="ObjectShortName">word[2]</obj_property>
+      </wvobject>
+      <wvobject fp_name="/Ltc2601x4_tb/word[1]" type="logic" db_ref_id="1">
+         <obj_property name="ElementShortName">[1]</obj_property>
+         <obj_property name="ObjectShortName">word[1]</obj_property>
+      </wvobject>
+      <wvobject fp_name="/Ltc2601x4_tb/word[0]" type="logic" db_ref_id="1">
+         <obj_property name="ElementShortName">[0]</obj_property>
+         <obj_property name="ObjectShortName">word[0]</obj_property>
+      </wvobject>
+   </wvobject>
+</wave_config>
