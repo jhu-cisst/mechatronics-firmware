@@ -94,6 +94,7 @@ module BoardRegs(
 
     // reset signal generation
     reg[6:0] reset_shift;       // counts number of clocks after reset
+    reg reset_soft_trigger;     // trigger global reset when set
     initial begin
         reset_shift = 0;
         reset = 1;
@@ -120,6 +121,7 @@ always @(posedge(sysclk) or negedge(reset))
         wdog_period <= 16'hffff; // disables watchdog by default
         relay_on <= 0;           // start with safety relay off
         dout <= 0;               // clear digital outputs 
+        reset_soft_trigger <= 1'b0;  // clear reset_soft_trigger
      end
 
     // set register values for writes
@@ -136,6 +138,8 @@ always @(posedge(sysclk) or negedge(reset))
             relay_on <= reg_wdata[17] ? reg_wdata[16] : relay_on;
             // mask reg_wdata[19] with [18] for pwr_enable
             pwr_enable <= reg_wdata[19] ? reg_wdata[18] : pwr_enable;
+            // mask reg_wdata[21] with [20] for soft_reset
+            reset_soft_trigger <= reg_wdata[21] ? reg_wdata[20] : 1'b0;
         end
         `REG_PHYCTRL: phy_ctrl <= reg_wdata[15:0];
         `REG_PHYDATA: phy_data <= reg_wdata[15:0];
@@ -249,6 +253,10 @@ begin
         reset <= 0;
     end
     // deactivate /reset to let system run
+    else if (reset_soft_trigger) begin
+        reset_shift <= 0;
+        reset <= 1;
+    end 
     else
         reset <= 1;
 end
