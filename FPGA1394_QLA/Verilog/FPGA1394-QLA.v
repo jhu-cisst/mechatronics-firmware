@@ -342,94 +342,16 @@ assign TxD = 0;
 
 //------------------------------------------------------------------------------
 // show green 1, red 1, green 2, red 2 leds using pwm
-assign IO2[1] = pwm_signal[4];
-assign IO2[3] = pwm_signal[3];
-assign IO2[5] = pwm_signal[1];
-assign IO2[7] = pwm_signal[2];
+LEDPWM led_green_1(sysclk, reset, IO2[1]);
+defparam led_green_1.start_phase = 250;
 
-// declarations
-reg pwm_signal[1:4];                // pwm signals
-reg[31:0] count_width;              // pulse width counter
-reg[31:0] pulse_width[1:4];         // variable pulse widths
-reg[31:0] period, i;                // for cycling through lookup table
-reg[31:0] ROM_PWM[1:4][0:MPT-1];    // lookup table for pulse width patterns
-parameter MPT = 1024;               // number of lookup table elements
+LEDPWM led_red_1(sysclk, reset, IO2[3]);
+defparam led_red_1.start_phase = 700;
 
-// generate pwm signal using 187.5 Hz clock (4096 sysclk counts per period)
-ClkDiv divpwm(sysclk, clk_pwm); defparam divpwm.width = 18;
-always @(posedge(clk_1mhz) or posedge(clk_pwm))
-begin
-    if (clk_pwm)
-        count_width <= 0;
-    else begin
-        count_width <= count_width + 1'b1;
-        pwm_signal[1] <= (count_width < pulse_width[1]);
-        pwm_signal[2] <= (count_width < pulse_width[2]);
-        pwm_signal[3] <= (count_width < pulse_width[3]);
-        pwm_signal[4] <= (count_width < pulse_width[4]);
-    end
-end
+LEDPWM led_green_2(sysclk, reset, IO2[5]);
+defparam led_green_2.start_phase = 0;
 
-// vary the pulse widths, updating them at 93.75 Hz
-ClkDiv divpw(sysclk, clk_pulsewidth); defparam divpw.width = 19;
-always @(posedge(clk_pulsewidth))
-begin
-    period <= (period+1) % MPT;
-    pulse_width[1] <= ROM_PWM[1][period];
-    pulse_width[2] <= ROM_PWM[2][period];
-    pulse_width[3] <= ROM_PWM[3][period];
-    pulse_width[4] <= ROM_PWM[4][period];
-end
-
-// lookup table values for the pulse width patterns
-initial begin
-    for (i=  0; i<  1; i=i+1) ROM_PWM[1][i] = 20; // first element
-    for (i=  1; i<100; i=i+1) ROM_PWM[1][i] = ROM_PWM[1][i-1] + 20;
-    for (i=100; i<200; i=i+1) ROM_PWM[1][i] = ROM_PWM[1][i-1] - 20;
-    for (i=200; i<300; i=i+1) ROM_PWM[1][i] = 0;
-    for (i=300; i<400; i=i+1) ROM_PWM[1][i] = 0;
-    for (i=400; i<500; i=i+1) ROM_PWM[1][i] = ROM_PWM[1][i-1] + 20;
-    for (i=500; i<600; i=i+1) ROM_PWM[1][i] = ROM_PWM[1][i-1] - 20;
-    for (i=600; i<700; i=i+1) ROM_PWM[1][i] = ROM_PWM[1][i-1] + 20;
-    for (i=700; i<800; i=i+1) ROM_PWM[1][i] = ROM_PWM[1][i-1] - 20;
-    for (i=800; i<900; i=i+1) ROM_PWM[1][i] = 0;
-    for (i=900; i<MPT; i=i+1) ROM_PWM[1][i] = 0;
-
-    for (i=  0; i<  1; i=i+1) ROM_PWM[2][i] = 0; // first element
-    for (i=  1; i<100; i=i+1) ROM_PWM[2][i] = 0;
-    for (i=100; i<200; i=i+1) ROM_PWM[2][i] = 0;
-    for (i=200; i<300; i=i+1) ROM_PWM[2][i] = ROM_PWM[2][i-1] + 20;
-    for (i=300; i<400; i=i+1) ROM_PWM[2][i] = ROM_PWM[2][i-1] - 20;
-    for (i=400; i<500; i=i+1) ROM_PWM[2][i] = ROM_PWM[2][i-1] + 20;
-    for (i=500; i<600; i=i+1) ROM_PWM[2][i] = ROM_PWM[2][i-1] - 20;
-    for (i=600; i<700; i=i+1) ROM_PWM[2][i] = 0;
-    for (i=700; i<800; i=i+1) ROM_PWM[2][i] = ROM_PWM[2][i-1] + 20;
-    for (i=800; i<900; i=i+1) ROM_PWM[2][i] = ROM_PWM[2][i-1] - 20;
-    for (i=900; i<MPT; i=i+1) ROM_PWM[2][i] = 0;
-
-    for (i=  0; i< 50; i=i+1) ROM_PWM[3][i] = 0; // first element
-    for (i= 50; i<150; i=i+1) ROM_PWM[3][i] = ROM_PWM[3][i-1] + 20;
-    for (i=150; i<250; i=i+1) ROM_PWM[3][i] = ROM_PWM[3][i-1] - 20;
-    for (i=250; i<350; i=i+1) ROM_PWM[3][i] = 0;
-    for (i=350; i<450; i=i+1) ROM_PWM[3][i] = 0;
-    for (i=450; i<550; i=i+1) ROM_PWM[3][i] = ROM_PWM[3][i-1] + 20;
-    for (i=550; i<650; i=i+1) ROM_PWM[3][i] = ROM_PWM[3][i-1] - 20;
-    for (i=650; i<750; i=i+1) ROM_PWM[3][i] = ROM_PWM[3][i-1] + 20;
-    for (i=750; i<850; i=i+1) ROM_PWM[3][i] = ROM_PWM[3][i-1] - 20;
-    for (i=850; i<950; i=i+1) ROM_PWM[3][i] = 0;
-    for (i=950; i<MPT; i=i+1) ROM_PWM[3][i] = 0;
-
-    for (i=  0; i< 50; i=i+1) ROM_PWM[4][i] = 0; // first element
-    for (i= 50; i<150; i=i+1) ROM_PWM[4][i] = 0;
-    for (i=150; i<250; i=i+1) ROM_PWM[4][i] = 0;
-    for (i=250; i<350; i=i+1) ROM_PWM[4][i] = ROM_PWM[4][i-1] + 20;
-    for (i=350; i<450; i=i+1) ROM_PWM[4][i] = ROM_PWM[4][i-1] - 20;
-    for (i=450; i<550; i=i+1) ROM_PWM[4][i] = ROM_PWM[4][i-1] + 20;
-    for (i=550; i<650; i=i+1) ROM_PWM[4][i] = ROM_PWM[4][i-1] - 20;
-    for (i=650; i<750; i=i+1) ROM_PWM[4][i] = 0;
-    for (i=750; i<850; i=i+1) ROM_PWM[4][i] = ROM_PWM[4][i-1] + 20;
-    for (i=850; i<950; i=i+1) ROM_PWM[4][i] = ROM_PWM[4][i-1] - 20;
-    for (i=950; i<MPT; i=i+1) ROM_PWM[4][i] = 0;
-end
+LEDPWM led_red_2(sysclk, reset, IO2[7]);
+defparam led_red_2.start_phase = 200;
 
 endmodule
