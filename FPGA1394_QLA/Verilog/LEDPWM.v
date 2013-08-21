@@ -29,11 +29,11 @@ parameter start_phase = 0;   // pwm param, 0 to 1023
 
 // generate clock
 wire clk_768khz;  // clk 768khz
-ClkDiv divenc1(sysclk, clk_768khz); defparam divenc1.width = 6;
+ClkDiv div768khz(sysclk, clk_768khz); defparam div768khz.width = 6;
 wire clk_pwm;  // pwm signal 187.5 Hz, 4096 cnts clk_768khz
 ClkDiv divpwm(sysclk, clk_pwm); defparam divpwm.width = 18;
 wire clk_pwm_width;  // clk for pwm width update 93.75 Hz
-ClkDiv divpw(sysclk, clk_pulsewidth); defparam divpw.width = 19;
+ClkDiv divpw(sysclk, clk_pwm_width); defparam divpw.width = 19;
 
 // variable
 reg[31:0] ROM_PWM[0:1023];    // pwm period lookup table
