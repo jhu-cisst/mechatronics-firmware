@@ -23,12 +23,16 @@
  *                                     Fixed mixed blocking/non-blocking issues
  */
 
+// LLC: link layer controller (implemented in this file)
+
+
 // constants for receive speed codes
+// See Book P237 Receving Packets, D[0] is omitted here
 `define RX_S100 3'b000            // 100 Mbps
 `define RX_S200 3'b001            // 200 Mbps
 `define RX_S400 3'b101            // 400 Mbps
 
-// phy request types
+// phy request types (Ref: Book P230)
 `define LREQ_TX_IMM 3'd0          // immediate transmit header
 `define LREQ_TX_ISO 3'd1          // isochronous transmit header
 `define LREQ_TX_PRI 3'd2          // priority transmit header
@@ -38,10 +42,17 @@
 `define LREQ_ACCEL 3'd6           // async arbitration acceleration
 `define LREQ_RES 3'd7             // reserved, presumably do nothing
 
-// transmit mode ctl constants
-`define CTL_IDLE 2'd0             // link asserts idle (done)
-`define CTL_DATA 2'd1             // link is transmitting data
-`define CTL_HOLD 2'd2             // link wants to hold the bus
+// transmit mode ctl constants (llc driving)
+`define CTL_IDLE 2'b00             // link asserts idle (done)
+`define CTL_DATA 2'b01             // link is transmitting data
+`define CTL_HOLD 2'b10             // link wants to hold the bus
+`define CTL_UNUSED 2'b11           // link UNUSED
+
+// transmit mode ctl constant (phy driving)
+`define CTL_PHY_IDLE 2'b00         // phy driven ctrl status idle
+`define CTL_PHY_RECV 2'b01         // phy driven ctrl status receive
+`define CTL_PHY_STAT 2'b10         // phy driven ctrl status status
+`define CTL_PHY_GRNT 2'b11         // phy driven ctrl status grand
 
 // packet sizes
 `define SZ_ACK 8                  // ack packet size
@@ -102,7 +113,10 @@ module PhyLinkInterface(
     
     // transmit parameters
     output reg lreq_trig,   // trigger signal for a phy request
-    output reg[2:0] lreq_type   // type of request to give to the phy
+    output reg[2:0] lreq_type,   // type of request to give to the phy
+    
+    // ZC: debug only 
+    output rx_active
 );
 
 
@@ -283,6 +297,7 @@ begin
             reg_wen <= 0;                          // no register write events
             blk_wen <= 0;                          // no block write events
             crc_tx <= 0;                           // not in a transmit state
+            rx_active <= 0;                        // receive not active
 
             // monitor ctl to select next state
             case (ctl)
@@ -348,7 +363,8 @@ begin
 
         // ---------------------------------------------------------------------
         // wait until data-on goes away, i.e. when phy provides speed code
-        //
+        // Data: 00h FFh FFh FFh FFh Speed Data0 Data1 Data2 .... Datan 00h 00h
+        // Ctrl: 00b 01b 01b 01b 01b   01b   01b   01b   01b ....   01b 00b 00b
         ST_RX_D_ON:
         begin
             // wait out data-on until data RX starts (or null packet indicated)
@@ -566,7 +582,7 @@ begin
                 begin
                     // next state, go back to idle
                     state <= ST_IDLE;
-
+                    
                     // makes the ack an error if there is a crc error
                     if (crc_comp != buffer)
                         tx_type <= `TX_TYPE_DATA;

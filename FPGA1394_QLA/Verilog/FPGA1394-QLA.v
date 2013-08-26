@@ -75,26 +75,30 @@ assign prom_blk_enable = (reg_addr[7:6] == 2'b11) ? 1'b1 : 1'b0;
 // route read data based on read address (channel 0 is a special axis)
 assign reg_rdata = (reg_addr[7:4] == 0) ? reg_rdata_chan0
                    : (prom_blk_enable ? reg_rdata_prom : reg_rd[reg_addr[3:0]]);
-assign reset_phy = 1'b1;
+assign reset_phy = 1'b1;    // 1394 phy low reset, never reset
 
 // firewire modules ------------------------------------------------------------
 
 // phy-link interface
+wire rx_active;
 PhyLinkInterface phy(
     sysclk, reset, ~wenid,    // in: global clock, reset, board id
     ctl, data,                // bi: phy ctl and data lines
     reg_wen, blk_wen, blk_wact,
     reg_addr,                 // out: register write signal/address
     reg_rdata, reg_wdata,     // out/in: register read address/data
-    lreq_trig, lreq_type      // out: phy request trigger and type
+    lreq_trig, lreq_type,     // out: phy request trigger and type
+    rx_active                 // out: for debugging
 );
 
 // phy request module
 PhyRequest phyreq(
-    sysclk, reset,            // in: global clock and reset
-    lreq,                     // out: phy request line
-    lreq_trig, lreq_type,     // in: phy request trigger and type
-    reg_wdata[11:0]           // in: phy request data
+    .sysclk(sysclk),          // in: global clock
+    .reset(reset),            // in: reset
+    .lreq(lreq),              // out: phy request line
+    .trigger(lreq_trig),      // in: phy request trigger
+    .rtype(lreq_type),        // in: phy request type
+    .data(reg_wdata[11:0])    // in: phy request data
 );
 
 // adcs ------------------------------------------------------------------------
@@ -338,11 +342,30 @@ always @(posedge(clk29m)) Baud <= Baud + 1'b1;
 always @(posedge(clk40m)) CountC <= CountC + 1'b1;
 always @(posedge(sysclk)) CountI <= CountI + 1'b1;
 
-assign LED = IO1[32];
+// assign LED = IO1[32];     // NOTE: IO1[32] pwr_enable
+assign LED = reg_led;
 assign DEBUG = { clk_1mhz, clk_12hz, CountI[23], CountC[23] };
 assign TxD = 0;
 
+reg reg_led;
+reg[4:0] reg_led_counter;
+always @(posedge(rx_active) or posedge(clk_12hz)) begin
+    if (rx_active == 1'b1) begin
+        reg_led_counter <= 0;
+        reg_led <= 1'b1;
+    end
+    else if (reg_led_counter <= 5'd30) begin
+        reg_led_counter <= reg_led_counter + 1;
+        reg_led <= 1'b1;
+    end
+    else begin
+        reg_led <= 1'b0;
+    end
+end
+
+
 //------------------------------------------------------------------------------
+// LEDs on QLA 
 CtrlLED qla_led(
     .sysclk(sysclk),
     .clk_12hz(clk_12hz),
