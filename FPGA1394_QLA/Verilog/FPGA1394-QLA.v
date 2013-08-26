@@ -341,48 +341,14 @@ assign DEBUG = { clk_1mhz, clk_12hz, CountI[23], CountC[23] };
 assign TxD = 0;
 
 //------------------------------------------------------------------------------
-reg led_reset_mode;
-reg led_reset_signal;
-reg[4:0] led_reset_mode_counter;
-always @(negedge(reset) or posedge(clk_12hz))
-begin
-    if (reset == 0) begin
-        led_reset_mode_counter <= 5'd0;
-        led_reset_signal <= 1'b0;
-    end
-    else begin
-        if (led_reset_mode_counter < 5'd31) begin
-            led_reset_mode_counter <= led_reset_mode_counter + 1'b1;
-            led_reset_mode <= 1'b1;
-            led_reset_signal <= ~led_reset_signal;
-        end
-        else begin
-            led_reset_mode <= 1'b0;
-        end
-    end
-end
-
-// show green 1, red 1, green 2, red 2 leds using pwm
-wire led_green1;
-LEDPWM led_green_pwm_1(sysclk, reset, led_green1);
-defparam led_green_pwm_1.start_phase = 250;
-
-wire led_red1;
-LEDPWM led_red_pwm_1(sysclk, reset, led_red1);
-defparam led_red_pwm_1.start_phase = 700;
-
-wire led_green2;
-LEDPWM led_green_pwm_2(sysclk, reset, led_green2);
-defparam led_green_pwm_2.start_phase = 0;
-
-wire led_red2;
-LEDPWM led_red_pwm_2(sysclk, reset, led_red2);
-defparam led_red_pwm_2.start_phase = 200;
-
-// output to led using mux
-assign IO2[1] = (led_reset_mode) ? 1'b0 : led_green1;
-assign IO2[3] = (led_reset_mode) ? led_reset_signal : led_red1;
-assign IO2[5] = (led_reset_mode) ? 1'b0 : led_green2;
-assign IO2[7] = (led_reset_mode) ? led_reset_signal : led_red2;
+CtrlLED qla_led(
+    .sysclk(sysclk),
+    .clk_12hz(clk_12hz),
+    .reset(reset),
+    .led1_grn(IO2[1]),
+    .led1_red(IO2[3]),
+    .led2_grn(IO2[5]),
+    .led2_red(IO2[7])
+);
 
 endmodule
