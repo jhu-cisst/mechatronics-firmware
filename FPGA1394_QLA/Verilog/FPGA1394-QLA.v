@@ -55,7 +55,9 @@ module FPGA1394QLA
 
     wire lreq_trig;
     wire[2:0] lreq_type;
-    wire reg_wen, blk_wen, blk_wact;
+    wire reg_wen;   // register write signal
+    wire blk_wen;   // block write enable
+    wire blk_wact;
     wire[7:0] reg_addr;
     wire[31:0] reg_rdata;
     wire[31:0] reg_wdata;

@@ -81,49 +81,38 @@
 `define INVALID_SIZE -16'd1       // packet size that we should never encounter
 
 module PhyLinkInterface(
-    sysclk, reset, board_id,
-    ctl_ext, data_ext,
-    reg_wen, blk_wen, blk_wstart,
-    reg_addr, reg_rdata, reg_wdata,
-    lreq_trig, lreq_type
+    // globals
+    input wire sysclk,   // system clock
+    input wire reset,    // global reset
+    input wire[3:0] board_id,   // global board id
+    
+    // phy-link interface bus
+    inout[1:0] ctl_ext,    // control line
+    inout[7:0] data_ext,   // data bus
+    
+    // act on received packets
+    output reg reg_wen,  // register write signal
+    output reg blk_wen,  // block write signal
+    output reg blk_wstart,  // block write is starting
+    
+    // register access
+    output reg[7:0] reg_addr,  // read address to external register file
+    input wire[31:0] reg_rdata,   // read data from external register file
+    output reg[31:0] reg_wdata,   // write data to external register file
+    
+    // transmit parameters
+    output reg lreq_trig,   // trigger signal for a phy request
+    output reg[2:0] lreq_type   // type of request to give to the phy
 );
 
-    // -------------------------------------------------------------------------
-    // define I/Os
-    //
-
-    // globals
-    input sysclk;                 // system clock
-    input reset;                  // global reset
-    input[3:0] board_id;          // global board id
-
-    // phy-link interface bus
-    inout[1:0] ctl_ext;           // control line
-    inout[7:0] data_ext;          // data bus
-
-    // act on received packets
-    output reg_wen;               // register write signal
-    output blk_wen;               // block write signal
-    output blk_wstart;            // block write is starting
-
-    // register access
-    output[7:0] reg_addr;         // read address to external register file
-    input[31:0] reg_rdata;        // read data from external register file
-    output[31:0] reg_wdata;       // write data to external register file
-
-    // transmit parameters
-    output lreq_trig;             // trigger signal for a phy request
-    output[2:0] lreq_type;        // type of request to give to the phy
 
     // -------------------------------------------------------------------------
     // registered outputs
     //
-
+    
+    // phy-link interface bus
     reg[7:0] data;                // data bus register
     reg[1:0] ctl;                 // control register
-    reg blk_wstart;               // start of a block write
-    reg reg_wen;                  // register write signal
-    reg blk_wen;                  // block write signal
 
     // -------------------------------------------------------------------------
     // local wires and registers
@@ -163,8 +152,6 @@ module PhyLinkInterface(
     reg crc_tx;                   // flag to inidicate if in a transmit state
 
     // link request trigger and type
-    reg[2:0] lreq_type;           // encoded phy request type
-    reg lreq_trig;                // phy request trigger
     reg crc_ini;                  // flag to reset the crc module
     wire phy_rw;                  // 0=phy reg read, 1=phy reg write
 
@@ -173,9 +160,7 @@ module PhyLinkInterface(
     reg[15:0] rx_dest;            // destination ID field
     reg[5:0] rx_tag;              // tag field
     reg[15:0] rx_src;             // source ID field
-    reg[7:0] reg_addr;            // register address
     reg[15:0] reg_dlen;           // block data length
-    reg[31:0] reg_wdata;          // register write data
 
     // real-time read stuff
     // an array of 4 4-bits device address
@@ -472,12 +457,20 @@ begin
                                     end
                                 endcase
                             end
+                            // nodeid = b111111 is broadcast message 
+                            // no response
+//                            else if (buffer[21:16] == 6'b111111) begin
+//                                rx_active <= 1; 
+//                                lreq_trig <= 0;
+//                                lreq_type <= `LREQ_RES;
+//                                tx_type <= `TX_TYPE_DATA;
+//                            end
                             else begin
                                 rx_active <= 0;
                                 lreq_trig <= 0;
                                 lreq_type <= `LREQ_RES;
                                 tx_type <= `TX_TYPE_DATA;
-                            end
+                            end // nodeid
                         end
                         // second quadlet --------------------------------------
                         64: begin
@@ -871,7 +864,7 @@ begin
     end
 end
 
-endmodule
+endmodule  // PhyLinkInterface
 
 
 /*******************************************************************************
@@ -925,4 +918,4 @@ begin
         request <= request << 1;
 end
 
-endmodule
+endmodule  // PhyRequest
