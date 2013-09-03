@@ -597,7 +597,7 @@ begin
 
                     // trigger a quadlet or block write event
                     reg_wen <= (rx_active & (rx_tcode==`TC_QWRITE));
-                    blk_wen <= (rx_active & (rx_tcode==`TC_QWRITE) | (rx_tcode==`TC_BWRITE));
+                    blk_wen <= (rx_active & ((rx_tcode==`TC_QWRITE) | (rx_tcode==`TC_BWRITE)));
                 end
 
                 // -------------------------------------------------------------

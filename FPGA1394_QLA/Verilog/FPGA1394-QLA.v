@@ -354,7 +354,7 @@ always @(posedge(rx_active) or posedge(clk_12hz)) begin
         reg_led_counter <= 0;
         reg_led <= 1'b1;
     end
-    else if (reg_led_counter <= 5'd30) begin
+    else if (reg_led_counter <= 5'd16) begin
         reg_led_counter <= reg_led_counter + 1;
         reg_led <= 1'b1;
     end
