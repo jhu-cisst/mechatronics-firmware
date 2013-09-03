@@ -70,6 +70,7 @@
 `define TC_BREAD 4'd5             // block read
 `define TC_QRESP 4'd6             // quadlet read response
 `define TC_BRESP 4'd7             // block read response
+`define TC_CSTART 4'd8            // cycle start packet
 `define RC_DONE 4'd0              // complete response code
 
 // ack values
@@ -473,14 +474,21 @@ begin
                                     end
                                 endcase
                             end
-                            // nodeid = b111111 is broadcast message 
-                            // no response
-//                            else if (buffer[21:16] == 6'b111111) begin
-//                                rx_active <= 1; 
-//                                lreq_trig <= 0;
-//                                lreq_type <= `LREQ_RES;
-//                                tx_type <= `TX_TYPE_DATA;
-//                            end
+                            // ignore cycle start packet
+                            else if (buffer[7:4] == `TC_CSTART) begin
+                                rx_active <= 0;
+                                lreq_trig <= 0;
+                                lreq_type <= `LREQ_RES;
+                                tx_type <= `TX_TYPE_DATA;
+                            end
+                            // process broadcast q/b write
+                            // nodeid = 6'b111111, no response required
+                            else if ((buffer[21:16] == 6'b111111) && (buffer[7:4] == `TC_QWRITE)) begin
+                                rx_active <= 1; 
+                                lreq_trig <= 0;
+                                lreq_type <= `LREQ_RES;
+                                tx_type <= `TX_TYPE_DATA;
+                            end
                             else begin
                                 rx_active <= 0;
                                 lreq_trig <= 0;
@@ -572,7 +580,7 @@ begin
                             // - increment bit counter by (2,4,8)
                             // - feed back new crc for next iteration
                         end
-                    endcase
+                    endcase  // rx_speed
                 end
 
                 // -------------------------------------------------------------
