@@ -136,6 +136,7 @@ module PhyLinkInterface(
     // various
     reg tx_hold;                  // transmit hold flag
     reg rx_active;                // rx active flag
+    reg rx_bc_bwrite;             // rx broadcast block write flag
     reg[3:0] state, next;         // state register
     reg[2:0] rx_speed;            // received speed code
     reg[3:0] tx_type;             // encodes transmit type
@@ -299,6 +300,7 @@ begin
             blk_wen <= 0;                          // no block write events
             crc_tx <= 0;                           // not in a transmit state
             rx_active <= 0;                        // receive not active
+            rx_bc_bwrite <= 1'b0;                  // receive broadcast block write
 
             // monitor ctl to select next state
             case (ctl)
@@ -415,6 +417,19 @@ begin
                                 reg_wdata <= buffer;   // data to program
                                 reg_wen <= rx_active;
                             end
+                            else if (rx_bc_bwrite) begin  // Broadcast block write dac data
+                                // channel address circularly increments from 1 to num_channels
+                                // (chan addr and dev offset are previously set)
+                                if (reg_addr[7:4] == num_channels)
+                                    reg_addr[7:4] <= 4'd1;
+                                else
+                                    reg_addr[7:4] <= reg_addr[7:4] + 1'b1;
+                                // bit 27-24 should be boardid, other wise will not respond
+                                if (buffer[27:24] == board_id) begin
+                                    reg_wdata <= buffer[30:0];               // data to write
+                                    reg_wen <= (buffer[31] & rx_active);     // check valid bit
+                                end
+                            end
                             else begin                      // DAC data
                                 // channel address circularly increments from 1 to num_channels
                                 // (chan addr and dev offset are previously set)
@@ -481,10 +496,18 @@ begin
                                 lreq_type <= `LREQ_RES;
                                 tx_type <= `TX_TYPE_DATA;
                             end
-                            // process broadcast q/b write
+                            // process broadcast quadlet write
                             // nodeid = 6'b111111, no response required
-                            else if ((buffer[21:16] == 6'b111111) && 
-                                     ((buffer[7:4] == `TC_QWRITE) || (buffer[7:4] == `TC_BWRITE))) begin
+                            else if ((buffer[21:16] == 6'b111111) && (buffer[7:4] == `TC_QWRITE)) begin
+                                rx_active <= 1; 
+                                lreq_trig <= 0;
+                                lreq_type <= `LREQ_RES;
+                                tx_type <= `TX_TYPE_DATA;
+                            end
+                            // process broadcast block write
+                            // nodeid = 6'b111111, no response required
+                            else if ((buffer[21:16] == 6'b111111) && (buffer[7:4] == `TC_BWRITE)) begin
+                                rx_bc_bwrite <= 1'b1;
                                 rx_active <= 1; 
                                 lreq_trig <= 0;
                                 lreq_type <= `LREQ_RES;
