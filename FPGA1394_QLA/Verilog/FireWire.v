@@ -483,7 +483,8 @@ begin
                             end
                             // process broadcast q/b write
                             // nodeid = 6'b111111, no response required
-                            else if ((buffer[21:16] == 6'b111111) && (buffer[7:4] == `TC_QWRITE)) begin
+                            else if ((buffer[21:16] == 6'b111111) && 
+                                     ((buffer[7:4] == `TC_QWRITE) || (buffer[7:4] == `TC_BWRITE))) begin
                                 rx_active <= 1; 
                                 lreq_trig <= 0;
                                 lreq_type <= `LREQ_RES;
