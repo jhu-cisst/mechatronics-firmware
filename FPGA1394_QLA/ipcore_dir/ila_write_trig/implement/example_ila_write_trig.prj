@@ -1,0 +1,2 @@
+verilog work "../example_design/example_ila_write_trig.v"
+verilog work "../example_design/ila_write_trig_bb_lib.v"

@@ -1,0 +1,14 @@
+run
+-top example_ila_write_trig
+-ifn example_ila_write_trig.prj
+-ofmt NGC
+-ofn example_ila_write_trig.ngc
+-p xc6slx45-fgg484-3
+-ifmt mixed
+-opt_mode Speed
+-opt_level 2
+-read_cores YES
+-bufg 0
+-iobuf YES
+#-iob auto
+ 

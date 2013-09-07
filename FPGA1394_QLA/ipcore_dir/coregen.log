@@ -1,0 +1,78 @@
+Welcome to Xilinx CORE Generator.
+Help system initialized.
+The IP Catalog has been reloaded.
+Opening project file
+/home/zihan/dev/mechatronics/firmware/FPGA1394_QLA/ipcore_dir/coregen.cgp.
+Customize and GenerateINFO:sim:172 - Generating IP...
+WARNING:sim:100 - The Simulation File Type <Behavioral> is not valid for this
+   core. Overriding with File Type <structural>.
+Applying current project options...
+Finished applying current project options.
+Customizing IP...
+Release 13.4 - Xilinx CORE Generator IP GUI Launcher O.87xd (lin64)
+Copyright (c) 1995-2011 Xilinx, Inc.  All rights reserved.
+Finished Customizing.
+Generating IP...
+WARNING:sim:100 - The Simulation File Type <Behavioral> is not valid for this
+   core. Overriding with File Type <structural>.
+WARNING:sim:89 - A core named <ila_fw_packet> already exists in the output
+   directory. Output products for this core may be overwritten.
+Configuring files for ila_fw_packet root...
+Gathering HDL files for ila_fw_packet root...
+Creating XST project for ila_fw_packet...
+Creating XST script file for ila_fw_packet...
+Creating XST instantiation file for ila_fw_packet...
+Running XST for ila_fw_packet...
+XST: HDL Parsing
+XST: HDL Elaboration
+XST: HDL Synthesis
+XST: Advanced HDL Synthesis
+XST: Low Level Synthesis
+XST: Design Summary
+Not generating VHDL wrapper
+Generating Verilog wrapper
+Skipping VHDL instantiation template for ila_fw_packet...
+Creating ISE instantiation template for ila_fw_packet...
+Finished Generation.
+Generating IP instantiation template...
+Generating ASY schematic symbol...
+INFO:sim:949 - Finished generation of ASY schematic symbol.
+Generating metadata file...
+Generating ISE project...
+XCO file found: ila_fw_packet.xco
+XMDF file found: ila_fw_packet_xmdf.tcl
+Adding
+/home/zihan/dev/mechatronics/firmware/FPGA1394_QLA/ipcore_dir/tmp/_cg/ila_fw_pac
+ket.asy -view all -origin_type imported
+Adding
+/home/zihan/dev/mechatronics/firmware/FPGA1394_QLA/ipcore_dir/tmp/_cg/ila_fw_pac
+ket.ngc -view all -origin_type created
+Checking file
+"/home/zihan/dev/mechatronics/firmware/FPGA1394_QLA/ipcore_dir/tmp/_cg/ila_fw_pa
+cket.ngc" for project device match ...
+File
+"/home/zihan/dev/mechatronics/firmware/FPGA1394_QLA/ipcore_dir/tmp/_cg/ila_fw_pa
+cket.ngc" device information matches project device.
+Adding
+/home/zihan/dev/mechatronics/firmware/FPGA1394_QLA/ipcore_dir/tmp/_cg/ila_fw_pac
+ket.v -view all -origin_type created
+INFO:HDLCompiler:1845 - Analyzing Verilog file
+   "/home/zihan/dev/mechatronics/firmware/FPGA1394_QLA/ipcore_dir/tmp/_cg/ila_fw
+   _packet.v" into library work
+INFO:ProjectMgmt - Parsing design hierarchy completed successfully.
+Adding
+/home/zihan/dev/mechatronics/firmware/FPGA1394_QLA/ipcore_dir/tmp/_cg/ila_fw_pac
+ket.veo -view all -origin_type imported
+INFO:TclTasksC:2116 - The automatic calculation of top has been turned-off.
+   Please set the new top explicitly by running the "project set top" command.
+   To re-calculate the new top automatically, set the "Auto Implementation Top"
+   property to true.
+Top level has been set to "/ila_fw_packet"
+Generating README file...
+Generating FLIST file...
+INFO:sim:948 - Finished FLIST file generation.
+Launching README viewer...
+Moving files to output directory...
+Finished moving files to output directory
+Saved CGP file for project 'coregen'.
+Closed project file.

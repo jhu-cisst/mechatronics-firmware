@@ -25,6 +25,14 @@
 
 // LLC: link layer controller (implemented in this file)
 
+/**  
+ *   NOTE: 
+ *      - only part of the FireWire link layer controller is implemented 
+ *      - transaction layer and link layer are mixed (not good, works for now)
+ *      - ONLY control PC and FPGA_QLA boards can be attached to the same bus
+ */
+
+
 
 // constants for receive speed codes
 // See Book P237 Receving Packets, D[0] is omitted here
@@ -62,6 +70,8 @@
 `define SZ_BWRITE 16'd192         // block write packet base size
 `define SZ_BRESP 16'd192          // block read response base size
 `define SZ_STAT 16'd16            // phy register transfer size
+`define SZ_BREQUEST 16'd576       // block write request packet size
+                                  // (4 + 1 + 12 + 1) * 32 = 576
 
 // transaction and response codes
 `define TC_QWRITE 4'd0            // quadlet write
@@ -85,6 +95,8 @@
 `define TX_TYPE_DATA 4'd3         // ack data error, for crc or data length
 `define TX_TYPE_QRESP 4'd4        // for quadlet read response
 `define TX_TYPE_BRESP 4'd5        // for block read response
+`define TX_TYPE_BREQT 4'd6     // for block write request
+
 
 // other
 `define CRC_INIT -32'd1           // initial value to start new crc calculation
@@ -140,7 +152,9 @@ module PhyLinkInterface(
     reg[3:0] state, next;         // state register
     reg[2:0] rx_speed;            // received speed code
     reg[3:0] tx_type;             // encodes transmit type
-    reg[5:0] node_id;             // phy node id register
+    reg[9:0] bus_id;              // phy bus id (10 bits)
+    reg[5:0] node_id;             // phy node id register (6 bits)
+    wire[15:0] local_id;          // full addr = bus_id + node_id
 
     // status-related buffers
     reg[15:0] st_buff;            // temp buffer for status
@@ -177,6 +191,7 @@ module PhyLinkInterface(
     reg[5:0] rx_tag;              // tag field
     reg[15:0] rx_src;             // source ID field
     reg[15:0] reg_dlen;           // block data length
+    reg[15:0] tx_dest_pc;         // nodeaddr for control pc
 
     // real-time read stuff
     // an array of 4 4-bits device address
@@ -186,7 +201,7 @@ module PhyLinkInterface(
     reg[31:0] timestamp;          // timestamp counter register
     reg ts_reset;                 // timestamp counter reset signal
     reg data_block;               // flag for block write data being received
-
+    
     parameter num_channels = 4;
 
     // state machine states
@@ -201,9 +216,11 @@ module PhyLinkInterface(
         ST_TX_ACK2 = 7,           // tx state, link cleans up after ack
         ST_TX_QUAD = 8,           // tx state, link transmits quadlet response
         ST_TX_HEAD = 9,           // tx state, link transmits block header
-        ST_TX_DATA = 10,          // tx state, link transmits block data
-        ST_TX_DONE1 = 11,         // tx state, link finalizes transmission
-        ST_TX_DONE2 = 12;         // tx state, phy regains phy-link bus
+        ST_TX_HEAD_BREQT = 10,    // tx state, link transmits block write request header
+        ST_TX_DATA = 11,          // tx state, link transmits block data
+        ST_TX_DONE1 = 12,         // tx state, link finalizes transmission
+        ST_TX_DONE2 = 13;         // tx state, phy regains phy-link bus
+
 
 
 // -----------------------------------------------------------------------------
@@ -213,6 +230,9 @@ module PhyLinkInterface(
 //
 // continuous assignments and aliases for better readability (and writability!)
 //
+
+// full local_id
+assign local_id = { bus_id[9:0], node_id[5:0] };   // full addr = bus_id + node_id     
 
 // hack for xilinx, compiler doesn't like inout ports as registers
 assign data_ext = data;
@@ -253,6 +273,33 @@ begin
         timestamp <= timestamp + 1'b1;
 end
 
+// counter for initiate block write to controller PC
+reg[31:0] write_counter;
+reg[12:0] write_trig_count;
+reg write_trig;
+always @(posedge(sysclk) or posedge(rx_bc_bwrite) or negedge(reset))
+begin
+    if (reset == 0 || rx_bc_bwrite) begin
+        write_counter <= 32'd0;
+        write_trig <= 1'b0;
+        write_trig_count[12:9] <= board_id[3:0];
+        write_trig_count[8:0] <= 9'd0;
+    end
+    else begin
+        if (write_counter < (write_trig_count + 50)) begin
+            write_counter <= write_counter + 1'b1;
+            write_trig <= 1'b0;
+        end
+        else if ( write_counter == (write_trig_count + 50)) begin
+            write_counter <= write_counter + 1'b1;
+            write_trig <= 1'b1;
+        end
+        else if (lreq_type == `LREQ_TX_PRI) begin
+            write_trig <= 1'b0;
+        end
+    end
+end
+
 //
 // state machine clocked by sysclk; transitions depend on ctl and data
 //
@@ -271,12 +318,15 @@ begin
         st_buff <= 0;             // status value receive buffer
         stcount <= 0;             // received status bits counter
         rx_speed <= 0;            // clear the received speed code
+        rx_active <= 0;           // clear the receive flag 
+        rx_bc_bwrite <= 1'b0;     // clear the bc bwrite flag
         blk_wstart <= 0;          // clear the block write started flag
         reg_wen <= 0;             // keep register writes inactive by default
         blk_wen <= 0;             // keep block writes inactive by default
         lreq_trig <= 0;           // clear the phy request trigger
         lreq_type <= 0;           // set phy request type to known value
         node_id <= 0;             // hope phy updates this during self-id
+        bus_id <= 10'h3ff;        // set default bus_id to 10'h3ff
         reg_addr <= 0;            // set reg address to known value
         reg_wdata <= 0;           // set reg write data to known value
         crc_ini <= 0;             // initialize crc start flag
@@ -301,12 +351,24 @@ begin
             crc_tx <= 0;                           // not in a transmit state
             rx_active <= 0;                        // receive not active
             rx_bc_bwrite <= 1'b0;                  // receive broadcast block write
-
+            
             // monitor ctl to select next state
             case (ctl)
-                2'b00: state <= ST_IDLE;           // stay in monitor state
+                2'b00: begin 
+                    state <= ST_IDLE;           // stay in monitor state
+                    if (write_trig) begin
+                        lreq_trig <= 1;
+                        lreq_type <= `LREQ_TX_PRI;
+                        tx_type <= `TX_TYPE_BREQT;
+                    end
+                    else begin
+                        lreq_trig <= 0;
+                    end
+                end
+                
                 2'b01: state <= ST_RX_D_ON;        // phy data from the bus
                 2'b11: state <= ST_TX;             // phy grants tx request
+                
                 2'b10: begin                       // phy status transfer
                     st_buff <= {16'b0, data2b};    // clock in status bits
                     state <= ST_STATUS;            // continue status loop
@@ -326,8 +388,8 @@ begin
             case (ctl)
 
                 2'b01: state <= ST_RX_D_ON;        // interrupt by RX bus data
-                2'b11: state <= ST_IDLE;           // undefined, back to idle
 
+                2'b11: state <= ST_IDLE;           // undefined, back to idle
                 // -------------------------------------------------------------
                 // normal status transfer
                 //
@@ -523,6 +585,10 @@ begin
                         // second quadlet --------------------------------------
                         64: begin
                             rx_src <= buffer[31:16];      // source address
+                            if (rx_bc_bwrite) begin
+                                tx_dest_pc <= buffer[31:16];  // 16 bits pc nodeaddr
+                                bus_id <= buffer[31:22];      // 10 bits bus id
+                            end
                         end
                         // third quadlet --------------------------------------
                         96: begin
@@ -648,7 +714,7 @@ begin
             crc_ini <= 0;                // normal crc operation
             crc_tx <= 1;                 // selects tx data for crc
             count <= 0;                  // prepare the bit counter
-
+            
             // prepare for the type of bus transmission
             case (tx_type)
             // transmit ack, to be followed by read response packet
@@ -677,6 +743,14 @@ begin
                 next <= ST_TX_HEAD;
                 numbits <= `SZ_BRESP + (reg_dlen<<3);
             end
+            
+            // transmit block write request packet to pc
+            `TX_TYPE_BREQT: begin
+                buffer <= { tx_dest_pc, rx_tag, 2'd0, `TC_BWRITE, 4'd0 };
+                next <= ST_TX_HEAD_BREQT;
+                numbits <= `SZ_BREQUEST;
+            end
+            
             // for crc/unknown errors, send an error ack
             default: begin
                 buffer[31:24] <= { `ACK_DATA, ~`ACK_DATA };
@@ -717,10 +791,12 @@ begin
 
             // set tx type; this works because we do concatenated transactions
             // if rx_tcode != (TC_QREAD or TC_QWRITE), this is inconsequential
-            if (rx_tcode == `TC_QREAD)
+            if (rx_tcode == `TC_QREAD) begin
                 tx_type <= `TX_TYPE_QRESP;
-            else
+            end
+            else if (rx_tcode == `TC_BREAD) begin
                 tx_type <= `TX_TYPE_BRESP;
+            end
 
             state <= ST_TX_DONE1;
         end
@@ -769,7 +845,7 @@ begin
             buffer <= buffer << 8;
             count <= count + 16'd8;
             crc_in <= (crc_ini) ? `CRC_INIT : crc_8b;
-
+            
             // update transmit buffer at quadlet boundaries
             case (count)
                  24: buffer <= { rx_dest, `RC_DONE, 12'd0 };
@@ -835,9 +911,71 @@ begin
 
             endcase
         end
-
+        
         // ---------------------------------------------------------------------
-        // link shifts block read data bits out to the phy/bus
+        // link shifts block write header bits out to the phy/bus
+        //
+        ST_TX_HEAD_BREQT:
+        begin
+            ctl <= `CTL_DATA;
+
+            // shift out transmit bit from buffer and update counter
+            data <= txmsb8b;
+            buffer <= buffer << 8;
+            count <= count + 16'd8;
+            crc_in <= (crc_ini) ? `CRC_INIT : crc_8b;
+            
+            // update transmit buffer at quadlet boundaries
+            case (count)
+                // NOTE: destination address
+                // dest_addr = 0xffffff(bid)00000  (bid is 4 bits)
+                // C code should register this address
+                24: buffer <= { local_id, 16'hffff };  // src_id, dest_offset
+                56: buffer <= { 8'hff, board_id, 20'h00000 }; 
+                // datalen = 4 x (4 + 4 + 4) = 48 bytes
+                88: buffer <= { 16'd48, 16'd0 };
+                
+                // latch header crc, reset crc in preparation for data crc
+                128: begin
+                    data <= ~crc_8msb;
+                    buffer <= { ~crc_in[23:0], 8'd0 };
+                    crc_ini <= 1;          // start crc
+                end
+
+                // latch timestamp, setup address for status, restart crc
+                152: begin
+                    buffer <= timestamp;    // latch timestamp
+                    reg_addr <= 0;          // 0: status (See BoardRegs)
+                    ts_reset <= 1;          // reset timestamp counter
+                    crc_ini <= 0;           // clear crc start bit
+                end
+
+                // latch status data, setup address for digital inputs
+                184: begin
+                    buffer <= reg_rdata;    // latch status
+                    reg_addr <= 8'd10;      // 10: digital inputs (See BoardRegs)
+                    ts_reset <= 0;          // clear timestamp reset
+                end
+
+                // latch digital inputs, setup address for temperature sensors
+                216: begin
+                    buffer <= reg_rdata;    // latch digital inputs
+                    reg_addr <= 8'h5;       // 5: temperature sensors (See BoardRegs)
+                end
+
+                // latch temperature sensors, go to block data state
+                248: begin
+                    buffer <= reg_rdata;    // latch temperature
+                    reg_addr <= 8'h10;      // start cycling through channels
+                    dev_index <= 1;         // start from device 1
+                    state <= ST_TX_DATA;    // goto ST_TX_DATA
+                end
+
+            endcase
+        end  // ST_TX_HEAD_BREQT
+        
+        // ---------------------------------------------------------------------
+        // link shifts block read/write data bits out to the phy/bus
         //
         ST_TX_DATA:
         begin
@@ -848,13 +986,15 @@ begin
 
             else begin
                 // shift out transmit bit from buffer and update counter
+                ctl <= `CTL_DATA;
                 data <= txmsb8b;
                 buffer <= buffer << 8;
                 count <= count + 16'd8;
                 crc_in <= crc_8b;
-
+                
                 // latch data and update addresses on quadlet boundaries
                 if (count[4:0] == 5'd24) begin
+                    
                     buffer <= reg_rdata;
                     if (reg_addr[7:6] == 2'b11) begin   // block read from PROM (M25P16)
                         if (reg_addr[5:0] == 6'h3f)
@@ -878,7 +1018,7 @@ begin
                     data <= ~crc_8msb;
                     buffer <= { ~crc_in[23:0], 8'd0 };
                 end
-            end
+            end 
         end
 
         // ---------------------------------------------------------------------
@@ -911,6 +1051,44 @@ begin
         endcase
     end
 end
+
+//--------------------------------------------------------------
+// Debug: chipscope modules 
+//   - icon: integrated controller
+//   -  ila: integrated logic analyzer
+// 
+
+wire[35:0] control0;
+wire[35:0] control1;
+
+// icon
+chipscope_icon icon1(
+    .CONTROL0(control0),
+    .CONTROL1(control1)
+);
+
+// ila connect to write trig
+wire[7:0] wire_trig_debug;
+assign wire_trig_debug[7:0] = { write_trig, lreq_trig , 3'd0, lreq_type[2:0] };
+
+ila_write_trig ila_trig(
+    .CONTROL(control0),
+    .CLK(sysclk),
+    .TRIG0(state),
+    .TRIG1(wire_trig_debug),
+    .TRIG2(write_trig_count),
+    .TRIG3(write_counter)
+);
+
+ila_fw_packet ila_fw(
+    .CONTROL(control1),
+    .CLK(sysclk),
+    .TRIG0(state),
+    .TRIG1(write_counter),
+    .TRIG2(tx_dest_pc),
+    .TRIG3(ctl),
+    .TRIG4(data)
+);
 
 endmodule  // PhyLinkInterface
 
@@ -957,7 +1135,8 @@ begin
         case (rtype)
             `LREQ_REG_RD: request[11:8] <= data[3:0];
             `LREQ_REG_WR: request[11:0] <= data[11:0];
-            `LREQ_TX_IMM: request[11:9] <= 3'b100;
+            `LREQ_TX_IMM: request[11:9] <= 3'b100;   // S400
+            `LREQ_TX_PRI: request[11:9] <= 3'b100;   // S400
         endcase
     end
 

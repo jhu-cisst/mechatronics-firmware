@@ -1,0 +1,14 @@
+# Output products list for <ila_fw_packet>
+ila_fw_packet.asy
+ila_fw_packet.cdc
+ila_fw_packet.ejp
+ila_fw_packet.gise
+ila_fw_packet.ncf
+ila_fw_packet.ngc
+ila_fw_packet.v
+ila_fw_packet.veo
+ila_fw_packet.xco
+ila_fw_packet.xise
+ila_fw_packet_flist.txt
+ila_fw_packet_readme.txt
+ila_fw_packet_xmdf.tcl
