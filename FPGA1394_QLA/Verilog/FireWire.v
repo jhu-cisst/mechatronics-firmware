@@ -70,7 +70,7 @@
 `define SZ_BWRITE 16'd192         // block write packet base size
 `define SZ_BRESP 16'd192          // block read response base size
 `define SZ_STAT 16'd16            // phy register transfer size
-`define SZ_BREQUEST 16'd576       // block write request packet size
+`define SZ_BBC  16'd576           // block write broadcast packet size
                                   // (4 + 1 + 12 + 1) * 32 = 576
 
 // transaction and response codes
@@ -95,7 +95,7 @@
 `define TX_TYPE_DATA 4'd3         // ack data error, for crc or data length
 `define TX_TYPE_QRESP 4'd4        // for quadlet read response
 `define TX_TYPE_BRESP 4'd5        // for block read response
-`define TX_TYPE_BREQT 4'd6     // for block write request
+`define TX_TYPE_BBC   4'd6        // for block write broadcast
 
 
 // other
@@ -189,6 +189,7 @@ module PhyLinkInterface(
     reg[3:0] rx_tcode;            // transaction code
     reg[15:0] rx_dest;            // destination ID field
     reg[5:0] rx_tag;              // tag field
+    reg[3:0] rx_pri;              // priority code
     reg[15:0] rx_src;             // source ID field
     reg[15:0] reg_dlen;           // block data length
     reg[15:0] tx_dest_pc;         // nodeaddr for control pc
@@ -216,7 +217,7 @@ module PhyLinkInterface(
         ST_TX_ACK2 = 7,           // tx state, link cleans up after ack
         ST_TX_QUAD = 8,           // tx state, link transmits quadlet response
         ST_TX_HEAD = 9,           // tx state, link transmits block header
-        ST_TX_HEAD_BREQT = 10,    // tx state, link transmits block write request header
+        ST_TX_HEAD_BC = 10,       // tx state, link transmits block write broadcast to PC
         ST_TX_DATA = 11,          // tx state, link transmits block data
         ST_TX_DONE1 = 12,         // tx state, link finalizes transmission
         ST_TX_DONE2 = 13;         // tx state, phy regains phy-link bus
@@ -349,8 +350,8 @@ begin
             reg_wen <= 0;                          // no register write events
             blk_wen <= 0;                          // no block write events
             crc_tx <= 0;                           // not in a transmit state
-            rx_active <= 0;                        // receive not active
-            rx_bc_bwrite <= 1'b0;                  // receive broadcast block write
+            rx_active <= 0;                        // clear receive active
+            rx_bc_bwrite <= 1'b0;                  // clear broadcast block write active
             
             // monitor ctl to select next state
             case (ctl)
@@ -359,7 +360,7 @@ begin
                     if (write_trig) begin
                         lreq_trig <= 1;
                         lreq_type <= `LREQ_TX_PRI;
-                        tx_type <= `TX_TYPE_BREQT;
+                        tx_type <= `TX_TYPE_BBC;
                     end
                     else begin
                         lreq_trig <= 0;
@@ -467,7 +468,13 @@ begin
                     // ---------------------------------------------------------
                     // process block write data portion of incoming packet
                     //
-                    if (data_block) begin
+                    
+                    // ignore block write packet from other FPGA_QLA boards
+                    if (rx_pri == 4'hA) begin
+                        reg_wen <= 0;
+                    end
+                    // now process data
+                    else if (data_block) begin
                         // latch data from data block on quadlet boundaries
                         if (count[4:0] == 0) begin
                             blk_wstart <= 0;   // Clear write started signal
@@ -520,6 +527,7 @@ begin
                             rx_dest <= buffer[31:16];     // destination addr
                             rx_tag <= buffer[15:10];      // transaction tag
                             rx_tcode <= buffer[7:4];      // transaction code
+                            rx_pri <= buffer[3:0];        // priority 
 
                             // trigger an ack if dest address matches us
                             if (buffer[21:16] == node_id) begin
@@ -554,23 +562,34 @@ begin
                             // ignore cycle start packet
                             else if (buffer[7:4] == `TC_CSTART) begin
                                 rx_active <= 0;
+                                rx_bc_bwrite <= 0;
+                                lreq_trig <= 0;
+                                lreq_type <= `LREQ_RES;
+                                tx_type <= `TX_TYPE_DATA;
+                            end
+                            // ignore broadcast packets from FPGA_QLA
+                            // NOTE: these packets have pri = 4'hA
+                            else if ((buffer[21:16] == 6'h3f) && (buffer[3:0] == 4'hA)) begin
+                                rx_active <= 0;
+                                rx_bc_bwrite <= 0;
                                 lreq_trig <= 0;
                                 lreq_type <= `LREQ_RES;
                                 tx_type <= `TX_TYPE_DATA;
                             end
                             // process broadcast quadlet write
                             // nodeid = 6'b111111, no response required
-                            else if ((buffer[21:16] == 6'b111111) && (buffer[7:4] == `TC_QWRITE)) begin
+                            else if ((buffer[21:16] == 6'h3f) && (buffer[7:4] == `TC_QWRITE)) begin
                                 rx_active <= 1; 
+                                rx_bc_bwrite <= 0;
                                 lreq_trig <= 0;
                                 lreq_type <= `LREQ_RES;
                                 tx_type <= `TX_TYPE_DATA;
                             end
                             // process broadcast block write
                             // nodeid = 6'b111111, no response required
-                            else if ((buffer[21:16] == 6'b111111) && (buffer[7:4] == `TC_BWRITE)) begin
-                                rx_bc_bwrite <= 1'b1;
+                            else if ((buffer[21:16] == 6'h3f) && (buffer[7:4] == `TC_BWRITE)) begin
                                 rx_active <= 1; 
+                                rx_bc_bwrite <= 1;
                                 lreq_trig <= 0;
                                 lreq_type <= `LREQ_RES;
                                 tx_type <= `TX_TYPE_DATA;
@@ -744,11 +763,18 @@ begin
                 numbits <= `SZ_BRESP + (reg_dlen<<3);
             end
             
-            // transmit block write request packet to pc
-            `TX_TYPE_BREQT: begin
-                buffer <= { tx_dest_pc, rx_tag, 2'd0, `TC_BWRITE, 4'd0 };
-                next <= ST_TX_HEAD_BREQT;
-                numbits <= `SZ_BREQUEST;
+            // transmit block write broadcast to pc
+            // ZC: broadcast requires no ack and response packet,
+            //     which saves bus bandwidth
+            //     dest_id = 0xffff (for broadcasting)
+            //     priority (bits 3:0) 
+            //        - are not used in cable environment
+            //        - reuse it to indicate broadcast packet is from FPGA_QLA 
+            //        - pri = 4'hA   A is a random value
+            `TX_TYPE_BBC: begin
+                buffer <= { 16'hffff, rx_tag, 2'd0, `TC_BWRITE, 4'hA };
+                next <= ST_TX_HEAD_BC;
+                numbits <= `SZ_BBC;
             end
             
             // for crc/unknown errors, send an error ack
@@ -915,7 +941,7 @@ begin
         // ---------------------------------------------------------------------
         // link shifts block write header bits out to the phy/bus
         //
-        ST_TX_HEAD_BREQT:
+        ST_TX_HEAD_BC:
         begin
             ctl <= `CTL_DATA;
 
@@ -972,7 +998,7 @@ begin
                 end
 
             endcase
-        end  // ST_TX_HEAD_BREQT
+        end  // ST_TX_HEAD_BC
         
         // ---------------------------------------------------------------------
         // link shifts block read/write data bits out to the phy/bus
