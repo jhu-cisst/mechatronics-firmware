@@ -281,14 +281,14 @@ end
 
 // counter for initiate block write to controller PC
 reg[31:0] write_counter;
-reg[12:0] write_trig_count;
+reg[14:0] write_trig_count;  // 6 bits node_id + 9 bits = 512 counts
 reg write_trig;
 always @(posedge(sysclk) or posedge(rx_bc_bwrite) or negedge(reset))
 begin
     if (reset == 0 || rx_bc_bwrite) begin
         write_counter <= 32'd0;
         write_trig <= 1'b0;
-        write_trig_count[12:9] <= board_id[3:0];
+        write_trig_count[14:9] <= node_id[5:0];
         write_trig_count[8:0] <= 9'd0;
     end
     else begin
