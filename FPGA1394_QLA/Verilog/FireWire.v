@@ -73,6 +73,9 @@
 `define SZ_BBC  16'd576           // block write broadcast packet size
                                   // (4 + 1 + 12 + 1) * 32 = 576
 
+//`define SZ_BBC  16'd608           // block write broadcast packet size
+//                                  // (4 + 1 + 1 + 12 + 1) * 32 = 608
+
 // transaction and response codes
 `define TC_QWRITE 4'd0            // quadlet write
 `define TC_BWRITE 4'd1            // block write
@@ -192,7 +195,9 @@ module PhyLinkInterface(
     reg[3:0] rx_pri;              // priority code
     reg[15:0] rx_src;             // source ID field
     reg[15:0] reg_dlen;           // block data length
-    reg[15:0] tx_dest_pc;         // nodeaddr for control pc
+    reg[15:0] tx_dest_pc;         // nodeaddr for control pc ZC: TODO remove this
+    reg[15:0] rx_bc_sequence;     // broadcast sequence num
+    reg[15:0] rx_bc_fpga;         // indicates whether a boards exists
 
     // real-time read stuff
     // an array of 4 4-bits device address
@@ -638,16 +643,37 @@ begin
                         144: crc_ini <= 1;     // reset crc for block data
                         // for block write packets, data block starts ----------
                         160: begin
-                            // flag to indicate the start of block data
-                            data_block <= (rx_tcode==`TC_BWRITE) ? 1'b1 : 1'b0;
-                            blk_wstart <= (rx_tcode==`TC_BWRITE) ? 1'b1 : 1'b0;
-                            if (reg_addr[7:6] == 2'b11) begin
-                                if (rx_tcode==`TC_BWRITE)
-                                    reg_addr[5:0] <= 6'h3f;  // block write to PROM (M25P16)
-                                else
-                                    reg_addr[5:0] <= 6'd0;   // block read from PROM (M25P16)
-                            end
+                            if (rx_bc_bwrite && (rx_pri !== 4'hA)) begin
+                                // buffer is CRC
+                                // do nothing for pc broadcast packet
+                            end 
                             else begin
+                                // flag to indicate the start of block data
+                                data_block <= (rx_tcode==`TC_BWRITE) ? 1'b1 : 1'b0;
+                                blk_wstart <= (rx_tcode==`TC_BWRITE) ? 1'b1 : 1'b0;
+                                if (reg_addr[7:6] == 2'b11) begin
+                                    if (rx_tcode==`TC_BWRITE)
+                                        reg_addr[5:0] <= 6'h3f;  // block write to PROM (M25P16)
+                                    else
+                                        reg_addr[5:0] <= 6'd0;   // block read from PROM (M25P16)
+                                end
+                                else begin
+                                    reg_addr[7:4] <= 0;    // init channel address
+                                    reg_addr[3:0] <= 1;    // set dac device address
+                                end
+                            end  // rx_bc_bwrite
+                        end
+                        // for broadcast write packet from PC (SPECIAL case)
+                        192: begin
+                            if (rx_bc_bwrite && (rx_pri !== 4'hA)) begin
+                                // process 1st packet for broadcast write packet from PC
+                                // 1 quadlet = 16'b sequence + 16'b boards status
+                                rx_bc_sequence <= buffer[31:16];
+                                rx_bc_fpga <= buffer[15:0];
+                            
+                                // flag to indicate the start of block data
+                                data_block <= (rx_tcode==`TC_BWRITE) ? 1'b1 : 1'b0;
+                                blk_wstart <= (rx_tcode==`TC_BWRITE) ? 1'b1 : 1'b0;
                                 reg_addr[7:4] <= 0;    // init channel address
                                 reg_addr[3:0] <= 1;    // set dac device address
                             end
@@ -968,12 +994,11 @@ begin
                     crc_ini <= 1;          // start crc
                 end
 
-                // latch timestamp, setup address for status, restart crc
+                // latch timestamp, setup address for status
                 152: begin
                     buffer <= timestamp;    // latch timestamp
-                    reg_addr <= 0;          // 0: status (See BoardRegs)
+                    reg_addr <= 8'h00;      // 0: status (See BoardRegs)
                     ts_reset <= 1;          // reset timestamp counter
-                    crc_ini <= 0;           // clear crc start bit
                 end
 
                 // latch status data, setup address for digital inputs
@@ -996,6 +1021,42 @@ begin
                     dev_index <= 1;         // start from device 1
                     state <= ST_TX_DATA;    // goto ST_TX_DATA
                 end
+                
+                
+                
+//                                // latch bc_sequence and bc_fpga, send back to PC,  restart crc
+//                152: begin
+//                    buffer <= { rx_bc_sequence[15:0], rx_bc_fpga[15:0] };
+//                    crc_ini <= 0;           // clear crc start bit
+//                end
+//
+//                // latch timestamp, setup address for status
+//                184: begin
+//                    buffer <= timestamp;    // latch timestamp
+//                    reg_addr <= 8'h00;      // 0: status (See BoardRegs)
+//                    ts_reset <= 1;          // reset timestamp counter
+//                end
+//
+//                // latch status data, setup address for digital inputs
+//                216: begin
+//                    buffer <= reg_rdata;    // latch status
+//                    reg_addr <= 8'd10;      // 10: digital inputs (See BoardRegs)
+//                    ts_reset <= 0;          // clear timestamp reset
+//                end
+//
+//                // latch digital inputs, setup address for temperature sensors
+//                248: begin
+//                    buffer <= reg_rdata;    // latch digital inputs
+//                    reg_addr <= 8'h5;       // 5: temperature sensors (See BoardRegs)
+//                end
+//
+//                // latch temperature sensors, go to block data state
+//                280: begin
+//                    buffer <= reg_rdata;    // latch temperature
+//                    reg_addr <= 8'h10;      // start cycling through channels
+//                    dev_index <= 1;         // start from device 1
+//                    state <= ST_TX_DATA;    // goto ST_TX_DATA
+//                end
 
             endcase
         end  // ST_TX_HEAD_BC
@@ -1111,7 +1172,7 @@ ila_fw_packet ila_fw(
     .CLK(sysclk),
     .TRIG0(state),
     .TRIG1(write_counter),
-    .TRIG2(tx_dest_pc),
+    .TRIG2(rx_bc_sequence),
     .TRIG3(ctl),
     .TRIG4(data)
 );
