@@ -70,11 +70,11 @@
 `define SZ_BWRITE 16'd192         // block write packet base size
 `define SZ_BRESP 16'd192          // block read response base size
 `define SZ_STAT 16'd16            // phy register transfer size
-`define SZ_BBC  16'd576           // block write broadcast packet size
-                                  // (4 + 1 + 12 + 1) * 32 = 576
 
-//`define SZ_BBC  16'd608           // block write broadcast packet size
-//                                  // (4 + 1 + 1 + 12 + 1) * 32 = 608
+//`define SZ_BBC  16'd576           // block write broadcast packet size
+//                                  // (4 + 1 + 12 + 1) * 32 = 576
+`define SZ_BBC  16'd608           // block write broadcast packet size
+                                  // (4 + 1 + 1 + 12 + 1) * 32 = 608
 
 // transaction and response codes
 `define TC_QWRITE 4'd0            // quadlet write
@@ -984,8 +984,10 @@ begin
                 // C code should register this address
                 24: buffer <= { local_id, 16'hffff };  // src_id, dest_offset
                 56: buffer <= { 8'hff, board_id, 20'h00000 }; 
-                // datalen = 4 x (4 + 4 + 4) = 48 bytes
-                88: buffer <= { 16'd48, 16'd0 };
+
+                //-------- Start broadcast back with sequence -------------
+                // datalen = 4 x (1 + 4 + 4 + 4) = 52 bytes
+                88: buffer <= { 16'd52, 16'd0 };
                 
                 // latch header crc, reset crc in preparation for data crc
                 128: begin
@@ -994,69 +996,39 @@ begin
                     crc_ini <= 1;          // start crc
                 end
 
-                // latch timestamp, setup address for status
+                // latch bc_sequence and bc_fpga, send back to PC,  restart crc
                 152: begin
+                    buffer <= { rx_bc_sequence[15:0], rx_bc_fpga[15:0] };
+                    crc_ini <= 0;           // clear crc start bit
+                end
+
+                // latch timestamp, setup address for status
+                184: begin
                     buffer <= timestamp;    // latch timestamp
                     reg_addr <= 8'h00;      // 0: status (See BoardRegs)
                     ts_reset <= 1;          // reset timestamp counter
                 end
 
                 // latch status data, setup address for digital inputs
-                184: begin
+                216: begin
                     buffer <= reg_rdata;    // latch status
                     reg_addr <= 8'd10;      // 10: digital inputs (See BoardRegs)
                     ts_reset <= 0;          // clear timestamp reset
                 end
 
                 // latch digital inputs, setup address for temperature sensors
-                216: begin
+                248: begin
                     buffer <= reg_rdata;    // latch digital inputs
                     reg_addr <= 8'h5;       // 5: temperature sensors (See BoardRegs)
                 end
 
                 // latch temperature sensors, go to block data state
-                248: begin
+                280: begin
                     buffer <= reg_rdata;    // latch temperature
                     reg_addr <= 8'h10;      // start cycling through channels
                     dev_index <= 1;         // start from device 1
                     state <= ST_TX_DATA;    // goto ST_TX_DATA
                 end
-                
-                
-                
-//                                // latch bc_sequence and bc_fpga, send back to PC,  restart crc
-//                152: begin
-//                    buffer <= { rx_bc_sequence[15:0], rx_bc_fpga[15:0] };
-//                    crc_ini <= 0;           // clear crc start bit
-//                end
-//
-//                // latch timestamp, setup address for status
-//                184: begin
-//                    buffer <= timestamp;    // latch timestamp
-//                    reg_addr <= 8'h00;      // 0: status (See BoardRegs)
-//                    ts_reset <= 1;          // reset timestamp counter
-//                end
-//
-//                // latch status data, setup address for digital inputs
-//                216: begin
-//                    buffer <= reg_rdata;    // latch status
-//                    reg_addr <= 8'd10;      // 10: digital inputs (See BoardRegs)
-//                    ts_reset <= 0;          // clear timestamp reset
-//                end
-//
-//                // latch digital inputs, setup address for temperature sensors
-//                248: begin
-//                    buffer <= reg_rdata;    // latch digital inputs
-//                    reg_addr <= 8'h5;       // 5: temperature sensors (See BoardRegs)
-//                end
-//
-//                // latch temperature sensors, go to block data state
-//                280: begin
-//                    buffer <= reg_rdata;    // latch temperature
-//                    reg_addr <= 8'h10;      // start cycling through channels
-//                    dev_index <= 1;         // start from device 1
-//                    state <= ST_TX_DATA;    // goto ST_TX_DATA
-//                end
 
             endcase
         end  // ST_TX_HEAD_BC
