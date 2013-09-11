@@ -288,8 +288,11 @@ begin
     if (reset == 0 || rx_bc_bwrite) begin
         write_counter <= 32'd0;
         write_trig <= 1'b0;
-        write_trig_count[14:9] <= node_id[5:0];
-        write_trig_count[8:0] <= 9'd0;
+//        write_trig_count[14:9] <= node_id[5:0];
+//        write_trig_count[8:0] <= 9'd0;
+        
+        write_trig_count[13:8] <= node_id[5:0];
+        write_trig_count[7:0] <= 8'd0;
     end
     else begin
         if (write_counter < (write_trig_count + 50)) begin
@@ -300,7 +303,7 @@ begin
             write_counter <= write_counter + 1'b1;
             write_trig <= 1'b1;
         end
-        else if (lreq_type == `LREQ_TX_PRI) begin
+        else if (lreq_type == `LREQ_TX_ISO) begin
             write_trig <= 1'b0;
         end
     end
@@ -364,7 +367,7 @@ begin
                     state <= ST_IDLE;           // stay in monitor state
                     if (write_trig) begin
                         lreq_trig <= 1;
-                        lreq_type <= `LREQ_TX_PRI;
+                        lreq_type <= `LREQ_TX_ISO;
                         tx_type <= `TX_TYPE_BBC;
                     end
                     else begin
@@ -1195,6 +1198,7 @@ begin
             `LREQ_REG_RD: request[11:8] <= data[3:0];
             `LREQ_REG_WR: request[11:0] <= data[11:0];
             `LREQ_TX_IMM: request[11:9] <= 3'b100;   // S400
+            `LREQ_TX_ISO: request[11:9] <= 3'b100;   // S400
             `LREQ_TX_PRI: request[11:9] <= 3'b100;   // S400
         endcase
     end
