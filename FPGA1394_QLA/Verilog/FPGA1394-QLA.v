@@ -79,6 +79,22 @@ assign reset_phy = 1'b1;    // 1394 phy low reset, never reset
 
 // firewire modules ------------------------------------------------------------
 
+// HubReg module
+wire hub_rx_active;
+wire[7:0] hub_addr;
+wire[31:0] hub_rdata;
+wire[31:0] hub_wdata;
+
+HubReg hub(
+    .sysclk(sysclk),
+    .reset(reset),
+    .hub_rx_active(hub_rx_active),
+    .hub_addr(hub_addr),
+    .hub_wdata(hub_wdata),
+    .hub_rdata(hub_rdata)
+);
+
+
 // phy-link interface
 wire rx_active;
 PhyLinkInterface phy(
@@ -88,7 +104,11 @@ PhyLinkInterface phy(
     reg_addr,                 // out: register write signal/address
     reg_rdata, reg_wdata,     // out/in: register read address/data
     lreq_trig, lreq_type,     // out: phy request trigger and type
-    rx_active                 // out: for debugging
+    rx_active,                // out: for debugging
+    hub_rx_active,
+    hub_addr,
+    hub_rdata,
+    hub_wdata
 );
 
 // phy request module
@@ -174,8 +194,6 @@ assign reg_rd[4] = reg_renc;    // preload
 assign reg_rd[5] = reg_renc;    // quadrature
 assign reg_rd[6] = reg_renc;    // period
 assign reg_rd[7] = reg_renc;    // frequency
-//assign reg_rd[8] = reg_renc;    // acceleration 
-//assign reg_rd[9] = reg_renc;    // acceleration
 
 
 // encoder controller: the thing that manages encoder reads and preloads
@@ -286,48 +304,6 @@ M25P16 prom(
 );
 
 
-// ----------------------------------------------------------------------------
-// safety check 
-//    1. get adc feedback current & dac command current
-//    2. check if cur_fb > 2 * cur_cmd
-SafetyCheck safe1(
-    .clk(sysclk),
-    .reset(reset),
-    .cur_in(cur_fb[1]),
-    .dac_in(cur_cmd[1]),
-    .reg_wen(reg_wen),
-    .amp_disable(safety_amp_disable[1])
-);
-
-SafetyCheck safe2(
-    .clk(sysclk),
-    .reset(reset),
-    .cur_in(cur_fb[2]),
-    .dac_in(cur_cmd[2]),
-    .reg_wen(reg_wen),
-    .amp_disable(safety_amp_disable[2])
-);
-
-SafetyCheck safe3(
-    .clk(sysclk),
-    .reset(reset),
-    .cur_in(cur_fb[3]),
-    .dac_in(cur_cmd[3]),
-    .reg_wen(reg_wen),
-    .amp_disable(safety_amp_disable[3])
-);
-
-SafetyCheck safe4(
-    .clk(sysclk),
-    .reset(reset),
-    .cur_in(cur_fb[4]),
-    .dac_in(cur_cmd[4]),
-    .reg_wen(reg_wen),
-    .amp_disable(safety_amp_disable[4])
-);
-
-
-   
 //------------------------------------------------------------------------------
 // debugging, etc.
 //
