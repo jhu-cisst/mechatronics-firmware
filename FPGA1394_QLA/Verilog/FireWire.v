@@ -288,18 +288,25 @@ begin
     if (reset == 0 || rx_bc_bwrite) begin
         write_counter <= 32'd0;
         write_trig <= 1'b0;
-//        write_trig_count[14:9] <= node_id[5:0];
-//        write_trig_count[8:0] <= 9'd0;
         
-        write_trig_count[13:8] <= node_id[5:0];
-        write_trig_count[7:0] <= 8'd0;
+        // 10us node_id
+        write_trig_count[14:9] <= node_id[5:0];
+        write_trig_count[8:0] <= 9'd0;
+        
+        // 5us node_id
+//        write_trig_count[13:8] <= node_id[5:0];
+//        write_trig_count[7:0] <= 8'd0;
+
+        // 5us board_id
+//        write_trig_count[11:8] <= board_id[3:0];
+//        write_trig_count[7:0] <= 8'd0;
     end
     else begin
-        if (write_counter < (write_trig_count + 50)) begin
+        if (write_counter < (write_trig_count + 10)) begin
             write_counter <= write_counter + 1'b1;
             write_trig <= 1'b0;
         end
-        else if ( write_counter == (write_trig_count + 50)) begin
+        else if ( write_counter == (write_trig_count + 10)) begin
             write_counter <= write_counter + 1'b1;
             write_trig <= 1'b1;
         end

@@ -11,7 +11,9 @@ Finished applying current project options.
 Customizing IP...
 Release 13.4 - Xilinx CORE Generator IP GUI Launcher O.87xd (lin64)
 Copyright (c) 1995-2011 Xilinx, Inc.  All rights reserved.
-Finished Customizing.
+ERROR:coreutil - ERROR:sim - BRAM utilization for the selected configuration
+   exceeds the no. of
+      BRAM's available on device.Finished Customizing.
 Generating IP...
 WARNING:sim:100 - The Simulation File Type <Behavioral> is not valid for this
    core. Overriding with File Type <structural>.
