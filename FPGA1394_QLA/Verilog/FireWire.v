@@ -21,6 +21,7 @@
  *     10/31/11    Paul Thienphrapa    React to rx packets only when addressed
  *     11/11/11    Paul Thienphrapa    Happy 111111!!11!
  *                                     Fixed mixed blocking/non-blocking issues
+ *     10/16/13    Zihan Chen          Modified to support hub capability
  */
 
 // LLC: link layer controller (implemented in this file)
@@ -873,6 +874,7 @@ begin
                 buffer <= { 16'hffff, rx_tag, 2'd0, `TC_BWRITE, 4'hA };
                 next <= ST_TX_HEAD_BC;
                 numbits <= `SZ_BBC;
+                hub_rx_active <= 1;
             end          
             
             // for crc/unknown errors, send an error ack
@@ -989,7 +991,6 @@ begin
                 // latch Board 0, data 0 from hub register, 
                 // restart crc and goto ST_TX_DATA
                 152: begin
-                    // ZC: FIX HERE
                     if (hub_bread) begin
                         // ----- HUB Response STOP HERE -----
                         // start latching data for each board
@@ -1080,6 +1081,7 @@ begin
                 
                 // latch header crc, reset crc in preparation for data crc
                 128: begin
+                    hub_addr <= { board_id[3:0], 4'd0 };  // set hub_addr
                     data <= ~crc_8msb;
                     buffer <= { ~crc_in[23:0], 8'd0 };
                     crc_ini <= 1;          // start crc
@@ -1087,12 +1089,16 @@ begin
 
                 // latch bc_sequence and bc_fpga, send back to PC,  restart crc
                 152: begin
+                    hub_addr[3:0] <= 4'd1;  // hubreg 
+                    hub_wdata <= { rx_bc_sequence[15:0], rx_bc_fpga[15:0] };
                     buffer <= { rx_bc_sequence[15:0], rx_bc_fpga[15:0] };
-                    crc_ini <= 0;           // clear crc start bit
+                    crc_ini <= 0;           // clear crc start bit                    
                 end
 
                 // latch timestamp, setup address for status
                 184: begin
+                    hub_addr[3:0] <= 4'd2;  // hubreg 
+                    hub_wdata <= timestamp;
                     buffer <= timestamp;    // latch timestamp
                     reg_addr <= 8'h00;      // 0: status (See BoardRegs)
                     ts_reset <= 1;          // reset timestamp counter
@@ -1100,6 +1106,8 @@ begin
 
                 // latch status data, setup address for digital inputs
                 216: begin
+                    hub_addr[3:0] <= 4'd3;  // hubreg
+                    hub_wdata <= reg_rdata;
                     buffer <= reg_rdata;    // latch status
                     reg_addr <= 8'd10;      // 10: digital inputs (See BoardRegs)
                     ts_reset <= 0;          // clear timestamp reset
@@ -1107,12 +1115,16 @@ begin
 
                 // latch digital inputs, setup address for temperature sensors
                 248: begin
+                    hub_addr[3:0] <= 4'd4;  // hubreg
+                    hub_wdata <= reg_rdata;
                     buffer <= reg_rdata;    // latch digital inputs
                     reg_addr <= 8'h5;       // 5: temperature sensors (See BoardRegs)
                 end
 
                 // latch temperature sensors, go to block data state
                 280: begin
+                    hub_addr[3:0] <= 4'd5;  // hubreg
+                    hub_wdata <= reg_rdata;
                     buffer <= reg_rdata;    // latch temperature
                     reg_addr <= 8'h10;      // start cycling through channels
                     dev_index <= 1;         // start from device 1
@@ -1142,6 +1154,10 @@ begin
                 
                 // latch data and update addresses on quadlet boundaries
                 if (count[4:0] == 5'd24) begin
+                
+                    // cache to hubreg
+                    hub_addr[3:0] <= hub_addr[3:0] + 1'b1;
+                    hub_wdata <= reg_rdata;
                     
                     buffer <= reg_rdata;
                     if (reg_addr[7:6] == 2'b11) begin   // block read from PROM (M25P16)
