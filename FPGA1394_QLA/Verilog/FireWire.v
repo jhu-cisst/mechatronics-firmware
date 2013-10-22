@@ -167,7 +167,7 @@ module PhyLinkInterface(
     output reg[2:0] lreq_type,   // type of request to give to the phy
     
     // ZC: debug only 
-    output rx_active,
+    output reg rx_active,
     
     // ZC: for hub node only
     output reg hub_rx_active,      // hub indicates whether hub is receiving
@@ -191,7 +191,7 @@ module PhyLinkInterface(
 
     // various
     reg tx_hold;                  // transmit hold flag
-    reg rx_active;                // rx active flag
+    // reg rx_active;                // rx active flag
     reg rx_bc_bwrite;             // rx broadcast block write flag
     reg[3:0] state, next;         // state register
     reg[2:0] rx_speed;            // received speed code
@@ -236,7 +236,6 @@ module PhyLinkInterface(
     reg[3:0] rx_pri;              // priority code
     reg[15:0] rx_src;             // source ID field
     reg[15:0] reg_dlen;           // block data length
-    reg[15:0] tx_dest_pc;         // nodeaddr for control pc ZC: TODO remove this
     reg[15:0] rx_bc_sequence;     // broadcast sequence num
     reg[15:0] rx_bc_fpga;         // indicates whether a boards exists
 
@@ -267,11 +266,10 @@ module PhyLinkInterface(
         ST_TX_QUAD = 8,           // tx state, link transmits quadlet response
         ST_TX_HEAD = 9,           // tx state, link transmits block header
         ST_TX_HEAD_BC = 10,       // tx state, link transmits block write broadcast to PC
-        ST_TX_HEAD_HUB = 11,      // tx state, link transmits hub block header
-        ST_TX_DATA = 12,          // tx state, link transmits block data
-        ST_TX_DATA_HUB = 13,      // tx state, link transmits hub block data
-        ST_TX_DONE1 = 14,         // tx state, link finalizes transmission
-        ST_TX_DONE2 = 15;         // tx state, phy regains phy-link bus
+        ST_TX_DATA = 11,          // tx state, link transmits block data
+        ST_TX_DATA_HUB = 12,      // tx state, link transmits hub block data
+        ST_TX_DONE1 = 13,         // tx state, link finalizes transmission
+        ST_TX_DONE2 = 14;         // tx state, phy regains phy-link bus
 
 
 
@@ -340,7 +338,7 @@ begin
 //        write_trig_count[8:0] <= 9'd0;
         
         // 5us node_id
-        write_trig_count[13:8] <= node_id[5:0];
+        write_trig_count[14:8] <= {1'b0, node_id[5:0]};
         write_trig_count[7:0] <= 8'd0;
 
         // 5us board_id
@@ -539,6 +537,7 @@ begin
                                 // save data to hub rdata
                                 hub_wdata <= buffer;
                                 hub_addr[3:0] <= hub_addr[3:0] + 1'b1;
+                                reg_wen <= 0;   // no write to devices
                             end
                             else if (reg_addr[7:6] == 2'b11) begin  // block write to PROM (M25P16)
                                 if (reg_addr[5:0] == 6'h3f)
@@ -647,11 +646,13 @@ begin
                             // process broadcast block write from PC
                             // nodeid = 6'b111111, no response required
                             else if ((buffer[21:16] == 6'h3f) && (buffer[7:4] == `TC_BWRITE)) begin
+                                // broadcast from other FPGA nodes
                                 if (buffer[3:0] == 4'hA) begin  
                                     hub_rx_active <= 1;
                                     rx_active <= 0;
                                     rx_bc_bwrite <= 0;
                                 end
+                                // broadcast from PC
                                 else begin
                                     hub_rx_active <= 0;
                                     rx_active <= 1; 
@@ -661,7 +662,8 @@ begin
                                 lreq_type <= `LREQ_RES;
                                 tx_type <= `TX_TYPE_DATA;
                             end
-                            else begin
+                            // unknown ignore
+                            else begin  
                                 rx_active <= 0;
                                 lreq_trig <= 0;
                                 lreq_type <= `LREQ_RES;
@@ -672,7 +674,6 @@ begin
                         64: begin
                             rx_src <= buffer[31:16];      // source address
                             if (rx_bc_bwrite) begin
-                                tx_dest_pc <= buffer[31:16];  // 16 bits pc nodeaddr
                                 bus_id <= buffer[31:22];      // 10 bits bus id
                             end
                             if (rx_tcode == `TC_BREAD && buffer[15:0] == 16'hffff) begin
@@ -684,7 +685,8 @@ begin
                             if (hub_rx_active) begin
                                 // hub register address  
                                 // buffer[23:20] is FPGA board id
-                                hub_addr <= { buffer[23:20], 4'd0 };
+                                // NOTE: hub_addr[3:0] is set to f to match timing
+                                hub_addr <= { buffer[23:20], 4'hf };
                             end
                             else begin
                                 hub_addr <= buffer[7:0];  
@@ -714,8 +716,8 @@ begin
                         end
                         // quadlet 4.5 -----------------------------------------
                         144: crc_ini <= 1;     // reset crc for block data
-                        // for block write packets, data block starts ----------
-                        160: begin
+                        // fifth quadlet: for block write packets, data block starts ------
+                        160: begin 
                             if (rx_bc_bwrite && (rx_pri !== 4'hA)) begin
                                 // buffer is CRC
                                 // do nothing for pc broadcast packet
@@ -977,12 +979,13 @@ begin
             
             // update transmit buffer at quadlet boundaries
             case (count)
-                 24: buffer <= { rx_dest, `RC_DONE, 12'd0 };
-                 56: buffer <= 0;
-                 88: buffer <= { reg_dlen, 16'd0 };
+                 24: buffer <= { rx_dest, `RC_DONE, 12'd0 };  // quadlet 2
+                 56: buffer <= 0;                             // quadlet 3
+                 88: buffer <= { reg_dlen, 16'd0 };           // quadlet 
 
                 // latch header crc, reset crc in preparation for data crc
                 128: begin
+                    hub_addr <= {4'd0, 4'd0};  // board 0 & reg 0
                     data <= ~crc_8msb;
                     buffer <= { ~crc_in[23:0], 8'd0 };
                     crc_ini <= 1;
@@ -1001,7 +1004,7 @@ begin
                         state <= ST_TX_DATA_HUB;
                     end
                     else begin
-                        // ----- BRESP/BBC Contuinue -------
+                        // ----- BRESP Contuinue -------
                         if (reg_addr[7:6] == 2'b11) begin  // block read from PROM (M25P16)
                             buffer <= reg_rdata;
                             reg_addr[5:0] <= 6'd1;
@@ -1012,7 +1015,7 @@ begin
                             ts_reset <= 1;
                         end
                         crc_ini <= 0;
-                    end                   
+                    end 
                 end
 
                 // latch status data, setup address for digital inputs
@@ -1081,7 +1084,7 @@ begin
                 
                 // latch header crc, reset crc in preparation for data crc
                 128: begin
-                    hub_addr <= { board_id[3:0], 4'd0 };  // set hub_addr
+                    hub_addr <= { board_id[3:0], 4'd0 };   
                     data <= ~crc_8msb;
                     buffer <= { ~crc_in[23:0], 8'd0 };
                     crc_ini <= 1;          // start crc
@@ -1089,7 +1092,7 @@ begin
 
                 // latch bc_sequence and bc_fpga, send back to PC,  restart crc
                 152: begin
-                    hub_addr[3:0] <= 4'd1;  // hubreg 
+                    hub_addr[3:0] <= 4'd0;  // hubreg 
                     hub_wdata <= { rx_bc_sequence[15:0], rx_bc_fpga[15:0] };
                     buffer <= { rx_bc_sequence[15:0], rx_bc_fpga[15:0] };
                     crc_ini <= 0;           // clear crc start bit                    
@@ -1097,7 +1100,7 @@ begin
 
                 // latch timestamp, setup address for status
                 184: begin
-                    hub_addr[3:0] <= 4'd2;  // hubreg 
+                    hub_addr[3:0] <= 4'd1;  // hubreg 
                     hub_wdata <= timestamp;
                     buffer <= timestamp;    // latch timestamp
                     reg_addr <= 8'h00;      // 0: status (See BoardRegs)
@@ -1106,7 +1109,7 @@ begin
 
                 // latch status data, setup address for digital inputs
                 216: begin
-                    hub_addr[3:0] <= 4'd3;  // hubreg
+                    hub_addr[3:0] <= 4'd2;  // hubreg
                     hub_wdata <= reg_rdata;
                     buffer <= reg_rdata;    // latch status
                     reg_addr <= 8'd10;      // 10: digital inputs (See BoardRegs)
@@ -1115,7 +1118,7 @@ begin
 
                 // latch digital inputs, setup address for temperature sensors
                 248: begin
-                    hub_addr[3:0] <= 4'd4;  // hubreg
+                    hub_addr[3:0] <= 4'd3;  // hubreg
                     hub_wdata <= reg_rdata;
                     buffer <= reg_rdata;    // latch digital inputs
                     reg_addr <= 8'h5;       // 5: temperature sensors (See BoardRegs)
@@ -1123,7 +1126,7 @@ begin
 
                 // latch temperature sensors, go to block data state
                 280: begin
-                    hub_addr[3:0] <= 4'd5;  // hubreg
+                    hub_addr[3:0] <= 4'd4;  // hubreg
                     hub_wdata <= reg_rdata;
                     buffer <= reg_rdata;    // latch temperature
                     reg_addr <= 8'h10;      // start cycling through channels
@@ -1159,6 +1162,7 @@ begin
                     hub_addr[3:0] <= hub_addr[3:0] + 1'b1;
                     hub_wdata <= reg_rdata;
                     
+                    // send to FireWire bus
                     buffer <= reg_rdata;
                     if (reg_addr[7:6] == 2'b11) begin   // block read from PROM (M25P16)
                         if (reg_addr[5:0] == 6'h3f)
@@ -1261,30 +1265,31 @@ end
 // Debug: chipscope modules 
 //   - icon: integrated controller
 //   -  ila: integrated logic analyzer
-// 
-//
-//wire[35:0] control0;
-//wire[35:0] control1;
-//
-//// icon
-//chipscope_icon icon1(
-//    .CONTROL0(control0),
-//    .CONTROL1(control1)
-//);
-//
-//// ila connect to write trig
-//wire[7:0] wire_trig_debug;
-//assign wire_trig_debug[7:0] = { write_trig, lreq_trig , 3'd0, lreq_type[2:0] };
-//
-//ila_write_trig ila_trig(
-//    .CONTROL(control0),
-//    .CLK(sysclk),
-//    .TRIG0(state),
-//    .TRIG1(wire_trig_debug),
-//    .TRIG2(write_trig_count),
-//    .TRIG3(write_counter)
-//);
-//
+ 
+
+wire[35:0] control0;
+wire[35:0] control1;
+
+// icon
+chipscope_icon icon1(
+    .CONTROL0(control0),
+    .CONTROL1(control1)
+);
+
+// ila connect to write trig
+wire[7:0] wire_trig_debug;
+assign wire_trig_debug[7:0] = { write_trig, lreq_trig , 3'd0, lreq_type[2:0] };
+
+ila_write_trig ila_trig(
+    .CONTROL(control0),
+    .CLK(sysclk),
+    .TRIG0(state),
+    .TRIG1(wire_trig_debug),
+    .TRIG2(write_trig_count),
+    .TRIG3(write_counter)
+);
+
+// For debugging 1394 packet timing
 //ila_fw_packet ila_fw(
 //    .CONTROL(control1),
 //    .CLK(sysclk),
@@ -1294,6 +1299,17 @@ end
 //    .TRIG3(ctl),
 //    .TRIG4(data)
 //);
+
+// debug hub timing
+ila_fw_packet ila_hw(
+    .CONTROL(control1),
+    .CLK(sysclk),
+    .TRIG0(hub_addr),
+    .TRIG1(hub_rdata),
+    .TRIG2({hub_bread, count[14:0]}),
+    .TRIG3(ctl),
+    .TRIG4(data)
+);
 
 endmodule  // PhyLinkInterface
 
