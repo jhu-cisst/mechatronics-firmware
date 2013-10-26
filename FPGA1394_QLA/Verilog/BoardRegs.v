@@ -31,8 +31,8 @@
 
 
 `define VERSION 32'h514C4131       // hard-wired version number "QLA1" = 0x514C4131 
-`define FW_VERSION 32'h03          // firmware version = 3  
-`define WIDTH_WATCHDOG 8           // period = 5.208333 us (2^8 / 49.152 MHz)
+`define FW_VERSION 32'h04          // firmware version = 4 
+`define WIDTH_WATCHDOG 8           // period = 5.208333 us (2^8 / 49.152 MHz) 
 
 module BoardRegs(
     // glocal clock & reset 
