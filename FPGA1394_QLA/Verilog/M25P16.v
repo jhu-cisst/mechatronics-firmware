@@ -42,7 +42,7 @@ parameter PROM_IDLE = 0,
           PROM_IO_DISABLE = 6;
 
 reg       io_disabled;
-reg[2:0]  state;
+reg[2:0]  state;           // state machine 
 reg[6:0]  seqn;            // 7-bit counter for sequencing operation
 reg[6:0]  SendCnt;         // 2*NumBits-1
 reg[6:0]  RecvCnt;         // 2*NumBits-1 (0 if no bits to receive)

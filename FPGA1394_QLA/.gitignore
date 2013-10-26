@@ -56,3 +56,6 @@
 /Wave
 /*.prm
 /*.xmsgs
+*.sublime*
+sdram_*
+*.bak

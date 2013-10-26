@@ -16,7 +16,6 @@
 // clk1394: 49.152 MHz 
 // sysclk: same as clk1394 49.152 MHz
 
-
 module FPGA1394QLA
 (
     // ieee 1394 phy-link interface
@@ -372,7 +371,7 @@ always @(posedge(rx_active) or posedge(clk_12hz)) begin
         reg_led <= 1'b1;
     end
     else if (reg_led_counter <= 5'd16) begin
-        reg_led_counter <= reg_led_counter + 1;
+        reg_led_counter <= reg_led_counter + 1'b1;
         reg_led <= 1'b1;
     end
     else begin

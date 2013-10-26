@@ -44,7 +44,7 @@ module LTC2601x4(
     reg[8:0] seqn;            // 9-bit counter for sequencing operation
     reg[31:0] data;           // capture of input command words
     wire word_edge;           // true if transfer is at command word boundary
-    wire[5:0] count;          // debug
+//    wire[5:0] count;          // debug
 
     // state machine
     reg state;
@@ -63,7 +63,7 @@ assign busy = ~csel;
 assign addr = seqn[7:6] + word_edge;
 assign flush = ((seqn[5:1]==5'b01111) ? 1'b1 : 1'b0);
 assign word_edge = ((seqn[5:1]==`SEQN_WORD) ? 1'b1 : 1'b0);
-assign count = seqn[5:0];
+//assign count = seqn[5:0];   // debug
 
 // state machine
 always @(posedge(clkin) or negedge(reset))

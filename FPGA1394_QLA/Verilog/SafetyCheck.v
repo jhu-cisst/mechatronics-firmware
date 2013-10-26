@@ -12,7 +12,8 @@
  *     04/26/13    Zihan Chen    Initial revision
  */
 
-
+// USE_SIMULATION flag
+`include "Constants.v"
 
 module SafetyCheck(
     input  wire clk,            // system clock
@@ -54,7 +55,7 @@ module SafetyCheck(
         // else perform safety check
         else begin
            if ((cur_in < low_limit) || (cur_in > high_limit)) begin
-               error_counter <= error_counter + 1;
+               error_counter <= error_counter + 1'b1;
            end
            else begin
                error_counter <= 24'd0;
@@ -71,11 +72,16 @@ module SafetyCheck(
         end
         
         // 50 mS 
-        else if (error_counter < 24'd2457600) begin
-        // for simulation
-//        else if (error_counter < 24'd5) begin 
+`ifdef USE_SIMULATION
+        // use counter limit = 5 for simulation
+        else if (error_counter < 24'd5) begin 
             amp_disable <= amp_disable;
         end
+`else        
+        else if (error_counter < 24'd2457600) begin
+            amp_disable <= amp_disable;
+        end
+`endif        
         else begin
             amp_disable <= 1'b1;
         end

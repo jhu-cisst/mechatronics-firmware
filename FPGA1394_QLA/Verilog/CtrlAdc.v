@@ -10,16 +10,8 @@
  *     11/22/11    Paul Thienphrapa    Initial revision
  */
 
-// device register file offsets from channel base
-`define OFF_ADC_DATA 4'd0          // adc data register offset (pot + cur)
-`define OFF_DAC_CTRL 4'd1          // dac control register offset
-`define OFF_POT_CTRL 4'd2          // pot control register offset
-`define OFF_POT_DATA 4'd3          // pot data register offset
-`define OFF_ENC_LOAD 4'd4          // enc data preload offset
-`define OFF_ENC_DATA 4'd5          // enc quadrature register offset
-`define OFF_PER_DATA 4'd6          // enc period register offset
-`define OFF_FREQ_DATA 4'd7         // enc frequency register offset
-
+// device register file offset
+`include "Constants.v" 
 
 module CtrlAdc(
     input  wire clkadc,            // adc clock

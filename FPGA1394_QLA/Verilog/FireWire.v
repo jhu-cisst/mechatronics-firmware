@@ -20,7 +20,7 @@
  *                                       for Xilinx
  *     10/31/11    Paul Thienphrapa    React to rx packets only when addressed
  *     11/11/11    Paul Thienphrapa    Happy 111111!!11!
- *                                     Fixed mixed blocking/non-blocking issues
+ *                                     Fixed mixed blocking/non-blocking issues`
  *     10/16/13    Zihan Chen          Modified to support hub capability
  */
 
@@ -59,7 +59,10 @@
  *            - from PC for 1 board state
  *            - from PC for hub states  (Read Address = 0xFFFF00000000)
  *         - QWRITE: 
- *            - from PC: can be broadcast or non-broadcast
+ *            - from PC: non-broadcast mode
+ *            - from PC: broadcast mode
+ *               - dest offset = 0xffff ffff xxxx indicates bc read request
+ *               - otherwise, normal broadcast 
  *         - BWRITE:
  *            - from PC non-broadcast mode
  *            - from PC broadcast mode
@@ -68,6 +71,8 @@
  */
 
 
+// global constant e.g. register & device address
+`include "Constants.v"
 
 // constants for receive speed codes
 // See Book P237 Receving Packets, D[0] is omitted here
@@ -138,8 +143,6 @@
 
 // other
 `define CRC_INIT -32'd1           // initial value to start new crc calculation
-`define REG_PHYCTRL 4'd1          // phy request bitstream (to request reg r/w)
-`define REG_PHYDATA 4'd2          // holder for phy register read contents
 `define INVALID_SIZE -16'd1       // packet size that we should never encounter
 
 module PhyLinkInterface(
@@ -192,7 +195,7 @@ module PhyLinkInterface(
     // various
     reg tx_hold;                  // transmit hold flag
     // reg rx_active;                // rx active flag
-    reg rx_bc_bwrite;             // rx broadcast block write flag
+
     reg[3:0] state, next;         // state register
     reg[2:0] rx_speed;            // received speed code
     reg[3:0] tx_type;             // encodes transmit type
@@ -236,8 +239,13 @@ module PhyLinkInterface(
     reg[3:0] rx_pri;              // priority code
     reg[15:0] rx_src;             // source ID field
     reg[15:0] reg_dlen;           // block data length
+    reg[47:0] rx_addr_full;       // full 48-bit
+
+    // broadcast related fields
     reg[15:0] rx_bc_sequence;     // broadcast sequence num
-    reg[15:0] rx_bc_fpga;         // indicates whether a boards exists
+    reg[15:0] rx_bc_fpga;         // indicates whether a boards exists    
+    reg rx_bc_bwrite;             // rx broadcast block write flag
+    reg rx_bc_bread;              // rx broadcast read request flag
 
     // real-time read stuff
     // an array of 4 4-bits device address
@@ -314,6 +322,9 @@ assign dev_addr[1] = 4'd5;        // enc position address
 assign dev_addr[2] = 4'd6;        // enc period address
 assign dev_addr[3] = 4'd7;        // enc frequency address
 
+// -------------------------------------------------------
+// Timestamp 
+// -------------------------------------------------------
 // timestamp counts number of clocks between block reads
 always @(posedge(sysclk) or posedge(ts_reset) or negedge(reset))
 begin
@@ -323,25 +334,35 @@ begin
         timestamp <= timestamp + 1'b1;
 end
 
+// -------------------------------------------------------
+// Broadcast Time Counter 
+//   - Trigger: 2 different triggers
+//      - 1: broadcast write command
+//      - 2: special broadcast qwrite serves as bc read request 
+//   - Time offset
+//      - 5 us is enough for 1 board to send data
+//      - offset can be based on nodeid or boardid (rotary switch)
+// -------------------------------------------------------
 // counter for initiate block write to controller PC
 reg[31:0] write_counter;
 reg[14:0] write_trig_count;  // 6 bits node_id + 9 bits = 512 counts
 reg write_trig;
-always @(posedge(sysclk) or posedge(rx_bc_bwrite) or negedge(reset))
+//always @(posedge(sysclk) or posedge(rx_bc_bwrite) or negedge(reset))
+always @(posedge(sysclk) or negedge(reset))
 begin
-    if (reset == 0 || rx_bc_bwrite) begin
+    if (reset == 0 || rx_bc_bread) begin
         write_counter <= 32'd0;
         write_trig <= 1'b0;
-        
-        // 10us node_id
+
+        // 10us node_id (uncomment to use 10us node_id)
 //        write_trig_count[14:9] <= node_id[5:0];
 //        write_trig_count[8:0] <= 9'd0;
-        
+
         // 5us node_id
         write_trig_count[14:8] <= {1'b0, node_id[5:0]};
         write_trig_count[7:0] <= 8'd0;
-
-        // 5us board_id
+        
+        // 5us board_id (uncomment to use 5us board_id)
 //        write_trig_count[11:8] <= board_id[3:0];
 //        write_trig_count[7:0] <= 8'd0;
     end
@@ -411,6 +432,7 @@ begin
             crc_tx <= 0;                           // not in a transmit state
             rx_active <= 0;                        // clear receive active
             rx_bc_bwrite <= 1'b0;                  // clear broadcast block write active
+            rx_bc_bread <= 1'b0;                   // clear broadcast reqd request flag
             hub_rx_active <= 1'b0;                 // clear hub receive active
             
             // monitor ctl to select next state
@@ -501,7 +523,7 @@ begin
                     crc_in <= `CRC_INIT;            // start crc calculation
                     crc_ini <= 0;                   // clear the crc reset flag
                     data_block <= 0;                // clear block write flag
-                    hub_bread <= 1'b0;                     // clear hub block read from PC
+                    hub_bread <= 1'b0;              // clear hub block read from PC
                 end
                 default: state <= ST_IDLE;          // null packet or error
             endcase
@@ -672,16 +694,22 @@ begin
                         end
                         // second quadlet --------------------------------------
                         64: begin
-                            rx_src <= buffer[31:16];      // source address
+                            rx_src <= buffer[31:16];     // source address
+                            rx_addr_full[47:32] <= buffer[15:0];   // save high 16-bit of full addr
+
                             if (rx_bc_bwrite) begin
                                 bus_id <= buffer[31:22];      // 10 bits bus id
                             end
-                            if (rx_tcode == `TC_BREAD && buffer[15:0] == 16'hffff) begin
+                            else if (rx_tcode == `TC_BREAD && buffer[15:0] == 16'hffff) begin
                                 hub_bread <= 1;
                             end
                         end
                         // third quadlet --------------------------------------
                         96: begin
+                            rx_addr_full[31:0] <= buffer[31:0];  // save low 32-bit for full addr
+                            reg_addr <= buffer[7:0];      // register address
+                            crc_comp <= ~crc_in;          // computed crc for quadlet read
+
                             if (hub_rx_active) begin
                                 // hub register address  
                                 // buffer[23:20] is FPGA board id
@@ -691,8 +719,12 @@ begin
                             else begin
                                 hub_addr <= buffer[7:0];  
                             end
-                            reg_addr <= buffer[7:0];      // register address
-                            crc_comp <= ~crc_in;          // computed crc for quadlet read
+
+                            // broadcast read request
+                            if (rx_dest == 16'hffff && rx_tcode == `TC_QWRITE && 
+                                rx_addr_full[47:32] == 16'hffff && buffer[31:16] == 16'hffff) begin
+                                rx_bc_bread <= 1;
+                            end                            
                         end
                         // fourth quadlet --------------------------------------
                         128: begin
@@ -806,7 +838,11 @@ begin
                         tx_type <= `TX_TYPE_DATA;
 
                     // trigger a quadlet or block write event
-                    reg_wen <= (rx_active & (rx_tcode==`TC_QWRITE));
+                    // NOTE: 
+                    //   & - bitwise AND
+                    //   result is a 1-bit and assigned to reg_wen 
+                    //   NO quadlet write event for bc read request
+                    reg_wen <= (rx_active & (rx_tcode==`TC_QWRITE) & (rx_bc_bread == 1'b0)); 
                     blk_wen <= (rx_active & ((rx_tcode==`TC_QWRITE) | (rx_tcode==`TC_BWRITE)));
                 end
 
@@ -998,7 +1034,7 @@ begin
                         // ----- HUB Response STOP HERE -----
                         // start latching data for each board
                         buffer <= hub_rdata;
-                        hub_addr[3:0] <= hub_addr[3:0] + 1;
+                        hub_addr[3:0] <= hub_addr[3:0] + 1'b1;
                         // restart crc
                         crc_ini <= 0;
                         state <= ST_TX_DATA_HUB;
@@ -1267,27 +1303,27 @@ end
 //   -  ila: integrated logic analyzer
  
 
-wire[35:0] control0;
-wire[35:0] control1;
+// wire[35:0] control0;
+// wire[35:0] control1;
 
 // icon
-chipscope_icon icon1(
-    .CONTROL0(control0),
-    .CONTROL1(control1)
-);
+// chipscope_icon icon1(
+//     .CONTROL0(control0),
+//     .CONTROL1(control1)
+// );
 
-// ila connect to write trig
-wire[7:0] wire_trig_debug;
-assign wire_trig_debug[7:0] = { write_trig, lreq_trig , 3'd0, lreq_type[2:0] };
+// // ila connect to write trig
+// wire[7:0] wire_trig_debug;
+// assign wire_trig_debug[7:0] = { write_trig, lreq_trig , 3'd0, lreq_type[2:0] };
 
-ila_write_trig ila_trig(
-    .CONTROL(control0),
-    .CLK(sysclk),
-    .TRIG0(state),
-    .TRIG1(wire_trig_debug),
-    .TRIG2(write_trig_count),
-    .TRIG3(write_counter)
-);
+// ila_write_trig ila_trig(
+//     .CONTROL(control0),
+//     .CLK(sysclk),
+//     .TRIG0(state),
+//     .TRIG1(wire_trig_debug),
+//     .TRIG2(write_trig_count),
+//     .TRIG3(write_counter)
+// );
 
 // For debugging 1394 packet timing
 //ila_fw_packet ila_fw(
@@ -1301,15 +1337,15 @@ ila_write_trig ila_trig(
 //);
 
 // debug hub timing
-ila_fw_packet ila_hw(
-    .CONTROL(control1),
-    .CLK(sysclk),
-    .TRIG0(hub_addr),
-    .TRIG1(hub_rdata),
-    .TRIG2({hub_bread, count[14:0]}),
-    .TRIG3(ctl),
-    .TRIG4(data)
-);
+// ila_fw_packet ila_hw(
+//     .CONTROL(control1),
+//     .CLK(sysclk),
+//     .TRIG0(hub_addr),
+//     .TRIG1(hub_rdata),
+//     .TRIG2({hub_bread, count[14:0]}),
+//     .TRIG3(ctl),
+//     .TRIG4(data)
+// );
 
 endmodule  // PhyLinkInterface
 

@@ -14,10 +14,23 @@
  *     10/24/13    Zihan Chen          Revised for 25AA128 SPI PROM
  */
 
+/**  
+ *   NOTE: 
+ *      - only part of the FireWire link layer controller is implemented 
+ *      - transaction layer and link layer are mixed (not good, works for now)
+ *      - ONLY control PC and FPGA_QLA boards can be attached to the same bus
+ *
+ *   Broadcast Packets (write ONLY)
+ *      - bc_qwrite:  broadcast quadlet write
+ *      - bc_bwrite:  broadcast block write
+ *         - from PC 
+ *         - from FPGA (priority = 4'hA)
+ */
+
+
 module QLA25AA128(
     input  clk,                   // input clock
-    input  reset,                 // global reset signal
-    input[31:0]  prom_cmd,        // command input (from Firewire)
+    input  reset,                 // global reset signal    input[31:0]  prom_cmd,        // command input (from Firewire)
     output[31:0] prom_status,     // PROM interface status
     output reg[31:0] prom_result, // result (to Firewire)
     output reg[31:0] prom_rdata,  // result (to Firewire)
@@ -56,7 +69,8 @@ reg[31:0] data_block[0:65];  // Up to 65 quadlets of data, received via block wr
 reg [6:0] wr_index;          // Current write index (7-bit), set from prom_blk_addr (6-bit),
                              // with wrap-around allowed
 reg [6:0] rd_index;          // Current read index (7-bit), incremented in this module
-   
+
+
 assign prom_status[31:16] = prom_debug;
 assign prom_status[15:9] = 7'd0;
 assign prom_status[8] = io_disabled;

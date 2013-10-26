@@ -13,25 +13,11 @@
  *     05/19/13    Zihan Chen          Add mv_good 40 ms sleep
  */
 
-// channel 0 (board) registers
-`define REG_STATUS 4'd0            // board id (8), fault (8), enable/masks (16)
-`define REG_PHYCTRL 4'd1           // phy request bitstream (to request reg r/w)
-`define REG_PHYDATA 4'd2           // holder for phy register read contents
-`define REG_TIMEOUT 4'd3           // watchdog timer period register
-`define REG_VERSION 4'd4           // read-only version number address
-`define REG_TEMPSNS 4'd5           // temperature sensors (2x 8 bits concatenated)
-`define REG_DIGIOUT 4'd6           // programmable digital outputs
-`define REG_FIRMWARE_VERSION 4'd7  // firmware version
-`define REG_PROMSTAT 4'd8          // PROM interface status
-`define REG_PROMRES 4'd9           // PROM result (from M25P16)
-`define REG_DIGIN   4'd10          // Digital inputs (home, neg lim, pos lim)
-`define REG_SAFETY  4'd11          // Safety amp disable 
-`define REG_WDOG    4'd14          // TEMP wdog_samp_disable
-`define REG_REGDISABLE 4'd15       // TEMP reg_disable 
 
+// device register file offset
+`include "Constants.v" 
 
-`define VERSION 32'h514C4131       // hard-wired version number "QLA1" = 0x514C4131 
-`define FW_VERSION 32'h04          // firmware version = 4 
+// watchdog
 `define WIDTH_WATCHDOG 8           // period = 5.208333 us (2^8 / 49.152 MHz) 
 
 module BoardRegs(
@@ -187,7 +173,6 @@ always @(posedge(sysclk) or negedge(reset))
             reg_disable[3:0] <= (reg_disable[3:0] | wdog_amp_disable[4:1] | safety_amp_disable[4:1]);
         end
     end
-
 end
 
 // derive watchdog clock
