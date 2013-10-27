@@ -19,7 +19,7 @@
 module FPGA1394QLA
 (
     // ieee 1394 phy-link interface
-    input            clk1394,
+    input            clk1394,   // 49.152 MHz
     inout [7:0]      data,
     inout [1:0]      ctl,
     output wire      lreq,
@@ -31,18 +31,18 @@ module FPGA1394QLA
     output wire      TxD,
 
     // debug I/Os
-    input wire       clk29m,
-    input wire       clk40m,
+    input wire       clk29m,    // 29.4989 MHz
+    input wire       clk40m,    // 40.0000 MHz 
     output wire [3:0] DEBUG,
 
     // misc board I/Os
-    input [3:0]      wenid,
+    input [3:0]      wenid,     // rotary switch
     inout [1:32]     IO1,
     inout [1:38]     IO2,
     output wire      LED,
 
     // SPI interface to PROM
-    output           XCCLK,
+    output           XCCLK,    
     input            XMISO,
     output           XMOSI,
     output           XCSn
@@ -345,23 +345,41 @@ SafetyCheck safe4(
 
 
 //------------------------------------------------------------------------------
-// debugging, etc.
+// USB Serial 
 //
 
-wire BaudClk;
-reg[3:0] Baud;
+// wire BaudClk;
+// reg[3:0] Baud;
+// BUFG clkout(.I(Baud[3]), .O(BaudClk));
+// always @(posedge(clk29m)) Baud <= Baud + 1'b1;
+// assign TxD = 0;
+
+//UartTxDebug uart_tx_debug(
+//    .Clk40m(clk40m),
+//    .IO1(IO1[1:32]),
+//    .IO2(IO2[1:38]),
+//    .Addr(wenid[3:0]),
+//    .TxD(TxD)
+//);
+
+CtrlUart uart_debug(
+    .clk40m(clk40m),
+    .reset(reset),
+    .RxD(RxD),
+    .TxD(TxD)
+);
+
+//------------------------------------------------------------------------------
+// debugging, etc.
+//
 reg[23:0] CountC;
 reg[23:0] CountI;
-
-BUFG clkout(.I(Baud[3]), .O(BaudClk));
-always @(posedge(clk29m)) Baud <= Baud + 1'b1;
 always @(posedge(clk40m)) CountC <= CountC + 1'b1;
 always @(posedge(sysclk)) CountI <= CountI + 1'b1;
 
 // assign LED = IO1[32];     // NOTE: IO1[32] pwr_enable
 assign LED = reg_led;
-assign DEBUG = { clk_1mhz, clk_12hz, CountI[23], CountC[23] };
-assign TxD = 0;
+assign DEBUG = { clk_1mhz, clk_12hz, CountI[23], CountC[23] }; 
 
 reg reg_led;
 reg[4:0] reg_led_counter;
