@@ -71,6 +71,20 @@
  */
 
 
+// -------------------------------------------------------
+// IEEE-1394 64-bit Address Mapped 
+// We only use last 10-bit, the rest bit number is 0 indexed
+// 
+//  addr[9:8] map 
+//     2'b00: board register + device memory
+//     2'b01: hub caching space
+//     2'b10: M15P16 prom space
+//     2'b11: QLA 25AA128 prom space
+//         
+// -------------------------------------------------------------
+
+
+
 // global constant e.g. register & device address
 `include "Constants.v"
 
@@ -569,28 +583,18 @@ begin
                                 reg_wdata <= buffer;   // data to program
                                 reg_wen <= rx_active;
                             end
-                            else if (rx_bc_bwrite) begin  // Broadcast block write dac data
+                            else begin  // Block write to dac data
                                 // channel address circularly increments from 1 to num_channels
                                 // (chan addr and dev offset are previously set)
                                 if (reg_addr[7:4] == num_channels)
                                     reg_addr[7:4] <= 4'd1;
                                 else
                                     reg_addr[7:4] <= reg_addr[7:4] + 1'b1;
-                                // bit 27-24 should be boardid, other wise will not respond
+                                // only respond to bit 27-24 == board_id (bc mode)
                                 if (buffer[27:24] == board_id) begin
                                     reg_wdata <= buffer[30:0];               // data to write
                                     reg_wen <= (buffer[31] & rx_active);     // check valid bit
                                 end
-                            end
-                            else begin                      // DAC data
-                                // channel address circularly increments from 1 to num_channels
-                                // (chan addr and dev offset are previously set)
-                                if (reg_addr[7:4] == num_channels)
-                                    reg_addr[7:4] <= 4'd1;
-                                else
-                                    reg_addr[7:4] <= reg_addr[7:4] + 1'b1;
-                                reg_wdata <= buffer[30:0];               // data to write
-                                reg_wen <= (buffer[31] & rx_active);     // check valid bit
                             end
                         end
                         else

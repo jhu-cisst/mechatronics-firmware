@@ -108,6 +108,7 @@ begin
 
         PROM_IDLE: begin
            
+           // See Table 5: Command Set Codes (P17)
           if (prom_reg_wen) begin
             seqn <= 7'd0;
             prom_data <= prom_cmd;

@@ -5,32 +5,36 @@
  *
  * Copyright(C) 2012-2013 ERC CISST, Johns Hopkins University.
  *
- * Module: M25P16
+ * Module: QLA25AA128
  *
- * Purpose: Program the M25P16 PROM
+ * Purpose: Program the 25AA138 PROM on QLA board
  * 
  * Revision history
- *     12/31/12    Peter Kazanzides    Initial revision
+ *     12/31/12    Peter Kazanzides    Initial revision from M25P16
  *     10/24/13    Zihan Chen          Revised for 25AA128 SPI PROM
  */
 
 /**  
  *   NOTE: 
- *      - only part of the FireWire link layer controller is implemented 
- *      - transaction layer and link layer are mixed (not good, works for now)
- *      - ONLY control PC and FPGA_QLA boards can be attached to the same bus
- *
- *   Broadcast Packets (write ONLY)
- *      - bc_qwrite:  broadcast quadlet write
- *      - bc_bwrite:  broadcast block write
- *         - from PC 
- *         - from FPGA (priority = 4'hA)
+ *   
  */
+
+// ---------------------------------------------------
+// 25AA128 PROM SPI Command (Datasheet P7 Table 2-1)
+// 
+`define CMD_READ_25AA128   8'h03    // Read 
+`define CMD_WRITE_25AA128  8'h02    // Write
+`define CMD_WRDI_25AA128   8'h04     // Write Disable
+`define CMD_WREN_25AA128   8'h06    // Write Enable
+`define CMD_RDSR_25AA128   8'h05    // Read STATUS register
+`define CMD_WRSR_25AA128   8'h01    // Write STATUS register
+`define CMD_IDLE_25AA128   8'h00    // IDLE N/A cmd 
 
 
 module QLA25AA128(
     input  clk,                   // input clock
-    input  reset,                 // global reset signal    input[31:0]  prom_cmd,        // command input (from Firewire)
+    input  reset,                 // global reset signal    
+    input[31:0]  prom_cmd,        // command input (from Firewire)
     output[31:0] prom_status,     // PROM interface status
     output reg[31:0] prom_result, // result (to Firewire)
     output reg[31:0] prom_rdata,  // result (to Firewire)
@@ -57,7 +61,7 @@ parameter ST_IDLE = 0,
 
 reg       io_disabled;
 reg[2:0]  state;
-reg[6:0]  seqn;            // 7-bit counter for sequencing operation
+reg[6:0]  seqn;            // 7-bit counter for sequencing operation max = 128
 reg[6:0]  SendCnt;         // 2*NumBits-1
 reg[6:0]  RecvCnt;         // 2*NumBits-1 (0 if no bits to receive)
 reg[5:0]  RecvQuadCnt;     // Number of quadlets to read, minus 1
@@ -99,25 +103,26 @@ begin
 
     else begin
 
-        if (prom_blk_wen && blk_wrt) begin       // receive one quadlet of the block write
-            if (prom_blk_addr == wr_index[5:0]) begin
-                data_block[wr_index] <= prom_cmd;
-                // Update write index
-                wr_index <= wr_index + 1'b1;
-            end
-            else  begin // error, unexpected block write address
-                prom_debug <= { 2'b0, prom_blk_addr, 1'b0, wr_index };
-            end
-        end
+        // if (prom_blk_wen && blk_wrt) begin       // receive one quadlet of the block write
+        //     if (prom_blk_addr == wr_index[5:0]) begin
+        //         data_block[wr_index] <= prom_cmd;
+        //         // Update write index
+        //         wr_index <= wr_index + 1'b1;
+        //     end
+        //     else  begin // error, unexpected block write address
+        //         prom_debug <= { 2'b0, prom_blk_addr, 1'b0, wr_index };
+        //     end
+        // end
 
-        else if (prom_blk_end) begin 
-            // finish receiving data from block write; will still be writing to PROM
-            blk_wrt <= 1'b0;
-        end
+        // else if (prom_blk_end) begin 
+        //     // finish receiving data from block write; will still be writing to PROM
+        //     blk_wrt <= 1'b0;
+        // end
 
-        else if (prom_blk_enable && !prom_reg_wen && !prom_blk_start) begin   // handle block reads
-            prom_rdata <= data_block[prom_blk_addr];
-        end
+        // else if (prom_blk_enable && !prom_reg_wen && !prom_blk_start) begin   // handle block reads
+        //     prom_rdata <= data_block[prom_blk_addr];
+        // end
+
 
         case (state)
 
@@ -129,74 +134,42 @@ begin
             blk_wrt <= 1'b0;
             wr_index <= 7'd0;
             case (prom_cmd[31:24])
-               8'h00: begin    // Do nothing
+               `CMD_IDLE_25AA128: begin    // Do nothing
                end
-               8'h06: begin    // Write Enable
+               `CMD_WREN_25AA128: begin    // Write Enable
                   SendCnt <= 7'd15;
                   RecvCnt <= 7'd0;
                   RecvQuadCnt <= 6'd0;
                   state <= ST_CHIP_SELECT;
                end
-               8'h04: begin    // Write Disable
+               `CMD_WRDI_25AA128: begin    // Write Disable
                   SendCnt <= 7'd15;
                   RecvCnt <= 7'd0;
                   RecvQuadCnt <= 6'd0;
                   state <= ST_CHIP_SELECT;
                end
-               8'h9f: begin    // Read ID (only first 3 bytes)
-                  SendCnt <= 7'd15;
-                  RecvCnt <= 7'd47;
+               `CMD_RDSR_25AA128: begin    // Read Status Register
+                  SendCnt <= 7'd15;        // 1-byte cmd
+                  RecvCnt <= 7'd15;        // 1-byte SR
                   RecvQuadCnt <= 6'd0;
                   state <= ST_CHIP_SELECT;
                end
-               8'h05: begin    // Read Status Register
-                  SendCnt <= 7'd15;
-                  RecvCnt <= 7'd15;
+               `CMD_WRSR_25AA128: begin    // Write Status Register
+                  SendCnt <= 7'd31;        // 1-byte cmd + 1-byte SR
+                  RecvCnt <= 7'd0;   
                   RecvQuadCnt <= 6'd0;
                   state <= ST_CHIP_SELECT;
                end
-               8'h01: begin    // Write Status Register
-                  SendCnt <= 7'd31;
-                  RecvCnt <= 7'd0;
-                  RecvQuadCnt <= 6'd0;
+               `CMD_READ_25AA128: begin    // Read Data (64 bytes)
+                  SendCnt <= 7'd47;        // 1-byte cmd + 2-byte addr
+                  RecvCnt <= 7'd63;        // 1-byte data 
+                  RecvQuadCnt <= (prom_cmd[7:0]-1'b1);    // num_bytes-1 
                   state <= ST_CHIP_SELECT;
                end
-               8'h03: begin    // Read Data (256 bytes)
-                  SendCnt <= 7'd63;
-                  RecvCnt <= 7'd63;
-                  RecvQuadCnt <= 6'h3f;
-                  state <= ST_CHIP_SELECT;
+               `CMD_WRITE_25AA128: begin
+                  SendCnt <= 7'd47; 
                end
-               8'h0B: begin    // Fast Read Data (256 bytes)
-                  SendCnt <= 7'd97;   // needs a dummy byte
-                  RecvCnt <= 7'd63;
-                  RecvQuadCnt <= 6'h3f;
-                  state <= ST_CHIP_SELECT;
-               end
-               8'hD8: begin    // Sector Erase
-                  SendCnt <= 7'd63;
-                  RecvCnt <= 7'd0;
-                  RecvQuadCnt <= 6'd0;
-                  state <= ST_CHIP_SELECT;
-               end
-               8'hC7: begin    // Bulk Erase
-                  SendCnt <= 7'd15;
-                  RecvCnt <= 7'd0;
-                  RecvQuadCnt <= 6'd0;
-                  state <= ST_CHIP_SELECT;
-               end
-               8'hB9: begin    // Deep Power Down
-                  SendCnt <= 7'd15;
-                  RecvCnt <= 7'd0;
-                  RecvQuadCnt <= 6'd0;
-                  state <= ST_CHIP_SELECT;
-               end
-               8'hAB: begin    // Release from deep power down
-                  SendCnt <= 7'd63;     // 3 dummy bytes
-                  RecvCnt <= 7'd15;     // "old style" ID = 0x14
-                  RecvQuadCnt <= 6'd0;
-                  state <= ST_CHIP_SELECT;
-               end
+
                8'hFF: begin    // Bit I/O for debugging
                   // Format (d) (mmmm) (bbbb)   (m=mask, b=bit)
                   // Enable I/O if either mask (XMOSI or XCCLK) is set
