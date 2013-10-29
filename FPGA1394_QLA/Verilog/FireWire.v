@@ -790,7 +790,8 @@ begin
                     //   & - bitwise AND
                     //   result is a 1-bit and assigned to reg_wen 
                     //   NO quadlet write event for bc read request
-                    reg_wen <= (rx_active & (rx_tcode==`TC_QWRITE) & (rx_bc_bread == 1'b0)); 
+                    // reg_wen <= (rx_active & (rx_tcode==`TC_QWRITE) & (rx_bc_bread == 1'b0)); 
+                    reg_wen <= (rx_active & (rx_tcode==`TC_QWRITE)); 
                     blk_wen <= (rx_active & ((rx_tcode==`TC_QWRITE) | (rx_tcode==`TC_BWRITE)));
                 end
 
@@ -1042,7 +1043,7 @@ begin
                 //  - 4'h01 = `ADDR_HUB
                 //  - bid is 4 bits board id
                 24: buffer <= { local_id, 16'hffff };  // src_id, dest_offset
-                56: buffer <= { 16'hff00, 4'h0, 4'h1, board_id, 4'h0 }; 
+                56: buffer <= { 16'hff00, `ADDR_HUB, 3'd0, board_id[3:0], 5'd0 }; 
 
                 //-------- Start broadcast back with sequence -------------
                 // datalen = 4 x (1 + 4 + 4 + 4 + 4) = 68 bytes
@@ -1156,7 +1157,7 @@ begin
                             reg_raddr[4:0] <= reg_raddr[4:0] + 1'b1;
                         end
                     end
-                    else if (reg_raddr[9:8] == `ADDR_PROM) begin
+                    else if (reg_raddr[15:12] == `ADDR_PROM) begin
                         reg_raddr[5:0] <= reg_raddr[5:0] + 1'b1;
                     end
                 end

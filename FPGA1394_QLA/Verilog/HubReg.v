@@ -14,7 +14,6 @@
 
 module HubReg(
     input  wire sysclk,            // system clk 
-    input  wire reset,             // system reset 
     input  wire reg_wen,           // hub reg write enable 
     input  wire[15:0] reg_raddr,    // hub reg addr 10-bit
     input  wire[15:0] reg_waddr,    // hub reg addr 10-bit
@@ -22,26 +21,39 @@ module HubReg(
     input  wire[31:0] reg_wdata    // hub incoming write data 
 );
 
-reg[31:0] hub_mem[511:0];         // 16x32, 16: max boards, 32: max quads
+wire hub_mem_wen;
+assign hub_mem_wen = (reg_wen & (reg_waddr[15:12]==`ADDR_HUB));
+
+// NOTE
+//   port a: write port
+//   port b: read port
+hub_mem_gen hub_mem(
+    .clka(sysclk),       
+    .wea(hub_mem_wen),
+    .addra(reg_waddr[8:0]),
+    .dina(reg_wdata),
+    .clkb(sysclk),
+    .addrb(reg_raddr[8:0]),
+    .doutb(reg_rdata)
+);
 
 
-// reg_raddr[8:5] = board id 
-// reg_raddr[4:0] = quad index
-assign reg_rdata = hub_mem[reg_raddr[8:0]];
-
-
-// handle register write
-always @(posedge(sysclk) or negedge(reset))
-begin
-    if (reset==0) begin
-        hub_mem[0] <= 32'h05;    // debug data 
-        hub_mem[169] <= 32'h99;  // debug data 
-    end
-    else begin
-        if (reg_wen && reg_waddr[15:12]==`ADDR_HUB) begin
-             hub_mem[reg_waddr[8:0]] <= reg_wdata;
-        end
-    end
-end
+// -------------------
+// chipscope
+// -------------------
+wire[35:0] control0;
+icon_hub icon(
+    .CONTROL0(control0)
+);
+ila_hub ila(
+    .CONTROL(control0),
+    .CLK(sysclk),
+    .TRIG0(reg_wen),
+    .TRIG1(reg_raddr),
+    .TRIG2(reg_waddr),
+    .TRIG3(reg_rdata),
+    .TRIG4(reg_wdata),
+    .TRIG5(reg_wdata)
+);
 
 endmodule

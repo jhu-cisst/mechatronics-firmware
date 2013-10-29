@@ -327,23 +327,35 @@ reg[7:0] tx_reg;     // reg to latch tx_data
 // tx_counter 
 //    counts from 0x00 -> 0x97, then stop
 //    when tx_trig, clear and start counting
+// always @(posedge(clkuart) or negedge(reset)) begin
+//     if (reset == 0) begin
+//         tx_counter <= 8'h97;    // stop counter
+//         tx_busy <= 1'b0;  
+//     end
+//     else if (tx_trig) begin
+//         tx_counter <= 8'h00;   // start counting
+//         tx_reg <= tx_data;     // latch data
+//         tx_busy <= 1'b1;       // set tx_busy
+//     end
+//     else if (tx_counter <= 8'h97) begin
+//         tx_counter <= tx_counter + 1'b1;
+//     end
+//     else if (tx_counter == 8'h97) begin
+//         tx_busy <= 1'b0;       // clear tx_busy
+//     end
+// end
+
+// transmit data out
 always @(posedge(clkuart) or negedge(reset)) begin
     if (reset == 0) begin
-        tx_counter <= 8'h97;    // stop counter
-        tx_busy <= 1'b0;  
+        tx_counter <= 8'd0;
+        tx_reg <= 8'd67;
     end
-    else if (tx_trig) begin
-        tx_counter <= 8'h00;   // start counting
-        tx_reg <= tx_data;     // latch data
-        tx_busy <= 1'b1;       // set tx_busy
-    end
-    else if (tx_counter <= 8'h97) begin
+    else begin
         tx_counter <= tx_counter + 1'b1;
     end
-    else if (tx_counter == 8'h97) begin
-        tx_busy <= 1'b0;       // clear tx_busy
-    end
 end
+
 
 
 // transmit data out
@@ -351,7 +363,7 @@ always @(posedge(clkuart) or negedge(reset)) begin
     if (reset == 0) begin
         TxD <= 1'b1;
     end
-    else if (tx_counter[3:0] == 4'h4) begin
+    else if (tx_counter[3:0] == 4'h2) begin
         if      (tx_counter[7:4]==4'h0) TxD <= 1'b0;       // start bit
         else if (tx_counter[7:4]==4'h1) TxD <= tx_reg[0];  // data 
         else if (tx_counter[7:4]==4'h2) TxD <= tx_reg[1];  
@@ -359,7 +371,8 @@ always @(posedge(clkuart) or negedge(reset)) begin
         else if (tx_counter[7:4]==4'h4) TxD <= tx_reg[3];  
         else if (tx_counter[7:4]==4'h5) TxD <= tx_reg[4];  
         else if (tx_counter[7:4]==4'h6) TxD <= tx_reg[5];  
-        else if (tx_counter[7:4]==4'h7) TxD <= tx_reg[6];  
+        else if (tx_counter[7:4]==4'h7) TxD <= tx_reg[6];
+        else if (tx_counter[7:4]==4'h8) TxD <= tx_reg[7];  
         else                            TxD <= 1'b1;       // stop bit, then idle bus 
     end
 end
@@ -432,7 +445,7 @@ always @(posedge(clkuart) or negedge(reset)) begin
     if (reset == 0) begin
         rx_reg <= 8'h00;        // clear tmp rx_reg
     end
-    else if (rx_counter[3:0] == 4'h4) begin                // start bit nothing
+    else if (rx_counter[3:0] == 4'h2) begin                // start bit nothing
         if      (rx_counter[7:4]==4'h1) rx_reg[0] <= RxD;  // data bit 0
         else if (rx_counter[7:4]==4'h2) rx_reg[1] <= RxD;  
         else if (rx_counter[7:4]==4'h3) rx_reg[2] <= RxD;  

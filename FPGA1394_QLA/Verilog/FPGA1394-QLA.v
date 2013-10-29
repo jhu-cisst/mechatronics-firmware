@@ -92,17 +92,16 @@ assign reset_phy = 1'b1;
 
 // route HubReg data to global reg_rdata
 wire[31:0] reg_rdata_hub;
-assign reg_rdata_hub = 32'h0;
+// assign reg_rdata_hub = 32'h0;
 
-// HubReg hub(
-//     .sysclk(sysclk),
-//     .reset(reset),
-//     .reg_wen(reg_wen),
-//     .reg_raddr(reg_raddr),
-//     .reg_waddr(reg_waddr),
-//     .reg_wdata(reg_wdata),
-//     .reg_rdata(reg_rdata_hub)
-// );
+HubReg hub(
+    .sysclk(sysclk),
+    .reg_wen(reg_wen),
+    .reg_raddr(reg_raddr),
+    .reg_waddr(reg_waddr),
+    .reg_rdata(reg_rdata_hub),
+    .reg_wdata(reg_wdata)
+);
 
 
 // --------------------------------------------------------------------------
@@ -436,20 +435,20 @@ SafetyCheck safe4(
 // always @(posedge(clk29m)) Baud <= Baud + 1'b1;
 // assign TxD = 0;
 
-UartTxDebug uart_tx_debug(
-   .Clk40m(clk40m),
-   .IO1(IO1[1:32]),
-   .IO2(IO2[1:38]),
-   .Addr(wenid[3:0]),
-   .TxD(TxD)
-);
+//UartTxDebug uart_tx_debug(
+//   .Clk40m(clk40m),
+//   .IO1(IO1[1:32]),
+//   .IO2(IO2[1:38]),
+//   .Addr(wenid[3:0]),
+//   .TxD(TxD)
+//);
 
-// CtrlUart uart_debug(
-//     .clk40m(clk40m),
-//     .reset(reset),
-//     .RxD(RxD),
-//     .TxD(TxD)
-// );
+ CtrlUart uart_debug(
+     .clk40m(clk40m),
+     .reset(reset),
+     .RxD(RxD),
+     .TxD(TxD)
+ );
 
 //------------------------------------------------------------------------------
 // debugging, etc.
