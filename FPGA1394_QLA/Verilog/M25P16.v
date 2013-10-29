@@ -24,8 +24,8 @@ module M25P16(
     output reg[31:0] prom_rdata,     // result (to Firewire)
     input[5:0] prom_blk_addr,        // address of data for block write
 
-    input  wire[9:0] reg_raddr,      // read address
-    input  wire[9:0] reg_waddr,      // write address
+    input  wire[15:0] reg_raddr,      // read address
+    input  wire[15:0] reg_waddr,      // write address
     input  wire reg_wen,
     input  wire blk_wen,
     input  wire blk_wstart,
@@ -73,11 +73,11 @@ wire[5:0] prom_blk_raddr;   // block read address
 wire[5:0] prom_blk_waddr;   // block write address
 
 // ZC: MIGHT NEED to change
-assign prom_reg_wen = (reg_waddr == {`ADDR_MAIN, 8'h08}) ? reg_wen : 1'b0;
-assign prom_blk_enable = (reg_waddr == `ADDR_PROM) ? 1'b1 : 1'b0;
-assign prom_blk_wen = (reg_waddr[9:8] == `ADDR_PROM) ? reg_wen : 1'b0;
-assign prom_blk_start = (reg_waddr[9:8] == `ADDR_PROM) ? blk_wstart : 1'b0;
-assign prom_blk_end = (reg_waddr[9:8] == `ADDR_PROM) ? blk_wen : 1'b0;
+assign prom_reg_wen = (reg_waddr == {`ADDR_MAIN, 4'h0, 8'h08}) ? reg_wen : 1'b0;
+assign prom_blk_enable = (reg_waddr[15:12] == `ADDR_PROM) ? 1'b1 : 1'b0;
+assign prom_blk_wen = (reg_waddr[15:12] == `ADDR_PROM) ? reg_wen : 1'b0;
+assign prom_blk_start = (reg_waddr[15:12] == `ADDR_PROM) ? blk_wstart : 1'b0;
+assign prom_blk_end = (reg_waddr[15:12] == `ADDR_PROM) ? blk_wen : 1'b0;
 assign prom_blk_raddr = reg_raddr[5:0];
 assign prom_blk_waddr = reg_waddr[5:0];
 
