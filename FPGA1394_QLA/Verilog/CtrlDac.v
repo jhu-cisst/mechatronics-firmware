@@ -35,9 +35,11 @@ module CtrlDac(
     // regfile ctrl/addr/data
     input wire reg_wen,            // register write enable
     input wire blk_wen,            // register write enable (end-of-block)
-    input wire[7:0] reg_addr,      // register address
-    input wire[31:0] reg_wdata,    // incoming register data
+    input wire[15:0] reg_raddr,    // register read address
+    input wire[15:0] reg_waddr,    // register write address
     output wire[31:0] reg_rdata,   // outgoing register data
+    input wire[31:0] reg_wdata,    // incoming register data
+    
     // output dac value
     output wire[15:0] dac1,        // register dac1 command current
     output wire[15:0] dac2,        // register dac2 command current 
@@ -88,7 +90,7 @@ LTC2601x4 dac(
 );
 
 // select firewire or NOP data depending on if spi transfer in progress
-assign addr = (busy ? addr_dac : reg_addr[7:4]-1'b1);
+assign addr = (busy ? addr_dac : reg_waddr[7:4]-1'b1);
 assign data = (busy ? data_nop : data_wru);
 
 // shortcuts for command words nop and write/update
@@ -100,15 +102,15 @@ assign dac_word = mem_data[addr_dac];
 always @(posedge(sysclk))
 begin
     // write selected register with firewire or NOP data source
-    if ((reg_wen && reg_addr[3:0]==`OFF_DAC_CTRL && ~busy) || flush)
+    if ((reg_wen && reg_waddr[15:12]==`ADDR_MAIN && reg_waddr[3:0]==`OFF_DAC_CTRL && ~busy) || flush)
         mem_data[addr] <= data;
 end
 
 // copy of register file that doesn't get overwritten with NOPs
-assign reg_rdata = mem_copy[reg_addr[7:4]-1'b1];
+assign reg_rdata = mem_copy[reg_raddr[7:4]-1'b1];
 always @(posedge(sysclk))
 begin
-    if (reg_wen && reg_addr[3:0]==`OFF_DAC_CTRL && ~busy)
+    if (reg_wen && reg_waddr[15:12]==`ADDR_MAIN && reg_waddr[3:0]==`OFF_DAC_CTRL && ~busy)
         mem_copy[addr] <= data;
 end
 
@@ -119,7 +121,7 @@ begin
     if (reset == 0)
         trig <= 1'b0;
     else
-        trig <= (blk_wen & (reg_addr[3:0]==`OFF_DAC_CTRL));
+        trig <= (blk_wen & (reg_waddr[15:12]==`ADDR_MAIN) & (reg_waddr[3:0]==`OFF_DAC_CTRL));
 end
 
 

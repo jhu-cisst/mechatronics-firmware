@@ -3,10 +3,10 @@ CONFIG VCCAUX=3.3;
 ################################################################################
 # Main I/O Ports
 ################################################################################
-NET  "IO1[1]"     LOC = " D22"    | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO1[2]"     LOC = " D21"    | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO1[3]"     LOC = " D20"    | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO1[4]"     LOC = " D19"    | IOSTANDARD = "LVCMOS33" | PULLUP;
+NET  "IO1[1]"     LOC = " D22"    | IOSTANDARD = "LVCMOS33" | PULLUP;  #MISO prom_qla
+NET  "IO1[2]"     LOC = " D21"    | IOSTANDARD = "LVCMOS33" | PULLUP;  #MOSI
+NET  "IO1[3]"     LOC = " D20"    | IOSTANDARD = "LVCMOS33" | PULLUP;  #SCLK
+NET  "IO1[4]"     LOC = " D19"    | IOSTANDARD = "LVCMOS33" | PULLUP;  #/EEPROM
 NET  "IO1[5]"     LOC = " C22"    | IOSTANDARD = "LVCMOS33" | PULLUP;
 NET  "IO1[6]"     LOC = " C20"    | IOSTANDARD = "LVCMOS33" | PULLUP;
 NET  "IO1[7]"     LOC = " C19"    | IOSTANDARD = "LVCMOS33" | PULLUP;

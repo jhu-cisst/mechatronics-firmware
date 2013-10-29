@@ -22,6 +22,7 @@
  *     11/11/11    Paul Thienphrapa    Happy 111111!!11!
  *                                     Fixed mixed blocking/non-blocking issues`
  *     10/16/13    Zihan Chen          Modified to support hub capability
+ *     10/28/13    Zihan Chen          Added seperate write address line
  */
 
 // LLC: link layer controller (implemented in this file)
@@ -127,8 +128,8 @@
 
 //`define SZ_BBC  16'd576           // block write broadcast packet size
 //                                  // (4 + 1 + 12 + 1) * 32 = 576
-`define SZ_BBC  16'd608           // block write broadcast packet size
-                                  // (4 + 1 + 1 + 12 + 1) * 32 = 608
+`define SZ_BBC  16'd736           // block write broadcast packet size
+                                  // (4 + 1 + 1 + 16 + 1) * 32 = 736
 
 // transaction and response codes
 `define TC_QWRITE 4'd0            // quadlet write
@@ -161,36 +162,28 @@
 
 module PhyLinkInterface(
     // globals
-    input wire sysclk,   // system clock
-    input wire reset,    // global reset
-    input wire[3:0] board_id,   // global board id
+    input wire sysclk,           // system clock
+    input wire reset,            // global reset
+    input wire[3:0] board_id,    // global board id
     
     // phy-link interface bus
-    inout[1:0] ctl_ext,    // control line
-    inout[7:0] data_ext,   // data bus
+    inout[1:0] ctl_ext,          // control line
+    inout[7:0] data_ext,         // data bus
     
     // act on received packets
-    output reg reg_wen,  // register write signal
-    output reg blk_wen,  // block write signal
-    output reg blk_wstart,  // block write is starting
+    output reg reg_wen,          // register write signal
+    output reg blk_wen,          // block write signal
+    output reg blk_wstart,       // block write is starting
     
     // register access
-    output reg[7:0] reg_addr,  // read address to external register file
-    input wire[31:0] reg_rdata,   // read data from external register file
-    output reg[31:0] reg_wdata,   // write data to external register file
+    output reg[15:0] reg_raddr,   // read address to external register file
+    output reg[15:0] reg_waddr,   // write address to external register file
+    input wire[31:0] reg_rdata,  // read data from external register file
+    output reg[31:0] reg_wdata,  // write data to external register file
     
     // transmit parameters
-    output reg lreq_trig,   // trigger signal for a phy request
-    output reg[2:0] lreq_type,   // type of request to give to the phy
-    
-    // ZC: debug only 
-    output reg rx_active,
-    
-    // ZC: for hub node only
-    output reg hub_rx_active,      // hub indicates whether hub is receiving
-    output reg[7:0] hub_addr,      // hub address  [7:4] bid  [3:0] data index
-    input  wire[31:0] hub_rdata,   // hub read data from hubreg module
-    output reg[31:0]  hub_wdata    // hub write data to hubreg module
+    output reg lreq_trig,        // trigger signal for a phy request
+    output reg[2:0] lreq_type    // type of request to give to the phy    
 );
 
 
@@ -208,7 +201,7 @@ module PhyLinkInterface(
 
     // various
     reg tx_hold;                  // transmit hold flag
-    // reg rx_active;                // rx active flag
+    reg rx_active;                // rx active flag
 
     reg[3:0] state, next;         // state register
     reg[2:0] rx_speed;            // received speed code
@@ -247,10 +240,10 @@ module PhyLinkInterface(
     wire phy_rw;                  // 0=phy reg read, 1=phy reg write
 
     // received packet fields
-    reg[3:0] rx_tcode;            // transaction code
+    reg[3:0]  rx_tcode;           // transaction code
     reg[15:0] rx_dest;            // destination ID field
-    reg[5:0] rx_tag;              // tag field
-    reg[3:0] rx_pri;              // priority code
+    reg[5:0]  rx_tag;             // tag field
+    reg[3:0]  rx_pri;             // priority code
     reg[15:0] rx_src;             // source ID field
     reg[15:0] reg_dlen;           // block data length
     reg[47:0] rx_addr_full;       // full 48-bit
@@ -258,7 +251,6 @@ module PhyLinkInterface(
     // broadcast related fields
     reg[15:0] rx_bc_sequence;     // broadcast sequence num
     reg[15:0] rx_bc_fpga;         // indicates whether a boards exists    
-    reg rx_bc_bwrite;             // rx broadcast block write flag
     reg rx_bc_bread;              // rx broadcast read request flag
 
     // real-time read stuff
@@ -271,7 +263,6 @@ module PhyLinkInterface(
     reg data_block;               // flag for block write data being received
     
     // ----- hub -------
-    reg hub_bread;                // block read for hub mode from PC
     
     parameter num_channels = 4;
 
@@ -361,24 +352,25 @@ end
 reg[31:0] write_counter;
 reg[14:0] write_trig_count;  // 6 bits node_id + 9 bits = 512 counts
 reg write_trig;
-//always @(posedge(sysclk) or posedge(rx_bc_bwrite) or negedge(reset))
+
 always @(posedge(sysclk) or negedge(reset))
 begin
     if (reset == 0 || rx_bc_bread) begin
         write_counter <= 32'd0;
         write_trig <= 1'b0;
 
-        // 10us node_id (uncomment to use 10us node_id)
-//        write_trig_count[14:9] <= node_id[5:0];
-//        write_trig_count[8:0] <= 9'd0;
+        // // 10us node_id (uncomment to use 10us node_id)
+        // write_trig_count[14:9] <= node_id[5:0];
+        // write_trig_count[8:0] <= 9'd0;
+
+        // // 5us board_id (uncomment to use 5us board_id)
+        // write_trig_count[11:8] <= board_id[3:0];
+        // write_trig_count[7:0] <= 8'd0;
 
         // 5us node_id
-        write_trig_count[14:8] <= {1'b0, node_id[5:0]};
+        write_trig_count[13:8] <= node_id[5:0];
         write_trig_count[7:0] <= 8'd0;
         
-        // 5us board_id (uncomment to use 5us board_id)
-//        write_trig_count[11:8] <= board_id[3:0];
-//        write_trig_count[7:0] <= 8'd0;
     end
     else begin
         if (write_counter < (write_trig_count + 10)) begin
@@ -414,7 +406,6 @@ begin
         stcount <= 0;             // received status bits counter
         rx_speed <= 0;            // clear the received speed code
         rx_active <= 0;           // clear the receive flag 
-        rx_bc_bwrite <= 1'b0;     // clear the bc bwrite flag
         blk_wstart <= 0;          // clear the block write started flag
         reg_wen <= 0;             // keep register writes inactive by default
         blk_wen <= 0;             // keep block writes inactive by default
@@ -422,7 +413,8 @@ begin
         lreq_type <= 0;           // set phy request type to known value
         node_id <= 0;             // hope phy updates this during self-id
         bus_id <= 10'h3ff;        // set default bus_id to 10'h3ff
-        reg_addr <= 0;            // set reg address to known value
+        reg_raddr <= 0;           // set reg address to known value
+        reg_waddr <= 0;           // set reg address to known value
         reg_wdata <= 0;           // set reg write data to known value
         crc_ini <= 0;             // initialize crc start flag
         crc_tx <= 0;              // flag for crc; 0=non-transmit state
@@ -441,13 +433,11 @@ begin
         ST_IDLE:
         begin
             blk_wstart <= 0;                       // block write not started
-            reg_wen <= 0;                          // no register write events
+            reg_wen <= 1'b0;                          // no register write events
             blk_wen <= 0;                          // no block write events
             crc_tx <= 0;                           // not in a transmit state
             rx_active <= 0;                        // clear receive active
-            rx_bc_bwrite <= 1'b0;                  // clear broadcast block write active
             rx_bc_bread <= 1'b0;                   // clear broadcast reqd request flag
-            hub_rx_active <= 1'b0;                 // clear hub receive active
             
             // monitor ctl to select next state
             case (ctl)
@@ -503,7 +493,7 @@ begin
 
                     // save phy register into register file
                     if (stcount == `SZ_STAT) begin
-                        reg_addr <= { 4'd0, `REG_PHYDATA };
+                        reg_waddr <= { `ADDR_MAIN, 4'd0, 4'd0, `REG_PHYDATA };
                         reg_wdata <= { 16'd0, st_buff };
                         reg_wen <= 1;
                         // save node id if register zero
@@ -537,7 +527,6 @@ begin
                     crc_in <= `CRC_INIT;            // start crc calculation
                     crc_ini <= 0;                   // clear the crc reset flag
                     data_block <= 0;                // clear block write flag
-                    hub_bread <= 1'b0;              // clear hub block read from PC
                 end
                 default: state <= ST_IDLE;          // null packet or error
             endcase
@@ -568,33 +557,34 @@ begin
 
                         // latch data from data block on quadlet boundaries
                         if (count[4:0] == 0) begin
-                            blk_wstart <= 0;   // Clear write started signal
-                            if (hub_rx_active) begin 
-                                // save data to hub rdata
-                                hub_wdata <= buffer;
-                                hub_addr[3:0] <= hub_addr[3:0] + 1'b1;
-                                reg_wen <= 0;   // no write to devices
-                            end
-                            else if (reg_addr[7:6] == 2'b11) begin  // block write to PROM (M25P16)
-                                if (reg_addr[5:0] == 6'h3f)
-                                    reg_addr[5:0] <= 6'd0;
-                                else
-                                    reg_addr[5:0] <= reg_addr[5:0] + 1'b1;
-                                reg_wdata <= buffer;   // data to program
-                                reg_wen <= rx_active;
-                            end
-                            else begin  // Block write to dac data
+                            // Clear write started signal
+                            blk_wstart <= 0;  
+
+                            // main address: special case
+                            if (reg_waddr[15:12]==`ADDR_MAIN) begin
+                                // Block write to dac data
                                 // channel address circularly increments from 1 to num_channels
                                 // (chan addr and dev offset are previously set)
-                                if (reg_addr[7:4] == num_channels)
-                                    reg_addr[7:4] <= 4'd1;
+                                if (reg_waddr[7:4] == num_channels)
+                                    reg_waddr[7:4] <= 4'd1;
                                 else
-                                    reg_addr[7:4] <= reg_addr[7:4] + 1'b1;
+                                    reg_waddr[7:4] <= reg_waddr[7:4] + 1'b1;
+
                                 // only respond to bit 27-24 == board_id (bc mode)
                                 if (buffer[27:24] == board_id) begin
                                     reg_wdata <= buffer[30:0];               // data to write
                                     reg_wen <= (buffer[31] & rx_active);     // check valid bit
                                 end
+                            end
+                            // other space
+                            else begin
+                                // block write 
+                                //    1 - hub regs
+                                //    2 - prom (M25P16)
+                                //    3 - prom (25AA128)
+                                reg_waddr[11:0] <= reg_waddr[11:0] + 1'b1;
+                                reg_wdata <= buffer;    // latch data to regs
+                                reg_wen <= rx_active;   // only save value's when device is targeted
                             end
                         end
                         else
@@ -646,47 +636,21 @@ begin
                                     end
                                 endcase
                             end
-                            // ignore cycle start packet
-                            else if (buffer[7:4] == `TC_CSTART) begin
-                                rx_active <= 0;
-                                rx_bc_bwrite <= 0;
+
+                            // process broadcast packets (NOTE: broadcast is write only)
+                            else if (buffer[31:16] == 16'hffff) begin
+                                // no response for bc packets
                                 lreq_trig <= 0;
                                 lreq_type <= `LREQ_RES;
                                 tx_type <= `TX_TYPE_DATA;
-                            end
-                            // process broadcast quadlet write
-                            // nodeid = 6'b111111, no response required
-                            else if ((buffer[21:16] == 6'h3f) && (buffer[7:4] == `TC_QWRITE)) begin
-                                rx_active <= 1; 
-                                rx_bc_bwrite <= 0;
-                                lreq_trig <= 0;
-                                lreq_type <= `LREQ_RES;
-                                tx_type <= `TX_TYPE_DATA;
-                            end
-                            // ZC: save broadcast packets from FPGA_QLA to right places
-                            // process broadcast block write packet
-                            //    - from PC: rx_active & rx_bc_bwrite = 1
-                            //    - from FPGA: 
-                            //        - pri = 4'hA & enter hub_rx_active mode
-                            //        - save packets data to HubReg module
-                            // process broadcast block write from PC
-                            // nodeid = 6'b111111, no response required
-                            else if ((buffer[21:16] == 6'h3f) && (buffer[7:4] == `TC_BWRITE)) begin
-                                // broadcast from other FPGA nodes
-                                if (buffer[3:0] == 4'hA) begin  
-                                    hub_rx_active <= 1;
-                                    rx_active <= 0;
-                                    rx_bc_bwrite <= 0;
+
+                                // set rx_active if has valid tcode
+                                if ((buffer[7:4]==`TC_BWRITE) || (buffer[7:4]==`TC_QWRITE)) begin
+                                    rx_active <= 1'b1;
                                 end
-                                // broadcast from PC
-                                else begin
-                                    hub_rx_active <= 0;
-                                    rx_active <= 1; 
-                                    rx_bc_bwrite <= 1;
+                                else begin 
+                                    rx_active <= 1'b0;  // ignore other packet e.g. cycle start
                                 end
-                                lreq_trig <= 0;
-                                lreq_type <= `LREQ_RES;
-                                tx_type <= `TX_TYPE_DATA;
                             end
                             // unknown ignore
                             else begin  
@@ -700,41 +664,37 @@ begin
                         64: begin
                             rx_src <= buffer[31:16];     // source address
                             rx_addr_full[47:32] <= buffer[15:0];   // save high 16-bit of full addr
-
-                            if (rx_bc_bwrite) begin
-                                bus_id <= buffer[31:22];      // 10 bits bus id
-                            end
-                            else if (rx_tcode == `TC_BREAD && buffer[15:0] == 16'hffff) begin
-                                hub_bread <= 1;
-                            end
                         end
                         // third quadlet --------------------------------------
                         96: begin
                             rx_addr_full[31:0] <= buffer[31:0];  // save low 32-bit for full addr
-                            reg_addr <= buffer[7:0];      // register address
+                            reg_raddr <= buffer[15:0];      // register address
+                            reg_waddr <= buffer[15:0];
                             crc_comp <= ~crc_in;          // computed crc for quadlet read
-
-                            if (hub_rx_active) begin
-                                // hub register address  
-                                // buffer[23:20] is FPGA board id
-                                // NOTE: hub_addr[3:0] is set to f to match timing
-                                hub_addr <= { buffer[23:20], 4'hf };
-                            end
-                            else begin
-                                hub_addr <= buffer[7:0];  
-                            end
 
                             // broadcast read request
                             if (rx_dest == 16'hffff && rx_tcode == `TC_QWRITE && 
                                 rx_addr_full[47:32] == 16'hffff && buffer[31:16] == 16'hffff) begin
-                                rx_bc_bread <= 1;
-                            end                            
+                                rx_bc_bread <= 1;          // set rx_bc_bread 
+                                bus_id <= rx_src[15:6];   // latch bus_id
+                            end
                         end
                         // fourth quadlet --------------------------------------
                         128: begin
-                            reg_dlen <= buffer[31:16];    // block data length
+                            // quadlet read: 
+                            //   crc qualdet, nothing 
+
+                            // quadlet write normal
                             reg_wdata <= buffer[31:0];    // reg write data
 
+                            // quadlet write bc read start
+                            if (rx_bc_bread) begin
+                                rx_bc_sequence <= buffer[31:16];    // sequence number
+                                rx_bc_fpga <= buffer[15:0];         // fpga board exist    
+                            end
+
+                            // block read/write
+                            reg_dlen <= buffer[31:16];    // block data length
                             // total number of bits for block write packets
                             numbits <= { buffer[31:16], 3'd0 } + `SZ_BWRITE;
 
@@ -743,7 +703,7 @@ begin
                                 crc_comp <= ~crc_in;
 
                             // trigger phy register request if accessed
-                            if ((rx_dest[5:0] == node_id) && (reg_addr == `REG_PHYCTRL) && (rx_tcode == `TC_QWRITE))
+                            if ((rx_dest[5:0]==node_id) && (reg_waddr=={`ADDR_MAIN, 8'h0, `REG_PHYCTRL}) && (rx_tcode==`TC_QWRITE))
                             begin
                                 // check the RW bit to determine access type
                                 lreq_type <= (phy_rw ? `LREQ_REG_WR : `LREQ_REG_RD);
@@ -752,41 +712,25 @@ begin
                         end
                         // quadlet 4.5 -----------------------------------------
                         144: crc_ini <= 1;     // reset crc for block data
-                        // fifth quadlet: for block write packets, data block starts ------
+                        // fifth quadlet: 
+                        //   - block read request
+                        //   - block write request
+                        //   - start block starts
                         160: begin 
-                            if (rx_bc_bwrite && (rx_pri !== 4'hA)) begin
-                                // buffer is CRC
-                                // do nothing for pc broadcast packet
-                            end 
+                            // flag to indicate the start of block data
+                            data_block <= (rx_tcode==`TC_BWRITE) ? 1'b1 : 1'b0;
+                            blk_wstart <= (rx_tcode==`TC_BWRITE) ? 1'b1 : 1'b0;
+
+                            if (reg_waddr[15:12]==`ADDR_MAIN) begin
+                                // main is special, ignore address in 1394 packet
+                                reg_waddr[7:4] <= 0;    // init channel address
+                                reg_waddr[3:0] <= 1;    // set dac device address
+                            end
                             else begin
-                                // flag to indicate the start of block data
-                                data_block <= (rx_tcode==`TC_BWRITE) ? 1'b1 : 1'b0;
-                                blk_wstart <= (rx_tcode==`TC_BWRITE) ? 1'b1 : 1'b0;
-                                if (reg_addr[7:6] == 2'b11) begin
-                                    if (rx_tcode==`TC_BWRITE)
-                                        reg_addr[5:0] <= 6'h3f;  // block write to PROM (M25P16)
-                                    else
-                                        reg_addr[5:0] <= 6'd0;   // block read from PROM (M25P16)
-                                end
-                                else begin
-                                    reg_addr[7:4] <= 0;    // init channel address
-                                    reg_addr[3:0] <= 1;    // set dac device address
-                                end
-                            end  // rx_bc_bwrite
-                        end
-                        // for broadcast write packet from PC (SPECIAL case)
-                        192: begin
-                            if (rx_bc_bwrite && (rx_pri !== 4'hA)) begin
-                                // process 1st packet for broadcast write packet from PC
-                                // 1 quadlet = 16'b sequence + 16'b boards status
-                                rx_bc_sequence <= buffer[31:16];
-                                rx_bc_fpga <= buffer[15:0];
-                            
-                                // flag to indicate the start of block data
-                                data_block <= (rx_tcode==`TC_BWRITE) ? 1'b1 : 1'b0;
-                                blk_wstart <= (rx_tcode==`TC_BWRITE) ? 1'b1 : 1'b0;
-                                reg_addr[7:4] <= 0;    // init channel address
-                                reg_addr[3:0] <= 1;    // set dac device address
+                                // block write to hub, prom, prom_qla
+                                // NOTE: read addr (see 3rd quad)
+                                //       write addr-1 to match timing
+                                reg_waddr[11:0] <= reg_waddr[11:0] - 1'b1; 
                             end
                         end
                         // iffy implementation, works for now ------------------
@@ -916,7 +860,6 @@ begin
                 buffer <= { 16'hffff, rx_tag, 2'd0, `TC_BWRITE, 4'hA };
                 next <= ST_TX_HEAD_BC;
                 numbits <= `SZ_BBC;
-                hub_rx_active <= 1;
             end          
             
             // for crc/unknown errors, send an error ack
@@ -1021,11 +964,10 @@ begin
             case (count)
                  24: buffer <= { rx_dest, `RC_DONE, 12'd0 };  // quadlet 2
                  56: buffer <= 0;                             // quadlet 3
-                 88: buffer <= { reg_dlen, 16'd0 };           // quadlet 
+                 88: buffer <= { reg_dlen, 16'd0 };           // quadlet 4
 
                 // latch header crc, reset crc in preparation for data crc
                 128: begin
-                    hub_addr <= {4'd0, 4'd0};  // board 0 & reg 0
                     data <= ~crc_8msb;
                     buffer <= { ~crc_in[23:0], 8'd0 };
                     crc_ini <= 1;
@@ -1033,64 +975,47 @@ begin
 
                 // latch Board 0, data 0 from hub register, 
                 // restart crc and goto ST_TX_DATA
-                152: begin
-                    if (hub_bread) begin
-                        // ----- HUB Response STOP HERE -----
-                        // start latching data for each board
-                        buffer <= hub_rdata;
-                        hub_addr[3:0] <= hub_addr[3:0] + 1'b1;
-                        // restart crc
-                        crc_ini <= 0;
-                        state <= ST_TX_DATA_HUB;
+                152: begin                                    // quadlet 6 
+                    // ----- BRESP Contuinue -------
+                    if (reg_raddr[15:12]==`ADDR_MAIN) begin
+                        // main keep going special case
+                        buffer <= timestamp;         // latch timestamp
+                        reg_raddr[7:0] <= 8'h00;     // address for status data
+                        ts_reset <= 1'b1;            // set timestamp reset 
                     end
                     else begin
-                        // ----- BRESP Contuinue -------
-                        if (reg_addr[7:6] == 2'b11) begin  // block read from PROM (M25P16)
-                            buffer <= reg_rdata;
-                            reg_addr[5:0] <= 6'd1;
-                        end
-                        else begin                         // block read of real-time feedback
-                            buffer <= timestamp;
-                            reg_addr <= 0;                 // 0: status
-                            ts_reset <= 1;
-                        end
-                        crc_ini <= 0;
-                    end 
+                        // block read from hub, prom, prom_qla
+                        buffer <= reg_rdata;
+                        reg_raddr[7:0] <= reg_raddr[7:0] + 1'b1;
+
+                        // end header for hub, prom, prom_qla
+                        state <= ST_TX_DATA;
+                    end
+                    crc_ini <= 0;
                 end
 
                 // latch status data, setup address for digital inputs
                 184: begin
-                    buffer <= reg_rdata;
-                    if (reg_addr[7:6] == 2'b11) begin  // block read from PROM (M25P16)
-                        reg_addr[5:0] <= 6'd2;
-                    end
-                    else begin                         // block read of real-time feedback
-                        reg_addr <= 8'd10;             // 10: digital inputs
-                        ts_reset <= 0;
-                    end
+                    buffer <= reg_rdata;             
+                    reg_raddr[7:0] <= 8'h0a;      // 8'h0a: digital inputs
+                    ts_reset <= 1'b0;             // clear timestamp reset
                 end
 
                 // latch digital inputs, setup address for temperature sensors
                 216: begin
-                    buffer <= reg_rdata;
-                    if (reg_addr[7:6] == 2'b11) begin  // block read from PROM (M25P16)
-                        reg_addr[5:0] <= 6'd3;
-                    end
-                    else begin                         // block read of real-time feedback
-                        reg_addr <= 8'h5;              // 5: temperature sensors
-                    end
+                    buffer <= reg_rdata;             
+                    reg_raddr[7:0] <= 8'h05;      // 8'h05: temperature sensors
                 end
 
                 // latch temperature sensors, go to block data state
                 248: begin
                     buffer <= reg_rdata;
-                    if (reg_addr[7:6] == 2'b11) begin  // block read from PROM (M25P16)
-                        reg_addr[5:0] <= 6'd4;
-                    end
-                    else begin                         // block read of real-time feedback
-                        reg_addr <= 8'h10;             // start cycling through channels
-                        dev_index <= 1;
-                    end
+                    // start cycling through channels
+                    reg_raddr[7:4] <= 4'h1;        // start from channel 1
+                    reg_raddr[3:0] <= dev_addr[0]; // 1st device address
+                    dev_index <= 1;                // set next dev_index 
+
+                    // end main header
                     state <= ST_TX_DATA;
                 end
 
@@ -1113,18 +1038,23 @@ begin
             // update transmit buffer at quadlet boundaries
             case (count)
                 // NOTE: destination address
-                // dest_addr = 0xffffff(bid)00000  (bid is 4 bits)
-                // C code should register this address
+                // dest_addr = 0xffffff000(4'h01)(bid)0  
+                //  - 4'h01 = `ADDR_HUB
+                //  - bid is 4 bits board id
                 24: buffer <= { local_id, 16'hffff };  // src_id, dest_offset
-                56: buffer <= { 8'hff, board_id, 20'h00000 }; 
+                56: buffer <= { 16'hff00, 4'h0, 4'h1, board_id, 4'h0 }; 
 
                 //-------- Start broadcast back with sequence -------------
-                // datalen = 4 x (1 + 4 + 4 + 4) = 52 bytes
-                88: buffer <= { 16'd52, 16'd0 };
+                // datalen = 4 x (1 + 4 + 4 + 4 + 4) = 68 bytes
+                88: buffer <= { 16'd68, 16'd0 };
                 
                 // latch header crc, reset crc in preparation for data crc
                 128: begin
-                    hub_addr <= { board_id[3:0], 4'd0 };   
+                    // for hub register
+                    reg_waddr[15:0] <= { `ADDR_HUB, 3'd0, board_id[3:0], 5'd0 };
+                    reg_wen <= 1'b1;
+
+                    // crc
                     data <= ~crc_8msb;
                     buffer <= { ~crc_in[23:0], 8'd0 };
                     crc_ini <= 1;          // start crc
@@ -1132,46 +1062,47 @@ begin
 
                 // latch bc_sequence and bc_fpga, send back to PC,  restart crc
                 152: begin
-                    hub_addr[3:0] <= 4'd0;  // hubreg 
-                    hub_wdata <= { rx_bc_sequence[15:0], rx_bc_fpga[15:0] };
+                    reg_waddr[4:0] <= 4'd0;  // hubreg 
+                    reg_wdata <= { rx_bc_sequence[15:0], rx_bc_fpga[15:0] };
                     buffer <= { rx_bc_sequence[15:0], rx_bc_fpga[15:0] };
                     crc_ini <= 0;           // clear crc start bit                    
                 end
 
                 // latch timestamp, setup address for status
                 184: begin
-                    hub_addr[3:0] <= 4'd1;  // hubreg 
-                    hub_wdata <= timestamp;
+                    reg_waddr[4:0] <= 4'd1;  // hubreg 
+                    reg_wdata <= timestamp;
                     buffer <= timestamp;    // latch timestamp
-                    reg_addr <= 8'h00;      // 0: status (See BoardRegs)
+                    reg_raddr[15:0] <= { `ADDR_MAIN, 4'h0, 8'h00 };      // 0: status (See BoardRegs)
                     ts_reset <= 1;          // reset timestamp counter
                 end
 
                 // latch status data, setup address for digital inputs
                 216: begin
-                    hub_addr[3:0] <= 4'd2;  // hubreg
-                    hub_wdata <= reg_rdata;
+                    reg_waddr[4:0] <= 4'd2;  // hubreg
+                    reg_wdata <= reg_rdata;
                     buffer <= reg_rdata;    // latch status
-                    reg_addr <= 8'd10;      // 10: digital inputs (See BoardRegs)
+                    reg_raddr[7:0] <= 8'h0a;      // 8'h0a: digital inputs (See BoardRegs)
                     ts_reset <= 0;          // clear timestamp reset
                 end
 
                 // latch digital inputs, setup address for temperature sensors
                 248: begin
-                    hub_addr[3:0] <= 4'd3;  // hubreg
-                    hub_wdata <= reg_rdata;
+                    reg_waddr[4:0] <= 4'd3;  // hubreg
+                    reg_wdata <= reg_rdata;
                     buffer <= reg_rdata;    // latch digital inputs
-                    reg_addr <= 8'h5;       // 5: temperature sensors (See BoardRegs)
+                    reg_raddr[7:0] <= 8'h05;      // 5: temperature sensors (See BoardRegs)
                 end
 
                 // latch temperature sensors, go to block data state
                 280: begin
-                    hub_addr[3:0] <= 4'd4;  // hubreg
-                    hub_wdata <= reg_rdata;
-                    buffer <= reg_rdata;    // latch temperature
-                    reg_addr <= 8'h10;      // start cycling through channels
-                    dev_index <= 1;         // start from device 1
-                    state <= ST_TX_DATA;    // goto ST_TX_DATA
+                    reg_waddr[4:0] <= 4'd4;   // hubreg
+                    reg_wdata <= reg_rdata;
+                    buffer <= reg_rdata;      // latch temperature
+                    reg_raddr[7:4] <= 4'h1;        // start from channel 1
+                    reg_raddr[3:0] <= dev_addr[0]; // 1st device address
+                    dev_index <= 1;           // start from device 1
+                    state <= ST_TX_DATA;      // goto ST_TX_DATA
                 end
 
             endcase
@@ -1198,68 +1129,35 @@ begin
                 // latch data and update addresses on quadlet boundaries
                 if (count[4:0] == 5'd24) begin
                 
-                    // cache to hubreg
-                    hub_addr[3:0] <= hub_addr[3:0] + 1'b1;
-                    hub_wdata <= reg_rdata;
+                    // cache to hubreg, only saves to hub when block broadcast packets
+                    reg_waddr[4:0] <= reg_waddr[4:0] + 1'b1;
+                    reg_wdata <= reg_rdata;
                     
                     // send to FireWire bus
                     buffer <= reg_rdata;
-                    if (reg_addr[7:6] == 2'b11) begin   // block read from PROM (M25P16)
-                        if (reg_addr[5:0] == 6'h3f)
-                            reg_addr[5:0] <= 6'd0;
-                        else
-                            reg_addr[5:0] <= reg_addr[5:0] + 1'b1;
-                    end
-                    else begin   // block read of real-time sensor data
+
+                    if (reg_raddr[15:12] == `ADDR_MAIN) begin
                         // channel address circularly increments from 1 to num_channels
-                        if (reg_addr[7:4] == num_channels) begin
-                            reg_addr[7:4] <= 1;
-                            reg_addr[3:0] <= dev_addr[dev_index];
+                        if (reg_raddr[7:4] == num_channels) begin
+                            reg_raddr[7:4] <= 4'h1;
+                            reg_raddr[3:0] <= dev_addr[dev_index];
                             dev_index <= (dev_index<3) ? (dev_index+1'b1) : 3'd0;
                         end
                         else
-                            reg_addr[7:4] <= reg_addr[7:4] + 1'b1;
+                            reg_raddr[7:4] <= reg_raddr[7:4] + 1'b1;
                     end
-                end
-
-                if (count == (numbits-16'd32)) begin
-                    data <= ~crc_8msb;
-                    buffer <= { ~crc_in[23:0], 8'd0 };
-                end
-            end 
-        end
-
-       
-        // ---------------------------------------------------------------------
-        //  link shift hub data 
-        //
-        ST_TX_DATA_HUB:
-        begin
-            if (count == numbits) begin
-                ctl <= `CTL_IDLE;
-                state <= ST_TX_DONE1;
-            end
-            else begin
-                // shift out transmit bit from buffer and update counter
-                ctl <= `CTL_DATA;
-                data <= txmsb8b;
-                buffer <= buffer << 8;
-                count <= count + 16'd8;
-                crc_in <= crc_8b;
-                
-                // latch data and update addresses on quadlet boundaries
-                if (count[4:0] == 5'd24) begin
-                    // latch data to buffer
-                    buffer <= hub_rdata;
-                    
-                    // increment reg_addr
-                    // each board should return 13 quadlets data, thus 0:12
-                    if (hub_addr[3:0] == 4'd12) begin
-                        hub_addr[7:4] <= hub_addr[7:4] + 1'b1;
-                        hub_addr[3:0] <= 4'd0;
-                    end                    
-                    else begin
-                        hub_addr[3:0] <= hub_addr[3:0] + 1'b1;
+                    else if (reg_raddr[15:12] == `ADDR_HUB) begin
+                        // 1 boards = 17 quadlets
+                        if (reg_raddr[4:0] == 4'd16) begin
+                            reg_raddr[8:5] <= reg_raddr[8:5] + 1'b1;
+                            reg_raddr[4:0] <= 4'd0;
+                        end
+                        else begin
+                            reg_raddr[4:0] <= reg_raddr[4:0] + 1'b1;
+                        end
+                    end
+                    else if (reg_raddr[9:8] == `ADDR_PROM) begin
+                        reg_raddr[5:0] <= reg_raddr[5:0] + 1'b1;
                     end
                 end
 
@@ -1339,17 +1237,6 @@ end
 //    .TRIG3(ctl),
 //    .TRIG4(data)
 //);
-
-// debug hub timing
-// ila_fw_packet ila_hw(
-//     .CONTROL(control1),
-//     .CLK(sysclk),
-//     .TRIG0(hub_addr),
-//     .TRIG1(hub_rdata),
-//     .TRIG2({hub_bread, count[14:0]}),
-//     .TRIG3(ctl),
-//     .TRIG4(data)
-// );
 
 endmodule  // PhyLinkInterface
 

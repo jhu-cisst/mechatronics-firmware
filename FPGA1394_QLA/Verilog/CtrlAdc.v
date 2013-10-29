@@ -19,7 +19,7 @@ module CtrlAdc(
     output wire[1:2] sclk,         // sclk signal to each set of adcs
     output wire[1:2] conv,         // conv signal to each set of adcs
     input  wire[1:8] miso,         // data lines from each individual adc
-    input  wire[7:0] reg_addr,     // register file addr from outside world
+    input  wire[15:0] reg_raddr,   // register read addr from outside world
     output wire[31:0] reg_rdata,   // outgoing register file data
     output wire[15:0] cur1,        // current axis 1
     output wire[15:0] cur2,        // current axis 2
@@ -46,7 +46,7 @@ assign miso_pot = miso[1:4];
 assign miso_cur = miso[5:8];
 
 // output selected read register
-assign reg_rdata = mem_data[reg_addr[7:4]][reg_addr[3:0]];
+assign reg_rdata = mem_data[reg_raddr[7:4]][reg_raddr[3:0]];
 
 
 // pot feedback module

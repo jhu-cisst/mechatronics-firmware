@@ -8,33 +8,25 @@
  *
  * Revision history
  *     11/16/11    Paul Thienphrapa    Initial revision
- *     03/02/12    Zihan Chen          Add acc
+ *     10/27/13    Zihan Chen          Minor, set preload to 24'h800000
  */
 
 // device register file offset
 `include "Constants.v" 
 
 module CtrlEnc(
-    sysclk, reset,
-    clk_1mhz, clk_12hz,
-    enc_a, enc_b,
-    reg_addr, reg_rdata,
-    reg_wdata, reg_we
-);
-
-    // -------------------------------------------------------------------------
-    // define I/Os
-    //
-
-    input sysclk, reset;           // global clock and reset signals
-    input clk_1mhz;                // fast clock to measure encoder period
-    input clk_12hz;                // slow clock to measure encoder frequency
-    input[1:4] enc_a, enc_b;       // set of quadrature encoder inputs
-    input[7:0] reg_addr;           // register file addr from outside world
-    output[31:0] reg_rdata;        // outgoing register file data
-    input[31:0] reg_wdata;         // incoming register file data
-    input reg_we;                  // write enable signal from outside world
-    
+    input  wire sysclk,           // global clock and reset signals
+    input  wire reset,            // global reset
+    input  wire clk_1mhz,         // fast clock to measure encoder period
+    input  wire clk_12hz,         // slow clock to measure encoder frequency
+    input  wire[1:4] enc_a,       // set of quadrature encoder inputs
+    input  wire[1:4] enc_b,
+    input  wire[15:0] reg_raddr,  // register file read addr from outside 
+    input  wire[15:0] reg_waddr,  // register file write addr from outside 
+    output wire[31:0] reg_rdata,  // outgoing register file data
+    input  wire[31:0] reg_wdata,  // incoming register file data
+    input  wire reg_wen           // write enable signal from outside world
+);    
     
     // -------------------------------------------------------------------------
     // local wires and registers
@@ -47,13 +39,11 @@ module CtrlEnc(
     wire[1:4] dir;                 // encoder transition direction
 
     // data buses to/from encoder modules
-    reg[23:0] preload[0:15];       // to encoder counter preload register
+    reg[23:0]  preload[0:15];      // to encoder counter preload register
     wire[24:0] quad_data[0:15];    // transition count FROM encoder (ovf msb)
     wire[15:0] per_data[0:15];     // encoder period measurement
     wire[15:0] freq_data[0:15];    // encoder frequency measurement
     
-    wire[31:0] reg_rdata;          // outgoing register file data
-
     // for array-style access to the encoder data
     wire[31:0] mem_data[0:15][0:15];
 
@@ -89,27 +79,32 @@ EncQuad EncQuad4(sysclk, reset, enc_a_filt[4], enc_b_filt[4], set_enc[4], preloa
 EncPeriod EncPer4(clk_1mhz, reset, enc_b_filt[4], dir[4], per_data[4]);
 EncFreq EncFreq4(sysclk, clk_12hz, reset, enc_b_filt[4], dir[4], freq_data[4]);
 
-// create a pulse when encoder preload is written
-always @(posedge(sysclk) or negedge(reset))
-begin
-    if (reset == 0)
-        set_enc <= 0;
-    else
-        set_enc[reg_addr[7:4]] <= (reg_we && reg_addr[3:0]==`OFF_ENC_LOAD);
-end
 
 //------------------------------------------------------------------------------
 // register file interface to outside world
 //
 
 // output selected read register
-assign reg_rdata = mem_data[reg_addr[7:4]][reg_addr[3:0]];
+assign reg_rdata = mem_data[reg_raddr[7:4]][reg_raddr[3:0]];
 
 // write selected preload register
-always @(posedge(sysclk))
+// set_enc: create a pulse when encoder preload is written
+always @(posedge(sysclk) or negedge(reset))
 begin
-    if (reg_we && reg_addr[3:0]==`OFF_ENC_LOAD)
-        preload[reg_addr[7:4]] <= reg_wdata[23:0];
+    if (reset == 0) begin
+        set_enc <= 4'h0;
+        preload[1] <= 24'h800000;    // set to half value
+        preload[2] <= 24'h800000;
+        preload[3] <= 24'h800000;
+        preload[4] <= 24'h800000;
+    end
+    else if (reg_wen && reg_waddr[15:12]==`ADDR_MAIN && reg_waddr[3:0]==`OFF_ENC_LOAD)
+    begin
+        preload[reg_waddr[7:4]] <= reg_wdata[23:0]; 
+        set_enc[reg_waddr[7:4]] <= 1'b1;
+    end
+    else 
+        set_enc <= 4'h0;
 end
 
 // map the data lines to access them as memory: [channel #][device #]

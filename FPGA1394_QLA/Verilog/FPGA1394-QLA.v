@@ -16,6 +16,9 @@
 // clk1394: 49.152 MHz 
 // sysclk: same as clk1394 49.152 MHz
 
+`include "Constants.v"
+
+
 module FPGA1394QLA
 (
     // ieee 1394 phy-link interface
@@ -54,12 +57,13 @@ module FPGA1394QLA
 
     wire lreq_trig;
     wire[2:0] lreq_type;
-    wire reg_wen;   // register write signal
-    wire blk_wen;   // block write enable
-    wire blk_wact;
-    wire[7:0] reg_addr;
-    wire[31:0] reg_rdata;
-    wire[31:0] reg_wdata;
+    wire reg_wen;               // register write signal
+    wire blk_wen;               // block write enable
+    wire blk_wstart;
+    wire[15:0] reg_raddr;       // 16-bit reg read address
+    wire[15:0] reg_waddr;       // 16-bit reg write address
+    wire[31:0] reg_rdata;       // reg read data
+    wire[31:0] reg_wdata;       // reg write data
     wire[31:0] reg_rd[0:15];
 
 //------------------------------------------------------------------------------
@@ -68,47 +72,64 @@ module FPGA1394QLA
 
 BUFG clksysclk(.I(clk1394), .O(sysclk));
 
-wire prom_blk_enable;
-assign prom_blk_enable = (reg_addr[7:6] == 2'b11) ? 1'b1 : 1'b0;
 
-// route read data based on read address (channel 0 is a special axis)
-assign reg_rdata = (reg_addr[7:4] == 0) ? reg_rdata_chan0
-                   : (prom_blk_enable ? reg_rdata_prom : reg_rd[reg_addr[3:0]]);
-assign reset_phy = 1'b1;    // 1394 phy low reset, never reset
+// Mux routing read data based on read address
+//   See Constants.v for detail
+//     addr[9:8]  main | hub | prom | prom_qla 
+assign reg_rdata = (reg_raddr[15:12]==`ADDR_HUB) ? (reg_rdata_hub) :
+                  ((reg_raddr[15:12]==`ADDR_PROM) ? (reg_rdata_prom) :
+                  ((reg_raddr[15:12]==`ADDR_PROM_QLA) ? (reg_rdata_prom_qla) : 
+                  ((reg_raddr[7:4]==4'd0) ? reg_rdata_chan0 : reg_rd[reg_raddr[3:0]])));
 
-// firewire modules ------------------------------------------------------------
 
-// HubReg module
-wire hub_rx_active;
-wire[7:0] hub_addr;
-wire[31:0] hub_rdata;
-wire[31:0] hub_wdata;
+// 1394 phy low reset, never reset
+assign reset_phy = 1'b1; 
+
+
+// --------------------------------------------------------------------------
+// hub register module
+// --------------------------------------------------------------------------
+
+// route HubReg data to global reg_rdata
+wire[31:0] reg_rdata_hub;
 
 HubReg hub(
     .sysclk(sysclk),
     .reset(reset),
-    .hub_rx_active(hub_rx_active),
-    .hub_addr(hub_addr),
-    .hub_wdata(hub_wdata),
-    .hub_rdata(hub_rdata)
+    .reg_wen(reg_wen),
+    .reg_raddr(reg_raddr),
+    .reg_waddr(reg_waddr),
+    .reg_wdata(reg_wdata),
+    .reg_rdata(reg_rdata_hub)
 );
 
+
+// --------------------------------------------------------------------------
+// firewire modules
+// --------------------------------------------------------------------------
 
 // phy-link interface
-wire rx_active;
 PhyLinkInterface phy(
-    sysclk, reset, ~wenid,    // in: global clock, reset, board id
-    ctl, data,                // bi: phy ctl and data lines
-    reg_wen, blk_wen, blk_wact,
-    reg_addr,                 // out: register write signal/address
-    reg_rdata, reg_wdata,     // out/in: register read address/data
-    lreq_trig, lreq_type,     // out: phy request trigger and type
-    rx_active,                // out: for debugging
-    hub_rx_active,
-    hub_addr,
-    hub_rdata,
-    hub_wdata
+    .sysclk(sysclk),         // in: global clk  
+    .reset(reset),           // in: global reset
+    .board_id(~wenid),       // in: board id (rotary switch)
+    
+    .ctl_ext(ctl),           // bi: phy ctl lines
+    .data_ext(data),         // bi: phy data lines
+    
+    .reg_wen(reg_wen),       // out: reg write signal
+    .blk_wen(blk_wen),       // out: block write signal
+    .blk_wstart(blk_wstart),   // out: block write is starting
+
+    .reg_raddr(reg_raddr),     // out: register address
+    .reg_waddr(reg_waddr),     // out: register address
+    .reg_rdata(reg_rdata),   // in:  read data to external register
+    .reg_wdata(reg_wdata),   // out: write data to external register
+
+    .lreq_trig(lreq_trig),   // out: phy request trigger
+    .lreq_type(lreq_type)    // out: phy request type
 );
+
 
 // phy request module
 PhyRequest phyreq(
@@ -120,7 +141,11 @@ PhyRequest phyreq(
     .data(reg_wdata[11:0])    // in: phy request data
 );
 
-// adcs ------------------------------------------------------------------------
+
+
+// --------------------------------------------------------------------------
+// adcs: pot + current 
+// --------------------------------------------------------------------------
 
 // ~12 MHz clock for spi communication with the adcs
 wire clkdiv2, clkadc;
@@ -132,8 +157,7 @@ BUFG adcclk(.I(clkdiv2), .O(clkadc));
 // map 2 types of  reads to the output of the adc controller; the
 //   latter will select the correct data to output based on read address
 wire[31:0] reg_radc;
-assign reg_rd[0] = reg_radc;    // adc reads
-assign reg_rd[10] = reg_radc;   // sync cur
+assign reg_rd[`OFF_ADC_DATA] = reg_radc;    // adc reads
 
 // local wire for cur_fb(1-4) 
 wire[15:0] cur_fb[1:4];
@@ -145,7 +169,7 @@ CtrlAdc adc(
     .sclk({IO1[10],IO1[28]}),
     .conv({IO1[11],IO1[27]}),
     .miso({IO1[12:15],IO1[26],IO1[25],IO1[24],IO1[23]}),
-    .reg_addr(reg_addr),
+    .reg_raddr(reg_raddr),
     .reg_rdata(reg_radc),
     .cur1(cur_fb[1]),
     .cur2(cur_fb[2]),
@@ -153,11 +177,14 @@ CtrlAdc adc(
     .cur4(cur_fb[4])
 );
 
-// dacs ------------------------------------------------------------------------
+
+// --------------------------------------------------------------------------
+// dacs
+// --------------------------------------------------------------------------
 
 // local wire for dac
 wire[31:0] reg_rdac;
-assign reg_rd[1] = reg_rdac;   // dac reads
+assign reg_rd[`OFF_DAC_CTRL] = reg_rdac;   // dac reads
 
 wire[15:0] cur_cmd[1:4];
 
@@ -170,16 +197,20 @@ CtrlDac dac(
     .csel(IO1[22]),
     .reg_wen(reg_wen),
     .blk_wen(blk_wen),
-    .reg_addr(reg_addr),
-    .reg_wdata(reg_wdata),
+    .reg_raddr(reg_raddr),
+    .reg_waddr(reg_waddr),
     .reg_rdata(reg_rdac),
+    .reg_wdata(reg_wdata),
     .dac1(cur_cmd[1]),
     .dac2(cur_cmd[2]),
     .dac3(cur_cmd[3]),
     .dac4(cur_cmd[4])
 );
 
-// encoders --------------------------------------------------------------------
+
+// --------------------------------------------------------------------------
+// encoders
+// --------------------------------------------------------------------------
 
 // fast (~1 MHz) / slow (~12 Hz) clocks to measure encoder period / frequency
 wire clk_1mhz, clk_12hz;
@@ -189,10 +220,10 @@ ClkDiv divenc2(sysclk, clk_12hz); defparam divenc2.width = 22;
 // map all types of encoder reads to the output of the encoder controller; the
 //   latter will select the correct data to output based on read address
 wire[31:0] reg_renc;
-assign reg_rd[4] = reg_renc;    // preload
-assign reg_rd[5] = reg_renc;    // quadrature
-assign reg_rd[6] = reg_renc;    // period
-assign reg_rd[7] = reg_renc;    // frequency
+assign reg_rd[`OFF_ENC_LOAD] = reg_renc;    // preload
+assign reg_rd[`OFF_ENC_DATA] = reg_renc;    // quadrature
+assign reg_rd[`OFF_PER_DATA] = reg_renc;    // period
+assign reg_rd[`OFF_FREQ_DATA] = reg_renc;   // frequency
 
 
 // encoder controller: the thing that manages encoder reads and preloads
@@ -203,13 +234,17 @@ CtrlEnc enc(
     .clk_12hz(clk_12hz),
     .enc_a({IO2[23],IO2[21],IO2[19],IO2[17]}),
     .enc_b({IO2[15],IO2[13],IO2[12],IO2[10]}),
-    .reg_addr(reg_addr),
+    .reg_raddr(reg_raddr),
+    .reg_waddr(reg_waddr),
     .reg_rdata(reg_renc),
     .reg_wdata(reg_wdata),
-    .reg_we(reg_wen)
+    .reg_wen(reg_wen)
 );
 
-// temperature sensors ---------------------------------------------------------
+
+// --------------------------------------------------------------------------
+// temperature sensors 
+// --------------------------------------------------------------------------
 
 // divide 40 MHz clock down to 400 kHz for temperature sensor readings
 wire clk400k_raw, clk400k;
@@ -221,23 +256,100 @@ BUFG clktemp(.I(clk400k_raw), .O(clk400k));
 wire[15:0] tempsense;
 
 // tempsense module instantiations
-Max6576 T1(.clk400k(clk400k), 
-           .reset(reset), 
-           .In(IO1[29]), 
-           .Out(tempsense[15:8]));
-           
-Max6576 T2(.clk400k(clk400k), 
-           .reset(reset), 
-           .In(IO1[30]), 
-           .Out(tempsense[7:0]));
+Max6576 T1(
+    .clk400k(clk400k), 
+    .reset(reset), 
+    .In(IO1[29]), 
+    .Out(tempsense[15:8])
+);
 
-// miscellaneous board I/Os ----------------------------------------------------
+Max6576 T2(
+    .clk400k(clk400k), 
+    .reset(reset), 
+    .In(IO1[30]), 
+    .Out(tempsense[7:0])
+);
+
+
+// --------------------------------------------------------------------------
+// Config prom M25P16
+// --------------------------------------------------------------------------
 
 // Route PROM status result between M25P16 and BoardRegs modules
-wire [31:0] PROM_Status;
+wire[31:0] reg_rdata_prom;   // reg_rdata_prom is for block reads from PROM
+wire[31:0] PROM_Status;
 wire[31:0] PROM_Result;
-// reg_rdata_prom is for block reads from PROM
-wire[31:0] reg_rdata_prom;
+   
+M25P16 prom(
+    .clk(sysclk),
+    .reset(reset),
+    .prom_cmd(reg_wdata),
+    .prom_status(PROM_Status),
+    .prom_result(PROM_Result),
+    .prom_rdata(reg_rdata_prom),
+
+    // address & wen 
+    .reg_raddr(reg_raddr),
+    .reg_waddr(reg_waddr),
+    .reg_wen(reg_wen),
+    .blk_wen(blk_wen),
+    .blk_wstart(blk_wstart),
+
+    // spi pins
+    .prom_mosi(XMOSI),
+    .prom_miso(XMISO),
+    .prom_sclk(XCCLK),
+    .prom_cs(XCSn)
+);
+
+
+// --------------------------------------------------------------------------
+// QLA prom 25AA138 
+//    - SPI pin connection see QLA schematics
+//    - TEMP version, interface subject to future change
+// --------------------------------------------------------------------------
+
+wire[31:0] reg_rdata_prom_qla;  // reads from QLA prom
+assign reg_rdata_prom_qla = 32'h0;   // temp always assign 0
+// wire[31:0] prom_status_qla;     // prom status between 25AA128 and BoardRegs
+// wire[31:0] prom_result_qla;     // prom result between 25AA128 and BoardRegs
+// wire prom_reg_wen_qla;          // for a quadlet write to 25AA128 
+// wire prom_blk_start_qla;        // start of a block write to PROM
+// wire prom_blk_wen_qla;          // for every quadlet in a block write to PROM
+// wire prom_blk_end_qla;          // for end of block write to PROM
+// wire prom_blk_enable_qla;       
+
+// assign prom_reg_wen_qla = (reg_addr[9:8]==`ADDR_PROM_QLA) ? reg_wen : 1'b0;
+// assign prom_blk_start_qla = (reg_addr[9:8]==`ADDR_PROM_QLA) ? blk_wstart : 1'b0;
+// assign prom_blk_wen_qla = (reg_addr[9:8]==`ADDR_PROM_QLA) ? reg_wen : 1'b0;
+// assign prom_blk_end_qla = (reg_addr[9:8]==`ADDR_PROM_QLA) ? blk_wen : 1'b0;
+// assign prom_blk_enable_qla = 1'b0;
+
+
+// QLA25AA128 prom_qla(
+//     .clk(sysclk),
+//     .reset(reset),
+//     .prom_cmd(reg_wdata),
+//     .prom_status(prom_status_qla),
+//     .prom_result(prom_result_qla),
+//     .prom_rdata(reg_rdata_prom_qla),
+//     .prom_blk_enable(prom_blk_enable_qla),
+//     .prom_blk_addr(prom_blk_addr),
+//     .prom_reg_wen(prom_reg_wen_qla),
+//     .prom_blk_start(prom_blk_start_qla),
+//     .prom_blk_wen(prom_blk_wen_qla),
+//     .prom_blk_end(prom_blk_end_qla),
+//     // spi interface
+//     .prom_mosi(IO1[2]),
+//     .prom_miso(IO1[1]),
+//     .prom_sclk(IO1[3]),
+//     .prom_cs(IO1[4])
+// );
+
+
+// --------------------------------------------------------------------------
+// miscellaneous board I/Os
+// --------------------------------------------------------------------------
 
 // safety_amp_enable from SafetyCheck moudle
 wire[4:1] safety_amp_disable;
@@ -262,7 +374,8 @@ BoardRegs chan0(
     .v_fault(IO1[9]),
     .board_id(~wenid),
     .temp_sense(tempsense),
-    .reg_addr(reg_addr),
+    .reg_raddr(reg_raddr),
+    .reg_waddr(reg_waddr),
     .reg_rdata(reg_rdata_chan0),
     .reg_wdata(reg_wdata),
     .reg_wen(reg_wen),
@@ -270,38 +383,6 @@ BoardRegs chan0(
     .prom_result(PROM_Result),
     .safety_amp_disable(safety_amp_disable)
 );
-
-
-// prom read/write ----------------------------------------------------
-wire prom_reg_wen;    // for a quadlet write to PROM (register)
-wire prom_blk_start;  // start of a block write to PROM
-wire prom_blk_wen;    // for every quadlet in a block write to PROM
-wire prom_blk_end;    // for end of block write to PROM
-
-assign prom_reg_wen = (reg_addr == 8'h08) ? reg_wen : 1'b0;
-assign prom_blk_start = prom_blk_enable ? blk_wact : 1'b0;
-assign prom_blk_wen = prom_blk_enable ? reg_wen : 1'b0;
-assign prom_blk_end = prom_blk_enable ? blk_wen : 1'b0;
-   
-M25P16 prom(
-    .clk(sysclk),
-    .reset(reset),
-    .prom_cmd(reg_wdata),
-    .prom_status(PROM_Status),
-    .prom_result(PROM_Result),
-    .prom_rdata(reg_rdata_prom),
-    .prom_blk_addr(reg_addr[5:0]),
-    .prom_blk_enable(prom_blk_enable),
-    .prom_reg_wen(prom_reg_wen),
-    .prom_blk_start(prom_blk_start),
-    .prom_blk_wen(prom_blk_wen),
-    .prom_blk_end(prom_blk_end),
-    .prom_mosi(XMOSI),
-    .prom_miso(XMISO),
-    .prom_sclk(XCCLK),
-    .prom_cs(XCSn)
-);
-
 
 // ----------------------------------------------------------------------------
 // safety check 
@@ -377,25 +458,26 @@ reg[23:0] CountI;
 always @(posedge(clk40m)) CountC <= CountC + 1'b1;
 always @(posedge(sysclk)) CountI <= CountI + 1'b1;
 
-// assign LED = IO1[32];     // NOTE: IO1[32] pwr_enable
-assign LED = reg_led;
+assign LED = IO1[32];     // NOTE: IO1[32] pwr_enable
+// assign LED = reg_led;
 assign DEBUG = { clk_1mhz, clk_12hz, CountI[23], CountC[23] }; 
 
-reg reg_led;
-reg[4:0] reg_led_counter;
-always @(posedge(rx_active) or posedge(clk_12hz)) begin
-    if (rx_active == 1'b1) begin
-        reg_led_counter <= 0;
-        reg_led <= 1'b1;
-    end
-    else if (reg_led_counter <= 5'd16) begin
-        reg_led_counter <= reg_led_counter + 1'b1;
-        reg_led <= 1'b1;
-    end
-    else begin
-        reg_led <= 1'b0;
-    end
-end
+// --- debug LED ----------
+// reg reg_led;
+// reg[4:0] reg_led_counter;
+// always @(posedge(rx_active) or posedge(clk_12hz)) begin
+//     if (rx_active == 1'b1) begin
+//         reg_led_counter <= 0;
+//         reg_led <= 1'b1;
+//     end
+//     else if (reg_led_counter <= 5'd16) begin
+//         reg_led_counter <= reg_led_counter + 1'b1;
+//         reg_led <= 1'b1;
+//     end
+//     else begin
+//         reg_led <= 1'b0;
+//     end
+// end
 
 
 //------------------------------------------------------------------------------
@@ -411,3 +493,4 @@ CtrlLED qla_led(
 );
 
 endmodule
+

@@ -29,6 +29,12 @@
 `define VERSION 32'h514C4131       // hard-wired version number "QLA1" = 0x514C4131 
 `define FW_VERSION 32'h04          // firmware version = 4 
 
+// address space  
+`define ADDR_MAIN     4'h0         // board reg & device reg
+`define ADDR_HUB      4'h1         // hub address space
+`define ADDR_PROM     4'h2         // prom address space
+`define ADDR_PROM_QLA 4'h3         // prom qla address space
+
 // channel 0 (board) registers
 `define REG_STATUS 4'd0            // board id (8), fault (8), enable/masks (16)
 `define REG_PHYCTRL 4'd1           // phy request bitstream (to request reg r/w)

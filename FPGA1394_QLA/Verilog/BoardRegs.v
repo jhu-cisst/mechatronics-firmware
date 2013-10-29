@@ -45,9 +45,10 @@ module BoardRegs(
     input  wire[15:0] temp_sense,   // temperature sensor reading
     
     // register file interface
-    input  wire[7:0] reg_addr,
-    output reg[31:0] reg_rdata,
-    input  wire[31:0] reg_wdata,
+    input  wire[15:0] reg_raddr,     // register read address
+    input  wire[15:0] reg_waddr,     // register write address
+    output reg[31:0] reg_rdata,     // register read data
+    input  wire[31:0] reg_wdata,    // register write data
     input  wire reg_wen,            // write enable from FireWire module
     
     // PROM feedback
@@ -111,8 +112,8 @@ always @(posedge(sysclk) or negedge(reset))
      end
 
     // set register values for writes
-    else if (reg_addr[7:4]==0 && reg_wen) begin
-        case (reg_addr[3:0])
+    else if (reg_waddr[15:12]==`ADDR_MAIN && reg_waddr[7:4]==0 && reg_wen) begin
+        case (reg_waddr[3:0])
         `REG_STATUS: begin
             // mask reg_wdata[15:8] with [7:0] for disable (~enable) control
             // ([15:12] and [7:4] are for an 8-axis system)
@@ -142,7 +143,7 @@ always @(posedge(sysclk) or negedge(reset))
 
     // return register data for reads
     else begin
-        case (reg_addr[3:0])
+        case (reg_raddr[3:0])
         `REG_STATUS: reg_rdata <= { 
                 4'd4, board_id,                // Byte 3: num channels (4), board id
                 wdog_timeout, 3'd0,            // Byte 2: watchdog timeout, motor voltage good,
