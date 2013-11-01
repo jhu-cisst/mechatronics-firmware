@@ -22,7 +22,6 @@ module M25P16(
     output wire[31:0] prom_status,   // PROM interface status
     output reg[31:0] prom_result,    // result (to Firewire)
     output reg[31:0] prom_rdata,     // result (to Firewire)
-    input[5:0] prom_blk_addr,        // address of data for block write
 
     input  wire[15:0] reg_raddr,      // read address
     input  wire[15:0] reg_waddr,      // write address
@@ -58,7 +57,7 @@ reg       blk_wrt;         // true if a block write is in progress (and hasn't b
 reg[15:0] prom_debug;
 
 reg[31:0] data_block[0:65];  // Up to 65 quadlets of data, received via block write
-reg [6:0] wr_index;          // Current write index (7-bit), set from prom_blk_addr (6-bit),
+reg [6:0] wr_index;          // Current write index (7-bit), set from prom_blk_waddr (6-bit),
                              // with wrap-around allowed
 reg [6:0] rd_index;          // Current read index (7-bit), incremented in this module
 
@@ -69,8 +68,8 @@ wire prom_blk_enable;    // prom block interface
 wire prom_blk_wen;
 wire prom_blk_start;  
 wire prom_blk_end;
-wire[5:0] prom_blk_raddr;   // block read address
-wire[5:0] prom_blk_waddr;   // block write address
+wire[5:0] prom_blk_raddr;   // data block read address
+wire[5:0] prom_blk_waddr;   // data block write address
 
 // ZC: MIGHT NEED to change
 assign prom_reg_wen = (reg_waddr == {`ADDR_MAIN, 4'h0, 8'h08}) ? reg_wen : 1'b0;
@@ -115,13 +114,13 @@ begin
 
         // handle block write
         if (prom_blk_wen && blk_wrt) begin       // receive one quadlet of the block write
-            if (prom_blk_addr == wr_index[5:0]) begin
+            if (prom_blk_waddr == wr_index[5:0]) begin
                 data_block[wr_index] <= prom_cmd;
                 // Update write index
                 wr_index <= wr_index + 1'b1;
             end
             else  begin // error, unexpected block write address
-                prom_debug <= { 2'b0, prom_blk_addr, 1'b0, wr_index };
+                prom_debug <= { 2'b0, prom_blk_waddr, 1'b0, wr_index };
             end
         end
         else if (prom_blk_end) begin 
