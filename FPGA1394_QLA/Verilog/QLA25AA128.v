@@ -14,40 +14,44 @@
  *     10/24/13    Zihan Chen          Revised for 25AA128 SPI PROM
  */
 
-/**  
- *   NOTE: 
- *   
- */
 
 // ---------------------------------------------------
 // 25AA128 PROM SPI Command (Datasheet P7 Table 2-1)
 // 
-`define CMD_READ_25AA128   8'h03    // Read 
-`define CMD_WRITE_25AA128  8'h02    // Write
-`define CMD_WRDI_25AA128   8'h04     // Write Disable
+
+`include "Constants.v"
+
+// Datasheet Table 2.1 P7`define CMD_READ_25AA128   8'h03    // Read 
+`define CMD_READ_25AA128   8'h03    // Read
+`define CMD_WRIT_25AA128   8'h02    // Write
+`define CMD_WRDI_25AA128   8'h04    // Write Disable
 `define CMD_WREN_25AA128   8'h06    // Write Enable
 `define CMD_RDSR_25AA128   8'h05    // Read STATUS register
 `define CMD_WRSR_25AA128   8'h01    // Write STATUS register
 `define CMD_IDLE_25AA128   8'h00    // IDLE N/A cmd 
 
+`define RED_CMD_25AA128    8'h0a    // 25AA128 reg addr
+
 
 module QLA25AA128(
-    input  clk,                   // input clock
-    input  reset,                 // global reset signal    
-    input[31:0]  prom_cmd,        // command input (from Firewire)
-    output[31:0] prom_status,     // PROM interface status
-    output reg[31:0] prom_result, // result (to Firewire)
-    output reg[31:0] prom_rdata,  // result (to Firewire)
-    input[5:0] prom_blk_addr,     // address of data for block write
-    input  prom_blk_enable,       // if block read/write is enabled
-    input  prom_reg_wen,          // write enable for quadlet write
-    input  prom_blk_start,        // start of block write
-    input  prom_blk_wen,          // write enable for each quadlet in block write
-    input  prom_blk_end,          // end of block write
-    output prom_mosi,             // Serial out to 25AA128
-    input  prom_miso,             // Serial in from 25AA128
-    output prom_sclk,             // CLK to 25AA128
-    output reg prom_cs            // /CS to 25AA128
+    input  clk,                    // input clock
+    input  reset,                  // global reset signal    
+    input[31:0]  prom_cmd,         // command input (from Firewire)
+    output[31:0] prom_status,      // PROM interface status
+    output reg[31:0] prom_result,  // result (to Firewire)
+    output reg[31:0] prom_rdata,   // result (to Firewire)
+
+    input  wire[15:0] reg_raddr,   // read address
+    input  wire[15:0] reg_waddr,   // write address
+    input  wire reg_wen,           // reg write enable
+    input  wire blk_wen,           // block write enable
+    input  wire blk_wstart,        // block write start
+
+    // spi pins
+    output prom_mosi,              // Serial out to 25AA128
+    input  prom_miso,              // Serial in from 25AA128
+    output prom_sclk,              // CLK to 25AA128
+    output reg prom_cs             // /CS to 25AA128
 );
 
 // State machine
@@ -59,6 +63,7 @@ parameter ST_IDLE = 0,
           ST_CHIP_DESELECT = 5,
           ST_IO_DISABLE = 6;
 
+
 reg       io_disabled;
 reg[2:0]  state;
 reg[6:0]  seqn;            // 7-bit counter for sequencing operation max = 128
@@ -69,12 +74,31 @@ reg[31:0] prom_data;       // data to write to PROM
 reg       blk_wrt;         // true if a block write is in progress (and hasn't been aborted due to an error)
 reg[15:0] prom_debug;
 
-reg[31:0] data_block[0:65];  // Up to 65 quadlets of data, received via block write
-reg [6:0] wr_index;          // Current write index (7-bit), set from prom_blk_addr (6-bit),
+reg[31:0] data_block[0:17];  // Up to 17 quadlets of data, received via block write
+reg [4:0] wr_index;          // Current write index (5-bit), set from prom_blk_addr (6-bit),
                              // with wrap-around allowed
-reg [6:0] rd_index;          // Current read index (7-bit), incremented in this module
+reg [4:0] rd_index;          // Current read index (5-bit), incremented in this module
 
 
+// local wires
+wire prom_reg_wen;       // main quadlet reg interface
+wire prom_blk_enable;    // prom block interface
+wire prom_blk_wen;
+wire prom_blk_start;  
+wire prom_blk_end;
+wire[3:0] prom_blk_raddr;   // data block read address
+wire[3:0] prom_blk_waddr;   // data block write address
+
+assign prom_reg_wen = (reg_waddr == {`ADDR_MAIN, 4'h0, `RED_CMD_25AA128}) ? reg_wen : 1'b0;
+assign prom_blk_enable = (reg_waddr[15:12] == `ADDR_PROM_QLA) ? 1'b1 : 1'b0;
+assign prom_blk_wen = (reg_waddr[15:12] == `ADDR_PROM_QLA) ? reg_wen : 1'b0;
+assign prom_blk_start = (reg_waddr[15:12] == `ADDR_PROM_QLA) ? blk_wstart : 1'b0;
+assign prom_blk_end = (reg_waddr[15:12] == `ADDR_PROM_QLA) ? blk_wen : 1'b0;
+assign prom_blk_raddr = reg_raddr[3:0];
+assign prom_blk_waddr = reg_waddr[3:0];
+
+
+// prom_status
 assign prom_status[31:16] = prom_debug;
 assign prom_status[15:9] = 7'd0;
 assign prom_status[8] = io_disabled;
@@ -103,26 +127,24 @@ begin
 
     else begin
 
-        // if (prom_blk_wen && blk_wrt) begin       // receive one quadlet of the block write
-        //     if (prom_blk_addr == wr_index[5:0]) begin
-        //         data_block[wr_index] <= prom_cmd;
-        //         // Update write index
-        //         wr_index <= wr_index + 1'b1;
-        //     end
-        //     else  begin // error, unexpected block write address
-        //         prom_debug <= { 2'b0, prom_blk_addr, 1'b0, wr_index };
-        //     end
-        // end
+        // handle block read, data is muxed in top module
+        prom_rdata <= data_block[prom_blk_raddr];
 
-        // else if (prom_blk_end) begin 
-        //     // finish receiving data from block write; will still be writing to PROM
-        //     blk_wrt <= 1'b0;
-        // end
-
-        // else if (prom_blk_enable && !prom_reg_wen && !prom_blk_start) begin   // handle block reads
-        //     prom_rdata <= data_block[prom_blk_addr];
-        // end
-
+        // handle block write
+        if (prom_blk_wen && blk_wrt) begin       // receive one quadlet of the block write
+            if (prom_blk_waddr == wr_index[3:0]) begin
+                data_block[wr_index] <= prom_cmd;
+                // Update write index
+                wr_index <= wr_index + 1'b1;
+            end
+            else  begin // error, unexpected block write address
+                prom_debug <= { 4'h0, prom_blk_waddr[3:0], 3'h0, wr_index[4:0] };
+            end
+        end
+        else if (prom_blk_end) begin 
+            // finish receiving data from block write; will still be writing to PROM
+            blk_wrt <= 1'b0;
+        end
 
         case (state)
 
@@ -162,8 +184,8 @@ begin
                end
                `CMD_READ_25AA128: begin    // Read Data (64 bytes)
                   SendCnt <= 7'd47;        // 1-byte cmd + 2-byte addr
-                  RecvCnt <= 7'd63;        // 1-byte data 
-                  RecvQuadCnt <= (prom_cmd[7:0]-1'b1);    // num_bytes-1 
+                  RecvCnt <= 7'd63;        // 1-quad data 
+                  RecvQuadCnt <= 4'hf;     // 16-quad data in total
                   state <= ST_CHIP_SELECT;
                end
                `CMD_WRITE_25AA128: begin
@@ -196,7 +218,7 @@ begin
           else if (blk_wrt && (wr_index != 7'd0)) begin
               // Data is available, so start writing to PROM
               prom_data <= data_block[0];
-              rd_index <= 7'd1;
+              rd_index <= 7'd1;   // 0 is cmd
               seqn <= 7'd0;
               state <= ST_WRITE_BLOCK;
           end
@@ -231,7 +253,7 @@ begin
                // we assume we are done when the reader catches up to the writer.
                if (rd_index == wr_index) begin
                   // Return number of characters written
-                  prom_result <= { 25'd0, rd_index };
+                  prom_result <= { 27'd0, rd_index };
                   state <= ST_CHIP_DESELECT;
                end
                else begin
@@ -249,11 +271,11 @@ begin
             if (seqn == RecvCnt) begin
                if (RecvQuadCnt != 6'd0) begin   // if reading more than one quad
                    seqn <= 7'd0;
-                   data_block[wr_index[5:0]] <= prom_result;
-                   prom_result <= { 25'd0, (wr_index + 1'b1) };  // number of bytes stored
-                   wr_index[5:0] <= wr_index[5:0] + 1'b1;
+                   data_block[wr_index[3:0]] <= prom_result;
+                   prom_result <= { 27'd0, (wr_index + 1'b1) };  // number of bytes stored
+                   wr_index[3:0] <= wr_index[3:0] + 1'b1;
                end
-               if (wr_index[5:0] == RecvQuadCnt)
+               if (wr_index[3:0] == RecvQuadCnt)
                    state <= ST_CHIP_DESELECT;
             end
             else
@@ -276,3 +298,9 @@ begin
 end
 
 endmodule
+
+
+// 4 x 64 quad = 256 bytes 
+// 2^8 = 256 
+// 128 kbits = 16 kbytes --> 14-bit addr space 
+// 1 page = 64 bytes = 16 quads = 2^4 quads 

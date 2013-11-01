@@ -71,7 +71,6 @@ wire prom_blk_end;
 wire[5:0] prom_blk_raddr;   // data block read address
 wire[5:0] prom_blk_waddr;   // data block write address
 
-// ZC: MIGHT NEED to change
 assign prom_reg_wen = (reg_waddr == {`ADDR_MAIN, 4'h0, 8'h08}) ? reg_wen : 1'b0;
 assign prom_blk_enable = (reg_waddr[15:12] == `ADDR_PROM) ? 1'b1 : 1'b0;
 assign prom_blk_wen = (reg_waddr[15:12] == `ADDR_PROM) ? reg_wen : 1'b0;

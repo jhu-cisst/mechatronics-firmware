@@ -54,6 +54,10 @@ module BoardRegs(
     // PROM feedback
     input  wire[31:0] prom_status,
     input  wire[31:0] prom_result,
+
+    // PROM 25AA128 feedback
+    input  wire[31:0] prom_status_qla,
+    input  wire[31:0] prom_result_qla,
     
     // Safety amp_disable
     input  wire[4:1] safety_amp_disable
@@ -169,13 +173,16 @@ always @(posedge(sysclk) or negedge(reset))
         `REG_VERSION: reg_rdata <= `VERSION;
         `REG_TEMPSNS: reg_rdata <= {16'd0, temp_sense};
         `REG_DIGIOUT: reg_rdata <= dout;
-        `REG_FIRMWARE_VERSION: reg_rdata <= `FW_VERSION;
+        `REG_FVERSION: reg_rdata <= `FW_VERSION;
         `REG_PROMSTAT: reg_rdata <= prom_status;
         `REG_PROMRES: reg_rdata <= prom_result;
+        `REG_25AASTAT: reg_rdata <= prom_status_qla;
+        `REG_25AARES: reg_rdata <= prom_result_qla;
         `REG_DIGIN: reg_rdata <= { 15'd0, v_fault, dout, neg_limit_filt, pos_limit_filt, home_filt };
-        `REG_SAFETY: reg_rdata <= { 28'd0, safety_amp_disable};
-        `REG_WDOG: reg_rdata <= {28'd0, wdog_amp_disable};
-        `REG_REGDISABLE: reg_rdata <= {28'd0, amp_disable};
+
+        // `REG_SAFETY: reg_rdata <= { 28'd0, safety_amp_disable};
+        // `REG_WDOG: reg_rdata <= {28'd0, wdog_amp_disable};
+        // `REG_REGDISABLE: reg_rdata <= {28'd0, amp_disable};
         
         default:  reg_rdata <= 32'd0;
         endcase
@@ -268,6 +275,13 @@ end
 
 endmodule
 
+
+
+// --------------------------------------------------------------------------
+// Filter DigiInput module 
+//   - wrapper for Debounce 
+//   - filter for digital input signals
+// --------------------------------------------------------------------------
 
 module FilterDigiInput(
     input  wire clk,

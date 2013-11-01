@@ -36,20 +36,22 @@
 `define ADDR_PROM_QLA 4'h3         // prom qla address space
 
 // channel 0 (board) registers
-`define REG_STATUS 4'd0            // board id (8), fault (8), enable/masks (16)
-`define REG_PHYCTRL 4'd1           // phy request bitstream (to request reg r/w)
-`define REG_PHYDATA 4'd2           // holder for phy register read contents
-`define REG_TIMEOUT 4'd3           // watchdog timer period register
-`define REG_VERSION 4'd4           // read-only version number address
-`define REG_TEMPSNS 4'd5           // temperature sensors (2x 8 bits concatenated)
-`define REG_DIGIOUT 4'd6           // programmable digital outputs
-`define REG_FIRMWARE_VERSION 4'd7  // firmware version
+`define REG_STATUS   4'd0          // board id (8), fault (8), enable/masks (16)
+`define REG_PHYCTRL  4'd1          // phy request bitstream (to request reg r/w)
+`define REG_PHYDATA  4'd2          // holder for phy register read contents
+`define REG_TIMEOUT  4'd3          // watchdog timer period register
+`define REG_VERSION  4'd4          // read-only version number address
+`define REG_TEMPSNS  4'd5          // temperature sensors (2x 8 bits concatenated)
+`define REG_DIGIOUT  4'd6          // programmable digital outputs
+`define REG_FVERSION 4'd7          // firmware version
 `define REG_PROMSTAT 4'd8          // PROM interface status
-`define REG_PROMRES 4'd9           // PROM result (from M25P16)
-`define REG_DIGIN   4'd10          // Digital inputs (home, neg lim, pos lim)
-`define REG_SAFETY  4'd11          // Safety amp disable 
-`define REG_WDOG    4'd14          // TEMP wdog_samp_disable
-`define REG_REGDISABLE 4'd15       // TEMP reg_disable 
+`define REG_PROMRES  4'd9          // PROM result (from M25P16)
+`define REG_25AASTAT 4'd10         // PROM 25AA128 interface status
+`define REG_25AARES  4'd11         // PROM 25AA128 result 
+`define REG_DIGIN    4'd12         // Digital inputs (home, neg lim, pos lim)
+// `define REG_SAFETY  4'd11          // Safety amp disable 
+// `define REG_WDOG    4'd14          // TEMP wdog_samp_disable
+// `define REG_REGDISABLE 4'd15       // TEMP reg_disable 
 
 // device register file offsets from channel base
 `define OFF_ADC_DATA 4'd0          // adc data register offset (pot + cur)

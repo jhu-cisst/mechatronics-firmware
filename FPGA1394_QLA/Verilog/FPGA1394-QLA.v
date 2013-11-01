@@ -310,41 +310,31 @@ M25P16 prom(
 // --------------------------------------------------------------------------
 
 wire[31:0] reg_rdata_prom_qla;  // reads from QLA prom
-assign reg_rdata_prom_qla = 32'h0;   // temp always assign 0
-// wire[31:0] prom_status_qla;     // prom status between 25AA128 and BoardRegs
-// wire[31:0] prom_result_qla;     // prom result between 25AA128 and BoardRegs
-// wire prom_reg_wen_qla;          // for a quadlet write to 25AA128 
-// wire prom_blk_start_qla;        // start of a block write to PROM
-// wire prom_blk_wen_qla;          // for every quadlet in a block write to PROM
-// wire prom_blk_end_qla;          // for end of block write to PROM
-// wire prom_blk_enable_qla;       
+wire[31:0] prom_status_qla;     // prom status between 25AA128 and BoardRegs
+wire[31:0] prom_result_qla;     // prom result between 25AA128 and BoardRegs
 
-// assign prom_reg_wen_qla = (reg_addr[9:8]==`ADDR_PROM_QLA) ? reg_wen : 1'b0;
-// assign prom_blk_start_qla = (reg_addr[9:8]==`ADDR_PROM_QLA) ? blk_wstart : 1'b0;
-// assign prom_blk_wen_qla = (reg_addr[9:8]==`ADDR_PROM_QLA) ? reg_wen : 1'b0;
-// assign prom_blk_end_qla = (reg_addr[9:8]==`ADDR_PROM_QLA) ? blk_wen : 1'b0;
-// assign prom_blk_enable_qla = 1'b0;
+QLA25AA128 prom_qla(
+    .clk(sysclk),
+    .reset(reset),
 
+    .prom_cmd(reg_wdata),
+    .prom_status(prom_status_qla),
+    .prom_result(prom_result_qla),
+    .prom_rdata(reg_rdata_prom_qla),
 
-// QLA25AA128 prom_qla(
-//     .clk(sysclk),
-//     .reset(reset),
-//     .prom_cmd(reg_wdata),
-//     .prom_status(prom_status_qla),
-//     .prom_result(prom_result_qla),
-//     .prom_rdata(reg_rdata_prom_qla),
-//     .prom_blk_enable(prom_blk_enable_qla),
-//     .prom_blk_addr(prom_blk_addr),
-//     .prom_reg_wen(prom_reg_wen_qla),
-//     .prom_blk_start(prom_blk_start_qla),
-//     .prom_blk_wen(prom_blk_wen_qla),
-//     .prom_blk_end(prom_blk_end_qla),
-//     // spi interface
-//     .prom_mosi(IO1[2]),
-//     .prom_miso(IO1[1]),
-//     .prom_sclk(IO1[3]),
-//     .prom_cs(IO1[4])
-// );
+    // address & wen
+    .reg_raddr(reg_raddr),
+    .reg_waddr(reg_waddr),
+    .reg_wen(reg_wen),
+    .blk_wen(blk_wen),
+    .blk_wstart(blk_wstart),
+
+    // spi interface
+    .prom_mosi(IO1[2]),
+    .prom_miso(IO1[1]),
+    .prom_sclk(IO1[3]),
+    .prom_cs(IO1[4])
+);
 
 
 // --------------------------------------------------------------------------
@@ -381,6 +371,8 @@ BoardRegs chan0(
     .reg_wen(reg_wen),
     .prom_status(PROM_Status),
     .prom_result(PROM_Result),
+    .prom_status_qla(prom_status_qla),
+    .prom_result_qla(prom_result_qla),
     .safety_amp_disable(safety_amp_disable)
 );
 
