@@ -37,23 +37,4 @@ hub_mem_gen hub_mem(
     .doutb(reg_rdata)
 );
 
-
-// -------------------
-// chipscope
-// -------------------
-// wire[35:0] control0;
-// icon_hub icon(
-//     .CONTROL0(control0)
-// );
-// ila_hub ila(
-//     .CONTROL(control0),
-//     .CLK(sysclk),
-//     .TRIG0(reg_wen),
-//     .TRIG1(reg_raddr),
-//     .TRIG2(reg_waddr),
-//     .TRIG3(reg_rdata),
-//     .TRIG4(reg_wdata),
-//     .TRIG5(reg_wdata)
-// );
-
 endmodule
