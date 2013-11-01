@@ -12,16 +12,16 @@
  * Revision history
  *     05/20/08    Paul Thienphrapa    Initial revision
  */
-module Debounce(clk, reset, sig_in, sig_out);
+ 
 
-    // define I/Os
-    input clk;                   // clock to use for debouncing
-    input reset;                 // global reset signal
-    input sig_in;                // raw signal input
-    output sig_out;              // debounced signal output
+module Debounce(
+    input  wire clk,      // clock to use for debouncing
+    input  wire reset,    // global reset signal
+    input  wire sig_in,   // raw signal input
+    output reg  sig_out   // debounced signal output
+);
 
     // local wires and registers
-    reg sig_out;                 // cleaned registered output
     reg[bits-1:0] sig_shift;     // input signal shift register
     wire[bits-1:0] all_zeros;    // vector of all zeros
     wire[bits-1:0] all_ones;     // vector of all ones
@@ -29,6 +29,9 @@ module Debounce(clk, reset, sig_in, sig_out);
     // # of consecutive bits required for a signal transition
     parameter bits = 9;
 
+//------------------------------------------------------------------------------
+// hardware description
+//
 
 // seems like this helps the synthesizer
 assign all_zeros = 0;

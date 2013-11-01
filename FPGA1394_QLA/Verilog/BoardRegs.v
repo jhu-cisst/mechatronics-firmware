@@ -62,6 +62,10 @@ module BoardRegs(
     // -------------------------------------------------------------------------
     // define wires and registers
     //
+    // digital input signals
+    wire[4:1] neg_limit_filt;
+    wire[4:1] pos_limit_filt;
+    wire[4:1] home_filt;
 
     // registered data
     reg[3:0] reg_disable;       // register the disable signals
@@ -90,10 +94,19 @@ module BoardRegs(
 //------------------------------------------------------------------------------
 // hardware description
 //
+FilterDigiInput filter(
+    .clk(sysclk),
+    .reset(reset),
+    .neg_limit(neg_limit),
+    .pos_limit(pos_limit),
+    .home(home),
+    .neg_limit_filt(neg_limit_filt),
+    .pos_limit_filt(pos_limit_filt),
+    .home_filt(home_filt)
+);
 
 // mv_amp_disable for 40 ms sleep after board pwr enable
 assign amp_disable = (reg_disable[3:0] | mv_amp_disable[4:1]);
-
 
 // clocked process simulating a register file
 always @(posedge(sysclk) or negedge(reset))
@@ -159,7 +172,7 @@ always @(posedge(sysclk) or negedge(reset))
         `REG_FIRMWARE_VERSION: reg_rdata <= `FW_VERSION;
         `REG_PROMSTAT: reg_rdata <= prom_status;
         `REG_PROMRES: reg_rdata <= prom_result;
-        `REG_DIGIN: reg_rdata <= { 15'd0, v_fault, dout, neg_limit, pos_limit, home };
+        `REG_DIGIN: reg_rdata <= { 15'd0, v_fault, dout, neg_limit_filt, pos_limit_filt, home_filt };
         `REG_SAFETY: reg_rdata <= { 28'd0, safety_amp_disable};
         `REG_WDOG: reg_rdata <= {28'd0, wdog_amp_disable};
         `REG_REGDISABLE: reg_rdata <= {28'd0, amp_disable};
@@ -176,6 +189,9 @@ always @(posedge(sysclk) or negedge(reset))
     end
 end
 
+// --------------------------------------------------------------------------
+// Reset module
+// --------------------------------------------------------------------------
 // derive watchdog clock
 ClkDiv divWdog(sysclk, wdog_clk);
 defparam divWdog.width = `WIDTH_WATCHDOG;
@@ -224,8 +240,11 @@ begin
 end
 
    
-
-// generate global reset signal, assumes reset_shift = 0 at power up per spec
+// --------------------------------------------------------------------------
+// Reset module
+//   - generate global reset signal, 
+//     assumes reset_shift = 0 at power up per spec
+// --------------------------------------------------------------------------
 always @(posedge(clkaux))
 begin
     // power up with /reset inactive
@@ -248,3 +267,37 @@ begin
 end
 
 endmodule
+
+
+module FilterDigiInput(
+    input  wire clk,
+    input  wire reset,
+    input  wire[4:1] neg_limit,
+    input  wire[4:1] pos_limit,
+    input  wire[4:1] home,
+    output wire[4:1] neg_limit_filt,
+    output wire[4:1] pos_limit_filt,
+    output wire[4:1] home_filt
+);
+
+// ----------------------------------------
+// hardware description 
+
+// filter for raw digital inputs
+Debounce filter_neg_limit_1(clk, reset, neg_limit[1], neg_limit_filt[1]);
+Debounce filter_neg_limit_2(clk, reset, neg_limit[2], neg_limit_filt[2]);
+Debounce filter_neg_limit_3(clk, reset, neg_limit[3], neg_limit_filt[3]);
+Debounce filter_neg_limit_4(clk, reset, neg_limit[4], neg_limit_filt[4]);
+
+Debounce filter_pos_limit_1(clk, reset, pos_limit[1], pos_limit_filt[1]);
+Debounce filter_pos_limit_2(clk, reset, pos_limit[2], pos_limit_filt[2]);
+Debounce filter_pos_limit_3(clk, reset, pos_limit[3], pos_limit_filt[3]);
+Debounce filter_pos_limit_4(clk, reset, pos_limit[4], pos_limit_filt[4]);
+
+Debounce filter_home_1(clk, reset, home[1], home_filt[1]);
+Debounce filter_home_2(clk, reset, home[2], home_filt[2]);
+Debounce filter_home_3(clk, reset, home[3], home_filt[3]);
+Debounce filter_home_4(clk, reset, home[4], home_filt[4]);
+
+endmodule
+

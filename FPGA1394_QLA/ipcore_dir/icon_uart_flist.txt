@@ -1,0 +1,12 @@
+# Output products list for <icon_uart>
+icon_uart.asy
+icon_uart.ejp
+icon_uart.gise
+icon_uart.ngc
+icon_uart.v
+icon_uart.veo
+icon_uart.xco
+icon_uart.xise
+icon_uart_flist.txt
+icon_uart_readme.txt
+icon_uart_xmdf.tcl
