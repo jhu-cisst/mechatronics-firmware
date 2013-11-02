@@ -21,7 +21,9 @@
 
 `include "Constants.v"
 
-// Datasheet Table 2.1 P7`define CMD_READ_25AA128   8'h03    // Read 
+// ---------------------------------------------------
+// 25AA128 PROM SPI Command (Datasheet P7 Table 2-1)
+// 
 `define CMD_READ_25AA128   8'h03    // Read
 `define CMD_WRIT_25AA128   8'h02    // Write
 `define CMD_WRDI_25AA128   8'h04    // Write Disable
@@ -30,7 +32,7 @@
 `define CMD_WRSR_25AA128   8'h01    // Write STATUS register
 `define CMD_IDLE_25AA128   8'h00    // IDLE N/A cmd 
 
-`define RED_CMD_25AA128    8'h0a    // 25AA128 reg addr
+`define REG_CMD_25AA128    8'h0a    // 25AA128 reg addr
 
 
 module QLA25AA128(
@@ -89,7 +91,7 @@ wire prom_blk_end;
 wire[3:0] prom_blk_raddr;   // data block read address
 wire[3:0] prom_blk_waddr;   // data block write address
 
-assign prom_reg_wen = (reg_waddr == {`ADDR_MAIN, 4'h0, `RED_CMD_25AA128}) ? reg_wen : 1'b0;
+assign prom_reg_wen = (reg_waddr == {`ADDR_MAIN, 4'h0, `REG_CMD_25AA128}) ? reg_wen : 1'b0;
 assign prom_blk_enable = (reg_waddr[15:12] == `ADDR_PROM_QLA) ? 1'b1 : 1'b0;
 assign prom_blk_wen = (reg_waddr[15:12] == `ADDR_PROM_QLA) ? reg_wen : 1'b0;
 assign prom_blk_start = (reg_waddr[15:12] == `ADDR_PROM_QLA) ? blk_wstart : 1'b0;

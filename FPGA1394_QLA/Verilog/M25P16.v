@@ -15,6 +15,27 @@
 
  `include "Constants.v"
 
+// ---------------------------------------------------
+// M25P16 PROM SPI Command (Datasheet P17 Table 5)
+// 
+
+`define CMD_IDLE_M25P16   8'h00    // IDLE N/A cmd 
+`define CMD_READ_M25P16   8'h03    // Read
+`define CMD_WRIT_M25P16   8'h02    // Write
+`define CMD_WRDI_M25P16   8'h04    // Write Disable
+`define CMD_WREN_M25P16   8'h06    // Write Enable
+`define CMD_RDSR_M25P16   8'h05    // Read STATUS register
+`define CMD_WRSR_M25P16   8'h01    // Write STATUS register
+
+`define CMD_RDID_M25P16   8'h9F    // Read Identification
+`define CMD_FTRD_M25P16   8'h0B    // Fast Read Data (256 bytes)
+`define CMD_SERA_M25P16   8'hD8    // Sector Erase
+`define CMD_BERA_M25P16   8'hC7    // Block Erase
+`define CMD_DPWR_M25P16   8'hB9    // Deep Power Down
+`define CMD_WAKE_M25P16   8'hAB    // Wake (Release from Deep Power Down)
+
+
+
 module M25P16(
     input  wire clk,                 // input clock
     input  wire reset,               // global reset signal
@@ -139,69 +160,69 @@ begin
               blk_wrt <= 1'b0;
               wr_index <= 7'd0;
               case (prom_cmd[31:24])
-                 8'h00: begin    // Do nothing
+                 `CMD_IDLE_M25P16: begin    // Do nothing
                  end
-                 8'h06: begin    // Write Enable
+                 `CMD_WREN_M25P16: begin    // Write Enable
                     SendCnt <= 7'd15;
                     RecvCnt <= 7'd0;
                     RecvQuadCnt <= 6'd0;
                     state <= PROM_CHIP_SELECT;
                  end
-                 8'h04: begin    // Write Disable
+                 `CMD_WRDI_M25P16: begin    // Write Disable
                     SendCnt <= 7'd15;
                     RecvCnt <= 7'd0;
                     RecvQuadCnt <= 6'd0;
                     state <= PROM_CHIP_SELECT;
                  end
-                 8'h9f: begin    // Read ID (only first 3 bytes)
+                 `CMD_RDID_M25P16: begin    // Read ID (only first 3 bytes)
                     SendCnt <= 7'd15;
                     RecvCnt <= 7'd47;
                     RecvQuadCnt <= 6'd0;
                     state <= PROM_CHIP_SELECT;
                  end
-                 8'h05: begin    // Read Status Register
+                 `CMD_RDSR_M25P16: begin    // Read Status Register
                     SendCnt <= 7'd15;
                     RecvCnt <= 7'd15;
                     RecvQuadCnt <= 6'd0;
                     state <= PROM_CHIP_SELECT;
                  end
-                 8'h01: begin    // Write Status Register
+                 `CMD_WRSR_M25P16: begin    // Write Status Register
                     SendCnt <= 7'd31;
                     RecvCnt <= 7'd0;
                     RecvQuadCnt <= 6'd0;
                     state <= PROM_CHIP_SELECT;
                  end
-                 8'h03: begin    // Read Data (256 bytes)
+                 `CMD_READ_M25P16: begin    // Read Data (256 bytes)
                     SendCnt <= 7'd63;
                     RecvCnt <= 7'd63;
                     RecvQuadCnt <= 6'h3f;
                     state <= PROM_CHIP_SELECT;
                  end
-                 8'h0B: begin    // Fast Read Data (256 bytes)
+                 `CMD_FTRD_M25P16: begin    // Fast Read Data (256 bytes)
                     SendCnt <= 7'd97;   // needs a dummy byte
                     RecvCnt <= 7'd63;
                     RecvQuadCnt <= 6'h3f;
                     state <= PROM_CHIP_SELECT;
                  end
-                 8'hD8: begin    // Sector Erase
+                 `CMD_SERA_M25P16: begin    // Sector Erase
                     SendCnt <= 7'd63;
                     RecvCnt <= 7'd0;
                     RecvQuadCnt <= 6'd0;
                     state <= PROM_CHIP_SELECT;
                  end
-                 8'hC7: begin    // Bulk Erase
+                 `CMD_BERA_M25P16: begin    // Bulk Erase
                     SendCnt <= 7'd15;
                     RecvCnt <= 7'd0;
                     RecvQuadCnt <= 6'd0;
                     state <= PROM_CHIP_SELECT;
                  end
-                 8'hB9: begin    // Deep Power Down
+                 `CMD_DPWR_M25P16: begin    // Deep Power Down
                     SendCnt <= 7'd15;
                     RecvCnt <= 7'd0;
                     RecvQuadCnt <= 6'd0;
                     state <= PROM_CHIP_SELECT;
                  end
-                 8'hAB: begin    // Release from deep power down
+                 `CMD_WAKE_M25P16: begin    // Release from deep power down
                     SendCnt <= 7'd63;     // 3 dummy bytes
                     RecvCnt <= 7'd15;     // "old style" ID = 0x14
                     RecvQuadCnt <= 6'd0;
