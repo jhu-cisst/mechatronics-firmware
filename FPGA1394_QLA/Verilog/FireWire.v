@@ -1157,7 +1157,7 @@ begin
                             reg_raddr[4:0] <= reg_raddr[4:0] + 1'b1;
                         end
                     end
-                    else if (reg_raddr[15:12] == `ADDR_PROM) begin
+                    else begin   // PROM & PROM_QLA
                         reg_raddr[5:0] <= reg_raddr[5:0] + 1'b1;
                     end
                 end
