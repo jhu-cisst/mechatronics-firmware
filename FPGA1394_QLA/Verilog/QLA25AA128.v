@@ -208,38 +208,38 @@ begin
                `CMD_IDLE_25AA128: begin    // Do nothing
                end
                `CMD_WREN_25AA128: begin    // Write Enable
-                  SendCnt <= 7'd15;
-                  RecvCnt <= 7'd0;
+                  SendCnt <= 10'd127;      // 2*8*8-1
+                  RecvCnt <= 10'd0;
                   RecvQuadCnt <= 6'd0;
                   state <= ST_CHIP_SELECT;
                end
                `CMD_WRDI_25AA128: begin    // Write Disable
-                  SendCnt <= 7'd15;
-                  RecvCnt <= 7'd0;
+                  SendCnt <= 10'd127;
+                  RecvCnt <= 10'd0;
                   RecvQuadCnt <= 6'd0;
                   state <= ST_CHIP_SELECT;
                end
                `CMD_RDSR_25AA128: begin    // Read Status Register
-                  SendCnt <= 7'd16;        // 1-byte cmd
-                  RecvCnt <= 7'd16;        // 1-byte SR
+                  SendCnt <= 10'd127;      // 1-byte cmd
+                  RecvCnt <= 10'd127;      // 1-byte SR
                   RecvQuadCnt <= 6'd0;
                   state <= ST_CHIP_SELECT;
                end
                `CMD_WRSR_25AA128: begin    // Write Status Register
-                  SendCnt <= 7'd31;        // 1-byte cmd + 1-byte SR
-                  RecvCnt <= 7'd0;   
+                  SendCnt <= 10'd255;      // 1-byte cmd + 1-byte SR
+                  RecvCnt <= 10'd0;   
                   RecvQuadCnt <= 6'd0;
                   state <= ST_CHIP_SELECT;
                end
                `CMD_READ_25AA128: begin    // Read Data (64 bytes)
-                  SendCnt <= 7'd48;        // 1-byte cmd + 2-byte addr
-                  RecvCnt <= 7'd16;        // 1-bype data 
+                  SendCnt <= 10'd383;      // 1-byte cmd + 2-byte addr
+                  RecvCnt <= 10'd127;      // 1-bype data 
                   RecvQuadCnt <= 6'd0;     
                   state <= ST_CHIP_SELECT;
                end
                `CMD_WRIT_25AA128: begin   // Write 1 byte data 
-                  SendCnt <= 7'd63;        // 1 cmd 2 addr 1 data
-                  RecvCnt <= 7'd0;
+                  SendCnt <= 10'd511;     // 1 cmd 2 addr 1 data
+                  RecvCnt <= 10'd0;
                   RecvQuadCnt <= 6'd0;     
                   state <= ST_CHIP_SELECT;  
                end
@@ -256,8 +256,8 @@ begin
           end // if (prom_reg_wen)
            
           else if (prom_blk_start && !blk_wrt) begin     // start of block write
-              SendCnt <= 7'd63;
-              RecvCnt <= 7'd0;
+              SendCnt <= 10'd511;
+              RecvCnt <= 10'd0;
               blk_wrt <= 1'b1;
               wr_index <= 7'd0;
               prom_debug <= 16'd0;
@@ -271,7 +271,7 @@ begin
               // Data is available, so start writing to PROM
               prom_data <= data_block[0];
               rd_index <= 7'd1;   // 0 is cmd
-              seqn <= 7'd0;
+              seqn <= 10'd0;
               state <= ST_WRITE_BLOCK;
           end
 
@@ -285,28 +285,22 @@ begin
         end
            
         ST_WRITE: begin
-            if (prom_sclk == 1'b1) begin     // update data on falling sclk
+            if (seqn[3:0] == 4'b1111) begin  // update data on falling sclk
                 prom_data <= prom_data<<1;
             end
             if (seqn == SendCnt) begin
-                if (RecvCnt == 7'd0) begin
-                    state <= ST_CHIP_DESELECT;
-                    seqn <= 7'd0;
-                end
-                else begin
-                    state <= ST_READ;
-                    seqn <= 7'd1;
-                end
+                state <= (RecvCnt == 10'd0) ? ST_CHIP_DESELECT : ST_READ;
+                seqn <= 10'd0;
             end
             else seqn <= seqn + 1'b1;        // counter, also creates sclk
         end // case: ST_WRITE
 
         ST_WRITE_BLOCK: begin
-            if (prom_sclk == 1'b1) begin     // update data on falling sclk
+            if (seqn[3:0] == 4'b1111) begin  // update data on falling sclk
                 prom_data <= prom_data<<1;
             end
             if (seqn == SendCnt) begin
-               seqn <= 7'd0;
+               seqn <= 10'd0;
                // Because the writer (Firewire block) is much faster than the reader,
                // we assume we are done when the reader catches up to the writer.
                if (rd_index == wr_index) begin
@@ -323,12 +317,12 @@ begin
         end // case: ST_WRITE_BLOCK
 
         ST_READ: begin
-            if (prom_sclk == 1'b1) begin  // ZC: 25AA128 different timing 
-               prom_result <= { prom_result[30:0], prom_miso };
+            if (seqn[3:0] == 4'b0111) begin  // latch data on rising sclk
+                prom_result <= { prom_result[30:0], prom_miso };
             end
             if (seqn == RecvCnt) begin
                if (RecvQuadCnt != 6'd0) begin   // if reading more than one quad
-                   seqn <= 7'd1;
+                   seqn <= 10'd0;
                    data_block[wr_index[3:0]] <= prom_result;
                    prom_result <= { 27'd0, (wr_index + 1'b1) };  // number of bytes stored
                    wr_index[3:0] <= wr_index[3:0] + 1'b1;
