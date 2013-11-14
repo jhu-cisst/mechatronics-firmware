@@ -104,7 +104,7 @@ reg[4:0]  rd_index;    // current read index 4-bit
 // local wires
 wire prom_reg_wen;       // main quadlet reg interface
 assign prom_reg_wen = (reg_waddr == {`ADDR_PROM_QLA, `REG_PROM_CMD}) ? reg_wen : 1'b0;
-assign prom_blk_wen = (reg_waddr[15:12] == `ADDR_PROM_QLA) ? reg_wen : 1'b0;
+assign prom_blk_wen = (reg_waddr[15:8] == {`ADDR_PROM_QLA, 4'd1}) ? reg_wen : 1'b0;
 
 
 // prom_status

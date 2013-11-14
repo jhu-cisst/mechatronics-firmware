@@ -1,0 +1,12 @@
+# Output products list for <icon_prom>
+icon_prom.asy
+icon_prom.ejp
+icon_prom.gise
+icon_prom.ngc
+icon_prom.v
+icon_prom.veo
+icon_prom.xco
+icon_prom.xise
+icon_prom_flist.txt
+icon_prom_readme.txt
+icon_prom_xmdf.tcl
