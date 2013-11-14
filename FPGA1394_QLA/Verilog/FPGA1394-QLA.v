@@ -310,21 +310,17 @@ M25P16 prom(
 // --------------------------------------------------------------------------
 
 wire[31:0] reg_rdata_prom_qla;  // reads from QLA prom
-wire[31:0] prom_status_qla;     // prom status between 25AA128 and BoardRegs
-wire[31:0] prom_result_qla;     // prom result between 25AA128 and BoardRegs
 
 QLA25AA128 prom_qla(
     .clk(sysclk),
     .reset(reset),
-
-    .prom_cmd(reg_wdata),
-    .prom_status(prom_status_qla),
-    .prom_result(prom_result_qla),
-    .prom_rdata(reg_rdata_prom_qla),
-
+    
     // address & wen
     .reg_raddr(reg_raddr),
     .reg_waddr(reg_waddr),
+    .reg_rdata(reg_rdata_prom_qla),
+    .reg_wdata(reg_wdata),
+        
     .reg_wen(reg_wen),
     .blk_wen(blk_wen),
     .blk_wstart(blk_wstart),
@@ -371,8 +367,6 @@ BoardRegs chan0(
     .reg_wen(reg_wen),
     .prom_status(PROM_Status),
     .prom_result(PROM_Result),
-    .prom_status_qla(prom_status_qla),
-    .prom_result_qla(prom_result_qla),
     .safety_amp_disable(safety_amp_disable)
 );
 

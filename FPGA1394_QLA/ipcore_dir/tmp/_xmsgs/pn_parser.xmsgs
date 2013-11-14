@@ -8,7 +8,7 @@
 <!-- Copyright (c) 1995-2011 Xilinx, Inc.  All rights reserved.    -->
 
 <messages>
-<msg type="info" file="ProjectMgmt" num="1845" ><arg fmt="%s" index="1">Analyzing Verilog file &quot;/home/zihan/dev/mechatronics/firmware/FPGA1394_QLA/ipcore_dir/tmp/_cg/ila_3_8_8_8.v&quot; into library work</arg>
+<msg type="info" file="ProjectMgmt" num="1845" ><arg fmt="%s" index="1">Analyzing Verilog file &quot;/home/zihan/dev/mechatronics/firmware/FPGA1394_QLA/ipcore_dir/tmp/_cg/ila_prom.v&quot; into library work</arg>
 </msg>
 
 </messages>

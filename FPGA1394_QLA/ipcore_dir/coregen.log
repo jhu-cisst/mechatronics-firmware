@@ -15,93 +15,12 @@ Finished Customizing.
 Generating IP...
 WARNING:sim:100 - The Simulation File Type <Behavioral> is not valid for this
    core. Overriding with File Type <structural>.
-Configuring files for icon_2 root...
-Gathering HDL files for icon_2 root...
-Creating XST project for icon_2...
-Creating XST script file for icon_2...
-Creating XST instantiation file for icon_2...
-Running XST for icon_2...
-XST: HDL Parsing
-XST: HDL Elaboration
-XST: HDL Synthesis
-XST: Advanced HDL Synthesis
-XST: Low Level Synthesis
-XST: Design Summary
-WARNING:coreutil - 2
-       while executing
-   "cancellableExec "$SynthesisExec -ifn
-   \"${SubworkingDirectory}/${::xilinx::coreu::transientDir}/${OutputName}.scr\"
-   -ofn \"${SubworkingDirectory}/${::x..."
-       (procedure "runXST" line 78)
-       invoked from within
-   "runXST $ComponentName GenerationOptions $TopLevel"
-       (procedure "deliverXSTNetlist" line 15)
-       invoked from within
-   "deliverXSTNetlist $ComponentName {} "root" $BaseIP "
-       (procedure "components::icon_2::generate" line 31)
-       invoked from within
-   "components::${ComponentName}::generate 1"
-       (procedure "::xilinx::sim::generation::generatePsfCore" line 59)
-       invoked from within
-   "::xilinx::sim::generation::generatePsfCore {chipscope_icon_v1_06_a} {icon_2}
-   {ALL}"Removing temporary files, this may take up to 60 seconds.
-Cancelled Generation.
-Customize and GenerateINFO:sim:172 - Generating IP...
-WARNING:sim:100 - The Simulation File Type <Behavioral> is not valid for this
-   core. Overriding with File Type <structural>.
-Applying current project options...
-Finished applying current project options.
-Customizing IP...
-Release 13.4 - Xilinx CORE Generator IP GUI Launcher O.87xd (lin64)
-Copyright (c) 1995-2011 Xilinx, Inc.  All rights reserved.
-Finished Customizing.
-Generating IP...
-WARNING:sim:100 - The Simulation File Type <Behavioral> is not valid for this
-   core. Overriding with File Type <structural>.
-Configuring files for icon_3 root...
-Gathering HDL files for icon_3 root...
-Creating XST project for icon_3...
-Creating XST script file for icon_3...
-Creating XST instantiation file for icon_3...
-Running XST for icon_3...
-XST: HDL Parsing
-WARNING:coreutil - 2
-       while executing
-   "cancellableExec "$SynthesisExec -ifn
-   \"${SubworkingDirectory}/${::xilinx::coreu::transientDir}/${OutputName}.scr\"
-   -ofn \"${SubworkingDirectory}/${::x..."
-       (procedure "runXST" line 78)
-       invoked from within
-   "runXST $ComponentName GenerationOptions $TopLevel"
-       (procedure "deliverXSTNetlist" line 15)
-       invoked from within
-   "deliverXSTNetlist $ComponentName {} "root" $BaseIP "
-       (procedure "components::icon_3::generate" line 31)
-       invoked from within
-   "components::${ComponentName}::generate 1"
-       (procedure "::xilinx::sim::generation::generatePsfCore" line 59)
-       invoked from within
-   "::xilinx::sim::generation::generatePsfCore {chipscope_icon_v1_06_a} {icon_3}
-   {ALL}"Removing temporary files, this may take up to 60 seconds.
-Cancelled Generation.
-Customize and GenerateINFO:sim:172 - Generating IP...
-WARNING:sim:100 - The Simulation File Type <Behavioral> is not valid for this
-   core. Overriding with File Type <structural>.
-Applying current project options...
-Finished applying current project options.
-Customizing IP...
-Release 13.4 - Xilinx CORE Generator IP GUI Launcher O.87xd (lin64)
-Copyright (c) 1995-2011 Xilinx, Inc.  All rights reserved.
-Finished Customizing.
-Generating IP...
-WARNING:sim:100 - The Simulation File Type <Behavioral> is not valid for this
-   core. Overriding with File Type <structural>.
-Configuring files for icon_uart root...
-Gathering HDL files for icon_uart root...
-Creating XST project for icon_uart...
-Creating XST script file for icon_uart...
-Creating XST instantiation file for icon_uart...
-Running XST for icon_uart...
+Configuring files for ila_prom root...
+Gathering HDL files for ila_prom root...
+Creating XST project for ila_prom...
+Creating XST script file for ila_prom...
+Creating XST instantiation file for ila_prom...
+Running XST for ila_prom...
 XST: HDL Parsing
 XST: HDL Elaboration
 XST: HDL Synthesis
@@ -110,43 +29,43 @@ XST: Low Level Synthesis
 XST: Design Summary
 Not generating VHDL wrapper
 Generating Verilog wrapper
-Skipping VHDL instantiation template for icon_uart...
-Creating ISE instantiation template for icon_uart...
+Skipping VHDL instantiation template for ila_prom...
+Creating ISE instantiation template for ila_prom...
 Finished Generation.
 Generating IP instantiation template...
 Generating ASY schematic symbol...
 INFO:sim:949 - Finished generation of ASY schematic symbol.
 Generating metadata file...
 Generating ISE project...
-XCO file found: icon_uart.xco
-XMDF file found: icon_uart_xmdf.tcl
+XCO file found: ila_prom.xco
+XMDF file found: ila_prom_xmdf.tcl
 Adding
-/home/zihan/dev/mechatronics/firmware/FPGA1394_QLA/ipcore_dir/tmp/_cg/icon_uart.
-asy -view all -origin_type imported
+/home/zihan/dev/mechatronics/firmware/FPGA1394_QLA/ipcore_dir/tmp/_cg/ila_prom.a
+sy -view all -origin_type imported
 Adding
-/home/zihan/dev/mechatronics/firmware/FPGA1394_QLA/ipcore_dir/tmp/_cg/icon_uart.
-ngc -view all -origin_type created
+/home/zihan/dev/mechatronics/firmware/FPGA1394_QLA/ipcore_dir/tmp/_cg/ila_prom.n
+gc -view all -origin_type created
 Checking file
-"/home/zihan/dev/mechatronics/firmware/FPGA1394_QLA/ipcore_dir/tmp/_cg/icon_uart
-.ngc" for project device match ...
+"/home/zihan/dev/mechatronics/firmware/FPGA1394_QLA/ipcore_dir/tmp/_cg/ila_prom.
+ngc" for project device match ...
 File
-"/home/zihan/dev/mechatronics/firmware/FPGA1394_QLA/ipcore_dir/tmp/_cg/icon_uart
-.ngc" device information matches project device.
+"/home/zihan/dev/mechatronics/firmware/FPGA1394_QLA/ipcore_dir/tmp/_cg/ila_prom.
+ngc" device information matches project device.
 Adding
-/home/zihan/dev/mechatronics/firmware/FPGA1394_QLA/ipcore_dir/tmp/_cg/icon_uart.
-v -view all -origin_type created
+/home/zihan/dev/mechatronics/firmware/FPGA1394_QLA/ipcore_dir/tmp/_cg/ila_prom.v
+-view all -origin_type created
 INFO:HDLCompiler:1845 - Analyzing Verilog file
-   "/home/zihan/dev/mechatronics/firmware/FPGA1394_QLA/ipcore_dir/tmp/_cg/icon_u
-   art.v" into library work
+   "/home/zihan/dev/mechatronics/firmware/FPGA1394_QLA/ipcore_dir/tmp/_cg/ila_pr
+   om.v" into library work
 INFO:ProjectMgmt - Parsing design hierarchy completed successfully.
 Adding
-/home/zihan/dev/mechatronics/firmware/FPGA1394_QLA/ipcore_dir/tmp/_cg/icon_uart.
-veo -view all -origin_type imported
+/home/zihan/dev/mechatronics/firmware/FPGA1394_QLA/ipcore_dir/tmp/_cg/ila_prom.v
+eo -view all -origin_type imported
 INFO:TclTasksC:2116 - The automatic calculation of top has been turned-off.
    Please set the new top explicitly by running the "project set top" command.
    To re-calculate the new top automatically, set the "Auto Implementation Top"
    property to true.
-Top level has been set to "/icon_uart"
+Top level has been set to "/ila_prom"
 Generating README file...
 Generating FLIST file...
 INFO:sim:948 - Finished FLIST file generation.
@@ -154,73 +73,4 @@ Launching README viewer...
 Moving files to output directory...
 Finished moving files to output directory
 Saved CGP file for project 'coregen'.
-Customize and GenerateINFO:sim:172 - Generating IP...
-WARNING:sim:100 - The Simulation File Type <Behavioral> is not valid for this
-   core. Overriding with File Type <structural>.
-Applying current project options...
-Finished applying current project options.
-Customizing IP...
-Release 13.4 - Xilinx CORE Generator IP GUI Launcher O.87xd (lin64)
-Copyright (c) 1995-2011 Xilinx, Inc.  All rights reserved.
-Finished Customizing.
-Generating IP...
-WARNING:sim:100 - The Simulation File Type <Behavioral> is not valid for this
-   core. Overriding with File Type <structural>.
-Configuring files for ila_3_8_8_8 root...
-Gathering HDL files for ila_3_8_8_8 root...
-Creating XST project for ila_3_8_8_8...
-Creating XST script file for ila_3_8_8_8...
-Creating XST instantiation file for ila_3_8_8_8...
-Running XST for ila_3_8_8_8...
-XST: HDL Parsing
-XST: HDL Elaboration
-XST: HDL Synthesis
-XST: Advanced HDL Synthesis
-XST: Low Level Synthesis
-XST: Design Summary
-Not generating VHDL wrapper
-Generating Verilog wrapper
-Skipping VHDL instantiation template for ila_3_8_8_8...
-Creating ISE instantiation template for ila_3_8_8_8...
-Finished Generation.
-Generating IP instantiation template...
-Generating ASY schematic symbol...
-INFO:sim:949 - Finished generation of ASY schematic symbol.
-Generating metadata file...
-Generating ISE project...
-XCO file found: ila_3_8_8_8.xco
-XMDF file found: ila_3_8_8_8_xmdf.tcl
-Adding
-/home/zihan/dev/mechatronics/firmware/FPGA1394_QLA/ipcore_dir/tmp/_cg/ila_3_8_8_
-8.asy -view all -origin_type imported
-Adding
-/home/zihan/dev/mechatronics/firmware/FPGA1394_QLA/ipcore_dir/tmp/_cg/ila_3_8_8_
-8.ngc -view all -origin_type created
-Checking file
-"/home/zihan/dev/mechatronics/firmware/FPGA1394_QLA/ipcore_dir/tmp/_cg/ila_3_8_8
-_8.ngc" for project device match ...
-File
-"/home/zihan/dev/mechatronics/firmware/FPGA1394_QLA/ipcore_dir/tmp/_cg/ila_3_8_8
-_8.ngc" device information matches project device.
-Adding
-/home/zihan/dev/mechatronics/firmware/FPGA1394_QLA/ipcore_dir/tmp/_cg/ila_3_8_8_
-8.v -view all -origin_type created
-INFO:HDLCompiler:1845 - Analyzing Verilog file
-   "/home/zihan/dev/mechatronics/firmware/FPGA1394_QLA/ipcore_dir/tmp/_cg/ila_3_
-   8_8_8.v" into library work
-INFO:ProjectMgmt - Parsing design hierarchy completed successfully.
-Adding
-/home/zihan/dev/mechatronics/firmware/FPGA1394_QLA/ipcore_dir/tmp/_cg/ila_3_8_8_
-8.veo -view all -origin_type imported
-INFO:TclTasksC:2116 - The automatic calculation of top has been turned-off.
-   Please set the new top explicitly by running the "project set top" command.
-   To re-calculate the new top automatically, set the "Auto Implementation Top"
-   property to true.
-Top level has been set to "/ila_3_8_8_8"
-Generating README file...
-Generating FLIST file...
-INFO:sim:948 - Finished FLIST file generation.
-Launching README viewer...
-Moving files to output directory...
-Finished moving files to output directory
-Saved CGP file for project 'coregen'.
+Closed project file.

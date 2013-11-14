@@ -95,9 +95,9 @@ module CtrlUart (
     reg[5:0] procWtInd;
     
     // chipscope
-    wire[35:0] control_uart_ctrl;
-    wire[35:0] control_uart_tx;
-    wire[35:0] control_uart_rx;
+//    wire[35:0] control_uart_ctrl;
+//    wire[35:0] control_uart_tx;
+//    wire[35:0] control_uart_rx;
 
     parameter[3:0]
         ST_IDLE = 0,
@@ -211,20 +211,20 @@ UartRx uart_rx(
 // -------------------
 // chipscope
 // -------------------
-icon_uart icon(
-    .CONTROL0(control_uart_ctrl),
-    .CONTROL1(control_uart_tx),
-    .CONTROL2(control_uart_rx)
-);
-
-ila_3_8_8_8 ila_tx(
-    .CONTROL(control_uart_ctrl),
-    .CLK(clkuart),
-    .TRIG0({3'b0}),           // 3-bit
-    .TRIG1(rx_data),        // 8-bit
-    .TRIG2(rx_data),    // 8-bit
-    .TRIG3(tx_data)        // 8-bit
-);
+//icon_uart icon(
+//    .CONTROL0(control_uart_ctrl),
+//    .CONTROL1(control_uart_tx),
+//    .CONTROL2(control_uart_rx)
+//);
+//
+//ila_3_8_8_8 ila_ctrl(
+//    .CONTROL(control_uart_ctrl),
+//    .CLK(clkuart),
+//    .TRIG0({3'b0}),         // 3-bit
+//    .TRIG1(rx_data),        // 8-bit
+//    .TRIG2(rx_data),        // 8-bit
+//    .TRIG3(tx_data)         // 8-bit
+//);
 
 endmodule
 
@@ -322,14 +322,14 @@ end
 wire[2:0] tx_status;
 assign tx_status = {TxD, tx_busy, tx_trig};
 
-ila_3_8_8_8 ila_tx(
-    .CONTROL(control),
-    .CLK(clkuart),
-    .TRIG0(tx_status),           // 3-bit
-    .TRIG1(tx_reg),        // 8-bit
-    .TRIG2(tx_counter),    // 8-bit
-    .TRIG3(tx_data)        // 8-bit
-);
+//ila_3_8_8_8 ila_tx(
+//    .CONTROL(control),
+//    .CLK(clkuart),
+//    .TRIG0(tx_status),     // 3-bit
+//    .TRIG1(tx_reg),        // 8-bit
+//    .TRIG2(tx_counter),    // 8-bit
+//    .TRIG3(tx_data)        // 8-bit
+//);
 
 endmodule
 
@@ -421,14 +421,14 @@ end
 wire[2:0] rx_status;
 assign rx_status = {RxD, rxd_negedge, rx_int};
 
-ila_3_8_8_8 ila_rx(
-    .CONTROL(control),
-    .CLK(clkuart),
-    .TRIG0(rx_status),     // 3-bit
-    .TRIG1(rx_reg),        // 8-bit
-    .TRIG2(rx_counter),    // 8-bit
-    .TRIG3(rx_data)        // 8-bit
-);
+//ila_3_8_8_8 ila_rx(
+//    .CONTROL(control),
+//    .CLK(clkuart),
+//    .TRIG0(rx_status),     // 3-bit
+//    .TRIG1(rx_reg),        // 8-bit
+//    .TRIG2(rx_counter),    // 8-bit
+//    .TRIG3(rx_data)        // 8-bit
+//);
 
 
 endmodule

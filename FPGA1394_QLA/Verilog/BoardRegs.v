@@ -56,8 +56,8 @@ module BoardRegs(
     input  wire[31:0] prom_result,
 
     // PROM 25AA128 feedback
-    input  wire[31:0] prom_status_qla,
-    input  wire[31:0] prom_result_qla,
+//    input  wire[31:0] prom_status_qla,
+//    input  wire[31:0] prom_result_qla,
     
     // Safety amp_disable
     input  wire[4:1] safety_amp_disable
@@ -176,8 +176,8 @@ always @(posedge(sysclk) or negedge(reset))
         `REG_FVERSION: reg_rdata <= `FW_VERSION;
         `REG_PROMSTAT: reg_rdata <= prom_status;
         `REG_PROMRES: reg_rdata <= prom_result;
-        `REG_25AASTAT: reg_rdata <= prom_status_qla;
-        `REG_25AARES: reg_rdata <= prom_result_qla;
+//        `REG_25AASTAT: reg_rdata <= prom_status_qla;
+//        `REG_25AARES: reg_rdata <= prom_result_qla;
         `REG_DIGIN: reg_rdata <= { 15'd0, v_fault, dout, neg_limit_filt, pos_limit_filt, home_filt };
 
         // `REG_SAFETY: reg_rdata <= { 28'd0, safety_amp_disable};
