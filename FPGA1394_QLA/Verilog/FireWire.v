@@ -70,20 +70,19 @@
  *            - from other FPGA broadcast mode (priority = 4'hA)
  *              
  */
-
+ 
 
 // -------------------------------------------------------
 // IEEE-1394 64-bit Address Mapped 
-// We only use last 10-bit, the rest bit number is 0 indexed
+// We only use last 16-bit, the rest bit number is 0 indexed
 // 
-//  addr[9:8] map 
-//     2'b00: board register + device memory
-//     2'b01: hub caching space
-//     2'b10: M15P16 prom space
-//     2'b11: QLA 25AA128 prom space
+//  addr[15:12] map 
+//     4'h0: board register + device memory
+//     4'h1: hub caching space
+//     4'h2: M15P16 prom space
+//     4'h3: QLA 25AA128 prom space
 //         
 // -------------------------------------------------------------
-
 
 
 // global constant e.g. register & device address
@@ -790,9 +789,9 @@ begin
                     //   & - bitwise AND
                     //   result is a 1-bit and assigned to reg_wen 
                     //   NO quadlet write event for bc read request
-                    // reg_wen <= (rx_active & (rx_tcode==`TC_QWRITE) & (rx_bc_bread == 1'b0)); 
-                    reg_wen <= (rx_active & (rx_tcode==`TC_QWRITE)); 
-                    blk_wen <= (rx_active & ((rx_tcode==`TC_QWRITE) | (rx_tcode==`TC_BWRITE)));
+                    reg_wen <= (rx_active & (rx_tcode==`TC_QWRITE) & (rx_bc_bread == 1'b0));  // ??? SHOULD WE 
+                    // reg_wen <= (rx_active & (rx_tcode==`TC_QWRITE)); 
+                    blk_wen <= (rx_active & ((rx_tcode==`TC_QWRITE) | (rx_tcode==`TC_BWRITE))); 
                 end
 
                 // -------------------------------------------------------------
@@ -949,8 +948,6 @@ begin
         // link shifts block read header bits out to the phy/bus
         //
         
-        // ZC: HUB VERSION
-        //     STOP at header, ONLY PC should query from this board
         ST_TX_HEAD:
         begin
             ctl <= `CTL_DATA;
@@ -1025,7 +1022,9 @@ begin
         
         // ---------------------------------------------------------------------
         // link shifts block write header bits out to the phy/bus
-        //
+        // HUB VERSION
+        //   - Also needs to save data to HUB register
+
         ST_TX_HEAD_BC:
         begin
             ctl <= `CTL_DATA;
@@ -1149,9 +1148,9 @@ begin
                     end
                     else if (reg_raddr[15:12] == `ADDR_HUB) begin
                         // 1 boards = 17 quadlets
-                        if (reg_raddr[4:0] == 4'd16) begin
+                        if (reg_raddr[4:0] == 5'd16) begin
                             reg_raddr[8:5] <= reg_raddr[8:5] + 1'b1;
-                            reg_raddr[4:0] <= 4'd0;
+                            reg_raddr[4:0] <= 5'd0;
                         end
                         else begin
                             reg_raddr[4:0] <= reg_raddr[4:0] + 1'b1;
@@ -1206,37 +1205,36 @@ end
 //   -  ila: integrated logic analyzer
  
 
-// wire[35:0] control0;
-// wire[35:0] control1;
+//wire[35:0] control0;
+//wire[35:0] control1;
 
 // icon
-// chipscope_icon icon1(
-//     .CONTROL0(control0),
-//     .CONTROL1(control1)
-// );
+//icon_prom icon1(
+//    .CONTROL0(control0)
+//);
 
 // // ila connect to write trig
-// wire[7:0] wire_trig_debug;
-// assign wire_trig_debug[7:0] = { write_trig, lreq_trig , 3'd0, lreq_type[2:0] };
+//wire[7:0] wire_trig_debug;
+//assign wire_trig_debug[7:0] = { write_trig, lreq_trig , 3'd0, lreq_type[2:0] };
 
-// ila_write_trig ila_trig(
-//     .CONTROL(control0),
-//     .CLK(sysclk),
-//     .TRIG0(state),
-//     .TRIG1(wire_trig_debug),
-//     .TRIG2(write_trig_count),
-//     .TRIG3(write_counter)
-// );
+//ila_write_trig ila_trig(
+//    .CONTROL(control0),
+//    .CLK(sysclk),
+//    .TRIG0(state),
+//    .TRIG1(wire_trig_debug),
+//    .TRIG2(write_trig_count),
+//    .TRIG3(write_counter)
+//);
 
 // For debugging 1394 packet timing
 //ila_fw_packet ila_fw(
-//    .CONTROL(control1),
-//    .CLK(sysclk),
-//    .TRIG0(state),
-//    .TRIG1(write_counter),
-//    .TRIG2(rx_bc_sequence),
-//    .TRIG3(ctl),
-//    .TRIG4(data)
+//   .CONTROL(control0),
+//   .CLK(sysclk),
+//   .TRIG0(state),
+//   .TRIG1(write_counter),
+//   .TRIG2(rx_bc_sequence),
+//   .TRIG3(ctl),
+//   .TRIG4(data)
 //);
 
 endmodule  // PhyLinkInterface

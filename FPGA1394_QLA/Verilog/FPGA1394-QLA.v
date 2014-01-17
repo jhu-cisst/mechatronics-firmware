@@ -75,7 +75,7 @@ BUFG clksysclk(.I(clk1394), .O(sysclk));
 
 // Mux routing read data based on read address
 //   See Constants.v for detail
-//     addr[9:8]  main | hub | prom | prom_qla 
+//     addr[15:12]  main | hub | prom | prom_qla 
 assign reg_rdata = (reg_raddr[15:12]==`ADDR_HUB) ? (reg_rdata_hub) :
                   ((reg_raddr[15:12]==`ADDR_PROM) ? (reg_rdata_prom) :
                   ((reg_raddr[15:12]==`ADDR_PROM_QLA) ? (reg_rdata_prom_qla) : 
@@ -479,4 +479,3 @@ CtrlLED qla_led(
 );
 
 endmodule
-
