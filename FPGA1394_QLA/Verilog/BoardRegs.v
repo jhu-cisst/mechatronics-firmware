@@ -54,10 +54,6 @@ module BoardRegs(
     // PROM feedback
     input  wire[31:0] prom_status,
     input  wire[31:0] prom_result,
-
-    // PROM 25AA128 feedback
-//    input  wire[31:0] prom_status_qla,
-//    input  wire[31:0] prom_result_qla,
     
     // Safety amp_disable
     input  wire[4:1] safety_amp_disable
@@ -67,9 +63,9 @@ module BoardRegs(
     // define wires and registers
     //
     // digital input signals
-    wire[4:1] neg_limit_filt;
-    wire[4:1] pos_limit_filt;
-    wire[4:1] home_filt;
+//    wire[4:1] neg_limit_filt;
+//    wire[4:1] pos_limit_filt;
+//    wire[4:1] home_filt;
 
     // registered data
     reg[3:0] reg_disable;       // register the disable signals
@@ -98,16 +94,16 @@ module BoardRegs(
 //------------------------------------------------------------------------------
 // hardware description
 //
-FilterDigiInput filter(
-    .clk(sysclk),
-    .reset(reset),
-    .neg_limit(neg_limit),
-    .pos_limit(pos_limit),
-    .home(home),
-    .neg_limit_filt(neg_limit_filt),
-    .pos_limit_filt(pos_limit_filt),
-    .home_filt(home_filt)
-);
+//FilterDigiInput filter(
+//    .clk(sysclk),
+//    .reset(reset),
+//    .neg_limit(neg_limit),
+//    .pos_limit(pos_limit),
+//    .home(home),
+//    .neg_limit_filt(neg_limit_filt),
+//    .pos_limit_filt(pos_limit_filt),
+//    .home_filt(home_filt)
+//);
 
 // mv_amp_disable for 40 ms sleep after board pwr enable
 assign amp_disable = (reg_disable[3:0] | mv_amp_disable[4:1]);
@@ -270,6 +266,28 @@ begin
     else
         reset <= 1;
 end
+
+
+//------------------------------
+// chipscope
+//------------------------------
+// wire[35:0] control_boardreg;
+
+// icon_prom icon_p(
+//     .CONTROL0(control_boardreg)
+// );
+
+// ila_prom ila_p(
+//     .CONTROL(control_boardreg),
+//     .CLK(sysclk),
+//     .TRIG0(wdog_amp_disable),         // 4-bit
+//     .TRIG1(safety_amp_disable),   // 16-bit
+//     .TRIG2(wdog_count),         // 32-bit
+//     .TRIG3(wdog_period)        // 32-bit
+// );
+
+
+
 
 endmodule
 

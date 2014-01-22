@@ -414,27 +414,12 @@ SafetyCheck safe4(
 //------------------------------------------------------------------------------
 // USB Serial 
 //
-
-// wire BaudClk;
-// reg[3:0] Baud;
-// BUFG clkout(.I(Baud[3]), .O(BaudClk));
-// always @(posedge(clk29m)) Baud <= Baud + 1'b1;
-// assign TxD = 0;
-
-//UartTxDebug uart_tx_debug(
-//   .Clk40m(clk40m),
-//   .IO1(IO1[1:32]),
-//   .IO2(IO2[1:38]),
-//   .Addr(wenid[3:0]),
-//   .TxD(TxD)
-//);
-
- CtrlUart uart_debug(
-     .clk40m(clk40m),
-     .reset(reset),
-     .RxD(RxD),
-     .TxD(TxD)
- );
+CtrlUart uart_debug(
+    .clk40m(clk40m),
+    .reset(reset),
+    .RxD(RxD),
+    .TxD(TxD)
+);
 
 //------------------------------------------------------------------------------
 // debugging, etc.

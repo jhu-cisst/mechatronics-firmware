@@ -83,7 +83,6 @@ parameter ST_IDLE = 0,
           ST_CHIP_DESELECT = 5,
           ST_IO_DISABLE = 6;
 
-
 reg       io_disabled;
 reg[2:0]  state;
 reg[9:0]  seqn;            // 10-bit counter for sequencing operation (clock)
@@ -320,30 +319,23 @@ end
 //------------------------------
 // chipscope
 //------------------------------
-wire[35:0] control_prom;
-
-icon_prom icon_p(
-    .CONTROL0(control_prom)
-);
-
-wire[3:0] spi_debug;
-assign spi_debug = { prom_mosi, prom_miso, prom_sclk, prom_cs };
-
-ila_prom ila_p(
-    .CONTROL(control_prom),
-    .CLK(clk),
-    .TRIG0(spi_debug),         // 4-bit
-    .TRIG1(reg_raddr[15:0]),   // 16-bit
-    .TRIG2(reg_wdata),         // 32-bit
-    .TRIG3(prom_result)        // 32-bit
-);
-
+//wire[35:0] control_prom;
+//
+//icon_prom icon_p(
+//    .CONTROL0(control_prom)
+//);
+//
+//wire[3:0] spi_debug;
+//assign spi_debug = { prom_mosi, prom_miso, prom_sclk, prom_cs };
+//
+//ila_prom ila_p(
+//    .CONTROL(control_prom),
+//    .CLK(clk),
+//    .TRIG0(spi_debug),         // 4-bit
+//    .TRIG1(reg_raddr[15:0]),   // 16-bit
+//    .TRIG2(reg_wdata),         // 32-bit
+//    .TRIG3(prom_result)        // 32-bit
+//);
 
 
 endmodule
-
-
-// 4 x 64 quad = 256 bytes 
-// 2^8 = 256 
-// 128 kbits = 16 kbytes --> 14-bit addr space 
-// 1 page = 64 bytes = 16 quads = 2^4 quads 
