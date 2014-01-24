@@ -372,11 +372,11 @@ begin
         
     end
     else begin
-        if (write_counter < (write_trig_count + 10)) begin
+        if (write_counter < (write_trig_count + 150)) begin 
             write_counter <= write_counter + 1'b1;
             write_trig <= 1'b0;
         end
-        else if ( write_counter == (write_trig_count + 10)) begin
+        else if ( write_counter == (write_trig_count + 150)) begin
             write_counter <= write_counter + 1'b1;
             write_trig <= 1'b1;
         end
@@ -435,8 +435,8 @@ begin
             reg_wen <= 1'b0;                          // no register write events
             blk_wen <= 0;                          // no block write events
             crc_tx <= 0;                           // not in a transmit state
-            rx_active <= 0;                        // clear receive active
-            rx_bc_bread <= 1'b0;                   // clear broadcast reqd request flag
+            rx_active <= 0;                        // clear receive active     
+            rx_bc_bread <= 1'b0;                   // clear broadcast reqd request flag       
             
             // monitor ctl to select next state
             case (ctl)
@@ -637,11 +637,11 @@ begin
                             end
 
                             // process broadcast packets (NOTE: broadcast is write only)
-                            else if (buffer[31:16] == 16'hffff) begin
-                                // no response for bc packets
-                                lreq_trig <= 0;
-                                lreq_type <= `LREQ_RES;
-                                tx_type <= `TX_TYPE_DATA;
+                            else if (buffer[31:16] == 16'hffff) begin                                
+                               // no response for bc packets
+                               lreq_trig <= 0;
+                               lreq_type <= `LREQ_RES;
+                               tx_type <= `TX_TYPE_DATA; 
 
                                 // set rx_active if has valid tcode
                                 if ((buffer[7:4]==`TC_BWRITE) || (buffer[7:4]==`TC_QWRITE)) begin
@@ -671,11 +671,15 @@ begin
                             reg_waddr <= buffer[15:0];
                             crc_comp <= ~crc_in;          // computed crc for quadlet read
 
-                            // broadcast read request
-                            if (rx_dest == 16'hffff && rx_tcode == `TC_QWRITE && 
-                                rx_addr_full[47:32] == 16'hffff && buffer[31:16] == 16'hffff) begin
+                            // broadcast read request    (trick: NOT standard !!!)                            
+                            if (rx_dest[5:0] == 6'd0 && rx_tcode == `TC_QWRITE && 
+                                rx_addr_full[47:32] == 16'hffff && buffer[31:0] == 32'hffff000f) begin
                                 rx_bc_bread <= 1;          // set rx_bc_bread 
-                                bus_id <= rx_src[15:6];   // latch bus_id
+                                bus_id <= rx_src[15:6];    // latch bus_id
+                            end
+                            else if (rx_dest[5:0] == 6'd0 && rx_tcode == `TC_BWRITE && 
+                                rx_addr_full[47:32] == 16'hffff && buffer[31:0] == 32'hffff0000) begin
+                                rx_active <= 1;
                             end
                         end
                         // fourth quadlet --------------------------------------
