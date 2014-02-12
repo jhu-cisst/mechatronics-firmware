@@ -13,16 +13,16 @@
  *     02/29/12    Zihan Chen          Fix direction flag in updated logic
  */
 
-module EncQuad(clk, reset, a, b, set_enc, preload, count, dir);
-
-    // define I/Os
-    input clk, reset;       // global clock and reset signals
-    input a, b;             // input quadrature encoder lines
-    input set_enc;          // signal to preload the counter
-    input[23:0] preload;    // encoder counter preload value
-    output[24:0] count;     // counts number of encoder transitions
-    output dir;             // encodes the direction of encoder transition
-
+module EncQuad(
+    input wire clk,              // glocal clock
+    input wire reset,            // reset signals
+    input wire a,                // quad encoder line a
+    input wire b,                // quad encoder line b
+    input wire set_enc,          // signal to preload the counter
+    input wire[23:0] preload,    // encoder counter preload value
+    output wire[24:0] count,      // counts number of encoder transitions
+    output reg dir               // encodes the direction of encoder transition
+);
     // local registers
     reg overflow;           // overflow flag, output as the count msb
     reg[24:0] counter;      // register for encoder event counter
@@ -31,7 +31,6 @@ module EncQuad(clk, reset, a, b, set_enc, preload, count, dir);
     wire[1:0] code;         // value formed from concatenated encoder lines
     reg[1:0] prev;          // used to remember the previously received code
     wire code_changed;      // indicates if encoder has moved since prev clk
-    reg dir;                // indicates the encoder transition direction
 
 // -----------------------------------------------------------------------------
 // hardware description

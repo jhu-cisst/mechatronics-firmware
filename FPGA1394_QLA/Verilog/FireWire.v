@@ -58,7 +58,7 @@
  *         - QREAD: from PC 
  *         - BREAD: 
  *            - from PC for 1 board state
- *            - from PC for hub states  (Read Address = 0xFFFF00000000)
+ *            - from PC for hub/prom/prom_qla data 
  *         - QWRITE: 
  *            - from PC: non-broadcast mode
  *            - from PC: broadcast mode
@@ -68,7 +68,17 @@
  *            - from PC non-broadcast mode
  *            - from PC broadcast mode
  *            - from other FPGA broadcast mode (priority = 4'hA)
- *              
+ *
+ *  --------------------------------------------------------------------------------
+ *  2014-01-24 NOTE for fake broadcast packet  Zihan Chen
+ *   We noticed that some FireWire cards have issue with broadcast packets (can not 
+ *   async read after sending broadcast packets). This leads us to use an asynchrnous 
+ *   write packet as fake broadcast packet on the PC software for better robustness. 
+ *    
+ *   Lists:
+ *     - Query Packet:  dest_node_id = 0, dest_addr = 0xffffffff000f
+ *     - Command Packet: dest_node_id = 0, dest_addr = 0xffffffff0000
+ *
  */
  
 
@@ -358,21 +368,13 @@ begin
         write_counter <= 32'd0;
         write_trig <= 1'b0;
 
-        // // 10us node_id (uncomment to use 10us node_id)
-        // write_trig_count[14:9] <= node_id[5:0];
-        // write_trig_count[8:0] <= 9'd0;
-
-        // // 5us board_id (uncomment to use 5us board_id)
-        // write_trig_count[11:8] <= board_id[3:0];
-        // write_trig_count[7:0] <= 8'd0;
-
         // 5us node_id
         write_trig_count[13:8] <= node_id[5:0];
         write_trig_count[7:0] <= 8'd0;
         
     end
     else begin
-        if (write_counter < (write_trig_count + 150)) begin 
+        if (write_counter < (write_trig_count + 150)) begin  // 150 cycle for ACK packet
             write_counter <= write_counter + 1'b1;
             write_trig <= 1'b0;
         end
@@ -859,7 +861,7 @@ begin
             //     priority (bits 3:0) 
             //        - are not used in cable environment
             //        - reuse it to indicate broadcast packet is from FPGA_QLA 
-            //        - pri = 4'hA   A is a random value
+            //        - pri = 4'hA   A is a random picked value
             `TX_TYPE_BBC: begin
                 buffer <= { 16'hffff, rx_tag, 2'd0, `TC_BWRITE, 4'hA };
                 next <= ST_TX_HEAD_BC;

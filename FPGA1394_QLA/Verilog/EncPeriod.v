@@ -17,17 +17,17 @@
  *     02/29/12    Zihan Chen          Fix implementation and debug module
  */
 
-module EncPeriod(clk_fast, reset, ticks, dir, count);
 
-    // define I/Os
-    input clk_fast;           // count this clock between encoder ticks
-    input reset;              // global reset signal
-    input ticks;              // encoder transition signal
-    input dir;                // direction of the ticks
-    output[15:0] count;       // number clk_fast periods per tick
+
+module EncPeriod(
+    input wire clk_fast,    // count this clock between encoder ticks
+    input wire reset,       // global reset signal
+    input wire ticks,       // encoder transition signal
+    input wire dir,         // direction of the ticks
+    output reg[15:0] count  // number clk_fast periods per tick
+);
 
     // local registers
-    reg[15:0] count;          // latched counter measurement
     reg[15:0] count_temp;     // register for counter
     reg[15:0] count_2;        // intermediate count register
 

@@ -62,22 +62,24 @@ Debounce filter_a4(sysclk, reset, enc_a[4], enc_a_filt[4]);
 Debounce filter_b4(sysclk, reset, enc_b[4], enc_b_filt[4]);
 
 // modules for encoder counts, period, and frequency measurements
-// channel 1
+// position quad encoder 
 EncQuad EncQuad1(sysclk, reset, enc_a_filt[1], enc_b_filt[1], set_enc[1], preload[1], quad_data[1], dir[1]);
-EncPeriod EncPer1(clk_1mhz, reset, enc_b_filt[1], dir[1], per_data[1]);
-EncFreq EncFreq1(sysclk, clk_12hz, reset, enc_b_filt[1], dir[1], freq_data[1]);
-// channel 2
 EncQuad EncQuad2(sysclk, reset, enc_a_filt[2], enc_b_filt[2], set_enc[2], preload[2], quad_data[2], dir[2]);
-EncPeriod EncPer2(clk_1mhz, reset, enc_b_filt[2], dir[2], per_data[2]);
-EncFreq EncFreq2(sysclk, clk_12hz, reset, enc_b_filt[2], dir[2], freq_data[2]);
-// channel 3
 EncQuad EncQuad3(sysclk, reset, enc_a_filt[3], enc_b_filt[3], set_enc[3], preload[3], quad_data[3], dir[3]);
-EncPeriod EncPer3(clk_1mhz, reset, enc_b_filt[3], dir[3], per_data[3]);
-EncFreq EncFreq3(sysclk, clk_12hz, reset, enc_b_filt[3], dir[3], freq_data[3]);
-// channel 4
 EncQuad EncQuad4(sysclk, reset, enc_a_filt[4], enc_b_filt[4], set_enc[4], preload[4], quad_data[4], dir[4]);
+
+// velocity period counting 
+EncPeriod EncPer1(clk_1mhz, reset, enc_b_filt[1], dir[1], per_data[1]);
+EncPeriod EncPer2(clk_1mhz, reset, enc_b_filt[2], dir[2], per_data[2]);
+EncPeriod EncPer3(clk_1mhz, reset, enc_b_filt[3], dir[3], per_data[3]);
 EncPeriod EncPer4(clk_1mhz, reset, enc_b_filt[4], dir[4], per_data[4]);
+
+// velocity frequency counting 
+EncFreq EncFreq1(sysclk, clk_12hz, reset, enc_b_filt[1], dir[1], freq_data[1]);
+EncFreq EncFreq2(sysclk, clk_12hz, reset, enc_b_filt[2], dir[2], freq_data[2]);
+EncFreq EncFreq3(sysclk, clk_12hz, reset, enc_b_filt[3], dir[3], freq_data[3]);
 EncFreq EncFreq4(sysclk, clk_12hz, reset, enc_b_filt[4], dir[4], freq_data[4]);
+
 
 
 //------------------------------------------------------------------------------
@@ -109,24 +111,30 @@ end
 
 // map the data lines to access them as memory: [channel #][device #]
 // channel 1
+
+// Encoder Position Preload
 assign mem_data[1][`OFF_ENC_LOAD] = preload[1];
-assign mem_data[1][`OFF_ENC_DATA] = quad_data[1];
-assign mem_data[1][`OFF_PER_DATA] = per_data[1];
-assign mem_data[1][`OFF_FREQ_DATA] = freq_data[1];
-// channel 2
 assign mem_data[2][`OFF_ENC_LOAD] = preload[2];
-assign mem_data[2][`OFF_ENC_DATA] = quad_data[2];
-assign mem_data[2][`OFF_PER_DATA] = per_data[2];
-assign mem_data[2][`OFF_FREQ_DATA] = freq_data[2];
-// channel 3
 assign mem_data[3][`OFF_ENC_LOAD] = preload[3];
-assign mem_data[3][`OFF_ENC_DATA] = quad_data[3];
-assign mem_data[3][`OFF_PER_DATA] = per_data[3];
-assign mem_data[3][`OFF_FREQ_DATA] = freq_data[3];
-// channel 4
 assign mem_data[4][`OFF_ENC_LOAD] = preload[4];
+
+// Encoder Position 
+assign mem_data[1][`OFF_ENC_DATA] = quad_data[1];
+assign mem_data[2][`OFF_ENC_DATA] = quad_data[2];
+assign mem_data[3][`OFF_ENC_DATA] = quad_data[3];
 assign mem_data[4][`OFF_ENC_DATA] = quad_data[4];
+
+// Encoder Velocity Period Counting 
+assign mem_data[1][`OFF_PER_DATA] = per_data[1];
+assign mem_data[2][`OFF_PER_DATA] = per_data[2];
+assign mem_data[3][`OFF_PER_DATA] = per_data[3];
 assign mem_data[4][`OFF_PER_DATA] = per_data[4];
+
+
+// Encoder Velocity Frequency Counting 
+assign mem_data[1][`OFF_FREQ_DATA] = freq_data[1];
+assign mem_data[2][`OFF_FREQ_DATA] = freq_data[2];
+assign mem_data[3][`OFF_FREQ_DATA] = freq_data[3];
 assign mem_data[4][`OFF_FREQ_DATA] = freq_data[4];
 
 endmodule
