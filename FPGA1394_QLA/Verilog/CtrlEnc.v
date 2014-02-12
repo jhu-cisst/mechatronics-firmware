@@ -39,13 +39,18 @@ module CtrlEnc(
     wire[1:4] dir;                 // encoder transition direction
 
     // data buses to/from encoder modules
-    reg[23:0]  preload[0:15];      // to encoder counter preload register
-    wire[24:0] quad_data[0:15];    // transition count FROM encoder (ovf msb)
-    wire[15:0] per_data[0:15];     // encoder period measurement
-    wire[15:0] freq_data[0:15];    // encoder frequency measurement
+//    reg[23:0]  preload[0:15];      // to encoder counter preload register
+//    wire[24:0] quad_data[0:15];    // transition count FROM encoder (ovf msb)
+//    wire[15:0] perd_data[0:15];     // encoder period measurement
+//    wire[15:0] freq_data[0:15];    // encoder frequency measurement
+    
+    reg[23:0]  preload[1:4];      // to encoder counter preload register
+    wire[24:0] quad_data[1:4];    // transition count FROM encoder (ovf msb)
+    wire[15:0] perd_data[1:4];    // encoder period measurement
+    wire[15:0] freq_data[1:4];    // encoder frequency measurement
     
     // for array-style access to the encoder data
-    wire[31:0] mem_data[0:15][0:15];
+//    wire[31:0] mem_data[0:15][0:15];
 
 //------------------------------------------------------------------------------
 // hardware description
@@ -69,10 +74,25 @@ EncQuad EncQuad3(sysclk, reset, enc_a_filt[3], enc_b_filt[3], set_enc[3], preloa
 EncQuad EncQuad4(sysclk, reset, enc_a_filt[4], enc_b_filt[4], set_enc[4], preload[4], quad_data[4], dir[4]);
 
 // velocity period counting 
-EncPeriod EncPer1(clk_1mhz, reset, enc_b_filt[1], dir[1], per_data[1]);
-EncPeriod EncPer2(clk_1mhz, reset, enc_b_filt[2], dir[2], per_data[2]);
-EncPeriod EncPer3(clk_1mhz, reset, enc_b_filt[3], dir[3], per_data[3]);
-EncPeriod EncPer4(clk_1mhz, reset, enc_b_filt[4], dir[4], per_data[4]);
+
+// OLD
+EncPeriod EncPerd1(clk_1mhz, reset, enc_b_filt[1], dir[1], perd_data[1]);
+EncPeriod EncPerd2(clk_1mhz, reset, enc_b_filt[2], dir[2], perd_data[2]);
+EncPeriod EncPerd3(clk_1mhz, reset, enc_b_filt[3], dir[3], perd_data[3]);
+EncPeriod EncPerd4(clk_1mhz, reset, enc_b_filt[4], dir[4], perd_data[4]);
+
+// pkaz: bug fixes
+//EncPeriodPkaz EncPerd1(clk_1mhz, reset, enc_b_filt[1], dir[1], perd_data[1]);
+//EncPeriodPkaz EncPerd2(clk_1mhz, reset, enc_b_filt[2], dir[2], perd_data[2]);
+//EncPeriodPkaz EncPerd3(clk_1mhz, reset, enc_b_filt[3], dir[3], perd_data[3]);
+//EncPeriodPkaz EncPerd4(clk_1mhz, reset, enc_b_filt[4], dir[4], perd_data[4]);
+
+// zc: raw quad counting verion 
+// EncPeriodQuad EncPerd1(clk_1mhz, reset, enc_b_filt[1], dir[1], perd_data[1]);
+// EncPeriodQuad EncPerd2(clk_1mhz, reset, enc_b_filt[2], dir[2], perd_data[2]);
+// EncPeriodQuad EncPerd3(clk_1mhz, reset, enc_b_filt[3], dir[3], perd_data[3]);
+// EncPeriodQuad EncPerd4(clk_1mhz, reset, enc_b_filt[4], dir[4], perd_data[4]);
+
 
 // velocity frequency counting 
 EncFreq EncFreq1(sysclk, clk_12hz, reset, enc_b_filt[1], dir[1], freq_data[1]);
@@ -87,7 +107,11 @@ EncFreq EncFreq4(sysclk, clk_12hz, reset, enc_b_filt[4], dir[4], freq_data[4]);
 //
 
 // output selected read register
-assign reg_rdata = mem_data[reg_raddr[7:4]][reg_raddr[3:0]];
+assign reg_rdata = (reg_raddr[3:0]==`OFF_ENC_LOAD) ? (preload[reg_raddr[7:4]]) :
+                  ((reg_raddr[3:0]==`OFF_ENC_DATA) ? (quad_data[reg_raddr[7:4]]) :
+                  ((reg_raddr[3:0]==`OFF_PER_DATA) ? (perd_data[reg_raddr[7:4]]) : 
+                  ((reg_raddr[3:0]==`OFF_FREQ_DATA) ? (freq_data[reg_raddr[7:4]]) : 32'd0)));
+
 
 // write selected preload register
 // set_enc: create a pulse when encoder preload is written
@@ -108,33 +132,5 @@ begin
     else 
         set_enc <= 4'h0;
 end
-
-// map the data lines to access them as memory: [channel #][device #]
-// channel 1
-
-// Encoder Position Preload
-assign mem_data[1][`OFF_ENC_LOAD] = preload[1];
-assign mem_data[2][`OFF_ENC_LOAD] = preload[2];
-assign mem_data[3][`OFF_ENC_LOAD] = preload[3];
-assign mem_data[4][`OFF_ENC_LOAD] = preload[4];
-
-// Encoder Position 
-assign mem_data[1][`OFF_ENC_DATA] = quad_data[1];
-assign mem_data[2][`OFF_ENC_DATA] = quad_data[2];
-assign mem_data[3][`OFF_ENC_DATA] = quad_data[3];
-assign mem_data[4][`OFF_ENC_DATA] = quad_data[4];
-
-// Encoder Velocity Period Counting 
-assign mem_data[1][`OFF_PER_DATA] = per_data[1];
-assign mem_data[2][`OFF_PER_DATA] = per_data[2];
-assign mem_data[3][`OFF_PER_DATA] = per_data[3];
-assign mem_data[4][`OFF_PER_DATA] = per_data[4];
-
-
-// Encoder Velocity Frequency Counting 
-assign mem_data[1][`OFF_FREQ_DATA] = freq_data[1];
-assign mem_data[2][`OFF_FREQ_DATA] = freq_data[2];
-assign mem_data[3][`OFF_FREQ_DATA] = freq_data[3];
-assign mem_data[4][`OFF_FREQ_DATA] = freq_data[4];
 
 endmodule

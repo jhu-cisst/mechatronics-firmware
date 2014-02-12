@@ -31,11 +31,8 @@ module CtrlAdc(
     // local wires
     wire[1:4] miso_pot;
     wire[1:4] miso_cur;
-    wire[15:0] potval[0:15];       // 4 channels of analog pot values
-    wire[15:0] curval[0:15];       // 4 channels of current feedback values
-
-    // for array-style access to the adc data
-    wire[31:0] mem_data[0:15][0:15];
+    wire[15:0] potval[1:4];       // 4 channels of analog pot values
+    wire[15:0] curval[1:4];       // 4 channels of current feedback values
 
 //------------------------------------------------------------------------------
 // hardware description
@@ -46,8 +43,10 @@ assign miso_pot = miso[1:4];
 assign miso_cur = miso[5:8];
 
 // output selected read register
-assign reg_rdata = mem_data[reg_raddr[7:4]][reg_raddr[3:0]];
-
+// NOTE:
+//   - reg_raddr[7:4]: channel number  
+//   - top module selects reg_rdata based on #device
+assign reg_rdata = {potval[reg_raddr[7:4]], curval[reg_raddr[7:4]]};
 
 // pot feedback module
 Ltc1864x4 adc_pot(
@@ -74,16 +73,6 @@ Ltc1864x4 adc_cur(
     .conv(conv[2]),
     .miso(miso_cur)
 );
-
-// map the data lines to access them as memory: [channel #][device #]
-// channel 1
-assign mem_data[1][`OFF_ADC_DATA] = { potval[1], curval[1] };
-// channel 2
-assign mem_data[2][`OFF_ADC_DATA] = { potval[2], curval[2] };
-// channel 3
-assign mem_data[3][`OFF_ADC_DATA] = { potval[3], curval[3] };
-// channel 4
-assign mem_data[4][`OFF_ADC_DATA] = { potval[4], curval[4] };
 
 // connect to cur value output
 assign cur1 = curval[1];

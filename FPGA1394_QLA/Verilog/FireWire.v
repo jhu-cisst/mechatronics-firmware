@@ -1211,13 +1211,13 @@ end
 //   -  ila: integrated logic analyzer
  
 
-wire[35:0] control0;
+// wire[35:0] control0;
 // wire[35:0] control1;
 
 // icon
-icon_prom icon1(
-   .CONTROL0(control0)
-);
+// icon_prom icon1(
+//    .CONTROL0(control0)
+// );
 
 // // ila connect to write trig
 //wire[7:0] wire_trig_debug;
@@ -1232,19 +1232,19 @@ icon_prom icon1(
 //    .TRIG3(write_counter)
 //);
 
-wire[31:0] count_tcode_debug;
-assign count_tcode_debug[31:0] = {count[7:0], reg_waddr[15:0], 3'd0, reg_wen, rx_tcode[3:0]};
+// wire[31:0] count_tcode_debug;
+// assign count_tcode_debug[31:0] = {count[7:0], reg_waddr[15:0], 3'd0, reg_wen, rx_tcode[3:0]};
 
-// For debugging 1394 packet timing
-ila_fw_packet ila_fw(
-  .CONTROL(control0),
-  .CLK(sysclk),
-  .TRIG0(state),     // 8  | state = 4
-  .TRIG1(count_tcode_debug),  // 32 | count_tcode_debug = 32
-  .TRIG2(reg_dlen),  // 16 | reg_dlen = 16
-  .TRIG3(ctl),       // 2  | ctl = 2
-  .TRIG4(data)       // 8  | data = 8
-);
+// // For debugging 1394 packet timing
+// ila_fw_packet ila_fw(
+//   .CONTROL(control0),
+//   .CLK(sysclk),
+//   .TRIG0(state),     // 8  | state = 4
+//   .TRIG1(count_tcode_debug),  // 32 | count_tcode_debug = 32
+//   .TRIG2(reg_dlen),  // 16 | reg_dlen = 16
+//   .TRIG3(ctl),       // 2  | ctl = 2
+//   .TRIG4(data)       // 8  | data = 8
+// );
 
 endmodule  // PhyLinkInterface
 

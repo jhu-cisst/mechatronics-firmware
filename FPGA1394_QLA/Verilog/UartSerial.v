@@ -64,16 +64,16 @@ module CtrlUart (
     input  wire clk40m,
     input  wire reset,
     input  wire RxD,
-    output wire TxD,
+    output wire TxD
     
     // register access
-    output reg[15:0] reg_raddr,    // read address to external file
-    output reg[15:0] reg_waddr,    // write address to external file
-    input  wire[31:0] reg_rdata,   // read data
-    input  wire[31:0] reg_wdata,   // write data
+//    output reg[15:0] reg_raddr,    // read address to external file
+//    output reg[15:0] reg_waddr,    // write address to external file
+//    input  wire[31:0] reg_rdata,   // read data
+//    input  wire[31:0] reg_wdata,   // write data
 
     // bus hold for uart 
-    output wire uart_mode           // indicate the start of uart mode 
+//    output wire uart_mode           // indicate the start of uart mode 
 );
 
     // ------- Reg -------------
@@ -82,6 +82,7 @@ module CtrlUart (
     reg tx_trig;
     wire tx_busy;         // wire for tx_busy signal
     wire rx_int;          // rx interrupt
+    wire uart_mode;
 
     // clock module
     wire clk_14_pll;
