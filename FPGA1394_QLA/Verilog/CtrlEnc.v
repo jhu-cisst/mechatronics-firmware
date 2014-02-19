@@ -75,17 +75,12 @@ EncQuad EncQuad4(sysclk, reset, enc_a_filt[4], enc_b_filt[4], set_enc[4], preloa
 
 // velocity period counting 
 
-// OLD
+// OLD 
+// pkaz: bug fixes
 EncPeriod EncPerd1(clk_1mhz, reset, enc_b_filt[1], dir[1], perd_data[1]);
 EncPeriod EncPerd2(clk_1mhz, reset, enc_b_filt[2], dir[2], perd_data[2]);
 EncPeriod EncPerd3(clk_1mhz, reset, enc_b_filt[3], dir[3], perd_data[3]);
 EncPeriod EncPerd4(clk_1mhz, reset, enc_b_filt[4], dir[4], perd_data[4]);
-
-// pkaz: bug fixes
-//EncPeriodPkaz EncPerd1(clk_1mhz, reset, enc_b_filt[1], dir[1], perd_data[1]);
-//EncPeriodPkaz EncPerd2(clk_1mhz, reset, enc_b_filt[2], dir[2], perd_data[2]);
-//EncPeriodPkaz EncPerd3(clk_1mhz, reset, enc_b_filt[3], dir[3], perd_data[3]);
-//EncPeriodPkaz EncPerd4(clk_1mhz, reset, enc_b_filt[4], dir[4], perd_data[4]);
 
 // zc: raw quad counting verion 
 // EncPeriodQuad EncPerd1(clk_1mhz, reset, enc_b_filt[1], dir[1], perd_data[1]);

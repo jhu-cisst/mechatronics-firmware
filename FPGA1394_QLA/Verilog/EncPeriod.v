@@ -18,7 +18,7 @@
  */
 
 
-
+// ---------- Peter ------------------
 module EncPeriod(
     input wire clk_fast,    // count this clock between encoder ticks
     input wire reset,       // global reset signal
@@ -32,21 +32,21 @@ module EncPeriod(
     reg[15:0] count_2;        // intermediate count register
 
     // overflow value for signed 16-bit number
-    parameter overflow = 16'h7FFF;
+    parameter overflow = 16'h8000;
 
-// When motor stops use use 7FFF as output
+// set count to 0 on overflow
+//   - PC code check 0 value
 always @(posedge clk_fast)
 begin
     if (count_temp != overflow)
         count <= count_2;
-    else if (dir)
-        count <= overflow;
-    else
-        count <= 16'h8000;
+    else 
+        count <= 16'd0;
 end
 
 
 // Convert ticks to pulse
+reg dir_r;      // dir start 
 reg ticks_r;    // previous ticks
 wire ticks_en = ticks & (~ticks_r);
 always @(posedge clk_fast)
@@ -57,7 +57,7 @@ end
 // Latch count value to count_2
 always @(posedge ticks_en or negedge reset)
 begin
-    if (reset == 0)
+    if ((reset == 0) || (dir != dir_r))
         count_2 <= 16'd0;
     else
         count_2 <= count_temp;
@@ -66,93 +66,31 @@ end
 // up/down counter to measure period between encoder ticks
 always @(posedge ticks_en or posedge clk_fast)
 begin
-    if (ticks_en)
+    if (ticks_en) begin
         count_temp <= 16'd0;
+        dir_r <= dir;
+    end
     else if (count_temp != overflow)
         count_temp <= count_temp + (dir ? 1'b1 : -1'b1);
 end
 
-endmodule
 
-
-
-
-// ---------- Peter ------------------
-//module EncPeriodPkaz(
-//    input wire clk_fast,    // count this clock between encoder ticks
-//    input wire reset,       // global reset signal
-//    input wire ticks,       // encoder transition signal
-//    input wire dir,         // direction of the ticks
-//    output reg[15:0] count  // number clk_fast periods per tick
-//);
-//
-//    // local registers
-//    reg[15:0] count_temp;     // register for counter
-//    reg[15:0] count_2;        // intermediate count register
-//
-//    // overflow value for signed 16-bit number
-//    parameter overflow = 16'h8000;
-//
-//// set count to 0 on overflow
-////   - PC code check 0 value
-//always @(posedge clk_fast)
-//begin
-//    if (count_temp != overflow)
-//        count <= count_2;
-//    else 
-//        count <= 16'd0;
-//end
-//
-//
-//// Convert ticks to pulse
-//reg dir_r;      // dir start 
-//reg ticks_r;    // previous ticks
-//wire ticks_en = ticks & (~ticks_r);
-//always @(posedge clk_fast)
-//begin
-//    ticks_r <= ticks;
-//end
-//
-//// Latch count value to count_2
-//always @(posedge ticks_en or negedge reset)
-//begin
-//    if ((reset == 0) || (dir != dir_r))
-//        count_2 <= 16'd0;
-//    else
-//        count_2 <= count_temp;
-//end
-//
-//// up/down counter to measure period between encoder ticks
-//always @(posedge ticks_en or posedge clk_fast)
-//begin
-//    if (ticks_en) begin
-//        count_temp <= 16'd0;
-//        dir_r <= dir;
-//    end
-//    else if (count_temp != overflow)
-//        count_temp <= count_temp + (dir ? 1'b1 : -1'b1);
-//end
-//
-//
-//wire[35:0] control0;
-//
+wire[35:0] control0;
+////
 //// icon
-//icon_prom icon1(
-//   .CONTROL0(control0)
-//);
-//
-//
-//// wire[7:0] 
-//ila_write_trig ila_vel(
-//   .CONTROL(control0),
-//   .CLK(clk_fast),
-//   .TRIG0(ticks),              // 8-bit 
-//   .TRIG1(8'd0),               // 8-bit
-//   .TRIG2(count),              // 32-bit
-//   .TRIG3(count_temp)          // 32-bit 
-//);
-//
-//endmodule
+icon_prom icon1(
+   .CONTROL0(control0)
+);
+
+ila_enc ilaenc(
+    .CONTROL(control0),
+    .CLK(clk_fast),
+    .TRIG0(ticks),        //  8-bit
+    .TRIG1(count),        // 16-bit
+    .TRIG2(count_temp)    // 16-bit
+);
+
+endmodule
 
 
 

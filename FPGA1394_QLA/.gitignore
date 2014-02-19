@@ -58,3 +58,5 @@
 *.sublime*
 sdram_*
 *.bak
+*/tmp/*
+*/_xmsgs/*
