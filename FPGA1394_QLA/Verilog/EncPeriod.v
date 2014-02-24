@@ -38,10 +38,12 @@ module EncPeriod(
 //   - PC code check 0 value
 always @(posedge clk_fast)
 begin
-    if (count_temp != overflow)
+    if (count_temp != overflow) begin
         count <= count_2;
-    else 
+    end        
+    else begin
         count <= 16'd0;
+    end        
 end
 
 
@@ -75,20 +77,20 @@ begin
 end
 
 
-wire[35:0] control0;
-////
-//// icon
-icon_prom icon1(
-   .CONTROL0(control0)
-);
-
-ila_enc ilaenc(
-    .CONTROL(control0),
-    .CLK(clk_fast),
-    .TRIG0(ticks),        //  8-bit
-    .TRIG1(count),        // 16-bit
-    .TRIG2(count_temp)    // 16-bit
-);
+//wire[35:0] control0;
+//////
+////// icon
+//icon_prom icon1(
+//   .CONTROL0(control0)
+//);
+//
+//ila_enc ilaenc(
+//    .CONTROL(control0),
+//    .CLK(clk_fast),
+//    .TRIG0(ticks),        //  8-bit
+//    .TRIG1(count),        // 16-bit
+//    .TRIG2(count_temp)    // 16-bit
+//);
 
 endmodule
 

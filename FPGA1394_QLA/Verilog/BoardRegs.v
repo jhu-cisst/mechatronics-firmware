@@ -33,6 +33,9 @@ module BoardRegs(
     output reg relay_on,            // enable relay for safety loop-through
     
     // board output (PC reads)
+    input  wire[4:1] enc_a,         // encoder a  
+    input  wire[4:1] enc_b,         // encoder b 
+    input  wire[4:1] enc_i,         // encoder index 
     input  wire[4:1] neg_limit,     // digi input negative limit
     input  wire[4:1] pos_limit,     // digi input positive limit
     input  wire[4:1] home,          // digi input home position
@@ -162,7 +165,7 @@ always @(posedge(sysclk) or negedge(reset))
         `REG_FVERSION: reg_rdata <= `FW_VERSION;
         `REG_PROMSTAT: reg_rdata <= prom_status;
         `REG_PROMRES: reg_rdata <= prom_result;
-        `REG_DIGIN: reg_rdata <= { 15'd0, v_fault, dout, neg_limit, pos_limit, home };
+        `REG_DIGIN: reg_rdata <= {v_fault, 3'd0, enc_a, enc_b, enc_i, dout, neg_limit, pos_limit, home};
 
         // `REG_SAFETY: reg_rdata <= { 28'd0, safety_amp_disable};
         // `REG_WDOG: reg_rdata <= {28'd0, wdog_amp_disable};
