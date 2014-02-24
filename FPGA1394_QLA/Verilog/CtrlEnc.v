@@ -39,14 +39,9 @@ module CtrlEnc(
     wire[1:4] dir;                 // encoder transition direction
 
     // data buses to/from encoder modules
-//    reg[23:0]  preload[0:15];      // to encoder counter preload register
-//    wire[24:0] quad_data[0:15];    // transition count FROM encoder (ovf msb)
-//    wire[15:0] perd_data[0:15];     // encoder period measurement
-//    wire[15:0] freq_data[0:15];    // encoder frequency measurement
-    
     reg[23:0]  preload[1:4];      // to encoder counter preload register
     wire[24:0] quad_data[1:4];    // transition count FROM encoder (ovf msb)
-    wire[15:0] perd_data[1:4];    // encoder period measurement
+    wire[31:0] perd_data[1:4];    // encoder period measurement    
     wire[15:0] freq_data[1:4];    // encoder frequency measurement
     
     // for array-style access to the encoder data
@@ -75,18 +70,25 @@ EncQuad EncQuad4(sysclk, reset, enc_a_filt[4], enc_b_filt[4], set_enc[4], preloa
 
 // velocity period counting 
 
+// icon  cp debug 
+wire[35:0] control0;
+icon_prom icon1(
+    .CONTROL0(control0)
+);
+
 // OLD 
 // pkaz: bug fixes
-EncPeriod EncPerd1(clk_1mhz, reset, enc_b_filt[1], dir[1], perd_data[1]);
-EncPeriod EncPerd2(clk_1mhz, reset, enc_b_filt[2], dir[2], perd_data[2]);
-EncPeriod EncPerd3(clk_1mhz, reset, enc_b_filt[3], dir[3], perd_data[3]);
-EncPeriod EncPerd4(clk_1mhz, reset, enc_b_filt[4], dir[4], perd_data[4]);
+//EncPeriod EncPerd1(clk_1mhz, reset, enc_b_filt[1], dir[1], perd_data[1]);
+//EncPeriod EncPerd2(clk_1mhz, reset, enc_b_filt[2], dir[2], perd_data[2]);
+//EncPeriod EncPerd3(clk_1mhz, reset, enc_b_filt[3], dir[3], perd_data[3]);
+//EncPeriod EncPerd4(clk_1mhz, reset, enc_b_filt[4], dir[4], perd_data[4]);
+
 
 // zc: raw quad counting verion 
-// EncPeriodQuad EncPerd1(clk_1mhz, reset, enc_b_filt[1], dir[1], perd_data[1]);
-// EncPeriodQuad EncPerd2(clk_1mhz, reset, enc_b_filt[2], dir[2], perd_data[2]);
-// EncPeriodQuad EncPerd3(clk_1mhz, reset, enc_b_filt[3], dir[3], perd_data[3]);
-// EncPeriodQuad EncPerd4(clk_1mhz, reset, enc_b_filt[4], dir[4], perd_data[4]);
+EncPeriodQuad EncPerd1(sysclk, reset, enc_a_filt[1], enc_b_filt[1], perd_data[1], control0);
+EncPeriodQuad EncPerd2(sysclk, reset, enc_a_filt[2], enc_b_filt[2], perd_data[2]);
+EncPeriodQuad EncPerd3(sysclk, reset, enc_a_filt[3], enc_b_filt[3], perd_data[3]);
+EncPeriodQuad EncPerd4(sysclk, reset, enc_a_filt[4], enc_b_filt[4], perd_data[4]);
 
 
 // velocity frequency counting 
