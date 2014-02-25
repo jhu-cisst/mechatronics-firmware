@@ -17,8 +17,6 @@
 module CtrlEnc(
     input  wire sysclk,           // global clock and reset signals
     input  wire reset,            // global reset
-    input  wire clk_1mhz,         // fast clock to measure encoder period
-    input  wire clk_12hz,         // slow clock to measure encoder frequency
     input  wire[1:4] enc_a,       // set of quadrature encoder inputs
     input  wire[1:4] enc_b,
     input  wire[15:0] reg_raddr,  // register file read addr from outside 
@@ -44,8 +42,9 @@ module CtrlEnc(
     wire[31:0] perd_data[1:4];    // encoder period measurement    
     wire[15:0] freq_data[1:4];    // encoder frequency measurement
     
-    // for array-style access to the encoder data
-//    wire[31:0] mem_data[0:15][0:15];
+    // clk for vel measurement     
+    wire clk_fast;   // 768 kHz velocity measure encoder period
+    wire clk_slow;   // ~12 Hz  velocity measure encoder tick frequency 
 
 //------------------------------------------------------------------------------
 // hardware description
@@ -71,32 +70,45 @@ EncQuad EncQuad4(sysclk, reset, enc_a_filt[4], enc_b_filt[4], set_enc[4], preloa
 // velocity period counting 
 
 // icon  cp debug 
-wire[35:0] control0;
-icon_prom icon1(
-    .CONTROL0(control0)
-);
+// wire[35:0] control0;
+// icon_prom icon1(
+//     .CONTROL0(control0)
+// );
+
+// modules generate fast & slow clock 
+ClkDiv divenc1(sysclk, clk_fast); defparam divenc1.width = 6;
+ClkDiv divenc2(sysclk, clk_slow); defparam divenc2.width = 22;
 
 // OLD 
 // pkaz: bug fixes
-//EncPeriod EncPerd1(clk_1mhz, reset, enc_b_filt[1], dir[1], perd_data[1]);
-//EncPeriod EncPerd2(clk_1mhz, reset, enc_b_filt[2], dir[2], perd_data[2]);
-//EncPeriod EncPerd3(clk_1mhz, reset, enc_b_filt[3], dir[3], perd_data[3]);
-//EncPeriod EncPerd4(clk_1mhz, reset, enc_b_filt[4], dir[4], perd_data[4]);
+// EncPeriod EncPerd1(clk_fast, reset, enc_b_filt[1], dir[1], perd_data[1]);
+// EncPeriod EncPerd2(clk_fast, reset, enc_b_filt[2], dir[2], perd_data[2]);
+// EncPeriod EncPerd3(clk_fast, reset, enc_b_filt[3], dir[3], perd_data[3]);
+// EncPeriod EncPerd4(clk_fast, reset, enc_b_filt[4], dir[4], perd_data[4]);
 
 
-// zc: raw quad counting verion 
-EncPeriodQuad EncPerd1(sysclk, reset, enc_a_filt[1], enc_b_filt[1], perd_data[1], control0);
-EncPeriodQuad EncPerd2(sysclk, reset, enc_a_filt[2], enc_b_filt[2], perd_data[2]);
-EncPeriodQuad EncPerd3(sysclk, reset, enc_a_filt[3], enc_b_filt[3], perd_data[3]);
-EncPeriodQuad EncPerd4(sysclk, reset, enc_a_filt[4], enc_b_filt[4], perd_data[4]);
+// EncPeriodQuad submodule 
+// wire[1:4] ticks_en;
+// EncPeriod EncPerd1(clk_fast, reset, enc_b_filt[1], dir[1], ticks_en[1], perd_data[1]);
+// EncPeriod EncPerd2(clk_fast, reset, enc_b_filt[2], dir[2], ticks_en[2], perd_data[2]);
+// EncPeriod EncPerd3(clk_fast, reset, enc_b_filt[3], dir[3], ticks_en[3], perd_data[3]);
+// EncPeriod EncPerd4(clk_fast, reset, enc_b_filt[4], dir[4], ticks_en[4], perd_data[4]);
+
+
+// Quad Ticks Version 
+// ------------------------------------------------[
+EncPeriodQuad EncPerd1(sysclk, clk_fast, reset, enc_a_filt[1], enc_b_filt[1], dir[1], perd_data[1]);
+EncPeriodQuad EncPerd2(sysclk, clk_fast, reset, enc_a_filt[2], enc_b_filt[2], dir[2], perd_data[2]);
+EncPeriodQuad EncPerd3(sysclk, clk_fast, reset, enc_a_filt[3], enc_b_filt[3], dir[3], perd_data[3]);
+EncPeriodQuad EncPerd4(sysclk, clk_fast, reset, enc_a_filt[4], enc_b_filt[4], dir[4], perd_data[4]);
 
 
 // velocity frequency counting 
-EncFreq EncFreq1(sysclk, clk_12hz, reset, enc_b_filt[1], dir[1], freq_data[1]);
-EncFreq EncFreq2(sysclk, clk_12hz, reset, enc_b_filt[2], dir[2], freq_data[2]);
-EncFreq EncFreq3(sysclk, clk_12hz, reset, enc_b_filt[3], dir[3], freq_data[3]);
-EncFreq EncFreq4(sysclk, clk_12hz, reset, enc_b_filt[4], dir[4], freq_data[4]);
-
+// NOTE: for fast motion, not used in dvrk 
+EncFreq EncFreq1(sysclk, clk_slow, reset, enc_b_filt[1], dir[1], freq_data[1]);
+EncFreq EncFreq2(sysclk, clk_slow, reset, enc_b_filt[2], dir[2], freq_data[2]);
+EncFreq EncFreq3(sysclk, clk_slow, reset, enc_b_filt[3], dir[3], freq_data[3]);
+EncFreq EncFreq4(sysclk, clk_slow, reset, enc_b_filt[4], dir[4], freq_data[4]);
 
 
 //------------------------------------------------------------------------------

@@ -230,8 +230,6 @@ assign reg_rd[`OFF_FREQ_DATA] = reg_renc;   // frequency
 CtrlEnc enc(
     .sysclk(sysclk),
     .reset(reset),
-    .clk_1mhz(clk_1mhz),
-    .clk_12hz(clk_12hz),
     .enc_a({IO2[23],IO2[21],IO2[19],IO2[17]}),
     .enc_b({IO2[15],IO2[13],IO2[12],IO2[10]}),
     .reg_raddr(reg_raddr),
