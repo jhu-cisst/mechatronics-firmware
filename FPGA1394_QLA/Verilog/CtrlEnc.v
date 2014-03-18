@@ -67,36 +67,12 @@ EncQuad EncQuad2(sysclk, reset, enc_a_filt[2], enc_b_filt[2], set_enc[2], preloa
 EncQuad EncQuad3(sysclk, reset, enc_a_filt[3], enc_b_filt[3], set_enc[3], preload[3], quad_data[3], dir[3]);
 EncQuad EncQuad4(sysclk, reset, enc_a_filt[4], enc_b_filt[4], set_enc[4], preload[4], quad_data[4], dir[4]);
 
-// velocity period counting 
-
-// icon  cp debug 
-// wire[35:0] control0;
-// icon_prom icon1(
-//     .CONTROL0(control0)
-// );
-
 // modules generate fast & slow clock 
 ClkDiv divenc1(sysclk, clk_fast); defparam divenc1.width = 6;
 ClkDiv divenc2(sysclk, clk_slow); defparam divenc2.width = 22;
 
-// OLD 
-// pkaz: bug fixes
-// EncPeriod EncPerd1(clk_fast, reset, enc_b_filt[1], dir[1], perd_data[1]);
-// EncPeriod EncPerd2(clk_fast, reset, enc_b_filt[2], dir[2], perd_data[2]);
-// EncPeriod EncPerd3(clk_fast, reset, enc_b_filt[3], dir[3], perd_data[3]);
-// EncPeriod EncPerd4(clk_fast, reset, enc_b_filt[4], dir[4], perd_data[4]);
-
-
-// EncPeriodQuad submodule 
-// wire[1:4] ticks_en;
-// EncPeriod EncPerd1(clk_fast, reset, enc_b_filt[1], dir[1], ticks_en[1], perd_data[1]);
-// EncPeriod EncPerd2(clk_fast, reset, enc_b_filt[2], dir[2], ticks_en[2], perd_data[2]);
-// EncPeriod EncPerd3(clk_fast, reset, enc_b_filt[3], dir[3], ticks_en[3], perd_data[3]);
-// EncPeriod EncPerd4(clk_fast, reset, enc_b_filt[4], dir[4], ticks_en[4], perd_data[4]);
-
-
-// Quad Ticks Version 
-// ------------------------------------------------[
+// velocity period (4/dT method)
+// quad update version
 EncPeriodQuad EncPerd1(sysclk, clk_fast, reset, enc_a_filt[1], enc_b_filt[1], dir[1], perd_data[1]);
 EncPeriodQuad EncPerd2(sysclk, clk_fast, reset, enc_a_filt[2], enc_b_filt[2], dir[2], perd_data[2]);
 EncPeriodQuad EncPerd3(sysclk, clk_fast, reset, enc_a_filt[3], enc_b_filt[3], dir[3], perd_data[3]);

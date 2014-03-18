@@ -37,43 +37,15 @@
 // -----------------------------------------------------------------------------
 //  UART Control Module 
 //    - 1 Rx Module + 1 Tx Module 
-//    - Logical 
-//  
-//  The rest rx_rdata, rx_wdata, rx_addr will remain the same as 1394 interface. 
-//  UART Protocal 
-//    - 1 byte: 3-bit cmd + 5-bit data length
-//    - 2 byte: 8-bit addr 
-//    ------ END READ -------
-//    - 3-n write byte
-//   
-//  Command Table 
-//    000: quadlet read
-//    001: block read
-//    010: quadlet write
-//    011: block write
-//    100: start UART control
-//    101: close UART control 
-//  
-//  NOTE: by default, system is under 1394 mode. UART mode needs to be switch
-//        on/off manually using start/stop UART control cmd 
-// 
-//  Examples: 
+//    - 1 clock module
+//    - echo logic  
 // ------------------------------------------------------------------------------  
 
 module CtrlUart (
     input  wire clk40m,
     input  wire reset,
     input  wire RxD,
-    output wire TxD
-    
-    // register access
-//    output reg[15:0] reg_raddr,    // read address to external file
-//    output reg[15:0] reg_waddr,    // write address to external file
-//    input  wire[31:0] reg_rdata,   // read data
-//    input  wire[31:0] reg_wdata,   // write data
-
-    // bus hold for uart 
-//    output wire uart_mode           // indicate the start of uart mode 
+    output wire TxD    
 );
 
     // ------- Reg -------------
@@ -93,24 +65,11 @@ module CtrlUart (
     // processor buffer
     reg[31:0] procBuffer[63:0];
     reg[5:0] procRdInd;
-    reg[5:0] procWtInd;
-    
-    // chipscope
-//    wire[35:0] control_uart_ctrl;
-//    wire[35:0] control_uart_tx;
-//    wire[35:0] control_uart_rx;
-
-    parameter[3:0]
-        ST_IDLE = 0,
-        ST_RX = 1,
-        ST_TX_QUAD = 2;
-
+    reg[5:0] procWtInd;    
 
 //-----------------------------------------------------
 // hardware description
 // ----------------------------------------------------
-assign uart_mode = 1'b0;
-
 
 //-------- Clock -----------
 UartClkGen clkgen(
@@ -151,81 +110,19 @@ UartRx uart_rx(
 
 
 // ----------- Control Logic ------------
-
 // echo interface
- always @(posedge(BaudClk) or negedge(reset)) begin
-     if (reset == 0) begin
-          tx_trig <= 1'b0;  
-     end
-     else if (rx_int) begin
-         tx_trig <= 1'b1;
-         tx_data <= rx_data;
-     end
-     else if (tx_trig == 1'b1) begin
-         tx_trig <= 1'b0;   
-     end
- end
-
-//always @(posedge(BaudClk) or negedge(reset)) begin
-//    if (reset == 0) begin
-//
-//    end
-//    else if (rx_int) begin
-//        if (rx_data == `UART_DELIMINATOR) begin
-//            procWtInd <= 6'd0;
-//            procRdInd <= 6'd0;
-//        end
-//    end
-//end
-//
-//always @(posedge clk or posedge rst) begin
-//  if (rst) begin
-//    // reset
-//    
-//  end
-//  else begin
-//      case (state)
-//
-//      ST_IDLE:
-//      begin
-//          
-//      end
-//
-//      ST_RX:
-//      begin
-//          
-//      end
-//
-//      ST_TX_QUAD:
-//      begin
-//          if (tx_busy) begin
-//              tx_data <= reg_rdata;
-//              tx_trig <= 1'b1;
-//          end
-//      end
-//
-//      endcase
-//  end
-//end
-
-
-// -------------------
-// chipscope
-// -------------------
-//icon_uart icon(
-//    .CONTROL0(control_uart_ctrl),
-//    .CONTROL1(control_uart_tx),
-//    .CONTROL2(control_uart_rx)
-//);
-//
-//ila_3_8_8_8 ila_ctrl(
-//    .CONTROL(control_uart_ctrl),
-//    .CLK(clkuart),
-//    .TRIG0({3'b0}),         // 3-bit
-//    .TRIG1(rx_data),        // 8-bit
-//    .TRIG2(rx_data),        // 8-bit
-//    .TRIG3(tx_data)         // 8-bit
-//);
+always @(posedge(BaudClk) or negedge(reset)) begin
+   if (reset == 0) begin
+        tx_trig <= 1'b0;  
+   end
+   else if (rx_int) begin
+       tx_trig <= 1'b1;
+       tx_data <= rx_data;
+   end
+   else if (tx_trig == 1'b1) begin
+       tx_trig <= 1'b0;   
+   end
+end
 
 endmodule
 
@@ -287,18 +184,6 @@ reg[7:0] tx_reg;     // reg to latch tx_data
      end
  end
 
-// transmit data out (debug periodically)
-//always @(posedge(clkuart) or negedge(reset)) begin
-//    if (reset == 0) begin
-//        tx_counter <= 8'd0;
-//        tx_reg <= 8'd100;
-//    end
-//    else begin
-//        tx_counter <= tx_counter + 1'b1;
-//    end
-//end
-
-
 
 // transmit data out
 always @(posedge(clkuart) or negedge(reset)) begin
@@ -322,15 +207,6 @@ end
 
 wire[2:0] tx_status;
 assign tx_status = {TxD, tx_busy, tx_trig};
-
-//ila_3_8_8_8 ila_tx(
-//    .CONTROL(control),
-//    .CLK(clkuart),
-//    .TRIG0(tx_status),     // 3-bit
-//    .TRIG1(tx_reg),        // 8-bit
-//    .TRIG2(tx_counter),    // 8-bit
-//    .TRIG3(tx_data)        // 8-bit
-//);
 
 endmodule
 
@@ -421,16 +297,6 @@ end
 
 wire[2:0] rx_status;
 assign rx_status = {RxD, rxd_negedge, rx_int};
-
-//ila_3_8_8_8 ila_rx(
-//    .CONTROL(control),
-//    .CLK(clkuart),
-//    .TRIG0(rx_status),     // 3-bit
-//    .TRIG1(rx_reg),        // 8-bit
-//    .TRIG2(rx_counter),    // 8-bit
-//    .TRIG3(rx_data)        // 8-bit
-//);
-
 
 endmodule
 
