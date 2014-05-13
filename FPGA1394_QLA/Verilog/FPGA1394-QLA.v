@@ -346,7 +346,7 @@ BoardRegs chan0(
     .clkaux(clk40m),
     .reset(reset),
     .amp_disable({IO2[38],IO2[36],IO2[34],IO2[32]}),
-    .dout({IO1[19],IO1[18],IO1[17],IO1[16]}),
+    .dout({IO1[16],IO1[17],IO1[18],IO1[19]}),
     .pwr_enable(IO1[32]),
     .relay_on(IO1[31]),
     .enc_a({IO2[17], IO2[19], IO2[21], IO2[23]}),    // axis 4:1
