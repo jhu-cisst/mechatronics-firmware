@@ -55,6 +55,7 @@ module FPGA1394QLA
     // local wires to tie the instantiated modules and I/Os
     //
 
+    wire eth1394;               // 1: eth1394 mode 0: firewire mode
     wire lreq_trig;
     wire[2:0] lreq_type;
     wire reg_wen;               // register write signal
@@ -112,6 +113,7 @@ HubReg hub(
 PhyLinkInterface phy(
     .sysclk(sysclk),         // in: global clk  
     .reset(reset),           // in: global reset
+    .eth1394(eth1394),       // in: eth1394 mode
     .board_id(~wenid),       // in: board id (rotary switch)
     
     .ctl_ext(ctl),           // bi: phy ctl lines
@@ -349,6 +351,7 @@ BoardRegs chan0(
     .dout({IO1[16],IO1[17],IO1[18],IO1[19]}),
     .pwr_enable(IO1[32]),
     .relay_on(IO1[31]),
+    .eth1394(eth1394),
     .enc_a({IO2[17], IO2[19], IO2[21], IO2[23]}),    // axis 4:1
     .enc_b({IO2[10], IO2[12], IO2[13], IO2[15]}),
     .enc_i({IO2[2], IO2[4], IO2[6], IO2[8]}),

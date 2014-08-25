@@ -47,6 +47,7 @@
 `define REG_PROMSTAT 4'd8          // PROM interface status
 `define REG_PROMRES  4'd9          // PROM result (from M25P16)
 `define REG_DIGIN    4'd10         // Digital inputs (home, neg lim, pos lim)
+
 // `define REG_SAFETY  4'd11          // Safety amp disable 
 // `define REG_WDOG    4'd14          // TEMP wdog_samp_disable
 // `define REG_REGDISABLE 4'd15       // TEMP reg_disable 

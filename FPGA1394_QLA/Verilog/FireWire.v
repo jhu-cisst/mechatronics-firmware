@@ -23,6 +23,7 @@
  *                                     Fixed mixed blocking/non-blocking issues`
  *     10/16/13    Zihan Chen          Modified to support hub capability
  *     10/28/13    Zihan Chen          Added seperate write address line
+ *     08/23/14    Zihan Chen          Added support for Eth1394
  */
 
 // LLC: link layer controller (implemented in this file)
@@ -78,6 +79,10 @@
  *   Lists:
  *     - Query Packet:  dest_node_id = 0, dest_addr = 0xffffffff000f
  *     - Command Packet: dest_node_id = 0, dest_addr = 0xffffffff0000
+ *
+ *
+ *  2014-08-23 NOTE for Eth1394 packet  Zihan Chen
+ *   
  *
  */
  
@@ -173,6 +178,7 @@ module PhyLinkInterface(
     // globals
     input wire sysclk,           // system clock
     input wire reset,            // global reset
+    input wire eth1394,     // global eth1394
     input wire[3:0] board_id,    // global board id
     
     // phy-link interface bus
@@ -216,7 +222,8 @@ module PhyLinkInterface(
     reg[2:0] rx_speed;            // received speed code
     reg[3:0] tx_type;             // encodes transmit type
     reg[9:0] bus_id;              // phy bus id (10 bits)
-    reg[5:0] node_id;             // phy node id register (6 bits)
+    wire[5:0] node_id;            // phy node id 
+    reg[5:0] fw_node_id;          // phy node id firewire (6 bits)
     wire[15:0] local_id;          // full addr = bus_id + node_id
 
     // status-related buffers
@@ -259,7 +266,7 @@ module PhyLinkInterface(
 
     // broadcast related fields
     reg[15:0] rx_bc_sequence;     // broadcast sequence num
-    reg[15:0] rx_bc_fpga;         // indicates whether a boards exists    
+    reg[15:0] rx_bc_fpga;         // indicates whether a boards exists
     reg rx_bc_bread;              // rx broadcast read request flag
 
     // real-time read stuff
@@ -303,6 +310,8 @@ module PhyLinkInterface(
 // continuous assignments and aliases for better readability (and writability!)
 //
 
+// node_id based on eth1394 mode
+assign node_id = eth1394 ? {2'b00, board_id} : fw_node_id;
 // full local_id
 assign local_id = { bus_id[9:0], node_id[5:0] };   // full addr = bus_id + node_id     
 
@@ -359,8 +368,29 @@ end
 // -------------------------------------------------------
 // counter for initiate block write to controller PC
 reg[31:0] write_counter;
-reg[14:0] write_trig_count;  // 6 bits node_id + 9 bits = 512 counts
+wire[14:0] write_trig_count;  // 6 bits node_id + 8 bits (256 counts)
 reg write_trig;
+wire[15:0] write_trig_mask[15:0];  // mask table
+assign write_trig_mask[4'h0] = 16'b0000000000000001;
+assign write_trig_mask[4'h1] = 16'b0000000000000011;
+assign write_trig_mask[4'h2] = 16'b0000000000000111;
+assign write_trig_mask[4'h3] = 16'b0000000000001111;
+assign write_trig_mask[4'h4] = 16'b0000000000011111;
+assign write_trig_mask[4'h5] = 16'b0000000000111111;
+assign write_trig_mask[4'h6] = 16'b0000000001111111;
+assign write_trig_mask[4'h7] = 16'b0000000011111111;
+assign write_trig_mask[4'h8] = 16'b0000000111111111;
+assign write_trig_mask[4'h9] = 16'b0000001111111111;
+assign write_trig_mask[4'hA] = 16'b0000011111111111;
+assign write_trig_mask[4'hB] = 16'b0000111111111111;
+assign write_trig_mask[4'hC] = 16'b0001111111111111;
+assign write_trig_mask[4'hD] = 16'b0011111111111111;
+assign write_trig_mask[4'hE] = 16'b0111111111111111;
+assign write_trig_mask[4'hF] = 16'b1111111111111111;
+
+// rx_bc_fpga & write_trig_mask
+
+assign write_trig_count = eth1394 ? {count[5:0], 8'd0} : {node_id[5:0], 8'd0};
 
 always @(posedge(sysclk) or negedge(reset))
 begin
@@ -369,8 +399,8 @@ begin
         write_trig <= 1'b0;
 
         // 5us node_id
-        write_trig_count[13:8] <= node_id[5:0];
-        write_trig_count[7:0] <= 8'd0;
+//        write_trig_count[13:8] <= node_id[5:0];
+//        write_trig_count[7:0] <= 8'd0;
         
     end
     else begin
@@ -412,7 +442,7 @@ begin
         blk_wen <= 0;             // keep block writes inactive by default
         lreq_trig <= 0;           // clear the phy request trigger
         lreq_type <= 0;           // set phy request type to known value
-        node_id <= 0;             // hope phy updates this during self-id
+        fw_node_id <= 0;             // hope phy updates this during self-id
         bus_id <= 10'h3ff;        // set default bus_id to 10'h3ff
         reg_raddr <= 0;           // set reg address to known value
         reg_waddr <= 0;           // set reg address to known value
@@ -499,7 +529,7 @@ begin
                         reg_wen <= 1;
                         // save node id if register zero
                         if (st_buff[11:8] == 0)
-                            node_id <= st_buff[7:2];
+                            fw_node_id <= st_buff[7:2];
                     end
                 end
 

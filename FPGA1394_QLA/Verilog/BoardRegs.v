@@ -23,7 +23,7 @@
 module BoardRegs(
     // glocal clock & reset 
     input  wire sysclk, 
-    input  wire clkaux, 
+    input  wire clkaux,
     output reg  reset,
     
     // board input (PC writes)
@@ -31,6 +31,7 @@ module BoardRegs(
     output reg[4:1]  dout,          // digital outputs
     output reg pwr_enable,          // enable motor power
     output reg relay_on,            // enable relay for safety loop-through
+    output reg eth1394,             // 0: firewire mode 1: ethernet-1394 mode
     
     // board output (PC reads)
     input  wire[4:1] enc_a,         // encoder a  
@@ -111,6 +112,7 @@ always @(posedge(sysclk) or negedge(reset))
         relay_on <= 0;           // start with safety relay off
         dout <= 0;               // clear digital outputs 
         reset_soft_trigger <= 1'b0;  // clear reset_soft_trigger
+        eth1394 <= 1'b0;    // clear eth1394 mode (i.e. normal FireWire mode)
      end
 
     // set register values for writes
@@ -128,7 +130,9 @@ always @(posedge(sysclk) or negedge(reset))
             // mask reg_wdata[19] with [18] for pwr_enable
             pwr_enable <= reg_wdata[19] ? reg_wdata[18] : pwr_enable;
             // mask reg_wdata[21] with [20] for soft_reset
-            reset_soft_trigger <= reg_wdata[21] ? reg_wdata[20] : 1'b0;
+            reset_soft_trigger <= reg_wdata[21] ? reg_wdata[20] : 1'b0; 
+            // mask reg_wdata[23] with [22] for eth1394 mode 
+            eth1394 <= reg_wdata[23] ? reg_wdata[22] : eth1394;
         end
         `REG_PHYCTRL: phy_ctrl <= reg_wdata[15:0];
         `REG_PHYDATA: phy_data <= reg_wdata[15:0];
@@ -147,11 +151,16 @@ always @(posedge(sysclk) or negedge(reset))
     else begin
         case (reg_raddr[3:0])
         `REG_STATUS: reg_rdata <= { 
-                4'd4, board_id,                // Byte 3: num channels (4), board id
-                wdog_timeout, 3'd0,            // Byte 2: watchdog timeout, motor voltage good,
-                mv_good, pwr_enable, ~relay, relay_on,   // power enable, safety relay state, safety relay control
-                4'd0, fault,                   // Byte 1: 1 -> amplifier on, 0 -> fault (up to 8 axes)
-                safety_amp_disable[4:1], ~reg_disable[3:0] };     // Byte 0: 1 -> amplifier enabled, 0 -> disabled (up to 8 axes)
+                // Byte 3: num channels (4), board id
+                4'd4, board_id,
+                // Byte 2: wdog timeout, eth1394 mode
+                wdog_timeout, eth1394, 2'd0,
+                // mv_good, power enable, safety relay state, safety relay control      
+                mv_good, pwr_enable, ~relay, relay_on,   
+                // Byte 1: 1 -> amplifier on, 0 -> fault (up to 8 axes)
+                4'd0, fault,
+                // Byte 0: 1 -> amplifier enabled, 0 -> disabled (up to 8 axes)                   
+                safety_amp_disable[4:1], ~reg_disable[3:0] };     
         `REG_PHYCTRL: reg_rdata <= phy_ctrl;
         `REG_PHYDATA: reg_rdata <= phy_data;
         `REG_TIMEOUT: reg_rdata <= wdog_period;
