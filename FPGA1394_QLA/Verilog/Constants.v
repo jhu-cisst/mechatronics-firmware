@@ -27,7 +27,7 @@
 
 // firmware constants
 `define VERSION 32'h514C4131       // hard-wired version number "QLA1" = 0x514C4131 
-`define FW_VERSION 32'h04          // firmware version = 4 
+`define FW_VERSION 32'h05          // firmware version = 5
 
 // address space  
 `define ADDR_MAIN     4'h0         // board reg & device reg
