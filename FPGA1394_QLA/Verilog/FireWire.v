@@ -1,6 +1,6 @@
 /*******************************************************************************
  *
- * Copyright(C) 2008-2011 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2008-2015 ERC CISST, Johns Hopkins University.
  *
  * This module implements the FireWire link layer state machine, which defines
  * the operation of the phy-link interface.  The state machine is triggered on
@@ -73,7 +73,7 @@
  *  --------------------------------------------------------------------------------
  *  2014-01-24 NOTE for fake broadcast packet  Zihan Chen
  *   We noticed that some FireWire cards have issue with broadcast packets (can not 
- *   async read after sending broadcast packets). This leads us to use an asynchrnous 
+ *   async read after sending broadcast packets). This leads us to use an asynchronous 
  *   write packet as fake broadcast packet on the PC software for better robustness. 
  *    
  *   Lists:
@@ -82,6 +82,11 @@
  *
  *
  *  2014-08-23 NOTE for Eth1394 packet  Zihan Chen
+ *     - if eth1394 bit is set, nodes use rotary switch (board_id) as 
+ *       FireWire node_id
+ *     - This supports systems that do not have a proper FireWire master
+ *       (e.g., when using a FireWire subnetwork consisting only of FPGA1394 boards,
+ *       connected via a bridge such as the Ethernet/FireWire bridge).
  *   
  *
  */
@@ -178,7 +183,7 @@ module PhyLinkInterface(
     // globals
     input wire sysclk,           // system clock
     input wire reset,            // global reset
-    input wire eth1394,     // global eth1394
+    input wire eth1394,          // global eth1394
     input wire[3:0] board_id,    // global board id
     
     // phy-link interface bus
@@ -370,25 +375,6 @@ end
 reg[31:0] write_counter;
 wire[14:0] write_trig_count;  // 6 bits node_id + 8 bits (256 counts)
 reg write_trig;
-wire[15:0] write_trig_mask[15:0];  // mask table
-assign write_trig_mask[4'h0] = 16'b0000000000000001;
-assign write_trig_mask[4'h1] = 16'b0000000000000011;
-assign write_trig_mask[4'h2] = 16'b0000000000000111;
-assign write_trig_mask[4'h3] = 16'b0000000000001111;
-assign write_trig_mask[4'h4] = 16'b0000000000011111;
-assign write_trig_mask[4'h5] = 16'b0000000000111111;
-assign write_trig_mask[4'h6] = 16'b0000000001111111;
-assign write_trig_mask[4'h7] = 16'b0000000011111111;
-assign write_trig_mask[4'h8] = 16'b0000000111111111;
-assign write_trig_mask[4'h9] = 16'b0000001111111111;
-assign write_trig_mask[4'hA] = 16'b0000011111111111;
-assign write_trig_mask[4'hB] = 16'b0000111111111111;
-assign write_trig_mask[4'hC] = 16'b0001111111111111;
-assign write_trig_mask[4'hD] = 16'b0011111111111111;
-assign write_trig_mask[4'hE] = 16'b0111111111111111;
-assign write_trig_mask[4'hF] = 16'b1111111111111111;
-
-// rx_bc_fpga & write_trig_mask
 
 assign write_trig_count = eth1394 ? {count[5:0], 8'd0} : {node_id[5:0], 8'd0};
 
@@ -397,11 +383,6 @@ begin
     if (reset == 0 || rx_bc_bread) begin
         write_counter <= 32'd0;
         write_trig <= 1'b0;
-
-        // 5us node_id
-//        write_trig_count[13:8] <= node_id[5:0];
-//        write_trig_count[7:0] <= 8'd0;
-        
     end
     else begin
         if (write_counter < (write_trig_count + 150)) begin  // 150 cycle for ACK packet
