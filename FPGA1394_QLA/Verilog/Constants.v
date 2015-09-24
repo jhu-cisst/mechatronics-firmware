@@ -61,5 +61,6 @@
 `define OFF_ENC_DATA 4'd5          // enc quadrature register offset
 `define OFF_PER_DATA 4'd6          // enc period register offset
 `define OFF_FREQ_DATA 4'd7         // enc frequency register offset
+`define OFF_DOUT_CTRL 4'd8         // dout hi/lo period (16-bits hi, 16-bits lo)
 
 `endif  // _fpgaqla_constanst_v_

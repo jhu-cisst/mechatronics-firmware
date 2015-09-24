@@ -1,6 +1,6 @@
 /*******************************************************************************
  *
- * Copyright(C) 2008-2012 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2008-2015 ERC CISST, Johns Hopkins University.
  *
  * This module contains a register file dedicated to general board parameters.
  * Separate register files are maintained for each I/O channel (SpiCtrl).
@@ -11,6 +11,7 @@
  *     02/22/12    Paul Thienphrapa    Minor fixes for power enable and reset
  *     05/08/13    Zihan Chen          Fix watchdog 
  *     05/19/13    Zihan Chen          Add mv_good 40 ms sleep
+ *     09/23/15    Peter Kazanzides    Moved DOUT code to CtrlDout.v
  */
 
 
@@ -28,7 +29,7 @@ module BoardRegs(
     
     // board input (PC writes)
     output wire[4:1] amp_disable,
-    output reg[4:1]  dout,          // digital outputs
+    input  wire[4:1] dout,          // digital outputs
     output reg pwr_enable,          // enable motor power
     output reg relay_on,            // enable relay for safety loop-through
     output reg eth1394,             // 0: firewire mode 1: ethernet-1394 mode
@@ -110,7 +111,6 @@ always @(posedge(sysclk) or negedge(reset))
         phy_data <= 0;           // clear phy data output register
         wdog_period <= 16'hffff; // disables watchdog by default
         relay_on <= 0;           // start with safety relay off
-        dout <= 0;               // clear digital outputs 
         reset_soft_trigger <= 1'b0;  // clear reset_soft_trigger
         eth1394 <= 1'b0;    // clear eth1394 mode (i.e. normal FireWire mode)
      end
@@ -137,12 +137,7 @@ always @(posedge(sysclk) or negedge(reset))
         `REG_PHYCTRL: phy_ctrl <= reg_wdata[15:0];
         `REG_PHYDATA: phy_data <= reg_wdata[15:0];
         `REG_TIMEOUT: wdog_period <= reg_wdata[15:0];
-        `REG_DIGIOUT: begin
-            dout[1] <= reg_wdata[8] ? reg_wdata[0] : dout[1];
-            dout[2] <= reg_wdata[9] ? reg_wdata[1] : dout[2];
-            dout[3] <= reg_wdata[10] ? reg_wdata[2] : dout[3];
-            dout[4] <= reg_wdata[11] ? reg_wdata[3] : dout[4];
-        end
+        // Write to DOUT is handled in CtrlDout.v
         // Write to PROM command register (8) is handled in M25P16.v
         endcase
     end

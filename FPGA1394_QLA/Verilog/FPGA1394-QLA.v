@@ -241,6 +241,23 @@ CtrlEnc enc(
     .reg_wen(reg_wen)
 );
 
+// --------------------------------------------------------------------------
+// digital output (DOUT) control
+// --------------------------------------------------------------------------
+
+wire[31:0] reg_rdout;
+assign reg_rd[`OFF_DOUT_CTRL] = reg_rdout;
+
+CtrlDout dout(
+    .sysclk(sysclk),
+    .reset(reset),
+    .reg_raddr(reg_raddr),
+    .reg_waddr(reg_waddr),
+    .reg_rdata(reg_rdout),
+    .reg_wdata(reg_wdata),
+    .reg_wen(reg_wen),
+    .dout({IO1[16],IO1[17],IO1[18],IO1[19]})
+);
 
 // --------------------------------------------------------------------------
 // temperature sensors 
