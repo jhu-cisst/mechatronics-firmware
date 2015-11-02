@@ -11,6 +11,7 @@
  *     07/15/10                        Initial revision - MfgTest
  *     10/27/11    Paul Thienphrapa    Initial revision (pault at cs.jhu.edu)
  *     02/29/12    Zihan Chen
+ *     11/01/15    Peter Kazanzides    Modified for FPGA Rev 2 (Ethernet)
  */
 
 `timescale 1ns / 1ps
@@ -22,7 +23,7 @@
 `include "Constants.v"
 
 
-module FPGA1394QLA
+module FPGA1394EthQLA
 (
     // ieee 1394 phy-link interface
     input            clk1394,   // 49.152 MHz
@@ -37,9 +38,10 @@ module FPGA1394QLA
     output wire      TxD,
 
     // debug I/Os
-    input wire       clk29m,    // 29.4989 MHz
-    input wire       clk40m,    // 40.0000 MHz 
-    output wire [3:0] DEBUG,
+    input wire       clk25m,    // 25.0000 MHz 
+    //input wire       clk29m,    // 29.4989 MHz
+    //input wire       clk40m,    // 40.0000 MHz 
+    //output wire [3:0] DEBUG,
 
     // misc board I/Os
     input [3:0]      wenid,     // rotary switch
@@ -266,10 +268,11 @@ CtrlDout dout(
 // temperature sensors 
 // --------------------------------------------------------------------------
 
-// divide 40 MHz clock down to 400 kHz for temperature sensor readings
+// divide 25 MHz clock down to 400 kHz for temperature sensor readings
+// TO FIX: dividing by 63 gives ~397 kHz (actual factor is 62.5)
 wire clk400k_raw, clk400k;
-ClkDivI divtemp(clk40m, clk400k_raw);
-defparam divtemp.div = 100;
+ClkDivI divtemp(clk25m, clk400k_raw);
+defparam divtemp.div = 63;
 BUFG clktemp(.I(clk400k_raw), .O(clk400k));
 
 // route temperature data into BoardRegs module for readout
@@ -363,9 +366,10 @@ wire[4:1] safety_amp_disable;
 // 'channel 0' is a special axis that contains various board I/Os
 wire[31:0] reg_rdata_chan0;
 
+// TO FIX: clkaux was 40m, now 25m
 BoardRegs chan0(
     .sysclk(sysclk),
-    .clkaux(clk40m),
+    .clkaux(clk25m),
     .reset(reset),
     .amp_disable({IO2[38],IO2[36],IO2[34],IO2[32]}),
     .dout({IO1[16],IO1[17],IO1[18],IO1[19]}),
@@ -442,7 +446,7 @@ SafetyCheck safe4(
 wire clkfb;    // Clock feedback
 wire _out29;   // 29.491 MHz Clock signal
 wire _out14;   // 14.746 MHz Clock signal
-wire _ref40;   // 40.000 MHz Clock reference (Input)
+wire _ref25;   // 25.000 MHz Clock reference (Input)
 
 //-----------------------------------------------------------------------------
 //
@@ -458,7 +462,7 @@ wire _ref40;   // 40.000 MHz Clock reference (Input)
 //   signal that can be used by the PLL Module
 //
 //-----------------------------------------------------------------------------
-BUFG  clk_buf1 (.I(clk40m),  .O(_ref40));
+BUFG  clk_buf1 (.I(clk25m),  .O(_ref25));
 BUFG  clk_buf2 (.I(_out29),  .O(clk_29_pll));
 BUFG  clk_buf3 (.I(_out14),  .O(clk_14_pll));
 
@@ -489,12 +493,12 @@ PLL_BASE # (.BANDWIDTH         ("OPTIMIZED"),
             .CLK_FEEDBACK      ("CLKFBOUT"),
             .COMPENSATION      ("INTERNAL"),
             .DIVCLK_DIVIDE     (1),
-            .CLKFBOUT_MULT     (14),        // VCO = 40.000* 14/1 = 560.0000MHz
+            .CLKFBOUT_MULT     (20),        // VCO = 25.000* 20/1 = 500.0000MHz
             .CLKFBOUT_PHASE    (0.000),
-            .CLKOUT0_DIVIDE    (  19  ),    // CLK0 = 560.00/19 = 29.474
+            .CLKOUT0_DIVIDE    (  17  ),    // CLK0 = 500.00/17 = 29.412
             .CLKOUT0_PHASE     (  0.00),
             .CLKOUT0_DUTY_CYCLE(  0.50),
-            .CLKOUT1_DIVIDE    (  38  ),    // CLK1 = 560.00/38 = 14.737
+            .CLKOUT1_DIVIDE    (  34  ),    // CLK1 = 500.00/34 = 14.706
             .CLKOUT1_PHASE     (  0.00),
             .CLKOUT1_DUTY_CYCLE(  0.50),
             .CLKOUT2_DIVIDE    (  32  ),    // Unused Output. The divider still needs a
@@ -503,7 +507,7 @@ PLL_BASE # (.BANDWIDTH         ("OPTIMIZED"),
             .CLKOUT5_DIVIDE    (  32  ))    //
 _PLL1 (     .CLKFBOUT          (clkfb),     // The FB-Out is connected to FB-In inside
             .CLKFBIN           (clkfb),     //    the module.
-            .CLKIN             (_ref40),    // 40.00 MHz reference clock
+            .CLKIN             (_ref25),    // 25.00 MHz reference clock
             .CLKOUT0           (_out29),    // 29.49 MHz Output signal
             .CLKOUT1           (_out14),    // 14.75 MHz Output signal
             .CLKOUT2           (),          // Unused outputs
@@ -526,12 +530,13 @@ CtrlUart uart_debug(
 //
 reg[23:0] CountC;
 reg[23:0] CountI;
-always @(posedge(clk40m)) CountC <= CountC + 1'b1;
+// TO FIX: clk40m changed to clk25m
+always @(posedge(clk25m)) CountC <= CountC + 1'b1;
 always @(posedge(sysclk)) CountI <= CountI + 1'b1;
 
 assign LED = IO1[32];     // NOTE: IO1[32] pwr_enable
 // assign LED = reg_led;
-assign DEBUG = { clk_1mhz, clk_12hz, CountI[23], CountC[23] }; 
+// assign DEBUG = { clk_1mhz, clk_12hz, CountI[23], CountC[23] }; 
 
 // --- debug LED ----------
 // reg reg_led;
