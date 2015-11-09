@@ -144,3 +144,30 @@ NET  "wenid[3]"   LOC = "P5"      | IOSTANDARD = "LVCMOS33" | PULLUP;
 ################################################################################
 # Ethernet MAC/PHY
 ################################################################################
+
+NET  "ETH_RDn"   LOC = "Y14"       | IOSTANDARD = "LVCMOS33" | PULLUP;
+NET  "ETH_WRn"   LOC = "V13"       | IOSTANDARD = "LVCMOS33" | PULLUP;
+NET  "ETH_CSn"   LOC = "Y16"       | IOSTANDARD = "LVCMOS33" | PULLUP;
+NET  "ETH_CMD"   LOC = "Y15"       | IOSTANDARD = "LVCMOS33" | PULLUP;
+NET  "ETH_RSTn"  LOC = "W17"       | IOSTANDARD = "LVCMOS33";
+NET  "ETH_RSTn"  CLOCK_DEDICATED_ROUTE = FALSE;
+NET  "ETH_8n"    LOC = "W8"        | IOSTANDARD = "LVCMOS33";
+NET  "ETH_IRQn"  LOC = "W13"       | IOSTANDARD = "LVCMOS33" | PULLUP;
+NET  "ETH_PME"   LOC = "AA14"      | IOSTANDARD = "LVCMOS33" | PULLUP;
+
+NET  "SD[0]"     LOC = "AA8"       | IOSTANDARD = "LVCMOS33";
+NET  "SD[1]"     LOC = "AB8"       | IOSTANDARD = "LVCMOS33";
+NET  "SD[2]"     LOC = "AB9"       | IOSTANDARD = "LVCMOS33";
+NET  "SD[3]"     LOC = "AA10"      | IOSTANDARD = "LVCMOS33";
+NET  "SD[4]"     LOC = "AB10"      | IOSTANDARD = "LVCMOS33";
+NET  "SD[5]"     LOC = "AB11"      | IOSTANDARD = "LVCMOS33";
+NET  "SD[6]"     LOC = "AA12"      | IOSTANDARD = "LVCMOS33";
+NET  "SD[7]"     LOC = "AB12"      | IOSTANDARD = "LVCMOS33";
+NET  "SD[8]"     LOC = "AB13"      | IOSTANDARD = "LVCMOS33";
+NET  "SD[9]"     LOC = "AB14"      | IOSTANDARD = "LVCMOS33";
+NET  "SD[10]"    LOC = "Y17"       | IOSTANDARD = "LVCMOS33";
+NET  "SD[11]"    LOC = "W18"       | IOSTANDARD = "LVCMOS33";
+NET  "SD[12]"    LOC = "V18"       | IOSTANDARD = "LVCMOS33";
+NET  "SD[13]"    LOC = "Y19"       | IOSTANDARD = "LVCMOS33";
+NET  "SD[14]"    LOC = "V19"       | IOSTANDARD = "LVCMOS33";
+NET  "SD[15]"    LOC = "AB21"      | IOSTANDARD = "LVCMOS33";

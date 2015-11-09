@@ -32,6 +32,17 @@ module FPGA1394EthQLA
     output wire      lreq,
     output wire      reset_phy,
 
+    // ksz8851-16mll ethernet interface
+    output wire      ETH_CSn,       // chip select
+    output wire      ETH_RSTn,      // reset
+    input wire       ETH_PME,       // power management event, unused
+    output wire      ETH_CMD,       // command input for ksz8851 register IO
+    output wire      ETH_8n,        // 8 or 16 bit bus
+    input wire       ETH_IRQn,      // interrupt request
+    output wire      ETH_RDn,
+    output wire      ETH_WRn,
+    inout [15:0]     SD,
+
     // serial interface
     input wire 	     RxD,
     input wire 	     RTS,
@@ -91,6 +102,13 @@ assign reg_rdata = (reg_raddr[15:12]==`ADDR_HUB) ? (reg_rdata_hub) :
 // 1394 phy low reset, never reset
 assign reset_phy = 1'b1; 
 
+// Ethernet
+assign ETH_CSn = 0;         // Always select
+
+// The FPGA board is designed to enable the 16-bit bus. If resistor R45
+// is populated, then this can be changed by driving ETH_8n low during reset.
+// By default, R45 is not populated, so driving this pin has no effect.
+assign ETH_8n = 1;          // 16-bit bus
 
 // --------------------------------------------------------------------------
 // hub register module
@@ -148,7 +166,30 @@ PhyRequest phyreq(
     .data(reg_wdata[11:0])    // in: phy request data
 );
 
+// --------------------------------------------------------------------------
+// Ethernet module
+// --------------------------------------------------------------------------
 
+wire[31:0] Eth_Result;
+
+KSZ8851 Ethernet(
+    .sysclk(sysclk),          // in: global clock
+    .reset(reset),            // in: FPGA reset
+
+    .ETH_RSTn(ETH_RSTn),      // out: reset to KSZ8851
+    .ETH_CMD(ETH_CMD),        // out: CMD to KSZ8851 (0=data, 1=addr)
+    .ETH_RDn(ETH_RDn),        // out: read strobe to KSZ8851
+    .ETH_WRn(ETH_WRn),        // out: write strobe to KSZ8851
+    .SD(SD),                  // inout: addr/data bus to KSZ8851
+    .ETH_IRQn(ETH_IRQn),      // in: interrupt request from KSZ8851
+    .ETH_PME(ETH_PME),        // in: power management event
+
+    .eth_result(Eth_Result),  // out: Ethernet status and last register read
+
+    .reg_wen(reg_wen),        // in: write enable from FireWire
+    .reg_waddr(reg_waddr),    // in: write address from FireWire
+    .reg_wdata(reg_wdata)     // in: data from FireWire
+);
 
 // --------------------------------------------------------------------------
 // adcs: pot + current 
@@ -395,6 +436,7 @@ BoardRegs chan0(
     .reg_wen(reg_wen),
     .prom_status(PROM_Status),
     .prom_result(PROM_Result),
+    .eth_result(Eth_Result),
     .safety_amp_disable(safety_amp_disable)
 );
 

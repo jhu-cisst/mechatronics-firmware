@@ -59,7 +59,10 @@ module BoardRegs(
     // PROM feedback
     input  wire[31:0] prom_status,
     input  wire[31:0] prom_result,
-    
+
+    // Ethernet feedback
+    input  wire[31:0] eth_result,
+
     // Safety amp_disable
     input  wire[4:1] safety_amp_disable
 );
@@ -166,6 +169,7 @@ always @(posedge(sysclk) or negedge(reset))
         `REG_PROMSTAT: reg_rdata <= prom_status;
         `REG_PROMRES: reg_rdata <= prom_result;
         `REG_DIGIN: reg_rdata <= {v_fault, 3'd0, enc_a, enc_b, enc_i, dout, neg_limit, pos_limit, home};
+        `REG_ETHRES: reg_rdata <= eth_result;
 
         // `REG_SAFETY: reg_rdata <= { 28'd0, safety_amp_disable};
         // `REG_WDOG: reg_rdata <= {28'd0, wdog_amp_disable};

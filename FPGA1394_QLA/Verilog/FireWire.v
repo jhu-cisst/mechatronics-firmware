@@ -96,10 +96,10 @@
 // IEEE-1394 64-bit Address Mapped 
 // We only use last 16-bit, the rest bit number is 0 indexed
 // 
-//  addr[15:12] map 
+//  addr[15:12] map (see Constants.v)
 //     4'h0: board register + device memory
 //     4'h1: hub caching space
-//     4'h2: M15P16 prom space
+//     4'h2: M25P16 prom space
 //     4'h3: QLA 25AA128 prom space
 //         
 // -------------------------------------------------------------

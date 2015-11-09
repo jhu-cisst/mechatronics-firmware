@@ -363,6 +363,10 @@ wire[4:1] safety_amp_disable;
 // 'channel 0' is a special axis that contains various board I/Os
 wire[31:0] reg_rdata_chan0;
 
+// There is no Ethernet on this version of board, so set the result to 0
+wire[31:0] Eth_Result;
+assign  Eth_Result = 32'b0;
+
 BoardRegs chan0(
     .sysclk(sysclk),
     .clkaux(clk40m),
@@ -391,6 +395,7 @@ BoardRegs chan0(
     .reg_wen(reg_wen),
     .prom_status(PROM_Status),
     .prom_result(PROM_Result),
+    .eth_result(Eth_Result),
     .safety_amp_disable(safety_amp_disable)
 );
 
