@@ -137,7 +137,7 @@ always @(posedge sysclk or negedge reset) begin
     else begin
 
         // Format of 32-bit reg_wdata:
-        // 0(5) Reset(1) R/W(1) W/B(1) Addr(8) Data(16)
+        // 0(4) DMA(1) Reset(1) R/W(1) W/B(1) Addr(8) Data(16)
         if (eth_reg_wen) begin
             if (reg_wdata[26]) begin   // if reset
                 count <= 0;            // Clear counter
@@ -149,7 +149,9 @@ always @(posedge sysclk or negedge reset) begin
                 eth_data <= reg_wdata[15:0];
                 eth_error <= 0;
                 isWrite <= reg_wdata[25];
-                state <= ST_ADDR_START;
+                // If DMA bit (reg_wdata[27]) is set, next state is either ST_WRITE_START or ST_READ_START;
+                // otherwise, starting state is ST_ADDR_START
+                state <= (reg_wdata[27] ? (reg_wdata[25] ? ST_WRITE_START : ST_READ_START) : ST_ADDR_START);
             end
             else begin
                 eth_error <= 1;
