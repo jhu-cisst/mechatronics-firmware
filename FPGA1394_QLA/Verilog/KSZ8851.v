@@ -66,11 +66,25 @@ module KSZ8851(
     input wire ETH_IRQn,  // interrupt request
     input wire ETH_PME,   // power management event
 
-    output wire[31:0] eth_result,
+    // Interface to/from higher level (EthernetIO.v)
+    output reg initReq,           // 1 -> Chip has been reset; higher-level initialization requested
+    input wire initAck,           // 1 -> Acknowledgement from higher layer that initialization has begun
+    input wire cmdReq,            // 1 -> higher-level requesting a command
+    output reg cmdAck,            // 1 -> command accepted (can request next command)
+    output reg dataValid,         // 1 -> DataOut is valid
+    input wire isDMA,             // 1 -> DMA mode active
+    input wire isWrite,           // 0 -> Read, 1 -> Write
+    input wire isWord,            // 0 -> Byte, 1 -> Word
+    input wire[7:0] RegAddr,      // Register address (N/A for DMA mode)
+    input wire[15:0] DataIn,      // Data to be written to chip (N/A for read)
+    output reg[15:0] DataOut,     // Data read from chip (N/A for write)
+    input wire initOK,            // 1 -> Initialization successful (from higher layer)
 
+    // Interface from FireWire
     input  wire reg_wen,             // write enable
     input  wire[15:0] reg_waddr,     // write address
-    input  wire[31:0] reg_wdata      // write data
+    input  wire[31:0] reg_wdata,     // write data
+    output wire[31:0] eth_result
 );
 
 // tri-state bus configuration
@@ -83,16 +97,16 @@ wire   eth_reg_wen;
 assign eth_reg_wen = (reg_waddr == {`ADDR_MAIN, 8'h0, `REG_ETHRES}) ? reg_wen : 1'b0;
 
 // Following registers hold address/data for requested register reads/writes
-reg[7:0]  eth_addr;   // I/O register address (0-0xFF)
-reg       isWord;     // Data length (0->byte, 1->word)
-reg[15:0] eth_data;   // Data to/from KSZ8851
-reg       isWrite;    // Write (1) or Read (0)
+reg[7:0]  eth_addr;     // I/O register address (0-0xFF)
+reg       eth_isWord;   // Data length (0->byte, 1->word)
+reg[15:0] eth_data;     // Data to/from KSZ8851
+reg       eth_isWrite;  // Write (1) or Read (0)
 
 // Address translator
 wire[15:0] Addr16;
 getAddr newAddr(
     .offset(eth_addr),
-    .length(isWord),
+    .length(eth_isWord),
     .Addr(Addr16)
 );
 
@@ -104,7 +118,12 @@ reg[20:0] count;
 // VALID(1) 0(6) ERROR(1) PME(1) IRQ(1) State(4) Data(16)
 assign eth_result[31] = 1'b1;         // 31: 1 -> Ethernet is present
 assign eth_result[30] = eth_error;    // 30: 1 -> error occurred
-assign eth_result[29:22] = 8'b0;      // 29-22: 0 (unused)
+assign eth_result[29] = initOK;       // 29: 1 -> Initialization OK
+assign eth_result[28] = initReq;      // 28: 1 -> Reset executed, init requested
+assign eth_result[27] = initAck;      // 27: 1 -> initReq acknowledged
+assign eth_result[26] = cmdReq;       // 26: 1 -> command requested by higher level
+assign eth_result[25] = cmdAck;       // 25: 1 -> command acknowledged by lower level
+assign eth_result[24:22] = 3'b0;      // 24-22: 0 (unused)
 assign eth_result[21] = ETH_PME;      // 21: Power Management Event
 assign eth_result[20] = ETH_IRQn;     // 20: Interrupt request
 assign eth_result[19:16] = state;     // 19-16: Current state
@@ -116,23 +135,26 @@ assign eth_result[15:0] = eth_data;   // 15-0: Last data read or written
 
 // state machine states
 parameter[3:0]
-    ST_IDLE = 0,
-    ST_RESET_ASSERT = 1,    // assert reset (low) -- 10 msec
-    ST_RESET_WAIT = 2,      // wait after bringing reset high -- 50 msec
-    ST_ADDR_START = 3,
-    ST_ADDR_HOLD = 4,
-    ST_ADDR_END = 5,
-    ST_READ_START = 6,
-    ST_READ_HOLD = 7,
-    ST_READ_END = 8,
-    ST_WRITE_START = 9,
-    ST_WRITE_HOLD = 10,
-    ST_WRITE_END = 11;
+    ST_IDLE = 4'd0,
+    ST_RESET_ASSERT = 4'd1,    // assert reset (low) -- 10 msec
+    ST_RESET_WAIT = 4'd2,      // wait after bringing reset high -- 50 msec
+    ST_ADDR_START = 4'd3,
+    ST_ADDR_HOLD = 4'd4,
+    ST_ADDR_END = 4'd5,
+    ST_READ_START = 4'd6,
+    ST_READ_HOLD = 4'd7,
+    ST_READ_END = 4'd8,
+    ST_WRITE_START = 4'd9,
+    ST_WRITE_HOLD = 4'd10,
+    ST_WRITE_END = 4'd11;
 
 always @(posedge sysclk or negedge reset) begin
     if (reset == 0) begin
         count <= 0;            // Clear counter
         state <= ST_RESET_ASSERT;
+        initReq <= 0;
+        cmdAck <= 0;
+        dataValid <= 0;
     end
     else begin
 
@@ -142,13 +164,16 @@ always @(posedge sysclk or negedge reset) begin
             if (reg_wdata[26]) begin   // if reset
                 count <= 0;            // Clear counter
                 state <= ST_RESET_ASSERT;
+                initReq <= 0;
+                cmdAck <= 0;
+                dataValid <= 0;
             end
             else if (state == ST_IDLE) begin
-                isWord <= reg_wdata[24];
+                eth_isWord <= reg_wdata[24];
                 eth_addr <= reg_wdata[23:16];
                 eth_data <= reg_wdata[15:0];
                 eth_error <= 0;
-                isWrite <= reg_wdata[25];
+                eth_isWrite <= reg_wdata[25];
                 // If DMA bit (reg_wdata[27]) is set, next state is either ST_WRITE_START or ST_READ_START;
                 // otherwise, starting state is ST_ADDR_START
                 state <= (reg_wdata[27] ? (reg_wdata[25] ? ST_WRITE_START : ST_READ_START) : ST_ADDR_START);
@@ -158,10 +183,27 @@ always @(posedge sysclk or negedge reset) begin
             end
         end
 
+        // Remove cmdAck when cmdReq is negated; also negate dataValid (used for read command)
+        if (cmdAck && !cmdReq) begin
+            cmdAck <= 0;
+            dataValid <= 0;
+        end
+
+        // Clear the initReq flag
+        if (initAck) initReq <= 0;
+
         case (state)
 
         ST_IDLE:
         begin
+            if (cmdReq && !eth_reg_wen) begin
+                eth_isWrite <= isWrite;
+                eth_isWord <= isWord;
+                eth_addr <= RegAddr;
+                eth_data <= DataIn;
+                state <= (isDMA ? (isWrite ? ST_WRITE_START : ST_READ_START) : ST_ADDR_START);
+                cmdAck <= 1;
+            end
         end
 
         // Assert the reset and wait 10 ms before removing it.
@@ -186,6 +228,7 @@ always @(posedge sysclk or negedge reset) begin
             if (count == 21'h1FFFFF) begin
                 count <= 0;
                 state <= ST_IDLE;
+                initReq <= 1;
             end
         else
             count <= count + 1;
@@ -207,7 +250,7 @@ always @(posedge sysclk or negedge reset) begin
         ST_ADDR_END:
         begin
             ETH_WRn <= 1;
-            state <= isWrite ? ST_WRITE_START : ST_READ_START;
+            state <= eth_isWrite ? ST_WRITE_START : ST_READ_START;
         end
 
         ST_WRITE_START:
@@ -245,6 +288,8 @@ always @(posedge sysclk or negedge reset) begin
         begin
             ETH_RDn <= 1;
             eth_data <= SD;
+            DataOut <= SD;
+            dataValid <= 1;
             state <= ST_IDLE;
         end
 

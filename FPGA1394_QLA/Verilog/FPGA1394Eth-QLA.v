@@ -170,9 +170,22 @@ PhyRequest phyreq(
 // Ethernet module
 // --------------------------------------------------------------------------
 
+wire eth_init_req;
+wire eth_init_ack;
+wire eth_cmd_req;
+wire eth_cmd_ack;
+wire eth_read_valid;
+wire eth_is_dma;
+wire eth_is_write;
+wire eth_is_word;
+wire[7:0] eth_reg_addr;
+wire[15:0] eth_to_chip;
+wire[15:0] eth_from_chip;
+wire eth_init_ok;
+
 wire[31:0] Eth_Result;
 
-KSZ8851 Ethernet(
+KSZ8851 EthernetChip(
     .sysclk(sysclk),          // in: global clock
     .reset(reset),            // in: FPGA reset
 
@@ -184,12 +197,43 @@ KSZ8851 Ethernet(
     .ETH_IRQn(ETH_IRQn),      // in: interrupt request from KSZ8851
     .ETH_PME(ETH_PME),        // in: power management event
 
-    .eth_result(Eth_Result),  // out: Ethernet status and last register read
+    .initReq(eth_init_req),
+    .initAck(eth_init_ack),
+    .cmdReq(eth_cmd_req),
+    .cmdAck(eth_cmd_ack),
+    .dataValid(eth_read_valid),
+    .isDMA(eth_is_dma),
+    .isWrite(eth_is_write),
+    .isWord(eth_is_word),
+    .RegAddr(eth_reg_addr),
+    .DataIn(eth_to_chip),
+    .DataOut(eth_from_chip),
+    .initOK(eth_init_ok),
 
     .reg_wen(reg_wen),        // in: write enable from FireWire
     .reg_waddr(reg_waddr),    // in: write address from FireWire
-    .reg_wdata(reg_wdata)     // in: data from FireWire
+    .reg_wdata(reg_wdata),    // in: data from FireWire
+    .eth_result(Eth_Result)   // out: Ethernet status and last register read
 );
+
+EthernetIO EthernetTransfers(
+    .sysclk(sysclk),          // in: global clock
+    .reset(reset),            // in: FPGA reset
+
+    .initReq(eth_init_req),
+    .initAck(eth_init_ack),
+    .cmdReq(eth_cmd_req),
+    .cmdAck(eth_cmd_ack),
+    .readValid(eth_read_valid),
+    .isDMA(eth_is_dma),
+    .isWrite(eth_is_write),
+    .isWord(eth_is_word),
+    .RegAddr(eth_reg_addr),
+    .WriteData(eth_to_chip),
+    .ReadData(eth_from_chip),
+    .initOK(eth_init_ok)
+);
+
 
 // --------------------------------------------------------------------------
 // adcs: pot + current 
