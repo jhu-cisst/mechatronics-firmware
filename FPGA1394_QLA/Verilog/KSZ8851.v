@@ -80,6 +80,10 @@ module KSZ8851(
     output reg[15:0] DataOut,     // Data read from chip (N/A for write)
     input wire initOK,            // 1 -> Initialization successful (from higher layer)
 
+    output reg receiveEnabled,   // for debugging
+    input wire quadRead,
+    input wire quadWrite,
+
     // Interface from FireWire
     input  wire reg_wen,             // write enable
     input  wire[15:0] reg_waddr,     // write address
@@ -123,7 +127,9 @@ assign eth_result[28] = initReq;      // 28: 1 -> Reset executed, init requested
 assign eth_result[27] = initAck;      // 27: 1 -> initReq acknowledged
 assign eth_result[26] = cmdReq;       // 26: 1 -> command requested by higher level
 assign eth_result[25] = cmdAck;       // 25: 1 -> command acknowledged by lower level
-assign eth_result[24:22] = 3'b0;      // 24-22: 0 (unused)
+assign eth_result[24] = quadRead;     // 24: quadRead (debugging)
+assign eth_result[23] = quadWrite;    // 23: quadWrite (debugging)
+assign eth_result[22] = receiveEnabled; // 22: debugging (receive enabled)
 assign eth_result[21] = ETH_PME;      // 21: Power Management Event
 assign eth_result[20] = ETH_IRQn;     // 20: Interrupt request
 assign eth_result[19:16] = state;     // 19-16: Current state
@@ -155,12 +161,14 @@ always @(posedge sysclk or negedge reset) begin
         initReq <= 0;
         cmdAck <= 0;
         dataValid <= 0;
+        receiveEnabled <= 0;
     end
     else begin
 
         // Format of 32-bit reg_wdata:
-        // 0(4) DMA(1) Reset(1) R/W(1) W/B(1) Addr(8) Data(16)
+        // 0(3) recvEn(1) DMA(1) Reset(1) R/W(1) W/B(1) Addr(8) Data(16)
         if (eth_reg_wen) begin
+            receiveEnabled <= reg_wdata[28];
             if (reg_wdata[26]) begin   // if reset
                 count <= 0;            // Clear counter
                 state <= ST_RESET_ASSERT;
@@ -177,6 +185,7 @@ always @(posedge sysclk or negedge reset) begin
                 // If DMA bit (reg_wdata[27]) is set, next state is either ST_WRITE_START or ST_READ_START;
                 // otherwise, starting state is ST_ADDR_START
                 state <= (reg_wdata[27] ? (reg_wdata[25] ? ST_WRITE_START : ST_READ_START) : ST_ADDR_START);
+                ETH_CMD <= reg_wdata[27] ? 0 : 1;
             end
             else begin
                 eth_error <= 1;
@@ -202,7 +211,9 @@ always @(posedge sysclk or negedge reset) begin
                 eth_addr <= RegAddr;
                 eth_data <= DataIn;
                 state <= (isDMA ? (isWrite ? ST_WRITE_START : ST_READ_START) : ST_ADDR_START);
+                ETH_CMD <= isDMA ? 0 : 1;
                 cmdAck <= 1;
+                count <= 0;
             end
         end
 
@@ -236,29 +247,51 @@ always @(posedge sysclk or negedge reset) begin
 
         ST_ADDR_START:
         begin
-            ETH_CMD <= 1;
-            ETH_WRn <= 0;
-            SDReg <= Addr16;
-            state <= ST_ADDR_HOLD;
+            if (count[0] == 0) begin
+               ETH_CMD <= 1;
+               SDReg <= Addr16;
+            end
+            else begin
+               ETH_WRn <= 0;
+               state <= ST_ADDR_HOLD;
+               count <= 0;
+            end
+            count <= count+1;
         end
 
         ST_ADDR_HOLD:
-        begin
-           state <= ST_ADDR_END;
+          begin
+             if (count[0] == 1) begin
+                state <= ST_ADDR_END;
+                count <= 0;
+             end
+             count <= count+1;
         end
 
         ST_ADDR_END:
         begin
-            ETH_WRn <= 1;
-            state <= eth_isWrite ? ST_WRITE_START : ST_READ_START;
+            if (count[0] == 0)
+                ETH_WRn <= 1;
+            else begin
+                ETH_CMD <= 0;
+                state <= eth_isWrite ? ST_WRITE_START : ST_READ_START;
+                count <= 0;
+            end
+            count <= count+1;
         end
 
         ST_WRITE_START:
         begin
-            ETH_CMD <= 0;
-            ETH_WRn <= 0;
-            SDReg <= eth_data;
-            state <= ST_WRITE_HOLD;
+           if (count[0] == 0) begin
+              ETH_CMD <= 0;
+              SDReg <= eth_data;
+           end
+           else begin
+              ETH_WRn <= 0;
+              state <= ST_WRITE_HOLD;
+              count <= 0;
+           end
+           count <= count+1;
         end
 
         ST_WRITE_HOLD:
@@ -281,16 +314,26 @@ always @(posedge sysclk or negedge reset) begin
 
         ST_READ_HOLD:
         begin
-           state <= ST_READ_END;
+           if (count[0] == 1) begin
+              state <= ST_READ_END;
+              count <= 0;
+           end
+           count <= count + 1;
         end
 
         ST_READ_END:
         begin
-            ETH_RDn <= 1;
-            eth_data <= SD;
-            DataOut <= SD;
-            dataValid <= 1;
-            state <= ST_IDLE;
+            if (count[0] == 0) begin
+               eth_data <= SD;
+               DataOut <= SD;
+               dataValid <= 1;
+            end
+            else begin
+               ETH_RDn <= 1;
+               state <= ST_IDLE;
+               count <= 0;
+            end
+            count <= count+1;
         end
 
         endcase

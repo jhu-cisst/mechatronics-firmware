@@ -698,7 +698,7 @@ begin
                         // fourth quadlet --------------------------------------
                         128: begin
                             // quadlet read: 
-                            //   crc qualdet, nothing 
+                            //   crc quadlet, nothing
 
                             // quadlet write normal
                             reg_wdata <= buffer[31:0];    // reg write data

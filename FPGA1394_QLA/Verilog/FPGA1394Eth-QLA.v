@@ -183,6 +183,9 @@ wire[15:0] eth_to_chip;
 wire[15:0] eth_from_chip;
 wire eth_init_ok;
 
+wire eth_recv_enabled;  // for debugging
+wire eth_quad_read;
+wire eth_quad_write;
 wire[31:0] Eth_Result;
 
 KSZ8851 EthernetChip(
@@ -210,6 +213,10 @@ KSZ8851 EthernetChip(
     .DataOut(eth_from_chip),
     .initOK(eth_init_ok),
 
+    .receiveEnabled(eth_recv_enabled),  // for debugging
+    .quadRead(eth_quad_read),
+    .quadWrite(eth_quad_write),
+
     .reg_wen(reg_wen),        // in: write enable from FireWire
     .reg_waddr(reg_waddr),    // in: write address from FireWire
     .reg_wdata(reg_wdata),    // in: data from FireWire
@@ -219,6 +226,11 @@ KSZ8851 EthernetChip(
 EthernetIO EthernetTransfers(
     .sysclk(sysclk),          // in: global clock
     .reset(reset),            // in: FPGA reset
+
+    .ETH_IRQn(ETH_IRQn),      // in: interrupt request from KSZ8851
+    .receiveEnabled(eth_recv_enabled),  // for debugging
+    .quadRead(eth_quad_read),
+    .quadWrite(eth_quad_write),
 
     .initReq(eth_init_req),
     .initAck(eth_init_ack),
