@@ -79,6 +79,7 @@ module KSZ8851(
     input wire[15:0] DataIn,      // Data to be written to chip (N/A for read)
     output reg[15:0] DataOut,     // Data read from chip (N/A for write)
     input wire initOK,            // 1 -> Initialization successful (from higher layer)
+    input wire ethIoError,        // 1 -> Error from higher layer
 
     output reg receiveEnabled,   // for debugging
     input wire quadRead,
@@ -126,7 +127,7 @@ assign eth_result[31] = 1'b1;         // 31: 1 -> Ethernet is present
 assign eth_result[30] = eth_error;    // 30: 1 -> error occurred
 assign eth_result[29] = initOK;       // 29: 1 -> Initialization OK
 assign eth_result[28] = initReq;      // 28: 1 -> Reset executed, init requested
-assign eth_result[27] = initAck;      // 27: 1 -> initReq acknowledged
+assign eth_result[27] = ethIoError;   // 27: 1 -> ethernet I/O error (higher layer)
 assign eth_result[26] = cmdReq;       // 26: 1 -> command requested by higher level
 assign eth_result[25] = cmdAck;       // 25: 1 -> command acknowledged by lower level
 assign eth_result[24] = quadRead;     // 24: quadRead (debugging)
@@ -272,13 +273,13 @@ always @(posedge sysclk or negedge reset) begin
         end
 
         ST_ADDR_HOLD:
-          begin
-             if (count[0] == 1'd0)
-                 count[0] <= 1'd1;
-             else begin
+        begin
+            if (count[0] == 1'd0)
+                count[0] <= 1'd1;
+            else begin
                 state <= ST_ADDR_END;
                 count[0] <= 1'd0;
-             end
+            end
         end
 
         ST_ADDR_END:

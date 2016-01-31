@@ -182,6 +182,7 @@ wire[7:0] eth_reg_addr;
 wire[15:0] eth_to_chip;
 wire[15:0] eth_from_chip;
 wire eth_init_ok;
+wire eth_io_error;
 
 wire eth_recv_enabled;  // for debugging
 wire eth_quad_read;
@@ -214,6 +215,7 @@ KSZ8851 EthernetChip(
     .DataIn(eth_to_chip),
     .DataOut(eth_from_chip),
     .initOK(eth_init_ok),
+    .ethIoError(eth_io_error),          // error from higher layer (EthernetIO)
 
     .receiveEnabled(eth_recv_enabled),  // for debugging
     .quadRead(eth_quad_read),
@@ -250,7 +252,8 @@ EthernetIO EthernetTransfers(
     .RegAddr(eth_reg_addr),
     .WriteData(eth_to_chip),
     .ReadData(eth_from_chip),
-    .initOK(eth_init_ok)
+    .initOK(eth_init_ok),
+    .ethIoError(eth_io_error)
 );
 
 
