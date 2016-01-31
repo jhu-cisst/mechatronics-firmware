@@ -3,7 +3,7 @@
 
 /*******************************************************************************    
  *
- * Copyright(C) 2011-2015 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2011-2016 ERC CISST, Johns Hopkins University.
  *
  * This is the top level module for the FPGA1394-QLA motor controller interface.
  *
@@ -186,6 +186,8 @@ wire eth_init_ok;
 wire eth_recv_enabled;  // for debugging
 wire eth_quad_read;
 wire eth_quad_write;
+wire eth_send_req;
+wire eth_send_ack;
 wire[31:0] Eth_Result;
 
 KSZ8851 EthernetChip(
@@ -216,6 +218,8 @@ KSZ8851 EthernetChip(
     .receiveEnabled(eth_recv_enabled),  // for debugging
     .quadRead(eth_quad_read),
     .quadWrite(eth_quad_write),
+    .sendReq(eth_send_req),
+    .sendAck(eth_send_ack),
 
     .reg_wen(reg_wen),        // in: write enable from FireWire
     .reg_waddr(reg_waddr),    // in: write address from FireWire
@@ -226,11 +230,14 @@ KSZ8851 EthernetChip(
 EthernetIO EthernetTransfers(
     .sysclk(sysclk),          // in: global clock
     .reset(reset),            // in: FPGA reset
+    .board_id(~wenid),
 
     .ETH_IRQn(ETH_IRQn),      // in: interrupt request from KSZ8851
     .receiveEnabled(eth_recv_enabled),  // for debugging
     .quadRead(eth_quad_read),
     .quadWrite(eth_quad_write),
+    .sendReq(eth_send_req),
+    .sendAck(eth_send_ack),
 
     .initReq(eth_init_req),
     .initAck(eth_init_ack),

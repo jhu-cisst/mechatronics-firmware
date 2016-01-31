@@ -3,7 +3,7 @@
 
 /*******************************************************************************    
  *
- * Copyright(C) 2014-2015 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2014-2016 ERC CISST, Johns Hopkins University.
  *
  * This module implements the higher-level Ethernet I/O, which interfaces
  * to the KSZ8851 MAC/PHY chip.
@@ -14,8 +14,11 @@
 
 module EthernetIO(
     // global clock and reset
-    input      sysclk,
-    input      reset,
+    input wire sysclk,
+    input wire reset,
+
+    // board id (rotary switch)
+    input wire[3:0] board_id,
 
     // KSZ8851 interrupt
     input wire ETH_IRQn,          // interrupt request
@@ -24,6 +27,8 @@ module EthernetIO(
     input wire receiveEnabled,
     output reg quadRead,
     output reg quadWrite,
+    input wire sendReq,
+    output reg sendAck,
 
     // Interface to lower layer (KSZ8851)
     input wire initReq,           // 1 -> Chip has been reset; initialization requested
@@ -92,19 +97,11 @@ parameter[5:0]
     ST_SEND_TXQ_ENQUEUE_END = 6'd43;
 
 reg[7:0] FrameCount;   // Number of received frames
-reg[2:0] count;        // General use counter
+reg[3:0] count;        // General use counter
 
-reg[15:0] FrameHeader[1:7];
-wire[15:0] destMac[0:2];
-wire[15:0] srcMac[0:2];
-wire [15:0] Length;
-assign destMac[0] = FrameHeader[1];
-assign destMac[1] = FrameHeader[2];
-assign destMac[2] = FrameHeader[3];
-assign srcMac[0]  = FrameHeader[4];
-assign srcMac[1]  = FrameHeader[5];
-assign srcMac[2]  = FrameHeader[6];
-assign Length     = FrameHeader[7];
+reg[15:0] destMac[0:2];  // Not currently used
+reg[15:0] srcMac[0:2];
+reg[15:0] Length;
               
 always @(posedge sysclk or negedge reset) begin
     if (reset == 0) begin
@@ -118,6 +115,11 @@ always @(posedge sysclk or negedge reset) begin
        initOK <= 0;
        quadRead <= 0;
        quadWrite <= 0;
+       sendAck <= 0;
+       srcMac[0] <= 16'd0;
+       srcMac[1] <= 16'd0;
+       srcMac[2] <= 16'd0;
+       Length <= 16'd0;
     end
     else begin
 
@@ -125,11 +127,11 @@ always @(posedge sysclk or negedge reset) begin
 
          ST_IDLE:
          begin
+            isDMA <= 0;
+            isWord <= 1;       // all transfers are word
             if (initReq) begin
                cmdReq <= 1;
-               isDMA <= 0;
                isWrite <= 0;
-               isWord <= 1;       // all transfers are word
                RegAddr <= 8'hC0;  // Read Chip ID
                state <= ST_WAIT_ACK;
                nextState <= ST_INIT_CHECK_CHIPID;
@@ -138,12 +140,14 @@ always @(posedge sysclk or negedge reset) begin
             end
             else if (~ETH_IRQn && receiveEnabled) begin
                cmdReq <= 1;
-               isDMA <= 0;
                isWrite <= 0;
-               isWord <= 1;
                RegAddr <= 8'h92;
                state <= ST_WAIT_ACK;
                nextState <= ST_RECEIVE_CLEAR_RXIS;
+            end
+            else if (sendReq) begin
+               state <= ST_SEND_DMA_STATUS_READ;
+               sendAck <= 1;
             end
          end
 
@@ -182,8 +186,8 @@ always @(posedge sysclk or negedge reset) begin
          begin
             cmdReq <= 1;
             isWrite <= 1;
-            RegAddr <= 8'h10;       // MAC address low
-            WriteData <= 16'h9400;  //   0x94nn (nn = board id, 0 for now)
+            RegAddr <= 8'h10;                 // MAC address low
+            WriteData <= {12'h940,board_id};  //   0x940n (n = board id)
             state <= ST_WAIT_ACK;
             nextState <= ST_INIT_WRITE_MAC_MID;
          end
@@ -336,10 +340,11 @@ always @(posedge sysclk or negedge reset) begin
          ST_RECEIVE_CLEAR_RXIS:
          begin
             if (readValid) begin
-               if (ReadData[13]) begin   // RXIS asserted
+               if (ReadData[13] == 1'b1) begin   // RXIS asserted
                   cmdReq <= 1;
                   isWrite <= 1;
-                  WriteData <= {ReadData[15:14],1'b1,ReadData[12:0]};
+                  // RegAddr is already set to 8'h92
+                  WriteData <= 16'h2000;  // clear interrupt
                   state <= ST_WAIT_ACK;
                   nextState <= ST_RECEIVE_FRAME_COUNT_START;
                end
@@ -372,7 +377,7 @@ always @(posedge sysclk or negedge reset) begin
          ST_RECEIVE_FRAME_STATUS:
          begin
             if (readValid) begin
-               FrameCount <= FrameCount-1;
+               FrameCount <= FrameCount-8'd1;
                if (ReadData[15]) begin // if valid
                   cmdReq <= 1;
                   isWrite <= 0;
@@ -419,7 +424,7 @@ always @(posedge sysclk or negedge reset) begin
                WriteData <= {ReadData[15:4],1'b1,ReadData[2:0]};
                state <= ST_WAIT_ACK;
                nextState <= ST_RECEIVE_DMA_SKIP;
-               count <= 0;
+               count <= 4'd0;
             end
          end
 
@@ -430,46 +435,54 @@ always @(posedge sysclk or negedge reset) begin
             isDMA <= 1;
             isWrite <= 0;
             state <= ST_WAIT_ACK;
-            if (count == 2) begin
+            if (count[1:0] == 2'd3) begin
                nextState <= ST_RECEIVE_DMA_FRAME_HEADER;
-               count <= 0;
+               count[1:0] <= 2'd0;
             end
             else begin
                nextState <= ST_RECEIVE_DMA_SKIP;
-               count <= count+1;
+               count[1:0] <= count[1:0]+2'd1;
             end
          end
 
          ST_RECEIVE_DMA_FRAME_HEADER:
          begin
-            // Read dest MAC, source MAC, and length (7 words)
-            if (readValid && (count != 0)) begin
-               FrameHeader[count] <= ReadData;
-            end
-            if (count == 7) begin
-               if (Length == 16) begin
-                  //state <= ST_RECEIVE_DMA_QUADLET_READ_REQ;
-                  state <= ST_RECEIVE_FLUSH_START;
-                  quadRead <= ~quadRead;
-               end
-               else if (Length == 20) begin
-                  // state <= ST_RECEIVE_DMA_QUADLET_WRITE;
-                  state <= ST_RECEIVE_FLUSH_START;
-                  quadWrite <= ~quadWrite;
+            // Read dest MAC, source MAC, and length (7 words, byte-swapped).
+            // Don't byte swap srcMAC because we need to send it back byte-swapped.
+            if (readValid) begin
+               case (count[2:0])
+                 3'd0: destMac[0] <= {ReadData[7:0],ReadData[15:8]};
+                 3'd1: destMac[1] <= {ReadData[7:0],ReadData[15:8]};
+                 3'd2: destMac[2] <= {ReadData[7:0],ReadData[15:8]};
+                 3'd3: srcMac[0] <= ReadData;
+                 3'd4: srcMac[1] <= ReadData;
+                 3'd5: srcMac[2] <= ReadData;
+                 3'd6: Length <=  {ReadData[7:0],ReadData[15:8]};
+               endcase
+               if (count[2:0] == 3'd6) begin
+                  if (Length == 16'd16) begin
+                     //state <= ST_RECEIVE_DMA_QUADLET_READ_REQ;
+                     state <= ST_RECEIVE_FLUSH_START;
+                     quadRead <= ~quadRead;
+                  end
+                  else if (Length == 16'd20) begin
+                     // state <= ST_RECEIVE_DMA_QUADLET_WRITE;
+                     state <= ST_RECEIVE_FLUSH_START;
+                     quadWrite <= ~quadWrite;
+                  end
+                  else begin
+                     state <= ST_RECEIVE_FLUSH_START;
+                  end
+                  count <= 4'd0;
                end
                else begin
-                  state <= ST_RECEIVE_FLUSH_START;
-                  quadWrite <= ~quadWrite;  // PK TEMP
+                  cmdReq <= 1;
+                  state <= ST_WAIT_ACK;
+                  nextState <= ST_RECEIVE_DMA_FRAME_HEADER;
+                  count[2:0] <= count[2:0]+3'd1;
                end
-               count <= 0;
             end
-            else begin
-               cmdReq <= 1;
-               state <= ST_WAIT_ACK;
-               nextState <= ST_RECEIVE_DMA_FRAME_HEADER;
-               count <= count+1;
-            end
-         end // case: ST_RECEIVE_DMA_FRAME_HEADER
+         end
 
          ST_RECEIVE_FLUSH_START:
          begin
@@ -515,6 +528,7 @@ always @(posedge sysclk or negedge reset) begin
 
          ST_SEND_DMA_STATUS_READ:  // same as ST_RECEIVE_DMA_STATUS_READ
          begin
+            sendAck <= 0;  // TEMP
             cmdReq <= 1;
             isWrite <= 0;
             RegAddr <= 8'h82;
@@ -537,6 +551,7 @@ always @(posedge sysclk or negedge reset) begin
          ST_SEND_DMA_CONTROLWORD:
          begin
             cmdReq <= 1;
+            isDMA <= 1;
             WriteData <= 16'h0;  // Control word = 0
             state <= ST_WAIT_ACK;
             nextState <= ST_SEND_DMA_BYTECOUNT;
@@ -548,21 +563,21 @@ always @(posedge sysclk or negedge reset) begin
             WriteData <= 16'd34;  // Byte count = 34 (14+20), quadlet
             state <= ST_WAIT_ACK;
             nextState <= ST_SEND_DMA_DESTADDR;
-            count <= 0;
+            count <= 4'd0;
          end
 
          ST_SEND_DMA_DESTADDR:
          begin
             cmdReq <= 1;
-            WriteData <= srcMac[count];
+            WriteData <= srcMac[count[1:0]];
             state <= ST_WAIT_ACK;
-            if (count == 2) begin
+            if (count[1:0] == 2'd2) begin
                nextState <= ST_SEND_DMA_SRCADDR;
-               count <= 0;
+               count[1:0] <= 2'd0;
             end
             else begin
                nextState <= ST_SEND_DMA_DESTADDR;
-               count <= count+1;
+               count[1:0] <= count[1:0]+2'd1;
             end
          end
 
@@ -572,20 +587,19 @@ always @(posedge sysclk or negedge reset) begin
             // use our own MAC addr.
             cmdReq <= 1;
             state <= ST_WAIT_ACK;
-            if (count == 0) begin
-               WriteData <= 16'hFA61;    // 0xFA61
+            if (count[1:0] == 2'd0) begin
+               WriteData <= 16'h61FA;    // 0xFA61 (byte-swapped)
                nextState <= ST_SEND_DMA_SRCADDR;
-               count <= 1;
+               count[1:0] <= 2'd1;
             end
-            else if (count == 1) begin
-               WriteData <= 16'h0E13;    // 0x0E13
+            else if (count[1:0] == 2'd1) begin
+               WriteData <= 16'h130E;    // 0x0E13 (byte-swapped)
                nextState <= ST_SEND_DMA_SRCADDR;
-               count <= 2;
+               count[1:0] <= 2'd2;
             end
-            else if (count == 2) begin
-               WriteData <= 16'h9400;    // 0x94ff (nn = board id, 0 for now)
+            else if (count[1:0] == 2'd2) begin
+               WriteData <= {4'h0,board_id,8'h94};  // 0x940n (n = board id, byte-swapped)
                nextState <= ST_SEND_DMA_LENGTH;
-               count <= 2;
             end
          end
 
@@ -595,24 +609,37 @@ always @(posedge sysclk or negedge reset) begin
             WriteData <= 16'd20;  // 20 bytes for quadlet read/write
             state <= ST_WAIT_ACK;
             nextState <= ST_SEND_DMA_PACKETDATA;
-            count <= 0;
+            count <= 4'd0;
          end
 
          ST_SEND_DMA_PACKETDATA:
          begin
             cmdReq <= 1;
-            if (count == 6) WriteData <= 16'h1234;
-            if (count == 7) WriteData <= 16'h5678;
-            else WriteData <= { 13'h0, count };
+            case (count[3:0])
+
+              //0:  WriteData <= 16'h0;     // dest-id
+              4'd1:  WriteData <= 16'h6000; // tcode=6
+              //2:  WriteData <= 16'h0;     // src-id
+              //3:  WriteData <= 16'h0;     // rcode, reserved
+              //4:  WriteData <= 16'h0;     // reserved
+              //5:  WriteData <= 16'h0;     // reserved
+              4'd6:  WriteData <= 16'h3412; // quadlet data (upper word)
+              4'd7:  WriteData <= 16'h7856; // quadlet data (lower word)
+              //8:  WriteData <= 16'h0;     // CRC
+              //9:  WriteData <= 16'h0;     // CRC
+              default: WriteData <= 16'h0;
+            endcase
+         
             state <= ST_WAIT_ACK;
-            nextState <= (count == 9) ? ST_SEND_DMA_STOP_READ : ST_SEND_DMA_PACKETDATA;
-            count <= count+1;
+            nextState <= (count[3:0] == 4'd9) ? ST_SEND_DMA_STOP_READ : ST_SEND_DMA_PACKETDATA;
+            count[3:0] <= count[3:0]+4'd1;
          end
 
          ST_SEND_DMA_STOP_READ:
          begin
             cmdReq <= 1;
             isWrite <= 0;
+            isDMA <= 0;
             RegAddr <= 8'h82;
             state <= ST_WAIT_ACK;
             nextState <= ST_SEND_DMA_STOP_WRITE;
