@@ -343,10 +343,15 @@ always @(posedge sysclk or negedge reset) begin
                eth_data <= SD;
                DataOut <= SD;
                count[0] <= 1'd1;
+               // Set the dataValid signal here. The higher-level
+               // should wait one cycle to be sure that the data
+               // has propagated through the latch.
+               // An alternate design would be to set dataValid
+               // in the else clause below.
+               dataValid <= 1;
             end
             else begin
                ETH_RDn <= 1;
-               dataValid <= 1;
                state <= ST_IDLE;
                count[0] <= 1'd0;
             end

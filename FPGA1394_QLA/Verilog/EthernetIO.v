@@ -81,31 +81,37 @@ parameter[5:0]
     ST_RECEIVE_DMA_STATUS_WRITE = 6'd26,
     ST_RECEIVE_DMA_SKIP = 6'd27,
     ST_RECEIVE_DMA_FRAME_HEADER = 6'd28,
-    ST_RECEIVE_FLUSH_START = 6'd29,
-    ST_RECEIVE_FLUSH_EXECUTE = 6'd30,
-    ST_RECEIVE_FLUSH_WAIT_START = 6'd31,
-    ST_RECEIVE_FLUSH_WAIT_CHECK = 6'd32,
-    ST_SEND_DMA_STATUS_READ = 6'd33,
-    ST_SEND_DMA_STATUS_WRITE = 6'd34,
-    ST_SEND_DMA_CONTROLWORD = 6'd35,
-    ST_SEND_DMA_BYTECOUNT = 6'd36,
-    ST_SEND_DMA_DESTADDR = 6'd37,
-    ST_SEND_DMA_SRCADDR = 6'd38,
-    ST_SEND_DMA_LENGTH = 6'd39,
-    ST_SEND_DMA_PACKETDATA = 6'd40,
-    ST_SEND_DMA_STOP_READ = 6'd41,
-    ST_SEND_DMA_STOP_WRITE = 6'd42,
-    ST_SEND_TXQ_ENQUEUE_START = 6'd43,
-    ST_SEND_TXQ_ENQUEUE_END = 6'd44;
+    ST_RECEIVE_DMA_FIREWIRE_PACKET = 6'd29,
+    ST_RECEIVE_FLUSH_START = 6'd30,
+    ST_RECEIVE_FLUSH_EXECUTE = 6'd31,
+    ST_RECEIVE_FLUSH_WAIT_START = 6'd32,
+    ST_RECEIVE_FLUSH_WAIT_CHECK = 6'd33,
+    ST_SEND_DMA_STATUS_READ = 6'd34,
+    ST_SEND_DMA_STATUS_WRITE = 6'd35,
+    ST_SEND_DMA_CONTROLWORD = 6'd36,
+    ST_SEND_DMA_BYTECOUNT = 6'd37,
+    ST_SEND_DMA_DESTADDR = 6'd38,
+    ST_SEND_DMA_SRCADDR = 6'd39,
+    ST_SEND_DMA_LENGTH = 6'd40,
+    ST_SEND_DMA_PACKETDATA = 6'd41,
+    ST_SEND_DMA_STOP_READ = 6'd42,
+    ST_SEND_DMA_STOP_WRITE = 6'd43,
+    ST_SEND_TXQ_ENQUEUE_START = 6'd44,
+    ST_SEND_TXQ_ENQUEUE_END = 6'd45;
 
 reg[7:0] FrameCount;   // Number of received frames
 reg[3:0] count;        // General use counter
 reg[3:0] readCount;    // Wait for read valid
+reg[3:0] maxCount;     // For reading FireWire packets
 
 reg[15:0] destMac[0:2];  // Not currently used
 reg[15:0] srcMac[0:2];
 reg[15:0] Length;
-              
+
+// Currently, packet memory only big enough for quadlet transactions.
+// Consider making this 32-bit.
+reg[15:0] FireWirePacket[0:9];  // FireWire packet memory
+
 always @(posedge sysclk or negedge reset) begin
     if (reset == 0) begin
        cmdReq <= 0;
@@ -144,6 +150,8 @@ always @(posedge sysclk or negedge reset) begin
                ethIoError <= 0;
             end
             else if (~ETH_IRQn && receiveEnabled) begin
+               quadRead <= 0;
+               quadWrite <= 0;
                cmdReq <= 1;
                isWrite <= 0;
                RegAddr <= 8'h92;
@@ -463,14 +471,14 @@ always @(posedge sysclk or negedge reset) begin
             endcase
             if (count[2:0] == 3'd6) begin
                if (Length == 16'd16) begin
-                  //state <= ST_RECEIVE_DMA_QUADLET_READ_REQ;
-                  state <= ST_RECEIVE_FLUSH_START;
-                  quadRead <= ~quadRead;
+                  state <= ST_RECEIVE_DMA_FIREWIRE_PACKET;
+                  quadRead <= 1;
+                  maxCount <= 4'd7;
                end
                else if (Length == 16'd20) begin
-                  // state <= ST_RECEIVE_DMA_QUADLET_WRITE;
-                  state <= ST_RECEIVE_FLUSH_START;
-                  quadWrite <= ~quadWrite;
+                  state <= ST_RECEIVE_DMA_FIREWIRE_PACKET;
+                  quadWrite <= 1;
+                  maxCount <= 4'd9;
                end
                else begin
                   state <= ST_RECEIVE_FLUSH_START;
@@ -482,6 +490,23 @@ always @(posedge sysclk or negedge reset) begin
                state <= ST_WAIT_ACK;
                nextState <= ST_RECEIVE_DMA_FRAME_HEADER;
                count[2:0] <= count[2:0]+3'd1;
+            end
+         end
+
+         ST_RECEIVE_DMA_FIREWIRE_PACKET:
+         begin
+            // Read FireWire packet; don't byteswap because
+            // FireWire is also big endian.
+            FireWirePacket[count[3:0]] <= ReadData;
+            if (count[3:0] == maxCount) begin
+               // In parallel, can start processing FireWire packet
+               state <= ST_RECEIVE_FLUSH_START;
+            end
+            else begin
+               cmdReq <= 1;
+               state <= ST_WAIT_ACK;
+               nextState <= ST_RECEIVE_DMA_FIREWIRE_PACKET;
+               count[3:0] <= count[3:0] + 1;
             end
          end
 
@@ -503,8 +528,6 @@ always @(posedge sysclk or negedge reset) begin
             WriteData <= {ReadData[15:4],1'b0,ReadData[2:1],1'b1};
             state <= ST_WAIT_ACK;
             nextState <= ST_RECEIVE_FLUSH_WAIT_START;
-            //nextState <= (FrameCount == 0) ? ST_IDLE : ST_RECEIVE_FRAME_STATUS;
-            //nextState <= (FrameCount == 0) ? ST_SEND_DMA_STATUS_READ : ST_RECEIVE_FRAME_STATUS;
          end
 
          ST_RECEIVE_FLUSH_WAIT_START:
@@ -520,8 +543,9 @@ always @(posedge sysclk or negedge reset) begin
          begin
             // Wait for bit 0 in Register 0x82 to be cleared; if cleared, receive status
             // of next frame, or go to idle state if last frame.
+            // PK TEMP: trigger send if a read request.
             if (ReadData[0] == 1'b0)
-               state <= (FrameCount == 8'd0) ? ST_IDLE : ST_RECEIVE_FRAME_STATUS;
+               state <= (FrameCount == 8'd0) ? (quadRead ? ST_SEND_DMA_STATUS_READ : ST_IDLE) : ST_RECEIVE_FRAME_STATUS;
             else
                state <= ST_RECEIVE_FLUSH_WAIT_START;
          end
