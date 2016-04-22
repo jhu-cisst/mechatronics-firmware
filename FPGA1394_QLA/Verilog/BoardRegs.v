@@ -1,6 +1,6 @@
 /*******************************************************************************
  *
- * Copyright(C) 2008-2015 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2008-2016 ERC CISST, Johns Hopkins University.
  *
  * This module contains a register file dedicated to general board parameters.
  * Separate register files are maintained for each I/O channel (SpiCtrl).
@@ -30,6 +30,8 @@ module BoardRegs(
     // board input (PC writes)
     output wire[4:1] amp_disable,
     input  wire[4:1] dout,          // digital outputs
+    input  wire dout_cfg_valid,     // digital output configuration valid
+    input  wire dout_cfg_bidir,     // whether digital outputs are bidirectional (also need to be inverted)
     output reg pwr_enable,          // enable motor power
     output reg relay_on,            // enable relay for safety loop-through
     output reg eth1394,             // 0: firewire mode 1: ethernet-1394 mode
@@ -151,8 +153,8 @@ always @(posedge(sysclk) or negedge(reset))
         `REG_STATUS: reg_rdata <= { 
                 // Byte 3: num channels (4), board id
                 4'd4, board_id,
-                // Byte 2: wdog timeout, eth1394 mode
-                wdog_timeout, eth1394, 2'd0,
+                // Byte 2: wdog timeout, eth1394 mode, dout_cfg_valid, dout_cfg_bidir
+                wdog_timeout, eth1394, dout_cfg_valid, dout_cfg_bidir,
                 // mv_good, power enable, safety relay state, safety relay control      
                 mv_good, pwr_enable, ~relay, relay_on,   
                 // Byte 1: 1 -> amplifier on, 0 -> fault (up to 8 axes)
@@ -164,7 +166,7 @@ always @(posedge(sysclk) or negedge(reset))
         `REG_TIMEOUT: reg_rdata <= wdog_period;
         `REG_VERSION: reg_rdata <= `VERSION;
         `REG_TEMPSNS: reg_rdata <= {16'd0, temp_sense};
-        `REG_DIGIOUT: reg_rdata <= dout;
+        `REG_DIGIOUT: reg_rdata <= dout_cfg_bidir ? ~dout : dout;
         `REG_FVERSION: reg_rdata <= `FW_VERSION;
         `REG_PROMSTAT: reg_rdata <= prom_status;
         `REG_PROMRES: reg_rdata <= prom_result;

@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2015 Johns Hopkins University.
+ * Copyright(C) 2015-2016 Johns Hopkins University.
  *
  * This module controls access to the digital output bits. Each of the four digital
  * output bits can be set/cleared, put in PWM mode, or used as a 1-shot.
@@ -29,6 +29,7 @@
  *
  * Revision history
  *     9/23/15    Peter Kazanzides  Initial implementation
+ *     4/21/16    Peter Kazanzides  Added support for QLA Rev 1.4
  */
 
 `include "Constants.v" 
@@ -41,8 +42,18 @@ module CtrlDout(
     output wire[31:0] reg_rdata,  // outgoing register file data
     input  wire[31:0] reg_wdata,  // incoming register file data
     input  wire reg_wen,          // write enable signal from outside world
-    output wire[4:1] dout         // digital outputs
+    output wire[4:1] dout,        // digital outputs
+    inout  wire dir12,            // direction control for channels 1-2 (QLA Rev 1.4+)
+    inout  wire dir34,            // direction control for channels 3-4 (QLA Rev 1.4+)
+    output reg dout_cfg_valid,    // 1 -> DOUT configuration valid
+    output reg dout_cfg_bidir     // 1 -> new DOUT hardware (bidirectional control)
 );    
+
+reg dir12_reg;
+reg dir34_reg;
+
+assign dir12 = (dout_cfg_valid && dout_cfg_bidir) ? dir12_reg : 1'bz;
+assign dir34 = (dout_cfg_valid && dout_cfg_bidir) ? dir34_reg : 1'bz;
 
 wire dout_set;           // write to digital output bit (masked by reg_wdata[8:11])             
 assign dout_set = (reg_wen && (reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[7:4] == 4'd0) & (reg_waddr[3:0] == `REG_DIGIOUT)) ? 1'd1 : 1'd0;
@@ -59,16 +70,58 @@ assign dout_ctrl_en[1] = (dout_ctrl && (reg_waddr[7:4] == 4'd1)) ? 1'd1 : 1'd0;
 assign dout_ctrl_en[2] = (dout_ctrl && (reg_waddr[7:4] == 4'd2)) ? 1'd1 : 1'd0;
 assign dout_ctrl_en[3] = (dout_ctrl && (reg_waddr[7:4] == 4'd3)) ? 1'd1 : 1'd0;
 assign dout_ctrl_en[4] = (dout_ctrl && (reg_waddr[7:4] == 4'd4)) ? 1'd1 : 1'd0;
-   
+
 wire [31:0] reg_rd[1:4];  // read control register (hi/low times)
 assign reg_rdata = (reg_raddr[3:0]==`OFF_DOUT_CTRL) ? reg_rd[reg_raddr[7:4]] : 32'd0;
 // Note: reading of digital output state is done in BoardRegs.v
 
 // Instantiate module for each digital output      
-DoutPWM DoutPWM1(sysclk, reset, reg_rd[1], dout_ctrl_en[1], reg_wdata, dout_set_en[1], reg_wdata[0], dout[1]);
-DoutPWM DoutPWM2(sysclk, reset, reg_rd[2], dout_ctrl_en[2], reg_wdata, dout_set_en[2], reg_wdata[1], dout[2]);
-DoutPWM DoutPWM3(sysclk, reset, reg_rd[3], dout_ctrl_en[3], reg_wdata, dout_set_en[3], reg_wdata[2], dout[3]);
-DoutPWM DoutPWM4(sysclk, reset, reg_rd[4], dout_ctrl_en[4], reg_wdata, dout_set_en[4], reg_wdata[3], dout[4]);
+DoutPWM DoutPWM1(sysclk, reset, reg_rd[1], dout_ctrl_en[1], reg_wdata, dout_set_en[1], dout_cfg_bidir ? ~reg_wdata[0] : reg_wdata[0], dout[1]);
+DoutPWM DoutPWM2(sysclk, reset, reg_rd[2], dout_ctrl_en[2], reg_wdata, dout_set_en[2], dout_cfg_bidir ? ~reg_wdata[1] : reg_wdata[1], dout[2]);
+DoutPWM DoutPWM3(sysclk, reset, reg_rd[3], dout_ctrl_en[3], reg_wdata, dout_set_en[3], dout_cfg_bidir ? ~reg_wdata[2] : reg_wdata[2], dout[3]);
+DoutPWM DoutPWM4(sysclk, reset, reg_rd[4], dout_ctrl_en[4], reg_wdata, dout_set_en[4], dout_cfg_bidir ? ~reg_wdata[3] : reg_wdata[3], dout[4]);
+
+// The following code is for a configuration check. QLA Version 1.4 has bidirectional transceivers instead of the
+// MOSFET drivers used in prior versions of the QLA. We can detect this by checking the state of the two
+// direction pins (dir12, dir34), if we are not driving those pins. The FPGA should power up with those pins
+// as inputs, but to be sure we get a correct value we first tri-state those lines (during reset) before we
+// check their values. QLA Rev 1.4+ has pulldown resistors on the direction lines, so we should read them as 0.
+// In prior versions of the QLA, those IO pins are not connected, but since the FPGA has weak pullups, they should read as 1.
+//
+// If we detect QLA Rev 1.4+, we set the direction pins to 1 so that the FPGA starts to drive the digital outputs.
+// We also set a dout_cfg_bidir flag to indicate that we have detected the newer QLA DOUT hardware. In this case,
+// we also need to invert the dout signals for backward compatibility with the older QLA version, which inverted
+// the DOUT signals in hardware (due to the MOSFET).
+//
+// Note that QLA Rev 1.4+ allows the DOUT pins to be used as inputs, but this is not currently supported by the firmware.
+
+always @(posedge(sysclk) or negedge(reset))
+begin
+    if (reset == 0) begin
+       dir12_reg <= 1'b0;
+       dir34_reg <= 1'b0;
+       dout_cfg_valid <= 1'b0;     // DOUT configuration needs to be checked (not done)
+       dout_cfg_bidir <= 1'b0;     // Assume old QLA hardware (up to Rev 1.3)
+       // Clearing dout_cfg_valid causes FPGA to stop driving direction lines
+    end
+    else begin
+       if (!dout_cfg_valid) begin
+          if ((dir12 == 1'b0) && (dir34 == 1'b0)) begin
+             // If QLA Rev 1.4 detected, start driving outputs
+             dout_cfg_bidir <= 1'b1;
+             dir12_reg <= 1'b1;
+             dir34_reg <= 1'b1;
+             dout_cfg_valid <= 1'b1;
+          end
+          else if ((dir12 == 1'b1) && (dir34 == 1'b1)) begin
+             // Older version of QLA
+             // dout_cfg_bidir is already set to 0 during reset
+             dout_cfg_valid <= 1'b1;
+          end
+          // Else we keep checking...
+       end
+    end
+end
 
 endmodule
 

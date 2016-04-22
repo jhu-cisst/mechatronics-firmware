@@ -360,6 +360,10 @@ CtrlEnc enc(
 wire[31:0] reg_rdout;
 assign reg_rd[`OFF_DOUT_CTRL] = reg_rdout;
 
+// DOUT hardware configuration
+wire dout_config_valid;
+wire dout_config_bidir;
+
 CtrlDout dout(
     .sysclk(sysclk),
     .reset(reset),
@@ -368,7 +372,11 @@ CtrlDout dout(
     .reg_rdata(reg_rdout),
     .reg_wdata(reg_wdata),
     .reg_wen(reg_wen),
-    .dout({IO1[16],IO1[17],IO1[18],IO1[19]})
+    .dout({IO1[16],IO1[17],IO1[18],IO1[19]}),
+    .dir12(IO1[6]),
+    .dir34(IO1[5]),
+    .dout_cfg_valid(dout_config_valid),
+    .dout_cfg_bidir(dout_config_bidir)
 );
 
 // --------------------------------------------------------------------------
@@ -469,7 +477,7 @@ QLA25AA128 prom_qla(
 
 // safety_amp_enable from SafetyCheck moudle
 wire[4:1] safety_amp_disable;
-   
+
 // 'channel 0' is a special axis that contains various board I/Os
 wire[31:0] reg_rdata_chan0;
 
@@ -480,6 +488,8 @@ BoardRegs chan0(
     .reset(reset),
     .amp_disable({IO2[38],IO2[36],IO2[34],IO2[32]}),
     .dout({IO1[16],IO1[17],IO1[18],IO1[19]}),
+    .dout_cfg_valid(dout_config_valid),
+    .dout_cfg_bidir(dout_config_bidir),
     .pwr_enable(IO1[32]),
     .relay_on(IO1[31]),
     .eth1394(eth1394),
