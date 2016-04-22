@@ -156,8 +156,6 @@ always @(posedge sysclk or negedge reset) begin
                ethIoError <= 0;
             end
             else if (~ETH_IRQn && receiveEnabled) begin
-               quadRead <= 0;
-               quadWrite <= 0;
                cmdReq <= 1;
                isWrite <= 0;
                RegAddr <= 8'h92;
@@ -165,6 +163,9 @@ always @(posedge sysclk or negedge reset) begin
                nextState <= ST_RECEIVE_CLEAR_RXIS;
             end
             else if (sendReq) begin
+               // Not yet used. Will need this mechanism in the future,
+               // but will need a way to specify what is to be sent
+               // (e.g., FireWirePacket).
                state <= ST_SEND_DMA_STATUS_READ;
                sendAck <= 1;
             end
@@ -400,6 +401,8 @@ always @(posedge sysclk or negedge reset) begin
          ST_RECEIVE_FRAME_STATUS:
          begin
             FrameCount <= FrameCount-8'd1;
+            quadRead <= 0;
+            quadWrite <= 0;
             if (ReadData[15]) begin // if valid
                cmdReq <= 1;
                isWrite <= 0;
@@ -551,11 +554,12 @@ always @(posedge sysclk or negedge reset) begin
 
          ST_RECEIVE_FLUSH_WAIT_CHECK:
          begin
-            // Wait for bit 0 in Register 0x82 to be cleared; if cleared, receive status
-            // of next frame, or go to idle state if last frame.
-            // PK TEMP: trigger send if a read request.
+            // Wait for bit 0 in Register 0x82 to be cleared; then
+            //   - if a read command, start sending response (check FrameCount after send complete)
+            //   - else if more frames available, receive status of next frame
+            //   - else go to idle state
             if (ReadData[0] == 1'b0)
-               state <= (FrameCount == 8'd0) ? (quadRead ? ST_SEND_DMA_STATUS_READ : ST_IDLE) : ST_RECEIVE_FRAME_STATUS;
+               state <= quadRead ? ST_SEND_DMA_STATUS_READ : ((FrameCount == 8'd0) ?  ST_IDLE : ST_RECEIVE_FRAME_STATUS);
             else
                state <= ST_RECEIVE_FLUSH_WAIT_START;
          end
@@ -713,7 +717,7 @@ always @(posedge sysclk or negedge reset) begin
             isWrite <= 1;
             WriteData <= {ReadData[15:1],1'b1};
             state <= ST_WAIT_ACK;
-            nextState <= ST_IDLE;
+            nextState <= (FrameCount == 8'd0) ?  ST_IDLE : ST_RECEIVE_FRAME_STATUS;
          end
 
          endcase // case (state)

@@ -164,7 +164,7 @@ always @(posedge sysclk or negedge reset) begin
         initReq <= 0;
         cmdAck <= 0;
         dataValid <= 0;
-        receiveEnabled <= 0;
+        receiveEnabled <= 1;
         sendReq <= 0;
     end
     else begin
@@ -181,21 +181,15 @@ always @(posedge sysclk or negedge reset) begin
                 dataValid <= 0;
             end
             else if (state == ST_IDLE) begin
-                if ((reg_wdata[23:16] == 8'd0) && (reg_wdata[27] == 1'd0)) begin
-                   // Test code: trigger write if addr is 0 and not DMA
-                   sendReq <= 1;
-                end
-                else begin
-                    eth_isWord <= reg_wdata[24];
-                    eth_addr <= reg_wdata[23:16];
-                    eth_data <= reg_wdata[15:0];
-                    eth_error <= 0;
-                    eth_isWrite <= reg_wdata[25];
-                    // If DMA bit (reg_wdata[27]) is set, next state is either ST_WRITE_START or ST_READ_START;
-                    // otherwise, starting state is ST_ADDR_START
-                    state <= (reg_wdata[27] ? (reg_wdata[25] ? ST_WRITE_START : ST_READ_START) : ST_ADDR_START);
-                    ETH_CMD <= reg_wdata[27] ? 1'd0 : 1'd1;
-                end
+                eth_isWord <= reg_wdata[24];
+                eth_addr <= reg_wdata[23:16];
+                eth_data <= reg_wdata[15:0];
+                eth_error <= 0;
+                eth_isWrite <= reg_wdata[25];
+                // If DMA bit (reg_wdata[27]) is set, next state is either ST_WRITE_START or ST_READ_START;
+                // otherwise, starting state is ST_ADDR_START
+                state <= (reg_wdata[27] ? (reg_wdata[25] ? ST_WRITE_START : ST_READ_START) : ST_ADDR_START);
+                ETH_CMD <= reg_wdata[27] ? 1'd0 : 1'd1;
             end
             else begin
                 eth_error <= 1;
