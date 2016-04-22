@@ -30,6 +30,11 @@ module EthernetIO(
     input wire sendReq,
     output reg sendAck,
 
+    // Interface to board registers
+    input wire[31:0] reg_rdata,
+    output reg[15:0] reg_raddr,
+    output reg       eth_read_en,
+
     // Interface to lower layer (KSZ8851)
     input wire initReq,           // 1 -> Chip has been reset; initialization requested
     output reg initAck,           // 1 -> Acknowledge (clear) initReq
@@ -130,6 +135,7 @@ always @(posedge sysclk or negedge reset) begin
        srcMac[1] <= 16'd0;
        srcMac[2] <= 16'd0;
        Length <= 16'd0;
+       eth_read_en <= 0;
     end
     else begin
 
@@ -467,16 +473,20 @@ always @(posedge sysclk or negedge reset) begin
               3'd3: srcMac[0] <= ReadData;
               3'd4: srcMac[1] <= ReadData;
               3'd5: srcMac[2] <= ReadData;
-              3'd6: Length <=  {ReadData[7:0],ReadData[15:8]};
+              3'd6: Length <= {ReadData[7:0],ReadData[15:8]};
             endcase
             if (count[2:0] == 3'd6) begin
-               if (Length == 16'd16) begin
-                  state <= ST_RECEIVE_DMA_FIREWIRE_PACKET;
+               if (Length == 16'd16) begin   // read request
+                  cmdReq <= 1;
+                  state <= ST_WAIT_ACK;
+                  nextState <= ST_RECEIVE_DMA_FIREWIRE_PACKET;
                   quadRead <= 1;
                   maxCount <= 4'd7;
                end
-               else if (Length == 16'd20) begin
-                  state <= ST_RECEIVE_DMA_FIREWIRE_PACKET;
+               else if (Length == 16'd20) begin  // write request
+                  cmdReq <= 1;
+                  state <= ST_WAIT_ACK;
+                  nextState <= ST_RECEIVE_DMA_FIREWIRE_PACKET;
                   quadWrite <= 1;
                   maxCount <= 4'd9;
                end
@@ -643,14 +653,22 @@ always @(posedge sysclk or negedge reset) begin
             case (count[3:0])
 
               //0:  WriteData <= 16'h0;     // dest-id
-              4'd1:  WriteData <= 16'h6000; // tcode=6
+              4'd1: WriteData <= 16'h6000;     // tcode=6
               //2:  WriteData <= 16'h0;     // src-id
               //3:  WriteData <= 16'h0;     // rcode, reserved
               //4:  WriteData <= 16'h0;     // reserved
-              //5:  WriteData <= 16'h0;     // reserved
-              4'd6:  WriteData <= 16'h3412; // quadlet data (upper word)
-              4'd7:  WriteData <= 16'h7856; // quadlet data (lower word)
-              //8:  WriteData <= 16'h0;     // CRC
+              4'd5: begin
+                 //  WriteData <= 16'h0;     // reserved
+                 // Get ready to read data from the board.
+                 eth_read_en <= 1;
+                 reg_raddr <= {FireWirePacket[5][7:0], FireWirePacket[5][15:8]};
+              end
+              4'd6: WriteData <= {reg_rdata[23:16], reg_rdata[31:24]};
+              4'd7: WriteData <= {reg_rdata[7:0], reg_rdata[15:8]};
+              4'd8: begin
+                 // WriteData <= 16'h0;     // CRC
+                 eth_read_en <= 0;
+              end
               //9:  WriteData <= 16'h0;     // CRC
               default: WriteData <= 16'h0;
             endcase

@@ -22,7 +22,7 @@
 `define WIDTH_WATCHDOG 8           // period = 5.208333 us (2^8 / 49.152 MHz) 
 
 module BoardRegs(
-    // glocal clock & reset 
+    // global clock & reset
     input  wire sysclk, 
     input  wire clkaux,
     output reg  reset,

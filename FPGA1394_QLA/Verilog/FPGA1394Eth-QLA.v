@@ -78,10 +78,13 @@ module FPGA1394EthQLA
     wire blk_wen;               // block write enable
     wire blk_wstart;
     wire[15:0] reg_raddr;       // 16-bit reg read address
+    wire[15:0] fw_reg_raddr;    // 16-bit reg read address from FireWire
+    wire[15:0] eth_reg_raddr;   // 16-bit reg read address from Ethernet
     wire[15:0] reg_waddr;       // 16-bit reg write address
     wire[31:0] reg_rdata;       // reg read data
     wire[31:0] reg_wdata;       // reg write data
     wire[31:0] reg_rd[0:15];
+    wire eth_read_en;       // 1 -> Ethernet is reading from board registers
 
 //------------------------------------------------------------------------------
 // hardware description
@@ -89,6 +92,7 @@ module FPGA1394EthQLA
 
 BUFG clksysclk(.I(clk1394), .O(sysclk));
 
+assign reg_raddr = eth_read_en ? eth_reg_raddr : fw_reg_raddr;
 
 // Mux routing read data based on read address
 //   See Constants.v for detail
@@ -146,10 +150,10 @@ PhyLinkInterface phy(
     .blk_wen(blk_wen),       // out: block write signal
     .blk_wstart(blk_wstart),   // out: block write is starting
 
-    .reg_raddr(reg_raddr),     // out: register address
+    .reg_raddr(fw_reg_raddr),  // out: register address
     .reg_waddr(reg_waddr),     // out: register address
-    .reg_rdata(reg_rdata),   // in:  read data to external register
-    .reg_wdata(reg_wdata),   // out: write data to external register
+    .reg_rdata(reg_rdata),     // in:  read data to external register
+    .reg_wdata(reg_wdata),     // out: write data to external register
 
     .lreq_trig(lreq_trig),   // out: phy request trigger
     .lreq_type(lreq_type)    // out: phy request type
@@ -240,6 +244,10 @@ EthernetIO EthernetTransfers(
     .quadWrite(eth_quad_write),
     .sendReq(eth_send_req),
     .sendAck(eth_send_ack),
+
+    .reg_rdata(reg_rdata),
+    .reg_raddr(eth_reg_raddr),
+    .eth_read_en(eth_read_en),
 
     .initReq(eth_init_req),
     .initAck(eth_init_ack),
