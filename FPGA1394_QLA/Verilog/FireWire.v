@@ -150,16 +150,6 @@
 `define SZ_BBC  16'd736           // block write broadcast packet size
                                   // (4 + 1 + 1 + 16 + 1) * 32 = 736
 
-// transaction and response codes
-`define TC_QWRITE 4'd0            // quadlet write
-`define TC_BWRITE 4'd1            // block write
-`define TC_QREAD 4'd4             // quadlet read
-`define TC_BREAD 4'd5             // block read
-`define TC_QRESP 4'd6             // quadlet read response
-`define TC_BRESP 4'd7             // block read response
-`define TC_CSTART 4'd8            // cycle start packet
-`define RC_DONE 4'd0              // complete response code
-
 // ack values
 `define ACK_DONE 4'h1             // transaction complete, applies to writes
 `define ACK_PEND 4'h2             // transaction pending, applies to reads
@@ -991,7 +981,7 @@ begin
                 // latch Board 0, data 0 from hub register, 
                 // restart crc and goto ST_TX_DATA
                 152: begin                                    // quadlet 6 
-                    // ----- BRESP Contuinue -------
+                    // ----- BRESP Continue -------
                     if (reg_raddr[15:12]==`ADDR_MAIN) begin
                         // main keep going special case
                         buffer <= timestamp;         // latch timestamp

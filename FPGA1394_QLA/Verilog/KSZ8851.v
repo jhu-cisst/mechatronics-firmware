@@ -84,6 +84,8 @@ module KSZ8851(
     output reg receiveEnabled,   // for debugging
     input wire quadRead,
     input wire quadWrite,
+    input wire blockRead,
+    input wire blockWrite,
     output reg sendReq,
     input wire sendAck,
 
@@ -133,7 +135,8 @@ assign eth_result[25] = cmdAck;       // 25: 1 -> command acknowledged by lower 
 assign eth_result[24] = quadRead;     // 24: quadRead (debugging)
 assign eth_result[23] = quadWrite;    // 23: quadWrite (debugging)
 assign eth_result[22] = receiveEnabled; // 22: debugging (receive enabled)
-assign eth_result[21] = ETH_PME;      // 21: Power Management Event
+//assign eth_result[21] = ETH_PME;      // 21: Power Management Event
+assign eth_result[21] = blockRead;      // 21: blockRead (debugging)
 assign eth_result[20] = ETH_IRQn;     // 20: Interrupt request
 assign eth_result[19:16] = state;     // 19-16: Current state
 assign eth_result[15:0] = eth_data;   // 15-0: Last data read or written

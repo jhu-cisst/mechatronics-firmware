@@ -64,4 +64,14 @@
 `define OFF_FREQ_DATA 4'd7         // enc frequency register offset
 `define OFF_DOUT_CTRL 4'd8         // dout hi/lo period (16-bits hi, 16-bits lo)
 
+// FireWire transaction and response codes
+`define TC_QWRITE 4'd0            // quadlet write
+`define TC_BWRITE 4'd1            // block write
+`define TC_QREAD 4'd4             // quadlet read
+`define TC_BREAD 4'd5             // block read
+`define TC_QRESP 4'd6             // quadlet read response
+`define TC_BRESP 4'd7             // block read response
+`define TC_CSTART 4'd8            // cycle start packet
+`define RC_DONE 4'd0              // complete response code
+
 `endif  // _fpgaqla_constanst_v_

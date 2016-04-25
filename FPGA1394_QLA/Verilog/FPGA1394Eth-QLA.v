@@ -191,6 +191,8 @@ wire eth_io_error;
 wire eth_recv_enabled;  // for debugging
 wire eth_quad_read;
 wire eth_quad_write;
+wire eth_block_read;
+wire eth_block_write;
 wire eth_send_req;
 wire eth_send_ack;
 wire[31:0] Eth_Result;
@@ -224,6 +226,8 @@ KSZ8851 EthernetChip(
     .receiveEnabled(eth_recv_enabled),  // for debugging
     .quadRead(eth_quad_read),
     .quadWrite(eth_quad_write),
+    .blockRead(eth_block_read),
+    .blockWrite(eth_block_write),
     .sendReq(eth_send_req),
     .sendAck(eth_send_ack),
 
@@ -242,6 +246,8 @@ EthernetIO EthernetTransfers(
     .receiveEnabled(eth_recv_enabled),  // for debugging
     .quadRead(eth_quad_read),
     .quadWrite(eth_quad_write),
+    .blockRead(eth_block_read),
+    .blockWrite(eth_block_write),
     .sendReq(eth_send_req),
     .sendAck(eth_send_ack),
 

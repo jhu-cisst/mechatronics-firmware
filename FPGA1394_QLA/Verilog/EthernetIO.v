@@ -12,6 +12,9 @@
  *     12/21/15    Peter Kazanzides
  */
 
+// global constant e.g. register & device address
+`include "Constants.v"
+
 module EthernetIO(
     // global clock and reset
     input wire sysclk,
@@ -27,6 +30,8 @@ module EthernetIO(
     input wire receiveEnabled,
     output reg quadRead,
     output reg quadWrite,
+    output reg blockRead,
+    output reg blockWrite,
     input wire sendReq,
     output reg sendAck,
 
@@ -98,11 +103,12 @@ parameter[5:0]
     ST_SEND_DMA_DESTADDR = 6'd38,
     ST_SEND_DMA_SRCADDR = 6'd39,
     ST_SEND_DMA_LENGTH = 6'd40,
-    ST_SEND_DMA_PACKETDATA = 6'd41,
-    ST_SEND_DMA_STOP_READ = 6'd42,
-    ST_SEND_DMA_STOP_WRITE = 6'd43,
-    ST_SEND_TXQ_ENQUEUE_START = 6'd44,
-    ST_SEND_TXQ_ENQUEUE_END = 6'd45;
+    ST_SEND_DMA_QUAD_PACKETDATA = 6'd41,
+    ST_SEND_DMA_BLOCK_PACKETDATA = 6'd42,
+    ST_SEND_DMA_STOP_READ = 6'd43,
+    ST_SEND_DMA_STOP_WRITE = 6'd44,
+    ST_SEND_TXQ_ENQUEUE_START = 6'd45,
+    ST_SEND_TXQ_ENQUEUE_END = 6'd46;
 
 reg[7:0] FrameCount;   // Number of received frames
 reg[3:0] count;        // General use counter
@@ -117,6 +123,12 @@ reg[15:0] Length;
 // Consider making this 32-bit.
 reg[15:0] FireWirePacket[0:9];  // FireWire packet memory
 
+wire[3:0] fw_tcode;           // FireWire transaction code
+wire[15:0] block_data_length;  // Data length (in bytes) for block read/write requests
+
+assign fw_tcode = FireWirePacket[1][15:12];
+assign block_data_length = {FireWirePacket[6][7:0], FireWirePacket[6][15:8]};
+
 always @(posedge sysclk or negedge reset) begin
     if (reset == 0) begin
        cmdReq <= 0;
@@ -130,6 +142,8 @@ always @(posedge sysclk or negedge reset) begin
        ethIoError <= 0;
        quadRead <= 0;
        quadWrite <= 0;
+       blockRead <= 0;
+       blockWrite <= 0;
        sendAck <= 0;
        srcMac[0] <= 16'd0;
        srcMac[1] <= 16'd0;
@@ -403,6 +417,8 @@ always @(posedge sysclk or negedge reset) begin
             FrameCount <= FrameCount-8'd1;
             quadRead <= 0;
             quadWrite <= 0;
+            blockRead <= 0;
+            blockWrite <= 0;
             if (ReadData[15]) begin // if valid
                cmdReq <= 1;
                isWrite <= 0;
@@ -479,19 +495,23 @@ always @(posedge sysclk or negedge reset) begin
               3'd6: Length <= {ReadData[7:0],ReadData[15:8]};
             endcase
             if (count[2:0] == 3'd6) begin
-               if (Length == 16'd16) begin   // read request
+               if (Length == 16'd16) begin       // quadlet read request
                   cmdReq <= 1;
                   state <= ST_WAIT_ACK;
                   nextState <= ST_RECEIVE_DMA_FIREWIRE_PACKET;
-                  quadRead <= 1;
                   maxCount <= 4'd7;
                end
-               else if (Length == 16'd20) begin  // write request
+               else if (Length == 16'd20) begin  // quadlet write or block read request
                   cmdReq <= 1;
                   state <= ST_WAIT_ACK;
                   nextState <= ST_RECEIVE_DMA_FIREWIRE_PACKET;
-                  quadWrite <= 1;
                   maxCount <= 4'd9;
+               end
+               else if (Length == 16'd44) begin  // block write (6+4+1 quadlets)
+                  cmdReq <= 1;
+                  state <= ST_WAIT_ACK;
+                  nextState <= ST_RECEIVE_DMA_FIREWIRE_PACKET;
+                  maxCount <= 4'd9;     // to fix (increase size of buffer)
                end
                else begin
                   state <= ST_RECEIVE_FLUSH_START;
@@ -559,7 +579,32 @@ always @(posedge sysclk or negedge reset) begin
             //   - else if more frames available, receive status of next frame
             //   - else go to idle state
             if (ReadData[0] == 1'b0)
-               state <= quadRead ? ST_SEND_DMA_STATUS_READ : ((FrameCount == 8'd0) ?  ST_IDLE : ST_RECEIVE_FRAME_STATUS);
+               case (fw_tcode)
+                 `TC_QREAD:   // quadlet read request
+                   begin
+                      quadRead <= 1;
+                      state <= ST_SEND_DMA_STATUS_READ;
+                   end
+                 `TC_QWRITE:  // quadlet write
+                   begin
+                      quadWrite <= 1;
+                      // TODO: write to registers
+                      state <= (FrameCount == 8'd0) ? ST_IDLE : ST_RECEIVE_FRAME_STATUS;
+                   end
+                 `TC_BREAD:  // block read request
+                   begin
+                      blockRead <= 1;
+                      state <= ST_SEND_DMA_STATUS_READ;
+                   end
+                 `TC_BWRITE:  // block write request
+                   begin
+                      blockWrite <= 1;
+                      // TODO: perform write
+                      state <= (FrameCount == 8'd0) ? ST_IDLE : ST_RECEIVE_FRAME_STATUS;
+                   end
+                 default:
+                      state <= (FrameCount == 8'd0) ?  ST_IDLE : ST_RECEIVE_FRAME_STATUS;
+               endcase
             else
                state <= ST_RECEIVE_FLUSH_WAIT_START;
          end
@@ -599,7 +644,9 @@ always @(posedge sysclk or negedge reset) begin
          ST_SEND_DMA_BYTECOUNT:
          begin
             cmdReq <= 1;
-            WriteData <= 16'd34;  // Byte count = 34 (14+20), quadlet
+            // Byte count = 34 (14+20) for quadlet read response
+            // Byte count = 46 (14+32) for block read response (TEMP -- needs to be increased)
+            WriteData <= quadRead ? 16'd34 : 16'd46;
             state <= ST_WAIT_ACK;
             nextState <= ST_SEND_DMA_DESTADDR;
             count <= 4'd0;
@@ -645,19 +692,27 @@ always @(posedge sysclk or negedge reset) begin
          ST_SEND_DMA_LENGTH:
          begin
             cmdReq <= 1;
-            WriteData <= 16'd20;  // 20 bytes for quadlet read/write
             state <= ST_WAIT_ACK;
-            nextState <= ST_SEND_DMA_PACKETDATA;
             count <= 4'd0;
+            if (quadRead) begin
+               // 20 bytes for quadlet read response
+               WriteData <= 16'd20;
+               nextState <= ST_SEND_DMA_QUAD_PACKETDATA;
+            end
+            else begin
+               // (24 + block_data_length) bytes for block read response
+               WriteData <= 16'd24 + block_data_length;
+               nextState <= ST_SEND_DMA_BLOCK_PACKETDATA;
+            end
          end
 
-         ST_SEND_DMA_PACKETDATA:
+         ST_SEND_DMA_QUAD_PACKETDATA:
          begin
             cmdReq <= 1;
             case (count[3:0])
 
               //0:  WriteData <= 16'h0;     // dest-id
-              4'd1: WriteData <= 16'h6000;     // tcode=6
+              4'd1: WriteData <= {`TC_QRESP, 12'h000};
               //2:  WriteData <= 16'h0;     // src-id
               //3:  WriteData <= 16'h0;     // rcode, reserved
               //4:  WriteData <= 16'h0;     // reserved
@@ -676,9 +731,41 @@ always @(posedge sysclk or negedge reset) begin
               //9:  WriteData <= 16'h0;     // CRC
               default: WriteData <= 16'h0;
             endcase
+
+            state <= ST_WAIT_ACK;
+            nextState <= (count[3:0] == 4'd9) ? ST_SEND_DMA_STOP_READ : ST_SEND_DMA_QUAD_PACKETDATA;
+            count[3:0] <= count[3:0]+4'd1;
+         end
+
+         ST_SEND_DMA_BLOCK_PACKETDATA:
+         begin
+            cmdReq <= 1;
+            case (count[3:0])
+              //0:  WriteData <= 16'h0;     // dest-id
+              4'd1: WriteData <= {`TC_BRESP, 12'h000};
+              //2:  WriteData <= 16'h0;     // src-id
+              //3:  WriteData <= 16'h0;     // rcode, reserved
+              //4:  WriteData <= 16'h0;     // reserved
+              //5:  WriteData <= 16'h0;     // reserved
+              4'd6: WriteData <= {block_data_length[7:0], block_data_length[15:8]};    // data_length
+              //7:  WriteData <= 16'h0;     // extended_tcode (0)
+              //8:  WriteData <= 16'h0;     // header_CRC
+              //9:  WriteData <= 16'h0;     // header_CRC
+              // PK TEMP: set first 6 words (12 bytes), then let Ethernet chip
+              //          pad packet to appropriate length
+              4'd10: WriteData <= 16'h0201;    // data word 1
+              4'd11: WriteData <= 16'h0403;    // data word 2
+              4'd12: WriteData <= 16'h0605;    // data word 3
+              4'd13: WriteData <= 16'h0807;    // data word 4
+              4'd14: WriteData <= 16'h0a09;    // data word 5
+              4'd15: WriteData <= 16'h0c0b;    // data word 6
+              //last-1:  WriteData <= 16'h0;   // data_CRC
+              //last:  WriteData <= 16'h0;     // data_CRC
+              default: WriteData <= 16'h0;
+            endcase
          
             state <= ST_WAIT_ACK;
-            nextState <= (count[3:0] == 4'd9) ? ST_SEND_DMA_STOP_READ : ST_SEND_DMA_PACKETDATA;
+            nextState <= (count[3:0] == 4'd15) ? ST_SEND_DMA_STOP_READ : ST_SEND_DMA_BLOCK_PACKETDATA;
             count[3:0] <= count[3:0]+4'd1;
          end
 
