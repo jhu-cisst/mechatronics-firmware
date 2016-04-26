@@ -680,9 +680,11 @@ always @(posedge sysclk or negedge reset) begin
          ST_SEND_DMA_BYTECOUNT:
          begin
             cmdReq <= 1;
-            // Byte count = 34 (14+20) for quadlet read response
-            // Byte count = 46 (14+32) for block read response (TEMP -- needs to be increased)
-            WriteData <= quadRead ? 16'd34 : 16'd46;
+            // Set byte count:
+            //   + 34 for quadlet read response (14+20)
+            //   + (14+24+block_data_length) for block read response
+            //     (block_data_length must be a multiple of 4)
+            WriteData <= quadRead ? 16'd34 : (16'd38 + block_data_length);
             state <= ST_WAIT_ACK;
             nextState <= ST_SEND_DMA_DESTADDR;
             count <= 4'd0;
@@ -854,31 +856,34 @@ always @(posedge sysclk or negedge reset) begin
          ST_SEND_DMA_PACKETDATA_BLOCK_CHANNEL:
            begin
               cmdReq <= 1;
+              state <= ST_WAIT_ACK;
               if (count[0] == 0) begin
                   count[0] <= 1;
                   WriteData <= {reg_rdata[23:16], reg_rdata[31:24]};
+                  nextState <= ST_SEND_DMA_PACKETDATA_BLOCK_CHANNEL;
               end
               else begin
                   count[0] <= 0;
                   WriteData <= {reg_rdata[7:0], reg_rdata[15:8]};
                   if (reg_raddr[15:12] == `ADDR_MAIN) begin
                       if (reg_raddr[7:4] == num_channels) begin
-                          reg_raddr[7:4] <= 4'd1;
-                          reg_raddr[2:0] <= next_addr;
-                          next_addr <= next_addr + 1;
+                          if (next_addr == 3'd7) begin
+                              eth_read_en <= 0;  // we are done
+                              nextState <= ST_SEND_DMA_PACKETDATA_CHECKSUM;
+                          end
+                          else begin
+                              reg_raddr[7:4] <= 4'd1;
+                              reg_raddr[2:0] <= next_addr;
+                              next_addr <= next_addr + 1;
+                              nextState <= ST_SEND_DMA_PACKETDATA_BLOCK_CHANNEL;
+                          end
                       end
-                      else
+                      else begin
                           reg_raddr[7:4] <= reg_raddr[7:4] + 1'b1;
+                          nextState <= ST_SEND_DMA_PACKETDATA_BLOCK_CHANNEL;
+                      end
                   end
               end
-              state <= ST_WAIT_ACK;
-              if ((next_addr == 3'd7) && count[0]) begin
-                 count[0] <= 1'd0;
-                 nextState <= ST_SEND_DMA_PACKETDATA_CHECKSUM;
-                 eth_read_en <= 0;
-              end
-              else
-                 nextState <= ST_SEND_DMA_PACKETDATA_BLOCK_CHANNEL;
            end
 
          ST_SEND_DMA_PACKETDATA_CHECKSUM:
