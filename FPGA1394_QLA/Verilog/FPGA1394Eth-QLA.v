@@ -75,16 +75,22 @@ module FPGA1394EthQLA
     wire lreq_trig;
     wire[2:0] lreq_type;
     wire reg_wen;               // register write signal
+    wire fw_reg_wen;            // register write signal from FireWire
+    wire eth_reg_wen;           // register write signal from Ethernet
     wire blk_wen;               // block write enable
     wire blk_wstart;
     wire[15:0] reg_raddr;       // 16-bit reg read address
     wire[15:0] fw_reg_raddr;    // 16-bit reg read address from FireWire
     wire[15:0] eth_reg_raddr;   // 16-bit reg read address from Ethernet
     wire[15:0] reg_waddr;       // 16-bit reg write address
+    wire[15:0] fw_reg_waddr;    // 16-bit reg write address from FireWire
+    wire[15:0] eth_reg_waddr;   // 16-bit reg write address from Ethernet
     wire[31:0] reg_rdata;       // reg read data
     wire[31:0] reg_wdata;       // reg write data
+    wire[31:0] fw_reg_wdata;    // reg write data from FireWire
+    wire[31:0] eth_reg_wdata;   // reg write data from Ethernet
     wire[31:0] reg_rd[0:15];
-    wire eth_read_en;       // 1 -> Ethernet is reading from board registers
+    wire eth_read_en;           // 1 -> Ethernet is reading from board registers
 
 //------------------------------------------------------------------------------
 // hardware description
@@ -93,6 +99,9 @@ module FPGA1394EthQLA
 BUFG clksysclk(.I(clk1394), .O(sysclk));
 
 assign reg_raddr = eth_read_en ? eth_reg_raddr : fw_reg_raddr;
+assign reg_waddr = eth_reg_wen ? eth_reg_waddr : fw_reg_waddr;
+assign reg_wdata = eth_reg_wen ? eth_reg_wdata : fw_reg_wdata;
+assign reg_wen = fw_reg_wen | eth_reg_wen;
 
 // Mux routing read data based on read address
 //   See Constants.v for detail
@@ -146,14 +155,14 @@ PhyLinkInterface phy(
     .ctl_ext(ctl),           // bi: phy ctl lines
     .data_ext(data),         // bi: phy data lines
     
-    .reg_wen(reg_wen),       // out: reg write signal
+    .reg_wen(fw_reg_wen),    // out: reg write signal
     .blk_wen(blk_wen),       // out: block write signal
     .blk_wstart(blk_wstart),   // out: block write is starting
 
     .reg_raddr(fw_reg_raddr),  // out: register address
-    .reg_waddr(reg_waddr),     // out: register address
+    .reg_waddr(fw_reg_waddr),  // out: register address
     .reg_rdata(reg_rdata),     // in:  read data to external register
-    .reg_wdata(reg_wdata),     // out: write data to external register
+    .reg_wdata(fw_reg_wdata),  // out: write data to external register
 
     .lreq_trig(lreq_trig),   // out: phy request trigger
     .lreq_type(lreq_type)    // out: phy request type
@@ -254,6 +263,9 @@ EthernetIO EthernetTransfers(
     .reg_rdata(reg_rdata),
     .reg_raddr(eth_reg_raddr),
     .eth_read_en(eth_read_en),
+    .reg_wdata(eth_reg_wdata),
+    .reg_waddr(eth_reg_waddr),
+    .eth_write_en(eth_reg_wen),
 
     .initReq(eth_init_req),
     .initAck(eth_init_ack),

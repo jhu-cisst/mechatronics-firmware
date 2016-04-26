@@ -39,6 +39,9 @@ module EthernetIO(
     input wire[31:0] reg_rdata,
     output reg[15:0] reg_raddr,
     output reg       eth_read_en,
+    output reg[31:0] reg_wdata,
+    output reg[15:0] reg_waddr,
+    output reg       eth_write_en,
 
     // Interface to lower layer (KSZ8851)
     input wire initReq,           // 1 -> Chip has been reset; initialization requested
@@ -55,6 +58,8 @@ module EthernetIO(
     output reg initOK,            // 1 -> Initialization successful
     output reg ethIoError         // 1 -> Ethernet I/O error
 );
+
+parameter num_channels = 4;
 
 // Current state and next state
 reg[5:0] state;
@@ -103,17 +108,21 @@ parameter[5:0]
     ST_SEND_DMA_DESTADDR = 6'd38,
     ST_SEND_DMA_SRCADDR = 6'd39,
     ST_SEND_DMA_LENGTH = 6'd40,
-    ST_SEND_DMA_QUAD_PACKETDATA = 6'd41,
-    ST_SEND_DMA_BLOCK_PACKETDATA = 6'd42,
-    ST_SEND_DMA_STOP_READ = 6'd43,
-    ST_SEND_DMA_STOP_WRITE = 6'd44,
-    ST_SEND_TXQ_ENQUEUE_START = 6'd45,
-    ST_SEND_TXQ_ENQUEUE_END = 6'd46;
+    ST_SEND_DMA_PACKETDATA_HEADER = 6'd41,
+    ST_SEND_DMA_PACKETDATA_QUAD = 6'd42,
+    ST_SEND_DMA_PACKETDATA_BLOCK_START = 6'd43,
+    ST_SEND_DMA_PACKETDATA_BLOCK_CHANNEL = 6'd44,
+    ST_SEND_DMA_PACKETDATA_CHECKSUM = 6'd45,
+    ST_SEND_DMA_STOP_READ = 6'd46,
+    ST_SEND_DMA_STOP_WRITE = 6'd47,
+    ST_SEND_TXQ_ENQUEUE_START = 6'd48,
+    ST_SEND_TXQ_ENQUEUE_END = 6'd49;
 
 reg[7:0] FrameCount;   // Number of received frames
 reg[3:0] count;        // General use counter
 reg[3:0] readCount;    // Wait for read valid
 reg[3:0] maxCount;     // For reading FireWire packets
+reg[2:0] next_addr;    // Address of next device (for block read)
 
 reg[15:0] destMac[0:2];  // Not currently used
 reg[15:0] srcMac[0:2];
@@ -128,6 +137,21 @@ wire[15:0] block_data_length;  // Data length (in bytes) for block read/write re
 
 assign fw_tcode = FireWirePacket[1][15:12];
 assign block_data_length = {FireWirePacket[6][7:0], FireWirePacket[6][15:8]};
+
+// TEMP: Timestamp copied from Firewire.v -- should consolidate
+reg[31:0] timestamp;          // timestamp counter register
+reg ts_reset;                 // timestamp counter reset signal
+// -------------------------------------------------------
+// Timestamp
+// -------------------------------------------------------
+// timestamp counts number of clocks between block reads
+always @(posedge(sysclk) or posedge(ts_reset) or negedge(reset))
+begin
+    if (reset==0 || ts_reset)
+        timestamp <= 0;
+    else
+        timestamp <= timestamp + 1'b1;
+end
 
 always @(posedge sysclk or negedge reset) begin
     if (reset == 0) begin
@@ -150,6 +174,8 @@ always @(posedge sysclk or negedge reset) begin
        srcMac[2] <= 16'd0;
        Length <= 16'd0;
        eth_read_en <= 0;
+       eth_write_en <= 0;
+       ts_reset <= 0;
     end
     else begin
 
@@ -551,6 +577,12 @@ always @(posedge sysclk or negedge reset) begin
             RegAddr <= 8'h82;
             state <= ST_WAIT_ACK;
             nextState <= ST_RECEIVE_FLUSH_EXECUTE;
+            if (fw_tcode == `TC_QWRITE) begin
+               quadWrite <= 1;
+               reg_waddr <= {FireWirePacket[5][7:0], FireWirePacket[5][15:8]};
+               reg_wdata <= {FireWirePacket[6][7:0], FireWirePacket[6][15:8],
+                             FireWirePacket[7][7:0], FireWirePacket[7][15:8]};
+            end
          end
 
          ST_RECEIVE_FLUSH_EXECUTE:
@@ -561,6 +593,8 @@ always @(posedge sysclk or negedge reset) begin
             WriteData <= {ReadData[15:4],1'b0,ReadData[2:1],1'b1};
             state <= ST_WAIT_ACK;
             nextState <= ST_RECEIVE_FLUSH_WAIT_START;
+            if (fw_tcode == `TC_QWRITE)
+               eth_write_en <= 1;
          end
 
          ST_RECEIVE_FLUSH_WAIT_START:
@@ -570,6 +604,8 @@ always @(posedge sysclk or negedge reset) begin
             // RegAddr is already set to 8'h82
             state <= ST_WAIT_ACK;
             nextState <= ST_RECEIVE_FLUSH_WAIT_CHECK;
+            if (fw_tcode == `TC_QWRITE)
+               eth_write_en <= 0;
          end
 
          ST_RECEIVE_FLUSH_WAIT_CHECK:
@@ -578,6 +614,7 @@ always @(posedge sysclk or negedge reset) begin
             //   - if a read command, start sending response (check FrameCount after send complete)
             //   - else if more frames available, receive status of next frame
             //   - else go to idle state
+            // TODO: check node id and forward via FireWire if necessary
             if (ReadData[0] == 1'b0)
                case (fw_tcode)
                  `TC_QREAD:   // quadlet read request
@@ -587,8 +624,7 @@ always @(posedge sysclk or negedge reset) begin
                    end
                  `TC_QWRITE:  // quadlet write
                    begin
-                      quadWrite <= 1;
-                      // TODO: write to registers
+                      // Already did write in parallel with flush
                       state <= (FrameCount == 8'd0) ? ST_IDLE : ST_RECEIVE_FRAME_STATUS;
                    end
                  `TC_BREAD:  // block read request
@@ -694,80 +730,165 @@ always @(posedge sysclk or negedge reset) begin
             cmdReq <= 1;
             state <= ST_WAIT_ACK;
             count <= 4'd0;
-            if (quadRead) begin
-               // 20 bytes for quadlet read response
-               WriteData <= 16'd20;
-               nextState <= ST_SEND_DMA_QUAD_PACKETDATA;
+            // 20 bytes for quadlet read response
+            // (24 + block_data_length) bytes for block read response
+            WriteData <= quadRead ? 16'd20 : (16'd24 + block_data_length);
+            nextState <= ST_SEND_DMA_PACKETDATA_HEADER;
+         end
+
+         // Send first 5 quadlets, which are nearly identical between quadlet read response
+         // and block read response (only difference is tcode).
+         ST_SEND_DMA_PACKETDATA_HEADER:
+         begin
+            cmdReq <= 1;
+            case (count[2:0])
+               //0:  WriteData <= 16'h0;     // dest-id
+               3'd1: WriteData <= {quadRead ? `TC_QRESP : `TC_BRESP, 12'h000};
+               //2:  WriteData <= 16'h0;     // src-id
+               //3:  WriteData <= 16'h0;     // rcode, reserved
+               //4:  WriteData <= 16'h0;     // reserved
+               3'd5:
+                  begin
+                     WriteData <= 16'h0;     // reserved
+                     count[2:0] <= 3'd0;
+                     if (quadRead) begin
+                        // Get ready to read data from the board.
+                        reg_raddr <= {FireWirePacket[5][7:0], FireWirePacket[5][15:8]};
+                        eth_read_en <= 1;
+                        nextState <= ST_SEND_DMA_PACKETDATA_QUAD;
+                     end
+                     else
+                        nextState <= ST_SEND_DMA_PACKETDATA_BLOCK_START;
+                  end
+               default: WriteData <= 16'h0;
+            endcase
+            state <= ST_WAIT_ACK;
+            if (count[2:0] != 3'd5) begin
+               nextState <= ST_SEND_DMA_PACKETDATA_HEADER;
+               count[2:0] <= count[2:0]+3'd1;
+            end
+         end
+
+         ST_SEND_DMA_PACKETDATA_QUAD:
+         begin
+            cmdReq <= 1;
+            state <= ST_WAIT_ACK;
+            if (count[0] == 0) begin
+               WriteData <= {reg_rdata[23:16], reg_rdata[31:24]};
+               count[0] <= 1;
+               nextState <= ST_SEND_DMA_PACKETDATA_QUAD;
             end
             else begin
-               // (24 + block_data_length) bytes for block read response
-               WriteData <= 16'd24 + block_data_length;
-               nextState <= ST_SEND_DMA_BLOCK_PACKETDATA;
+               WriteData <= {reg_rdata[7:0], reg_rdata[15:8]};
+               // Stop accessing FPGA registers
+               eth_read_en <= 0;
+               count[0] <= 0;
+               nextState <= ST_SEND_DMA_PACKETDATA_CHECKSUM;
             end
          end
 
-         ST_SEND_DMA_QUAD_PACKETDATA:
+         ST_SEND_DMA_PACKETDATA_BLOCK_START:
          begin
             cmdReq <= 1;
             case (count[3:0])
+              4'd0: WriteData <= {block_data_length[7:0], block_data_length[15:8]};    // data_length
+              //1:  WriteData <= 16'h0;     // extended_tcode (0)
+              //2:  WriteData <= 16'h0;     // header_CRC
+              //3:  WriteData <= 16'h0;     // header_CRC
+              4'd4: WriteData <= {timestamp[23:16], timestamp[31:24]};
+              4'd5:
+                 begin
+                    WriteData <= {timestamp[7:0], timestamp[15:8]};
+                    // Reset timestamp
+                    ts_reset <= 1;
+                    // Get ready to read data from the board.
+                    eth_read_en <= 1;
+                    reg_raddr <= {12'd0, `REG_STATUS};   // address of status register
+                 end
+              4'd6:
+                 begin
+                    WriteData <= {reg_rdata[23:16], reg_rdata[31:24]};  // status
+                    ts_reset <= 0;
+                 end
+              4'd7:
+                 begin
+                    WriteData <= {reg_rdata[7:0], reg_rdata[15:8]};     // status
+                    reg_raddr <= {12'd0, `REG_DIGIN};   // address of digital I/O register
+                 end
+              4'd8:
+                 begin
+                    WriteData <= {reg_rdata[23:16], reg_rdata[31:24]};  // digital I/O
+                 end
+              4'd9:
+                 begin
+                    WriteData <= {reg_rdata[7:0], reg_rdata[15:8]};     // digital I/O
+                    reg_raddr <= {12'd0, `REG_TEMPSNS};  // address of temperature sensors
+                 end
+              4'd10:
+                 begin
+                    WriteData <= {reg_rdata[23:16], reg_rdata[31:24]};  // temperature sensors
+                 end
+              4'd11:
+                 begin
+                    WriteData <= {reg_rdata[7:0], reg_rdata[15:8]};     // temperature sensors
+                    reg_raddr[7:4] <= 4'h1;        // start from channel 1
+                    // NOTE: Following is hard-coded to first read from channel 0,
+                    //       and then from 5,6,7. This is correct, but less flexible
+                    //       than the implementation in Firewire.v, which uses dev_addr[].
+                    reg_raddr[3:0] <= 4'd0;        // 1st device address
+                    next_addr <= 3'd5;             // set next device address
+                 end
+              default: WriteData <= 16'h0;
+            endcase
+            state <= ST_WAIT_ACK;
+            if (count[3:0] == 4'd11) begin
+                nextState <= ST_SEND_DMA_PACKETDATA_BLOCK_CHANNEL;
+                count[3:0] <= 4'd0;
+            end
+            else begin
+                nextState <= ST_SEND_DMA_PACKETDATA_BLOCK_START;
+                count[3:0] <= count[3:0]+4'd1;
+            end
+         end
 
-              //0:  WriteData <= 16'h0;     // dest-id
-              4'd1: WriteData <= {`TC_QRESP, 12'h000};
-              //2:  WriteData <= 16'h0;     // src-id
-              //3:  WriteData <= 16'h0;     // rcode, reserved
-              //4:  WriteData <= 16'h0;     // reserved
-              4'd5: begin
-                 //  WriteData <= 16'h0;     // reserved
-                 // Get ready to read data from the board.
-                 eth_read_en <= 1;
-                 reg_raddr <= {FireWirePacket[5][7:0], FireWirePacket[5][15:8]};
+         ST_SEND_DMA_PACKETDATA_BLOCK_CHANNEL:
+           begin
+              cmdReq <= 1;
+              if (count[0] == 0) begin
+                  count[0] <= 1;
+                  WriteData <= {reg_rdata[23:16], reg_rdata[31:24]};
               end
-              4'd6: WriteData <= {reg_rdata[23:16], reg_rdata[31:24]};
-              4'd7: WriteData <= {reg_rdata[7:0], reg_rdata[15:8]};
-              4'd8: begin
-                 // WriteData <= 16'h0;     // CRC
+              else begin
+                  count[0] <= 0;
+                  WriteData <= {reg_rdata[7:0], reg_rdata[15:8]};
+                  if (reg_raddr[15:12] == `ADDR_MAIN) begin
+                      if (reg_raddr[7:4] == num_channels) begin
+                          reg_raddr[7:4] <= 4'd1;
+                          reg_raddr[2:0] <= next_addr;
+                          next_addr <= next_addr + 1;
+                      end
+                      else
+                          reg_raddr[7:4] <= reg_raddr[7:4] + 1'b1;
+                  end
+              end
+              state <= ST_WAIT_ACK;
+              if ((next_addr == 3'd7) && count[0]) begin
+                 count[0] <= 1'd0;
+                 nextState <= ST_SEND_DMA_PACKETDATA_CHECKSUM;
                  eth_read_en <= 0;
               end
-              //9:  WriteData <= 16'h0;     // CRC
-              default: WriteData <= 16'h0;
-            endcase
+              else
+                 nextState <= ST_SEND_DMA_PACKETDATA_BLOCK_CHANNEL;
+           end
 
-            state <= ST_WAIT_ACK;
-            nextState <= (count[3:0] == 4'd9) ? ST_SEND_DMA_STOP_READ : ST_SEND_DMA_QUAD_PACKETDATA;
-            count[3:0] <= count[3:0]+4'd1;
-         end
-
-         ST_SEND_DMA_BLOCK_PACKETDATA:
-         begin
-            cmdReq <= 1;
-            case (count[3:0])
-              //0:  WriteData <= 16'h0;     // dest-id
-              4'd1: WriteData <= {`TC_BRESP, 12'h000};
-              //2:  WriteData <= 16'h0;     // src-id
-              //3:  WriteData <= 16'h0;     // rcode, reserved
-              //4:  WriteData <= 16'h0;     // reserved
-              //5:  WriteData <= 16'h0;     // reserved
-              4'd6: WriteData <= {block_data_length[7:0], block_data_length[15:8]};    // data_length
-              //7:  WriteData <= 16'h0;     // extended_tcode (0)
-              //8:  WriteData <= 16'h0;     // header_CRC
-              //9:  WriteData <= 16'h0;     // header_CRC
-              // PK TEMP: set first 6 words (12 bytes), then let Ethernet chip
-              //          pad packet to appropriate length
-              4'd10: WriteData <= 16'h0201;    // data word 1
-              4'd11: WriteData <= 16'h0403;    // data word 2
-              4'd12: WriteData <= 16'h0605;    // data word 3
-              4'd13: WriteData <= 16'h0807;    // data word 4
-              4'd14: WriteData <= 16'h0a09;    // data word 5
-              4'd15: WriteData <= 16'h0c0b;    // data word 6
-              //last-1:  WriteData <= 16'h0;   // data_CRC
-              //last:  WriteData <= 16'h0;     // data_CRC
-              default: WriteData <= 16'h0;
-            endcase
-         
-            state <= ST_WAIT_ACK;
-            nextState <= (count[3:0] == 4'd15) ? ST_SEND_DMA_STOP_READ : ST_SEND_DMA_BLOCK_PACKETDATA;
-            count[3:0] <= count[3:0]+4'd1;
-         end
+         ST_SEND_DMA_PACKETDATA_CHECKSUM:
+           begin
+              cmdReq <= 1;
+              count[0] <= 1;
+              WriteData <= 16'd0;    // Checksum currently not set
+              state <= ST_WAIT_ACK;
+              nextState <= (count[0] == 0) ? ST_SEND_DMA_PACKETDATA_CHECKSUM : ST_SEND_DMA_STOP_READ;
+           end
 
          ST_SEND_DMA_STOP_READ:
          begin
