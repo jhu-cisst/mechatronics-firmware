@@ -119,18 +119,23 @@ parameter[5:0]
     ST_SEND_TXQ_ENQUEUE_END = 6'd49;
 
 reg[7:0] FrameCount;   // Number of received frames
-reg[3:0] count;        // General use counter
+reg[4:0] count;        // General use counter
 reg[3:0] readCount;    // Wait for read valid
-reg[3:0] maxCount;     // For reading FireWire packets
+reg[4:0] maxCount;     // For reading FireWire packets
 reg[2:0] next_addr;    // Address of next device (for block read)
 
 reg[15:0] destMac[0:2];  // Not currently used
 reg[15:0] srcMac[0:2];
 reg[15:0] Length;
 
-// Currently, packet memory only big enough for quadlet transactions.
+// Firewire packet received from host
+//    - 16 bytes (8 words) for quadlet read request
+//    - 20 bytes (10 words) for quadlet write
+//    - (24+block_data_length) bytes for block write
+//      - currently, block_data_length = 4*4 = 16
+//      - thus, max size in words is 20
 // Consider making this 32-bit.
-reg[15:0] FireWirePacket[0:9];  // FireWire packet memory
+reg[15:0] FireWirePacket[0:19];  // FireWire packet memory (max 20 words)
 
 wire[3:0] fw_tcode;           // FireWire transaction code
 wire[15:0] block_data_length;  // Data length (in bytes) for block read/write requests
@@ -185,6 +190,8 @@ always @(posedge sysclk or negedge reset) begin
          begin
             isDMA <= 0;
             isWord <= 1;       // all transfers are word
+            eth_read_en <= 0;
+            eth_write_en <= 0;
             if (initReq) begin
                cmdReq <= 1;
                isWrite <= 0;
@@ -445,6 +452,8 @@ always @(posedge sysclk or negedge reset) begin
             quadWrite <= 0;
             blockRead <= 0;
             blockWrite <= 0;
+            eth_read_en <= 0;
+            eth_write_en <= 0;
             if (ReadData[15]) begin // if valid
                cmdReq <= 1;
                isWrite <= 0;
@@ -487,7 +496,7 @@ always @(posedge sysclk or negedge reset) begin
             WriteData <= {ReadData[15:4],1'b1,ReadData[2:0]};
             state <= ST_WAIT_ACK;
             nextState <= ST_RECEIVE_DMA_SKIP;
-            count <= 4'd0;
+            count <= 5'd0;
          end
 
          ST_RECEIVE_DMA_SKIP:
@@ -525,24 +534,24 @@ always @(posedge sysclk or negedge reset) begin
                   cmdReq <= 1;
                   state <= ST_WAIT_ACK;
                   nextState <= ST_RECEIVE_DMA_FIREWIRE_PACKET;
-                  maxCount <= 4'd7;
+                  maxCount <= 5'd7;
                end
                else if (Length == 16'd20) begin  // quadlet write or block read request
                   cmdReq <= 1;
                   state <= ST_WAIT_ACK;
                   nextState <= ST_RECEIVE_DMA_FIREWIRE_PACKET;
-                  maxCount <= 4'd9;
+                  maxCount <= 5'd9;
                end
-               else if (Length == 16'd44) begin  // block write (6+4+1 quadlets)
+               else if (Length == 16'd40) begin  // block write (6+4 quadlets)
                   cmdReq <= 1;
                   state <= ST_WAIT_ACK;
                   nextState <= ST_RECEIVE_DMA_FIREWIRE_PACKET;
-                  maxCount <= 4'd9;     // to fix (increase size of buffer)
+                  maxCount <= 5'd19;
                end
                else begin
                   state <= ST_RECEIVE_FLUSH_START;
                end
-               count <= 4'd0;
+               count <= 5'd0;
             end
             else begin
                cmdReq <= 1;
@@ -556,16 +565,32 @@ always @(posedge sysclk or negedge reset) begin
          begin
             // Read FireWire packet; don't byteswap because
             // FireWire is also big endian.
-            FireWirePacket[count[3:0]] <= ReadData;
-            if (count[3:0] == maxCount) begin
-               // In parallel, can start processing FireWire packet
+            FireWirePacket[count] <= ReadData;
+            if (count == maxCount) begin
                state <= ST_RECEIVE_FLUSH_START;
+               // In parallel, can start processing FireWire packet
+               if (fw_tcode == `TC_QWRITE) begin
+                  quadWrite <= 1;
+                  reg_waddr <= {FireWirePacket[5][7:0], FireWirePacket[5][15:8]};
+                  reg_wdata <= {FireWirePacket[6][7:0], FireWirePacket[6][15:8],
+                                FireWirePacket[7][7:0], FireWirePacket[7][15:8]};
+               end
+               else if (fw_tcode == `TC_BWRITE) begin
+                   blockWrite <= 1;
+                   // For now, hard-code as write to ADDR_MAIN
+                   reg_waddr[15:12] <= `ADDR_MAIN;
+                   reg_waddr[7:4] <= 1;  // start with channel 1
+                   reg_waddr[3:0] <= `OFF_DAC_CTRL;
+                   // MSB is "valid" bit (ignored for now)
+                   reg_wdata <= {1'b0, FireWirePacket[10][6:0], FireWirePacket[10][15:8],
+                                 FireWirePacket[11][7:0], FireWirePacket[11][15:8]};
+               end
             end
             else begin
                cmdReq <= 1;
                state <= ST_WAIT_ACK;
                nextState <= ST_RECEIVE_DMA_FIREWIRE_PACKET;
-               count[3:0] <= count[3:0] + 1;
+               count <= count + 5'd1;
             end
          end
 
@@ -577,12 +602,8 @@ always @(posedge sysclk or negedge reset) begin
             RegAddr <= 8'h82;
             state <= ST_WAIT_ACK;
             nextState <= ST_RECEIVE_FLUSH_EXECUTE;
-            if (fw_tcode == `TC_QWRITE) begin
-               quadWrite <= 1;
-               reg_waddr <= {FireWirePacket[5][7:0], FireWirePacket[5][15:8]};
-               reg_wdata <= {FireWirePacket[6][7:0], FireWirePacket[6][15:8],
-                             FireWirePacket[7][7:0], FireWirePacket[7][15:8]};
-            end
+            if (quadWrite || blockWrite)
+               eth_write_en <= 1;
          end
 
          ST_RECEIVE_FLUSH_EXECUTE:
@@ -593,8 +614,14 @@ always @(posedge sysclk or negedge reset) begin
             WriteData <= {ReadData[15:4],1'b0,ReadData[2:1],1'b1};
             state <= ST_WAIT_ACK;
             nextState <= ST_RECEIVE_FLUSH_WAIT_START;
-            if (fw_tcode == `TC_QWRITE)
-               eth_write_en <= 1;
+            if (quadWrite)
+               eth_write_en <= 0;
+            else if (blockWrite) begin
+               reg_waddr[7:4] <= 2;
+               // MSB is "valid" bit (ignored for now)
+               reg_wdata <= {1'b0, FireWirePacket[12][6:0], FireWirePacket[12][15:8],
+                             FireWirePacket[13][7:0], FireWirePacket[13][15:8]};
+            end
          end
 
          ST_RECEIVE_FLUSH_WAIT_START:
@@ -604,8 +631,12 @@ always @(posedge sysclk or negedge reset) begin
             // RegAddr is already set to 8'h82
             state <= ST_WAIT_ACK;
             nextState <= ST_RECEIVE_FLUSH_WAIT_CHECK;
-            if (fw_tcode == `TC_QWRITE)
-               eth_write_en <= 0;
+            if (blockWrite) begin
+               reg_waddr[7:4] <= 3;
+               // MSB is "valid" bit (ignored for now)
+               reg_wdata <= {1'b0, FireWirePacket[14][6:0], FireWirePacket[14][15:8],
+                             FireWirePacket[15][7:0], FireWirePacket[15][15:8]};
+            end
          end
 
          ST_RECEIVE_FLUSH_WAIT_CHECK:
@@ -634,9 +665,13 @@ always @(posedge sysclk or negedge reset) begin
                    end
                  `TC_BWRITE:  // block write request
                    begin
-                      blockWrite <= 1;
-                      // TODO: perform write
+                      // Already wrote first 3 quadlets in parallel with flush
+                      reg_waddr[7:4] <= 4;
+                      // MSB is "valid" bit (ignored for now)
+                      reg_wdata <= {1'b0, FireWirePacket[16][6:0], FireWirePacket[16][15:8],
+                                    FireWirePacket[17][7:0], FireWirePacket[17][15:8]};
                       state <= (FrameCount == 8'd0) ? ST_IDLE : ST_RECEIVE_FRAME_STATUS;
+                      // eth_write_en will be cleared in next state
                    end
                  default:
                       state <= (FrameCount == 8'd0) ?  ST_IDLE : ST_RECEIVE_FRAME_STATUS;
@@ -687,7 +722,7 @@ always @(posedge sysclk or negedge reset) begin
             WriteData <= quadRead ? 16'd34 : (16'd38 + block_data_length);
             state <= ST_WAIT_ACK;
             nextState <= ST_SEND_DMA_DESTADDR;
-            count <= 4'd0;
+            count <= 5'd0;
          end
 
          ST_SEND_DMA_DESTADDR:
@@ -731,7 +766,7 @@ always @(posedge sysclk or negedge reset) begin
          begin
             cmdReq <= 1;
             state <= ST_WAIT_ACK;
-            count <= 4'd0;
+            count <= 5'd0;
             // 20 bytes for quadlet read response
             // (24 + block_data_length) bytes for block read response
             WriteData <= quadRead ? 16'd20 : (16'd24 + block_data_length);
