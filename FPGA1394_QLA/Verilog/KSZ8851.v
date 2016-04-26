@@ -81,7 +81,6 @@ module KSZ8851(
     input wire initOK,            // 1 -> Initialization successful (from higher layer)
     input wire ethIoError,        // 1 -> Error from higher layer
 
-    output reg receiveEnabled,   // for debugging
     input wire quadRead,
     input wire quadWrite,
     input wire blockRead,
@@ -134,9 +133,8 @@ assign eth_result[26] = cmdReq;       // 26: 1 -> command requested by higher le
 assign eth_result[25] = cmdAck;       // 25: 1 -> command acknowledged by lower level
 assign eth_result[24] = quadRead;     // 24: quadRead (debugging)
 assign eth_result[23] = quadWrite;    // 23: quadWrite (debugging)
-assign eth_result[22] = receiveEnabled; // 22: debugging (receive enabled)
-//assign eth_result[21] = ETH_PME;      // 21: Power Management Event
-assign eth_result[21] = blockRead;      // 21: blockRead (debugging)
+assign eth_result[22] = blockRead;    // 22: blockRead (debugging)
+assign eth_result[21] = ETH_PME;      // 21: Power Management Event
 assign eth_result[20] = ETH_IRQn;     // 20: Interrupt request
 assign eth_result[19:16] = state;     // 19-16: Current state
 assign eth_result[15:0] = eth_data;   // 15-0: Last data read or written
@@ -167,15 +165,13 @@ always @(posedge sysclk or negedge reset) begin
         initReq <= 0;
         cmdAck <= 0;
         dataValid <= 0;
-        receiveEnabled <= 1;
         sendReq <= 0;
     end
     else begin
 
         // Format of 32-bit reg_wdata:
-        // 0(3) recvEn(1) DMA(1) Reset(1) R/W(1) W/B(1) Addr(8) Data(16)
+        // 0(4) DMA(1) Reset(1) R/W(1) W/B(1) Addr(8) Data(16)
         if (eth_reg_wen) begin
-            receiveEnabled <= reg_wdata[28];
             if (reg_wdata[26]) begin   // if reset
                 count <= 21'd0;        // Clear counter
                 state <= ST_RESET_ASSERT;

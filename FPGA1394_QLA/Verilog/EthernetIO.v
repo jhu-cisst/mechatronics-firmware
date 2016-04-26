@@ -27,7 +27,6 @@ module EthernetIO(
     input wire ETH_IRQn,          // interrupt request
 
     // Debugging
-    input wire receiveEnabled,
     output reg quadRead,
     output reg quadWrite,
     output reg blockRead,
@@ -202,7 +201,7 @@ always @(posedge sysclk or negedge reset) begin
                initOK <= 0;
                ethIoError <= 0;
             end
-            else if (~ETH_IRQn && receiveEnabled) begin
+            else if (~ETH_IRQn) begin
                cmdReq <= 1;
                isWrite <= 0;
                RegAddr <= 8'h92;

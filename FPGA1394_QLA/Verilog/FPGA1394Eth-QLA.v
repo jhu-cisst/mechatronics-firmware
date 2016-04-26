@@ -232,7 +232,6 @@ KSZ8851 EthernetChip(
     .initOK(eth_init_ok),
     .ethIoError(eth_io_error),          // error from higher layer (EthernetIO)
 
-    .receiveEnabled(eth_recv_enabled),  // for debugging
     .quadRead(eth_quad_read),
     .quadWrite(eth_quad_write),
     .blockRead(eth_block_read),
@@ -252,7 +251,6 @@ EthernetIO EthernetTransfers(
     .board_id(~wenid),
 
     .ETH_IRQn(ETH_IRQn),      // in: interrupt request from KSZ8851
-    .receiveEnabled(eth_recv_enabled),  // for debugging
     .quadRead(eth_quad_read),
     .quadWrite(eth_quad_write),
     .blockRead(eth_block_read),
