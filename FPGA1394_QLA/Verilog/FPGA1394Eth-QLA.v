@@ -78,6 +78,8 @@ module FPGA1394EthQLA
     wire fw_reg_wen;            // register write signal from FireWire
     wire eth_reg_wen;           // register write signal from Ethernet
     wire blk_wen;               // block write enable
+    wire fw_blk_wen;            // block write enable from FireWire
+    wire eth_blk_wen;           // block write enable from Ethernet
     wire blk_wstart;
     wire[15:0] reg_raddr;       // 16-bit reg read address
     wire[15:0] fw_reg_raddr;    // 16-bit reg read address from FireWire
@@ -102,6 +104,7 @@ assign reg_raddr = eth_read_en ? eth_reg_raddr : fw_reg_raddr;
 assign reg_waddr = eth_reg_wen ? eth_reg_waddr : fw_reg_waddr;
 assign reg_wdata = eth_reg_wen ? eth_reg_wdata : fw_reg_wdata;
 assign reg_wen = fw_reg_wen | eth_reg_wen;
+assign blk_wen = fw_blk_wen | eth_blk_wen;
 
 // Mux routing read data based on read address
 //   See Constants.v for detail
@@ -156,7 +159,7 @@ PhyLinkInterface phy(
     .data_ext(data),         // bi: phy data lines
     
     .reg_wen(fw_reg_wen),    // out: reg write signal
-    .blk_wen(blk_wen),       // out: block write signal
+    .blk_wen(fw_blk_wen),      // out: block write signal
     .blk_wstart(blk_wstart),   // out: block write is starting
 
     .reg_raddr(fw_reg_raddr),  // out: register address
@@ -204,6 +207,8 @@ wire eth_block_read;
 wire eth_block_write;
 wire eth_send_req;
 wire eth_send_ack;
+wire eth_io_isIdle;
+wire[1:0] eth_wait_info;
 wire[31:0] Eth_Result;
 
 KSZ8851 EthernetChip(
@@ -238,11 +243,13 @@ KSZ8851 EthernetChip(
     .blockWrite(eth_block_write),
     .sendReq(eth_send_req),
     .sendAck(eth_send_ack),
+    .eth_io_isIdle(eth_io_isIdle),
+    .waitInfo(eth_wait_info),
 
-    .reg_wen(reg_wen),        // in: write enable from FireWire
-    .reg_waddr(reg_waddr),    // in: write address from FireWire
-    .reg_wdata(reg_wdata),    // in: data from FireWire
-    .eth_result(Eth_Result)   // out: Ethernet status and last register read
+    .reg_wen(fw_reg_wen),        // in: write enable from FireWire
+    .reg_waddr(fw_reg_waddr),    // in: write address from FireWire
+    .reg_wdata(fw_reg_wdata),    // in: data from FireWire
+    .eth_result(Eth_Result)      // out: Ethernet status and last register read
 );
 
 EthernetIO EthernetTransfers(
@@ -257,6 +264,8 @@ EthernetIO EthernetTransfers(
     .blockWrite(eth_block_write),
     .sendReq(eth_send_req),
     .sendAck(eth_send_ack),
+    .eth_io_isIdle(eth_io_isIdle),
+    .waitInfo(eth_wait_info),
 
     .reg_rdata(reg_rdata),
     .reg_raddr(eth_reg_raddr),
@@ -264,6 +273,7 @@ EthernetIO EthernetTransfers(
     .reg_wdata(eth_reg_wdata),
     .reg_waddr(eth_reg_waddr),
     .eth_write_en(eth_reg_wen),
+    .eth_block_en(eth_blk_wen),
 
     .initReq(eth_init_req),
     .initAck(eth_init_ack),

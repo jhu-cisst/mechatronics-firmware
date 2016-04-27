@@ -33,6 +33,8 @@ module EthernetIO(
     output reg blockWrite,
     input wire sendReq,
     output reg sendAck,
+    output wire eth_io_isIdle,
+    output reg[1:0] waitInfo,
 
     // Interface to board registers
     input wire[31:0] reg_rdata,
@@ -41,6 +43,7 @@ module EthernetIO(
     output reg[31:0] reg_wdata,
     output reg[15:0] reg_waddr,
     output reg       eth_write_en,
+    output reg       eth_block_en,
 
     // Interface to lower layer (KSZ8851)
     input wire initReq,           // 1 -> Chip has been reset; initialization requested
@@ -117,6 +120,16 @@ parameter[5:0]
     ST_SEND_TXQ_ENQUEUE_START = 6'd48,
     ST_SEND_TXQ_ENQUEUE_END = 6'd49;
 
+assign eth_io_isIdle = (state == ST_IDLE) ? 1 : 0;
+
+// Keep track of areas where state machine may wait
+// for unknown amount of time (for debugging)
+parameter[1:0]
+    WAIT_NONE = 0,
+    WAIT_ACK = 1,
+    WAIT_ACK_CLEAR = 2,
+    WAIT_FLUSH = 3;
+
 reg[7:0] FrameCount;   // Number of received frames
 reg[4:0] count;        // General use counter
 reg[3:0] readCount;    // Wait for read valid
@@ -179,7 +192,9 @@ always @(posedge sysclk or negedge reset) begin
        Length <= 16'd0;
        eth_read_en <= 0;
        eth_write_en <= 0;
+       eth_block_en <= 0;
        ts_reset <= 0;
+       waitInfo <= WAIT_NONE;
     end
     else begin
 
@@ -191,6 +206,7 @@ always @(posedge sysclk or negedge reset) begin
             isWord <= 1;       // all transfers are word
             eth_read_en <= 0;
             eth_write_en <= 0;
+            eth_block_en <= 0;
             if (initReq) begin
                cmdReq <= 1;
                isWrite <= 0;
@@ -224,12 +240,17 @@ always @(posedge sysclk or negedge reset) begin
                state <= ST_WAIT_ACK_CLEAR;
                readCount <= 4'd0;
             end
+            else
+               waitInfo <= WAIT_ACK;
          end
 
          ST_WAIT_ACK_CLEAR:
          begin
             if (~cmdAck) begin
-               if (isWrite || readValid) state <= nextState;
+               if (isWrite || readValid) begin
+                   state <= nextState;
+                   waitInfo <= WAIT_NONE;
+               end
                else begin
                   // Shouldn't take more than 12 cycles to read data.
                   if (readCount == 4'hf) begin
@@ -238,10 +259,13 @@ always @(posedge sysclk or negedge reset) begin
                      // since there may be some cleanup needed, such as
                      // getting out of DMA mode.
                      state <= ST_IDLE;
+                     waitInfo <= WAIT_NONE;
                   end
                   readCount <= readCount + 4'd1;
                end
             end
+            else
+                waitInfo <= WAIT_ACK_CLEAR;
          end
          
          //*************** States for initializing Ethernet ******************
@@ -424,7 +448,7 @@ always @(posedge sysclk or negedge reset) begin
             else begin
                state <= ST_IDLE;
             end
-         end // case: ST_RECEIVE_CLEAR_RXIS
+         end
 
          ST_RECEIVE_FRAME_COUNT_START:
          begin
@@ -451,8 +475,6 @@ always @(posedge sysclk or negedge reset) begin
             quadWrite <= 0;
             blockRead <= 0;
             blockWrite <= 0;
-            eth_read_en <= 0;
-            eth_write_en <= 0;
             if (ReadData[15]) begin // if valid
                cmdReq <= 1;
                isWrite <= 0;
@@ -570,6 +592,8 @@ always @(posedge sysclk or negedge reset) begin
                // In parallel, can start processing FireWire packet
                if (fw_tcode == `TC_QWRITE) begin
                   quadWrite <= 1;
+                  eth_write_en <= 1;
+                  eth_block_en <= 1;
                   reg_waddr <= {FireWirePacket[5][7:0], FireWirePacket[5][15:8]};
                   reg_wdata <= {FireWirePacket[6][7:0], FireWirePacket[6][15:8],
                                 FireWirePacket[7][7:0], FireWirePacket[7][15:8]};
@@ -578,11 +602,11 @@ always @(posedge sysclk or negedge reset) begin
                    blockWrite <= 1;
                    // For now, hard-code as write to ADDR_MAIN
                    reg_waddr[15:12] <= `ADDR_MAIN;
-                   reg_waddr[7:4] <= 1;  // start with channel 1
+                   reg_waddr[7:4] <= 4'd1;  // start with channel 1
                    reg_waddr[3:0] <= `OFF_DAC_CTRL;
-                   // MSB is "valid" bit (ignored for now)
-                   reg_wdata <= {1'b0, FireWirePacket[10][6:0], FireWirePacket[10][15:8],
-                                 FireWirePacket[11][7:0], FireWirePacket[11][15:8]};
+                   // MSB is "valid" bit
+                   eth_write_en <= FireWirePacket[10][7];
+                   reg_wdata[15:0] <= {FireWirePacket[11][7:0], FireWirePacket[11][15:8]};
                end
             end
             else begin
@@ -601,8 +625,16 @@ always @(posedge sysclk or negedge reset) begin
             RegAddr <= 8'h82;
             state <= ST_WAIT_ACK;
             nextState <= ST_RECEIVE_FLUSH_EXECUTE;
-            if (quadWrite || blockWrite)
-               eth_write_en <= 1;
+            if (quadWrite) begin
+               eth_write_en <= 0;
+               eth_block_en <= 0;
+            end
+            else if (blockWrite) begin
+               reg_waddr[7:4] <= 4'd2;
+               // MSB is "valid" bit
+               eth_write_en <= FireWirePacket[12][7];
+               reg_wdata[15:0] <= {FireWirePacket[13][7:0], FireWirePacket[13][15:8]};
+            end
          end
 
          ST_RECEIVE_FLUSH_EXECUTE:
@@ -613,13 +645,11 @@ always @(posedge sysclk or negedge reset) begin
             WriteData <= {ReadData[15:4],1'b0,ReadData[2:1],1'b1};
             state <= ST_WAIT_ACK;
             nextState <= ST_RECEIVE_FLUSH_WAIT_START;
-            if (quadWrite)
-               eth_write_en <= 0;
-            else if (blockWrite) begin
-               reg_waddr[7:4] <= 2;
-               // MSB is "valid" bit (ignored for now)
-               reg_wdata <= {1'b0, FireWirePacket[12][6:0], FireWirePacket[12][15:8],
-                             FireWirePacket[13][7:0], FireWirePacket[13][15:8]};
+            if (blockWrite) begin
+               reg_waddr[7:4] <= 4'd3;
+               // MSB is "valid" bit
+               eth_write_en <= FireWirePacket[14][7];
+               reg_wdata[15:0] <= {FireWirePacket[15][7:0], FireWirePacket[15][15:8]};
             end
          end
 
@@ -631,10 +661,11 @@ always @(posedge sysclk or negedge reset) begin
             state <= ST_WAIT_ACK;
             nextState <= ST_RECEIVE_FLUSH_WAIT_CHECK;
             if (blockWrite) begin
-               reg_waddr[7:4] <= 3;
-               // MSB is "valid" bit (ignored for now)
-               reg_wdata <= {1'b0, FireWirePacket[14][6:0], FireWirePacket[14][15:8],
-                             FireWirePacket[15][7:0], FireWirePacket[15][15:8]};
+               reg_waddr[7:4] <= 4'd4;
+               // MSB is "valid" bit
+               eth_write_en <= FireWirePacket[16][7];
+               reg_wdata[15:0] <= {FireWirePacket[17][7:0], FireWirePacket[17][15:8]};
+               eth_block_en <= 1;
             end
          end
 
@@ -645,7 +676,7 @@ always @(posedge sysclk or negedge reset) begin
             //   - else if more frames available, receive status of next frame
             //   - else go to idle state
             // TODO: check node id and forward via FireWire if necessary
-            if (ReadData[0] == 1'b0)
+            if (ReadData[0] == 1'b0) begin
                case (fw_tcode)
                  `TC_QREAD:   // quadlet read request
                    begin
@@ -664,19 +695,20 @@ always @(posedge sysclk or negedge reset) begin
                    end
                  `TC_BWRITE:  // block write request
                    begin
-                      // Already wrote first 3 quadlets in parallel with flush
-                      reg_waddr[7:4] <= 4;
-                      // MSB is "valid" bit (ignored for now)
-                      reg_wdata <= {1'b0, FireWirePacket[16][6:0], FireWirePacket[16][15:8],
-                                    FireWirePacket[17][7:0], FireWirePacket[17][15:8]};
+                      // Already did write in parallel with flush
+                      eth_write_en <= 0;
+                      eth_block_en <= 0;
                       state <= (FrameCount == 8'd0) ? ST_IDLE : ST_RECEIVE_FRAME_STATUS;
-                      // eth_write_en will be cleared in next state
                    end
                  default:
-                      state <= (FrameCount == 8'd0) ?  ST_IDLE : ST_RECEIVE_FRAME_STATUS;
+                      state <= (FrameCount == 8'd0) ? ST_IDLE : ST_RECEIVE_FRAME_STATUS;
                endcase
-            else
+               waitInfo <= WAIT_NONE;
+            end
+            else begin
                state <= ST_RECEIVE_FLUSH_WAIT_START;
+               waitInfo <= WAIT_FLUSH;
+            end
          end
 
          //*************** States for sending Ethernet packets ******************
@@ -908,14 +940,19 @@ always @(posedge sysclk or negedge reset) begin
                           else begin
                               reg_raddr[7:4] <= 4'd1;
                               reg_raddr[2:0] <= next_addr;
-                              next_addr <= next_addr + 1;
+                              next_addr <= next_addr + 3'd1;
                               nextState <= ST_SEND_DMA_PACKETDATA_BLOCK_CHANNEL;
                           end
                       end
                       else begin
-                          reg_raddr[7:4] <= reg_raddr[7:4] + 1'b1;
+                          reg_raddr[7:4] <= reg_raddr[7:4] + 4'd1;
                           nextState <= ST_SEND_DMA_PACKETDATA_BLOCK_CHANNEL;
                       end
+                  end
+                  else begin
+                      // For now, we are done (TODO: handle other types of block reads)
+                      eth_read_en <= 0;
+                      nextState <= ST_SEND_DMA_PACKETDATA_CHECKSUM;
                   end
               end
            end

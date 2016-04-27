@@ -87,6 +87,8 @@ module KSZ8851(
     input wire blockWrite,
     output reg sendReq,
     input wire sendAck,
+    input wire eth_io_isIdle,
+    input wire[1:0] waitInfo,
 
     // Interface from FireWire
     input  wire reg_wen,             // write enable
@@ -122,27 +124,6 @@ reg eth_error;        // I/O request received when not in idle state
 reg[3:0] state;
 reg[20:0] count;
 
-// For reading
-// VALID(1) 0(6) ERROR(1) PME(1) IRQ(1) State(4) Data(16)
-assign eth_result[31] = 1'b1;         // 31: 1 -> Ethernet is present
-assign eth_result[30] = eth_error;    // 30: 1 -> error occurred
-assign eth_result[29] = initOK;       // 29: 1 -> Initialization OK
-assign eth_result[28] = initReq;      // 28: 1 -> Reset executed, init requested
-assign eth_result[27] = ethIoError;   // 27: 1 -> ethernet I/O error (higher layer)
-assign eth_result[26] = cmdReq;       // 26: 1 -> command requested by higher level
-assign eth_result[25] = cmdAck;       // 25: 1 -> command acknowledged by lower level
-assign eth_result[24] = quadRead;     // 24: quadRead (debugging)
-assign eth_result[23] = quadWrite;    // 23: quadWrite (debugging)
-assign eth_result[22] = blockRead;    // 22: blockRead (debugging)
-assign eth_result[21] = ETH_PME;      // 21: Power Management Event
-assign eth_result[20] = ETH_IRQn;     // 20: Interrupt request
-assign eth_result[19:16] = state;     // 19-16: Current state
-assign eth_result[15:0] = eth_data;   // 15-0: Last data read or written
-
-// KSZ8851 timing:
-//    RDn, WRn pulses must be kept low for 40 ns (min)
-//    RDn to read data valid is 32 ns (max)
-
 // state machine states
 parameter[3:0]
     ST_IDLE = 4'd0,
@@ -157,6 +138,30 @@ parameter[3:0]
     ST_WRITE_START = 4'd9,
     ST_WRITE_HOLD = 4'd10,
     ST_WRITE_END = 4'd11;
+
+// For reading
+// VALID(1) 0(6) ERROR(1) PME(1) IRQ(1) State(4) Data(16)
+assign eth_result[31] = 1'b1;         // 31: 1 -> Ethernet is present
+assign eth_result[30] = eth_error;    // 30: 1 -> error occurred
+assign eth_result[29] = initOK;       // 29: 1 -> Initialization OK
+assign eth_result[28] = initReq;      // 28: 1 -> Reset executed, init requested
+assign eth_result[27] = ethIoError;   // 27: 1 -> ethernet I/O error (higher layer)
+assign eth_result[26] = cmdReq;       // 26: 1 -> command requested by higher level
+assign eth_result[25] = cmdAck;       // 25: 1 -> command acknowledged by lower level
+assign eth_result[24] = quadRead;     // 24: quadRead (debugging)
+assign eth_result[23] = quadWrite;    // 23: quadWrite (debugging)
+assign eth_result[22] = blockRead;    // 22: blockRead (debugging)
+assign eth_result[21] = blockWrite;   // 21: blockWrite (debugging)
+//assign eth_result[21] = ETH_PME;       // 21: Power Management Event
+assign eth_result[20] = ETH_IRQn;      // 20: Interrupt request
+assign eth_result[19] = (state == ST_IDLE) ? 1 : 0; // 19: KSZ8851 state machine is idle
+assign eth_result[18] = eth_io_isIdle; // 18: Ethernet I/O state machine is idle
+assign eth_result[17:16] = waitInfo;   // 17-16: Wait points in EthernetIO.v
+assign eth_result[15:0] = eth_data;    // 15-0: Last data read or written
+
+// KSZ8851 timing:
+//    RDn, WRn pulses must be kept low for 40 ns (min)
+//    RDn to read data valid is 32 ns (max)
 
 always @(posedge sysclk or negedge reset) begin
     if (reset == 0) begin
