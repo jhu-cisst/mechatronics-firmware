@@ -80,7 +80,9 @@ module FPGA1394EthQLA
     wire blk_wen;               // block write enable
     wire fw_blk_wen;            // block write enable from FireWire
     wire eth_blk_wen;           // block write enable from Ethernet
-    wire blk_wstart;
+    wire blk_wstart;            // block write start
+    wire fw_blk_wstart;         // block write start from FireWire
+    wire eth_blk_wstart;        // block write start from Ethernet
     wire[15:0] reg_raddr;       // 16-bit reg read address
     wire[15:0] fw_reg_raddr;    // 16-bit reg read address from FireWire
     wire[15:0] eth_reg_raddr;   // 16-bit reg read address from Ethernet
@@ -101,10 +103,11 @@ module FPGA1394EthQLA
 BUFG clksysclk(.I(clk1394), .O(sysclk));
 
 assign reg_raddr = eth_read_en ? eth_reg_raddr : fw_reg_raddr;
-assign reg_waddr = eth_reg_wen ? eth_reg_waddr : fw_reg_waddr;
-assign reg_wdata = eth_reg_wen ? eth_reg_wdata : fw_reg_wdata;
+assign reg_waddr = (eth_reg_wen | eth_blk_wen) ? eth_reg_waddr : fw_reg_waddr;
+assign reg_wdata = (eth_reg_wen | eth_blk_wen) ? eth_reg_wdata : fw_reg_wdata;
 assign reg_wen = fw_reg_wen | eth_reg_wen;
 assign blk_wen = fw_blk_wen | eth_blk_wen;
+assign blk_wstart = fw_blk_wstart | eth_blk_wstart;
 
 // Mux routing read data based on read address
 //   See Constants.v for detail
@@ -158,9 +161,9 @@ PhyLinkInterface phy(
     .ctl_ext(ctl),           // bi: phy ctl lines
     .data_ext(data),         // bi: phy data lines
     
-    .reg_wen(fw_reg_wen),    // out: reg write signal
-    .blk_wen(fw_blk_wen),      // out: block write signal
-    .blk_wstart(blk_wstart),   // out: block write is starting
+    .reg_wen(fw_reg_wen),       // out: reg write signal
+    .blk_wen(fw_blk_wen),       // out: block write signal
+    .blk_wstart(fw_blk_wstart), // out: block write is starting
 
     .reg_raddr(fw_reg_raddr),  // out: register address
     .reg_waddr(fw_reg_waddr),  // out: register address
@@ -205,6 +208,7 @@ wire eth_quad_read;
 wire eth_quad_write;
 wire eth_block_read;
 wire eth_block_write;
+wire eth_is_multicast;
 wire eth_send_req;
 wire eth_send_ack;
 wire eth_io_isIdle;
@@ -241,6 +245,7 @@ KSZ8851 EthernetChip(
     .quadWrite(eth_quad_write),
     .blockRead(eth_block_read),
     .blockWrite(eth_block_write),
+    .isMulticast(eth_is_multicast),
     .sendReq(eth_send_req),
     .sendAck(eth_send_ack),
     .eth_io_isIdle(eth_io_isIdle),
@@ -262,6 +267,7 @@ EthernetIO EthernetTransfers(
     .quadWrite(eth_quad_write),
     .blockRead(eth_block_read),
     .blockWrite(eth_block_write),
+    .isMulticast(eth_is_multicast),
     .sendReq(eth_send_req),
     .sendAck(eth_send_ack),
     .eth_io_isIdle(eth_io_isIdle),
@@ -274,6 +280,7 @@ EthernetIO EthernetTransfers(
     .reg_waddr(eth_reg_waddr),
     .eth_write_en(eth_reg_wen),
     .eth_block_en(eth_blk_wen),
+    .eth_block_start(eth_blk_wstart),
 
     .initReq(eth_init_req),
     .initAck(eth_init_ack),

@@ -85,6 +85,7 @@ module KSZ8851(
     input wire quadWrite,
     input wire blockRead,
     input wire blockWrite,
+    input wire isMulticast,
     output reg sendReq,
     input wire sendAck,
     input wire eth_io_isIdle,
@@ -152,8 +153,9 @@ assign eth_result[24] = quadRead;     // 24: quadRead (debugging)
 assign eth_result[23] = quadWrite;    // 23: quadWrite (debugging)
 assign eth_result[22] = blockRead;    // 22: blockRead (debugging)
 assign eth_result[21] = blockWrite;   // 21: blockWrite (debugging)
+assign eth_result[20] = isMulticast;     // 20: multicast received
 //assign eth_result[21] = ETH_PME;       // 21: Power Management Event
-assign eth_result[20] = ETH_IRQn;      // 20: Interrupt request
+//assign eth_result[20] = ETH_IRQn;      // 20: Interrupt request
 assign eth_result[19] = (state == ST_IDLE) ? 1 : 0; // 19: KSZ8851 state machine is idle
 assign eth_result[18] = eth_io_isIdle; // 18: Ethernet I/O state machine is idle
 assign eth_result[17:16] = waitInfo;   // 17-16: Wait points in EthernetIO.v

@@ -31,6 +31,7 @@ module EthernetIO(
     output reg quadWrite,
     output reg blockRead,
     output reg blockWrite,
+    output reg isMulticast,       // 1 -> multicast address detected
     input wire sendReq,
     output reg sendAck,
     output wire eth_io_isIdle,
@@ -44,6 +45,7 @@ module EthernetIO(
     output reg[15:0] reg_waddr,
     output reg       eth_write_en,
     output reg       eth_block_en,
+    output reg       eth_block_start,
 
     // Interface to lower layer (KSZ8851)
     input wire initReq,           // 1 -> Chip has been reset; initialization requested
@@ -81,44 +83,45 @@ parameter[5:0]
     ST_INIT_REG_86 = 6'd9,
     ST_INIT_REG_9C = 6'd10,
     ST_INIT_REG_74 = 6'd11,
-    ST_INIT_REG_82 = 6'd12,
-    ST_INIT_IRQ_CLEAR = 6'd13,
-    ST_INIT_IRQ_ENABLE = 6'd14,
-    ST_INIT_TRANSMIT_ENABLE_READ = 6'd15,
-    ST_INIT_TRANSMIT_ENABLE_WRITE = 6'd16,
-    ST_INIT_RECEIVE_ENABLE_READ = 6'd17,
-    ST_INIT_RECEIVE_ENABLE_WRITE = 6'd18,
-    ST_INIT_DONE = 6'd19,
-    ST_RECEIVE_CLEAR_RXIS = 6'd20,
-    ST_RECEIVE_FRAME_COUNT_START = 6'd21,
-    ST_RECEIVE_FRAME_COUNT_END = 6'd22,
-    ST_RECEIVE_FRAME_STATUS = 6'd23,
-    ST_RECEIVE_FRAME_LENGTH = 6'd24,
-    ST_RECEIVE_DMA_STATUS_READ = 6'd25,
-    ST_RECEIVE_DMA_STATUS_WRITE = 6'd26,
-    ST_RECEIVE_DMA_SKIP = 6'd27,
-    ST_RECEIVE_DMA_FRAME_HEADER = 6'd28,
-    ST_RECEIVE_DMA_FIREWIRE_PACKET = 6'd29,
-    ST_RECEIVE_FLUSH_START = 6'd30,
-    ST_RECEIVE_FLUSH_EXECUTE = 6'd31,
-    ST_RECEIVE_FLUSH_WAIT_START = 6'd32,
-    ST_RECEIVE_FLUSH_WAIT_CHECK = 6'd33,
-    ST_SEND_DMA_STATUS_READ = 6'd34,
-    ST_SEND_DMA_STATUS_WRITE = 6'd35,
-    ST_SEND_DMA_CONTROLWORD = 6'd36,
-    ST_SEND_DMA_BYTECOUNT = 6'd37,
-    ST_SEND_DMA_DESTADDR = 6'd38,
-    ST_SEND_DMA_SRCADDR = 6'd39,
-    ST_SEND_DMA_LENGTH = 6'd40,
-    ST_SEND_DMA_PACKETDATA_HEADER = 6'd41,
-    ST_SEND_DMA_PACKETDATA_QUAD = 6'd42,
-    ST_SEND_DMA_PACKETDATA_BLOCK_START = 6'd43,
-    ST_SEND_DMA_PACKETDATA_BLOCK_CHANNEL = 6'd44,
-    ST_SEND_DMA_PACKETDATA_CHECKSUM = 6'd45,
-    ST_SEND_DMA_STOP_READ = 6'd46,
-    ST_SEND_DMA_STOP_WRITE = 6'd47,
-    ST_SEND_TXQ_ENQUEUE_START = 6'd48,
-    ST_SEND_TXQ_ENQUEUE_END = 6'd49;
+    ST_INIT_MULTICAST = 6'd12,
+    ST_INIT_REG_82 = 6'd13,
+    ST_INIT_IRQ_CLEAR = 6'd14,
+    ST_INIT_IRQ_ENABLE = 6'd15,
+    ST_INIT_TRANSMIT_ENABLE_READ = 6'd16,
+    ST_INIT_TRANSMIT_ENABLE_WRITE = 6'd17,
+    ST_INIT_RECEIVE_ENABLE_READ = 6'd18,
+    ST_INIT_RECEIVE_ENABLE_WRITE = 6'd19,
+    ST_INIT_DONE = 6'd20,
+    ST_RECEIVE_CLEAR_RXIS = 6'd21,
+    ST_RECEIVE_FRAME_COUNT_START = 6'd22,
+    ST_RECEIVE_FRAME_COUNT_END = 6'd23,
+    ST_RECEIVE_FRAME_STATUS = 6'd24,
+    ST_RECEIVE_FRAME_LENGTH = 6'd25,
+    ST_RECEIVE_DMA_STATUS_READ = 6'd26,
+    ST_RECEIVE_DMA_STATUS_WRITE = 6'd27,
+    ST_RECEIVE_DMA_SKIP = 6'd28,
+    ST_RECEIVE_DMA_FRAME_HEADER = 6'd29,
+    ST_RECEIVE_DMA_FIREWIRE_PACKET = 6'd30,
+    ST_RECEIVE_FLUSH_START = 6'd31,
+    ST_RECEIVE_FLUSH_EXECUTE = 6'd32,
+    ST_RECEIVE_FLUSH_WAIT_START = 6'd33,
+    ST_RECEIVE_FLUSH_WAIT_CHECK = 6'd34,
+    ST_SEND_DMA_STATUS_READ = 6'd35,
+    ST_SEND_DMA_STATUS_WRITE = 6'd36,
+    ST_SEND_DMA_CONTROLWORD = 6'd37,
+    ST_SEND_DMA_BYTECOUNT = 6'd38,
+    ST_SEND_DMA_DESTADDR = 6'd39,
+    ST_SEND_DMA_SRCADDR = 6'd40,
+    ST_SEND_DMA_LENGTH = 6'd41,
+    ST_SEND_DMA_PACKETDATA_HEADER = 6'd42,
+    ST_SEND_DMA_PACKETDATA_QUAD = 6'd43,
+    ST_SEND_DMA_PACKETDATA_BLOCK_START = 6'd44,
+    ST_SEND_DMA_PACKETDATA_BLOCK_CHANNEL = 6'd45,
+    ST_SEND_DMA_PACKETDATA_CHECKSUM = 6'd46,
+    ST_SEND_DMA_STOP_READ = 6'd47,
+    ST_SEND_DMA_STOP_WRITE = 6'd48,
+    ST_SEND_TXQ_ENQUEUE_START = 6'd49,
+    ST_SEND_TXQ_ENQUEUE_END = 6'd50;
 
 assign eth_io_isIdle = (state == ST_IDLE) ? 1 : 0;
 
@@ -181,6 +184,7 @@ always @(posedge sysclk or negedge reset) begin
        initAck <= 0;
        initOK <= 0;
        ethIoError <= 0;
+       isMulticast <= 0;
        quadRead <= 0;
        quadWrite <= 0;
        blockRead <= 0;
@@ -193,6 +197,7 @@ always @(posedge sysclk or negedge reset) begin
        eth_read_en <= 0;
        eth_write_en <= 0;
        eth_block_en <= 0;
+       eth_block_start <= 0;
        ts_reset <= 0;
        waitInfo <= WAIT_NONE;
     end
@@ -207,6 +212,8 @@ always @(posedge sysclk or negedge reset) begin
             eth_read_en <= 0;
             eth_write_en <= 0;
             eth_block_en <= 0;
+            eth_block_start <= 0;
+            waitInfo <= WAIT_NONE;
             if (initReq) begin
                cmdReq <= 1;
                isWrite <= 0;
@@ -235,7 +242,9 @@ always @(posedge sysclk or negedge reset) begin
 
          ST_WAIT_ACK:
          begin
-            if (cmdAck) begin
+            if (initReq && !initAck)
+               state <= ST_IDLE;
+            else if (cmdAck) begin
                cmdReq <= 0;
                state <= ST_WAIT_ACK_CLEAR;
                readCount <= 4'd0;
@@ -246,7 +255,9 @@ always @(posedge sysclk or negedge reset) begin
 
          ST_WAIT_ACK_CLEAR:
          begin
-            if (~cmdAck) begin
+            if (initReq && !initAck)
+               state <= ST_IDLE;
+            else if (~cmdAck) begin
                if (isWrite || readValid) begin
                    state <= nextState;
                    waitInfo <= WAIT_NONE;
@@ -359,6 +370,20 @@ always @(posedge sysclk or negedge reset) begin
             // E: enable broadcast, multicast, and unicast
             // Bit 4 = 0, Bit 1 = 0, Bit 11 = 1, Bit 8 = 0 (hash perfect, default)
             WriteData <= 16'h7CE0;
+            state <= ST_WAIT_ACK;
+            nextState <= ST_INIT_MULTICAST;
+         end
+
+         ST_INIT_MULTICAST:
+         begin
+            cmdReq <= 1;
+            // Following are hard-coded values for which hash register to use and which bit to set
+            // for multicast address FB:61:0E:13:19:FF. This is obtained by computing the CRC for
+            // this MAC address and then using the first two (most significant) bits to determine
+            // the register and the next four bits to determine which bit to set.
+            // See code in mainEth1394.cpp.
+            RegAddr <= 8'hA2;   // MAHTR1
+            WriteData <= 16'h0008;
             state <= ST_WAIT_ACK;
             nextState <= ST_INIT_REG_82;
          end
@@ -477,6 +502,7 @@ always @(posedge sysclk or negedge reset) begin
             blockWrite <= 0;
             if (ReadData[15]) begin // if valid
                cmdReq <= 1;
+               isMulticast <= ReadData[6];
                isWrite <= 0;
                RegAddr <= 8'h7E;
                state <= ST_WAIT_ACK;
@@ -568,6 +594,7 @@ always @(posedge sysclk or negedge reset) begin
                   state <= ST_WAIT_ACK;
                   nextState <= ST_RECEIVE_DMA_FIREWIRE_PACKET;
                   maxCount <= 5'd19;
+                  eth_block_start <= 1;
                end
                else begin
                   state <= ST_RECEIVE_FLUSH_START;
@@ -587,13 +614,14 @@ always @(posedge sysclk or negedge reset) begin
             // Read FireWire packet; don't byteswap because
             // FireWire is also big endian.
             FireWirePacket[count] <= ReadData;
+            // Clear block started signal (replicates FireWire.v implementation)
+            eth_block_start <= 0;
             if (count == maxCount) begin
                state <= ST_RECEIVE_FLUSH_START;
                // In parallel, can start processing FireWire packet
                if (fw_tcode == `TC_QWRITE) begin
                   quadWrite <= 1;
                   eth_write_en <= 1;
-                  eth_block_en <= 1;
                   reg_waddr <= {FireWirePacket[5][7:0], FireWirePacket[5][15:8]};
                   reg_wdata <= {FireWirePacket[6][7:0], FireWirePacket[6][15:8],
                                 FireWirePacket[7][7:0], FireWirePacket[7][15:8]};
@@ -625,11 +653,7 @@ always @(posedge sysclk or negedge reset) begin
             RegAddr <= 8'h82;
             state <= ST_WAIT_ACK;
             nextState <= ST_RECEIVE_FLUSH_EXECUTE;
-            if (quadWrite) begin
-               eth_write_en <= 0;
-               eth_block_en <= 0;
-            end
-            else if (blockWrite) begin
+            if (blockWrite) begin
                reg_waddr[7:4] <= 4'd2;
                // MSB is "valid" bit
                eth_write_en <= FireWirePacket[12][7];
@@ -645,7 +669,11 @@ always @(posedge sysclk or negedge reset) begin
             WriteData <= {ReadData[15:4],1'b0,ReadData[2:1],1'b1};
             state <= ST_WAIT_ACK;
             nextState <= ST_RECEIVE_FLUSH_WAIT_START;
-            if (blockWrite) begin
+            if (quadWrite) begin
+               eth_write_en <= 0;
+               eth_block_en <= 0;
+            end
+            else if (blockWrite) begin
                reg_waddr[7:4] <= 4'd3;
                // MSB is "valid" bit
                eth_write_en <= FireWirePacket[14][7];
