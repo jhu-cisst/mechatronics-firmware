@@ -116,12 +116,14 @@ parameter[5:0]
     ST_SEND_DMA_PACKETDATA_HEADER = 6'd42,
     ST_SEND_DMA_PACKETDATA_QUAD = 6'd43,
     ST_SEND_DMA_PACKETDATA_BLOCK_START = 6'd44,
-    ST_SEND_DMA_PACKETDATA_BLOCK_CHANNEL = 6'd45,
-    ST_SEND_DMA_PACKETDATA_CHECKSUM = 6'd46,
-    ST_SEND_DMA_STOP_READ = 6'd47,
-    ST_SEND_DMA_STOP_WRITE = 6'd48,
-    ST_SEND_TXQ_ENQUEUE_START = 6'd49,
-    ST_SEND_TXQ_ENQUEUE_END = 6'd50;
+    ST_SEND_DMA_PACKETDATA_BLOCK_MAIN = 6'd45,
+    ST_SEND_DMA_PACKETDATA_BLOCK_CHANNEL = 6'd46,
+    ST_SEND_DMA_PACKETDATA_BLOCK_PROM = 6'd47,
+    ST_SEND_DMA_PACKETDATA_CHECKSUM = 6'd48,
+    ST_SEND_DMA_STOP_READ = 6'd49,
+    ST_SEND_DMA_STOP_WRITE = 6'd50,
+    ST_SEND_TXQ_ENQUEUE_START = 6'd51,
+    ST_SEND_TXQ_ENQUEUE_END = 6'd52;
 
 assign eth_io_isIdle = (state == ST_IDLE) ? 1 : 0;
 
@@ -847,9 +849,9 @@ always @(posedge sysclk or negedge reset) begin
                   begin
                      WriteData <= 16'h0;     // reserved
                      count[2:0] <= 3'd0;
+                     reg_raddr <= {FireWirePacket[5][7:0], FireWirePacket[5][15:8]};
                      if (quadRead) begin
                         // Get ready to read data from the board.
-                        reg_raddr <= {FireWirePacket[5][7:0], FireWirePacket[5][15:8]};
                         eth_read_en <= 1;
                         nextState <= ST_SEND_DMA_PACKETDATA_QUAD;
                      end
@@ -883,16 +885,49 @@ always @(posedge sysclk or negedge reset) begin
             end
          end
 
+         // All block reads start with length, extended_tcode, and header_CRC
          ST_SEND_DMA_PACKETDATA_BLOCK_START:
          begin
             cmdReq <= 1;
-            case (count[3:0])
-              4'd0: WriteData <= {block_data_length[7:0], block_data_length[15:8]};    // data_length
-              //1:  WriteData <= 16'h0;     // extended_tcode (0)
-              //2:  WriteData <= 16'h0;     // header_CRC
-              //3:  WriteData <= 16'h0;     // header_CRC
-              4'd4: WriteData <= {timestamp[23:16], timestamp[31:24]};
-              4'd5:
+            state <= ST_WAIT_ACK;
+            if (count[1:0] == 2'd0) begin
+                WriteData <= {block_data_length[7:0], block_data_length[15:8]};    // data_length
+            end
+            else begin
+                //1:  WriteData <= 16'h0;     // extended_tcode (0)
+                //2:  WriteData <= 16'h0;     // header_CRC
+                //3:  WriteData <= 16'h0;     // header_CRC
+                WriteData <= 16'h0;
+            end
+            if (count[1:0] == 2'd3) begin
+                count[1:0] <= 2'd0;
+                if (reg_raddr[15:12] == `ADDR_MAIN) begin
+                   nextState <= ST_SEND_DMA_PACKETDATA_BLOCK_MAIN;
+                end
+                else if ((reg_raddr[15:12] == `ADDR_PROM) ||
+                         (reg_raddr[15:12] == `ADDR_PROM_QLA)) begin
+                   // Get ready to read data
+                   eth_read_en <= 1;
+                   reg_raddr[5:0] <= 6'd0;  // Just to be sure
+                   nextState <= ST_SEND_DMA_PACKETDATA_BLOCK_PROM;
+                end
+                else begin
+                   // Abort and let the KSZ8851 chip pad the packet
+                   nextState <= ST_SEND_DMA_STOP_READ;
+                end
+            end
+            else begin
+                nextState <= ST_SEND_DMA_PACKETDATA_BLOCK_START;
+                count[1:0] <= count[1:0]+2'd1;
+            end
+         end
+
+         ST_SEND_DMA_PACKETDATA_BLOCK_MAIN:
+         begin
+            cmdReq <= 1;
+            case (count[2:0])
+              3'd0: WriteData <= {timestamp[23:16], timestamp[31:24]};
+              3'd1:
                  begin
                     WriteData <= {timestamp[7:0], timestamp[15:8]};
                     // Reset timestamp
@@ -901,30 +936,30 @@ always @(posedge sysclk or negedge reset) begin
                     eth_read_en <= 1;
                     reg_raddr <= {12'd0, `REG_STATUS};   // address of status register
                  end
-              4'd6:
+              3'd2:
                  begin
                     WriteData <= {reg_rdata[23:16], reg_rdata[31:24]};  // status
                     ts_reset <= 0;
                  end
-              4'd7:
+              3'd3:
                  begin
                     WriteData <= {reg_rdata[7:0], reg_rdata[15:8]};     // status
                     reg_raddr <= {12'd0, `REG_DIGIN};   // address of digital I/O register
                  end
-              4'd8:
+              3'd4:
                  begin
                     WriteData <= {reg_rdata[23:16], reg_rdata[31:24]};  // digital I/O
                  end
-              4'd9:
+              3'd5:
                  begin
                     WriteData <= {reg_rdata[7:0], reg_rdata[15:8]};     // digital I/O
                     reg_raddr <= {12'd0, `REG_TEMPSNS};  // address of temperature sensors
                  end
-              4'd10:
+              3'd6:
                  begin
                     WriteData <= {reg_rdata[23:16], reg_rdata[31:24]};  // temperature sensors
                  end
-              4'd11:
+              3'd7:
                  begin
                     WriteData <= {reg_rdata[7:0], reg_rdata[15:8]};     // temperature sensors
                     reg_raddr[7:4] <= 4'h1;        // start from channel 1
@@ -937,13 +972,13 @@ always @(posedge sysclk or negedge reset) begin
               default: WriteData <= 16'h0;
             endcase
             state <= ST_WAIT_ACK;
-            if (count[3:0] == 4'd11) begin
+            if (count[2:0] == 3'd7) begin
                 nextState <= ST_SEND_DMA_PACKETDATA_BLOCK_CHANNEL;
-                count[3:0] <= 4'd0;
+                count[2:0] <= 3'd0;
             end
             else begin
-                nextState <= ST_SEND_DMA_PACKETDATA_BLOCK_START;
-                count[3:0] <= count[3:0]+4'd1;
+                nextState <= ST_SEND_DMA_PACKETDATA_BLOCK_MAIN;
+                count[2:0] <= count[2:0]+3'd1;
             end
          end
 
@@ -959,40 +994,60 @@ always @(posedge sysclk or negedge reset) begin
               else begin
                   count[0] <= 0;
                   WriteData <= {reg_rdata[7:0], reg_rdata[15:8]};
-                  if (reg_raddr[15:12] == `ADDR_MAIN) begin
-                      if (reg_raddr[7:4] == num_channels) begin
-                          if (next_addr == 3'd7) begin
-                              eth_read_en <= 0;  // we are done
-                              nextState <= ST_SEND_DMA_PACKETDATA_CHECKSUM;
-                          end
-                          else begin
-                              reg_raddr[7:4] <= 4'd1;
-                              reg_raddr[2:0] <= next_addr;
-                              next_addr <= next_addr + 3'd1;
-                              nextState <= ST_SEND_DMA_PACKETDATA_BLOCK_CHANNEL;
-                          end
+                  if (reg_raddr[7:4] == num_channels) begin
+                      if (next_addr == 3'd7) begin
+                          eth_read_en <= 0;  // we are done
+                          nextState <= ST_SEND_DMA_PACKETDATA_CHECKSUM;
                       end
                       else begin
-                          reg_raddr[7:4] <= reg_raddr[7:4] + 4'd1;
+                          reg_raddr[7:4] <= 4'd1;
+                          reg_raddr[2:0] <= next_addr;
+                          next_addr <= next_addr + 3'd1;
                           nextState <= ST_SEND_DMA_PACKETDATA_BLOCK_CHANNEL;
                       end
                   end
                   else begin
-                      // For now, we are done (TODO: handle other types of block reads)
-                      eth_read_en <= 0;
-                      nextState <= ST_SEND_DMA_PACKETDATA_CHECKSUM;
+                      reg_raddr[7:4] <= reg_raddr[7:4] + 4'd1;
+                      nextState <= ST_SEND_DMA_PACKETDATA_BLOCK_CHANNEL;
                   end
               end
            end
 
+         ST_SEND_DMA_PACKETDATA_BLOCK_PROM:
+         begin
+            cmdReq <= 1;
+            state <= ST_WAIT_ACK;
+            if (count[0] == 0) begin
+                count[0] <= 1;
+                WriteData <= {reg_rdata[23:16], reg_rdata[31:24]};
+                nextState <= ST_SEND_DMA_PACKETDATA_BLOCK_PROM;
+            end
+            else begin
+                count[0] <= 0;
+                WriteData <= {reg_rdata[7:0], reg_rdata[15:8]};
+                reg_raddr[5:0] <= reg_raddr[5:0] + 6'd1;
+                // reg_addr increments quadlets (32-bits), whereas block_data_length
+                // is in bytes (8-bits). Note that maximum PROM read is 256 bytes,
+                // or 64 quadlets. The second term below takes care of the overflow
+                // case in the first term.
+                if (((reg_raddr[5:0] + 6'd1) == block_data_length[7:2]) ||
+                    (reg_raddr[5:0] == 6'h3f)) begin
+                    nextState <= ST_SEND_DMA_PACKETDATA_CHECKSUM;
+                    eth_read_en <= 0; // we are done
+                end
+                else
+                    nextState <= ST_SEND_DMA_PACKETDATA_BLOCK_PROM;
+            end
+         end
+
          ST_SEND_DMA_PACKETDATA_CHECKSUM:
-           begin
-              cmdReq <= 1;
-              count[0] <= 1;
-              WriteData <= 16'd0;    // Checksum currently not set
-              state <= ST_WAIT_ACK;
-              nextState <= (count[0] == 0) ? ST_SEND_DMA_PACKETDATA_CHECKSUM : ST_SEND_DMA_STOP_READ;
-           end
+         begin
+            cmdReq <= 1;
+            count[0] <= 1;
+            WriteData <= 16'd0;    // Checksum currently not set
+            state <= ST_WAIT_ACK;
+            nextState <= (count[0] == 0) ? ST_SEND_DMA_PACKETDATA_CHECKSUM : ST_SEND_DMA_STOP_READ;
+         end
 
          ST_SEND_DMA_STOP_READ:
          begin
