@@ -36,6 +36,7 @@ module EthernetIO(
     output reg sendAck,
     output wire eth_io_isIdle,
     output reg[1:0] waitInfo,
+    input wire ksz_isIdle,
 
     // Interface to board registers
     input wire[31:0] reg_rdata,
@@ -60,7 +61,8 @@ module EthernetIO(
     output reg[15:0] WriteData,   // Data to be written to chip (N/A for read)
     input wire[15:0] ReadData,    // Data read from chip (N/A for write)
     output reg initOK,            // 1 -> Initialization successful
-    output reg ethIoError         // 1 -> Ethernet I/O error
+    output reg ethIoError,        // 1 -> Ethernet I/O error
+    input wire eth_error          // 1 -> I/O request received when not in idle state
 );
 
 parameter num_channels = 4;
@@ -123,7 +125,10 @@ parameter[5:0]
     ST_SEND_DMA_STOP_READ = 6'd49,
     ST_SEND_DMA_STOP_WRITE = 6'd50,
     ST_SEND_TXQ_ENQUEUE_START = 6'd51,
-    ST_SEND_TXQ_ENQUEUE_END = 6'd52;
+    ST_SEND_TXQ_ENQUEUE_END = 6'd52,
+    ST_SEND_TXQ_ENQUEUE_WAIT_START = 6'd53,
+    ST_SEND_TXQ_ENQUEUE_WAIT_CHECK = 6'd54;
+
 
 assign eth_io_isIdle = (state == ST_IDLE) ? 1 : 0;
 
@@ -134,6 +139,25 @@ parameter[1:0]
     WAIT_ACK = 1,
     WAIT_ACK_CLEAR = 2,
     WAIT_FLUSH = 3;
+
+// Debugging (copied from KSZ8851.v)
+// VALID(1) 0(6) ERROR(1) PME(1) IRQ(1) State(4) Data(16)
+wire [31:16] eth_result;
+assign eth_result[31] = 1'b1;          // 31: 1 -> Ethernet is present
+assign eth_result[30] = eth_error;     // 30: 1 -> error occurred
+assign eth_result[29] = initOK;        // 29: 1 -> Initialization OK
+assign eth_result[28] = initReq;       // 28: 1 -> Reset executed, init requested
+assign eth_result[27] = ethIoError;    // 27: 1 -> ethernet I/O error (higher layer)
+assign eth_result[26] = cmdReq;        // 26: 1 -> command requested by higher level
+assign eth_result[25] = cmdAck;        // 25: 1 -> command acknowledged by lower level
+assign eth_result[24] = quadRead;      // 24: quadRead (debugging)
+assign eth_result[23] = quadWrite;     // 23: quadWrite (debugging)
+assign eth_result[22] = blockRead;     // 22: blockRead (debugging)
+assign eth_result[21] = blockWrite;    // 21: blockWrite (debugging)
+assign eth_result[20] = isMulticast;   // 20: multicast received
+assign eth_result[19] = ksz_isIdle;    // 19: KSZ8851 state machine is idle
+assign eth_result[18] = eth_io_isIdle; // 18: Ethernet I/O state machine is idle
+assign eth_result[17:16] = waitInfo;   // 17-16: Wait points in EthernetIO.v
 
 reg[7:0] FrameCount;   // Number of received frames
 reg[4:0] count;        // General use counter
@@ -623,7 +647,6 @@ always @(posedge sysclk or negedge reset) begin
                // In parallel, can start processing FireWire packet
                if (fw_tcode == `TC_QWRITE) begin
                   quadWrite <= 1;
-                  eth_write_en <= 1;
                   reg_waddr <= {FireWirePacket[5][7:0], FireWirePacket[5][15:8]};
                   reg_wdata <= {FireWirePacket[6][7:0], FireWirePacket[6][15:8],
                                 FireWirePacket[7][7:0], FireWirePacket[7][15:8]};
@@ -655,7 +678,11 @@ always @(posedge sysclk or negedge reset) begin
             RegAddr <= 8'h82;
             state <= ST_WAIT_ACK;
             nextState <= ST_RECEIVE_FLUSH_EXECUTE;
-            if (blockWrite) begin
+            if (quadWrite) begin
+               eth_write_en <= 1;
+               eth_block_en <= 1;
+            end
+            else if (blockWrite) begin
                reg_waddr[7:4] <= 4'd2;
                // MSB is "valid" bit
                eth_write_en <= FireWirePacket[12][7];
@@ -847,7 +874,7 @@ always @(posedge sysclk or negedge reset) begin
                //4:  WriteData <= 16'h0;     // reserved
                3'd5:
                   begin
-                     WriteData <= 16'h0;     // reserved
+                     WriteData <= eth_result[31:16]; // normally reserved, but use it for debugging
                      count[2:0] <= 3'd0;
                      reg_raddr <= {FireWirePacket[5][7:0], FireWirePacket[5][15:8]};
                      if (quadRead) begin
@@ -855,7 +882,7 @@ always @(posedge sysclk or negedge reset) begin
                         eth_read_en <= 1;
                         nextState <= ST_SEND_DMA_PACKETDATA_QUAD;
                      end
-                     else
+                     else  // blockRead
                         nextState <= ST_SEND_DMA_PACKETDATA_BLOCK_START;
                   end
                default: WriteData <= 16'h0;
@@ -1026,7 +1053,7 @@ always @(posedge sysclk or negedge reset) begin
                 count[0] <= 0;
                 WriteData <= {reg_rdata[7:0], reg_rdata[15:8]};
                 reg_raddr[5:0] <= reg_raddr[5:0] + 6'd1;
-                // reg_addr increments quadlets (32-bits), whereas block_data_length
+                // reg_raddr increments quadlets (32-bits), whereas block_data_length
                 // is in bytes (8-bits). Note that maximum PROM read is 256 bytes,
                 // or 64 quadlets. The second term below takes care of the overflow
                 // case in the first term.
@@ -1084,7 +1111,31 @@ always @(posedge sysclk or negedge reset) begin
             isWrite <= 1;
             WriteData <= {ReadData[15:1],1'b1};
             state <= ST_WAIT_ACK;
-            nextState <= (FrameCount == 8'd0) ?  ST_IDLE : ST_RECEIVE_FRAME_STATUS;
+            // For now, wait for the frame to be transmitted. According to the datasheet,
+            // "the software should wait for the bit to be cleared before setting up another
+            // new TX frame," so this check could be moved elsewhere for efficiency.
+            nextState <= ST_SEND_TXQ_ENQUEUE_WAIT_START;
+         end
+
+         ST_SEND_TXQ_ENQUEUE_WAIT_START:
+         begin
+            cmdReq <= 1;
+            isWrite <= 0;
+            // RegAddr is already set to 8'h80
+            state <= ST_WAIT_ACK;
+            nextState <= ST_SEND_TXQ_ENQUEUE_WAIT_CHECK;
+         end
+
+         ST_SEND_TXQ_ENQUEUE_WAIT_CHECK:
+         begin
+            // Wait for bit 0 in Register 0x80 to be cleared
+            if (ReadData[0] == 1'b0) begin
+                state <= (FrameCount == 8'd0) ?  ST_IDLE : ST_RECEIVE_FRAME_STATUS;
+            end
+            else begin
+               state <= ST_SEND_TXQ_ENQUEUE_WAIT_START;
+               waitInfo <= WAIT_FLUSH;  // TEMP: use WAIT_FLUSH, but should be WAIT_TXQ_ENQUEUE
+            end
          end
 
          endcase // case (state)

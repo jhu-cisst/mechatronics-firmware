@@ -80,6 +80,7 @@ module KSZ8851(
     output reg[15:0] DataOut,     // Data read from chip (N/A for write)
     input wire initOK,            // 1 -> Initialization successful (from higher layer)
     input wire ethIoError,        // 1 -> Error from higher layer
+    output reg eth_error,         // 1 -> I/O request received when not in idle state
 
     input wire quadRead,
     input wire quadWrite,
@@ -90,6 +91,7 @@ module KSZ8851(
     input wire sendAck,
     input wire eth_io_isIdle,
     input wire[1:0] waitInfo,
+    output wire ksz_isIdle,
 
     // Interface from FireWire
     input  wire reg_wen,             // write enable
@@ -121,7 +123,6 @@ getAddr newAddr(
     .Addr(Addr16)
 );
 
-reg eth_error;        // I/O request received when not in idle state
 reg[3:0] state;
 reg[20:0] count;
 
@@ -140,6 +141,8 @@ parameter[3:0]
     ST_WRITE_HOLD = 4'd10,
     ST_WRITE_END = 4'd11;
 
+assign ksz_isIdle = (state == ST_IDLE) ? 1 : 0;
+
 // For reading
 // VALID(1) 0(6) ERROR(1) PME(1) IRQ(1) State(4) Data(16)
 assign eth_result[31] = 1'b1;         // 31: 1 -> Ethernet is present
@@ -153,10 +156,10 @@ assign eth_result[24] = quadRead;     // 24: quadRead (debugging)
 assign eth_result[23] = quadWrite;    // 23: quadWrite (debugging)
 assign eth_result[22] = blockRead;    // 22: blockRead (debugging)
 assign eth_result[21] = blockWrite;   // 21: blockWrite (debugging)
-assign eth_result[20] = isMulticast;     // 20: multicast received
-//assign eth_result[21] = ETH_PME;       // 21: Power Management Event
-//assign eth_result[20] = ETH_IRQn;      // 20: Interrupt request
-assign eth_result[19] = (state == ST_IDLE) ? 1 : 0; // 19: KSZ8851 state machine is idle
+assign eth_result[20] = isMulticast;  // 20: multicast received
+//assign eth_result[21] = ETH_PME;     // 21: Power Management Event
+//assign eth_result[20] = ETH_IRQn;    // 20: Interrupt request
+assign eth_result[19] = ksz_isIdle;    // 19: KSZ8851 state machine is idle
 assign eth_result[18] = eth_io_isIdle; // 18: Ethernet I/O state machine is idle
 assign eth_result[17:16] = waitInfo;   // 17-16: Wait points in EthernetIO.v
 assign eth_result[15:0] = eth_data;    // 15-0: Last data read or written
@@ -173,6 +176,7 @@ always @(posedge sysclk or negedge reset) begin
         cmdAck <= 0;
         dataValid <= 0;
         sendReq <= 0;
+        eth_error <= 0;
     end
     else begin
 
@@ -185,6 +189,8 @@ always @(posedge sysclk or negedge reset) begin
                 initReq <= 0;
                 cmdAck <= 0;
                 dataValid <= 0;
+                sendReq <= 0;
+                eth_error <= 0;
             end
             else if (state == ST_IDLE) begin
                 eth_isWord <= reg_wdata[24];

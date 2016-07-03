@@ -202,6 +202,7 @@ wire[15:0] eth_to_chip;
 wire[15:0] eth_from_chip;
 wire eth_init_ok;
 wire eth_io_error;
+wire eth_error;
 
 wire eth_recv_enabled;  // for debugging
 wire eth_quad_read;
@@ -213,6 +214,7 @@ wire eth_send_req;
 wire eth_send_ack;
 wire eth_io_isIdle;
 wire[1:0] eth_wait_info;
+wire ksz_isIdle;
 wire[31:0] Eth_Result;
 
 KSZ8851 EthernetChip(
@@ -240,6 +242,7 @@ KSZ8851 EthernetChip(
     .DataOut(eth_from_chip),
     .initOK(eth_init_ok),
     .ethIoError(eth_io_error),          // error from higher layer (EthernetIO)
+    .eth_error(eth_error),              // error from lower layer (KSZ8851)
 
     .quadRead(eth_quad_read),
     .quadWrite(eth_quad_write),
@@ -250,6 +253,7 @@ KSZ8851 EthernetChip(
     .sendAck(eth_send_ack),
     .eth_io_isIdle(eth_io_isIdle),
     .waitInfo(eth_wait_info),
+    .ksz_isIdle(ksz_isIdle),
 
     .reg_wen(fw_reg_wen),        // in: write enable from FireWire
     .reg_waddr(fw_reg_waddr),    // in: write address from FireWire
@@ -272,6 +276,7 @@ EthernetIO EthernetTransfers(
     .sendAck(eth_send_ack),
     .eth_io_isIdle(eth_io_isIdle),
     .waitInfo(eth_wait_info),
+    .ksz_isIdle(ksz_isIdle),
 
     .reg_rdata(reg_rdata),
     .reg_raddr(eth_reg_raddr),
@@ -294,7 +299,8 @@ EthernetIO EthernetTransfers(
     .WriteData(eth_to_chip),
     .ReadData(eth_from_chip),
     .initOK(eth_init_ok),
-    .ethIoError(eth_io_error)
+    .ethIoError(eth_io_error),
+    .eth_error(eth_error)
 );
 
 
