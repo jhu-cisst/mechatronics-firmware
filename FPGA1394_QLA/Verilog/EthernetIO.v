@@ -27,15 +27,10 @@ module EthernetIO(
     input wire ETH_IRQn,          // interrupt request
 
     // Debugging
-    output reg quadRead,
-    output reg quadWrite,
-    output reg blockRead,
-    output reg blockWrite,
-    output reg isMulticast,       // 1 -> multicast address detected
+    output wire[31:16] eth_status,
     input wire sendReq,
     output reg sendAck,
     output wire eth_io_isIdle,
-    output reg[1:0] waitInfo,
     input wire ksz_isIdle,
 
     // Interface to board registers
@@ -129,6 +124,7 @@ parameter[5:0]
     ST_SEND_TXQ_ENQUEUE_WAIT_START = 6'd53,
     ST_SEND_TXQ_ENQUEUE_WAIT_CHECK = 6'd54;
 
+// Debugging support
 
 assign eth_io_isIdle = (state == ST_IDLE) ? 1 : 0;
 
@@ -140,24 +136,30 @@ parameter[1:0]
     WAIT_ACK_CLEAR = 2,
     WAIT_FLUSH = 3;
 
-// Debugging (copied from KSZ8851.v)
+reg[1:0] waitInfo;
+
+reg quadRead;
+reg quadWrite;
+reg blockRead;
+reg blockWrite;
+reg isMulticast;
+
 // VALID(1) 0(6) ERROR(1) PME(1) IRQ(1) State(4) Data(16)
-wire [31:16] eth_result;
-assign eth_result[31] = 1'b1;          // 31: 1 -> Ethernet is present
-assign eth_result[30] = eth_error;     // 30: 1 -> error occurred
-assign eth_result[29] = initOK;        // 29: 1 -> Initialization OK
-assign eth_result[28] = initReq;       // 28: 1 -> Reset executed, init requested
-assign eth_result[27] = ethIoError;    // 27: 1 -> ethernet I/O error (higher layer)
-assign eth_result[26] = cmdReq;        // 26: 1 -> command requested by higher level
-assign eth_result[25] = cmdAck;        // 25: 1 -> command acknowledged by lower level
-assign eth_result[24] = quadRead;      // 24: quadRead (debugging)
-assign eth_result[23] = quadWrite;     // 23: quadWrite (debugging)
-assign eth_result[22] = blockRead;     // 22: blockRead (debugging)
-assign eth_result[21] = blockWrite;    // 21: blockWrite (debugging)
-assign eth_result[20] = isMulticast;   // 20: multicast received
-assign eth_result[19] = ksz_isIdle;    // 19: KSZ8851 state machine is idle
-assign eth_result[18] = eth_io_isIdle; // 18: Ethernet I/O state machine is idle
-assign eth_result[17:16] = waitInfo;   // 17-16: Wait points in EthernetIO.v
+assign eth_status[31] = 1'b1;          // 31: 1 -> Ethernet is present
+assign eth_status[30] = eth_error;     // 30: 1 -> error occurred
+assign eth_status[29] = initOK;        // 29: 1 -> Initialization OK
+assign eth_status[28] = initReq;       // 28: 1 -> Reset executed, init requested
+assign eth_status[27] = ethIoError;    // 27: 1 -> ethernet I/O error (higher layer)
+assign eth_status[26] = cmdReq;        // 26: 1 -> command requested by higher level
+assign eth_status[25] = cmdAck;        // 25: 1 -> command acknowledged by lower level
+assign eth_status[24] = quadRead;      // 24: quadRead (debugging)
+assign eth_status[23] = quadWrite;     // 23: quadWrite (debugging)
+assign eth_status[22] = blockRead;     // 22: blockRead (debugging)
+assign eth_status[21] = blockWrite;    // 21: blockWrite (debugging)
+assign eth_status[20] = isMulticast;   // 20: multicast received
+assign eth_status[19] = ksz_isIdle;    // 19: KSZ8851 state machine is idle
+assign eth_status[18] = eth_io_isIdle; // 18: Ethernet I/O state machine is idle
+assign eth_status[17:16] = waitInfo;   // 17-16: Wait points in EthernetIO.v
 
 reg[7:0] FrameCount;   // Number of received frames
 reg[4:0] count;        // General use counter
@@ -275,6 +277,8 @@ always @(posedge sysclk or negedge reset) begin
                state <= ST_WAIT_ACK_CLEAR;
                readCount <= 4'd0;
             end
+            else if (!cmdReq)
+               state <= ST_WAIT_ACK_CLEAR;
             else
                waitInfo <= WAIT_ACK;
          end
@@ -644,12 +648,18 @@ always @(posedge sysclk or negedge reset) begin
             eth_block_start <= 0;
             if (count == maxCount) begin
                state <= ST_RECEIVE_FLUSH_START;
-               // In parallel, can start processing FireWire packet
-               if (fw_tcode == `TC_QWRITE) begin
+               // In parallel, can start processing FireWire packet (for writes)
+               if (fw_tcode == `TC_QREAD) begin
+                  quadRead <= 1;
+               end
+               else if (fw_tcode == `TC_QWRITE) begin
                   quadWrite <= 1;
                   reg_waddr <= {FireWirePacket[5][7:0], FireWirePacket[5][15:8]};
                   reg_wdata <= {FireWirePacket[6][7:0], FireWirePacket[6][15:8],
                                 FireWirePacket[7][7:0], FireWirePacket[7][15:8]};
+               end
+               else if (fw_tcode == `TC_BREAD) begin
+                  blockRead <= 1;
                end
                else if (fw_tcode == `TC_BWRITE) begin
                    blockWrite <= 1;
@@ -660,6 +670,9 @@ always @(posedge sysclk or negedge reset) begin
                    // MSB is "valid" bit
                    eth_write_en <= FireWirePacket[10][7];
                    reg_wdata[15:0] <= {FireWirePacket[11][7:0], FireWirePacket[11][15:8]};
+               end
+               else begin
+                  ethIoError <= 1;
                end
             end
             else begin
@@ -734,32 +747,15 @@ always @(posedge sysclk or negedge reset) begin
             //   - else go to idle state
             // TODO: check node id and forward via FireWire if necessary
             if (ReadData[0] == 1'b0) begin
-               case (fw_tcode)
-                 `TC_QREAD:   // quadlet read request
-                   begin
-                      quadRead <= 1;
-                      state <= ST_SEND_DMA_STATUS_READ;
-                   end
-                 `TC_QWRITE:  // quadlet write
-                   begin
-                      // Already did write in parallel with flush
-                      state <= (FrameCount == 8'd0) ? ST_IDLE : ST_RECEIVE_FRAME_STATUS;
-                   end
-                 `TC_BREAD:  // block read request
-                   begin
-                      blockRead <= 1;
-                      state <= ST_SEND_DMA_STATUS_READ;
-                   end
-                 `TC_BWRITE:  // block write request
-                   begin
-                      // Already did write in parallel with flush
-                      eth_write_en <= 0;
-                      eth_block_en <= 0;
-                      state <= (FrameCount == 8'd0) ? ST_IDLE : ST_RECEIVE_FRAME_STATUS;
-                   end
-                 default:
-                      state <= (FrameCount == 8'd0) ? ST_IDLE : ST_RECEIVE_FRAME_STATUS;
-               endcase
+              if (quadRead || blockRead)
+                 state <= ST_SEND_DMA_STATUS_READ;
+              else
+                 state <= (FrameCount == 8'd0) ? ST_IDLE : ST_RECEIVE_FRAME_STATUS;
+              if (blockWrite) begin
+                 // Already did write in parallel with flush
+                 eth_write_en <= 0;
+                 eth_block_en <= 0;
+               end
                waitInfo <= WAIT_NONE;
             end
             else begin
@@ -871,10 +867,10 @@ always @(posedge sysclk or negedge reset) begin
                3'd1: WriteData <= {quadRead ? `TC_QRESP : `TC_BRESP, 12'h000};
                //2:  WriteData <= 16'h0;     // src-id
                //3:  WriteData <= 16'h0;     // rcode, reserved
-               //4:  WriteData <= 16'h0;     // reserved
+               3'd4: WriteData <= {FrameCount, 8'h2b};     // reserved, but use it for debugging
                3'd5:
                   begin
-                     WriteData <= eth_result[31:16]; // normally reserved, but use it for debugging
+                     WriteData <= eth_status[31:16]; // normally reserved, but use it for debugging
                      count[2:0] <= 3'd0;
                      reg_raddr <= {FireWirePacket[5][7:0], FireWirePacket[5][15:8]};
                      if (quadRead) begin

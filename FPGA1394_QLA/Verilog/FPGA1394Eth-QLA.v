@@ -255,10 +255,10 @@ KSZ8851 EthernetChip(
     .waitInfo(eth_wait_info),
     .ksz_isIdle(ksz_isIdle),
 
-    .reg_wen(fw_reg_wen),        // in: write enable from FireWire
-    .reg_waddr(fw_reg_waddr),    // in: write address from FireWire
-    .reg_wdata(fw_reg_wdata),    // in: data from FireWire
-    .eth_result(Eth_Result)      // out: Ethernet status and last register read
+    .reg_wen(fw_reg_wen),          // in: write enable from FireWire
+    .reg_waddr(fw_reg_waddr),      // in: write address from FireWire
+    .reg_wdata(fw_reg_wdata),      // in: data from FireWire
+    .eth_data(Eth_Result[15:0])    // out: Last register read
 );
 
 EthernetIO EthernetTransfers(
@@ -267,15 +267,10 @@ EthernetIO EthernetTransfers(
     .board_id(~wenid),
 
     .ETH_IRQn(ETH_IRQn),      // in: interrupt request from KSZ8851
-    .quadRead(eth_quad_read),
-    .quadWrite(eth_quad_write),
-    .blockRead(eth_block_read),
-    .blockWrite(eth_block_write),
-    .isMulticast(eth_is_multicast),
+    .eth_status(Eth_Result[31:16]),
     .sendReq(eth_send_req),
     .sendAck(eth_send_ack),
     .eth_io_isIdle(eth_io_isIdle),
-    .waitInfo(eth_wait_info),
     .ksz_isIdle(ksz_isIdle),
 
     .reg_rdata(reg_rdata),
