@@ -180,10 +180,12 @@ reg[15:0] Length;
 // Consider making this 32-bit.
 reg[15:0] FireWirePacket[0:19];  // FireWire packet memory (max 20 words)
 
-wire[3:0] fw_tcode;           // FireWire transaction code
+wire[3:0] fw_tcode;            // FireWire transaction code
+wire[5:0] fw_tl;               // FireWire transaction label
 wire[15:0] block_data_length;  // Data length (in bytes) for block read/write requests
 
 assign fw_tcode = FireWirePacket[1][15:12];
+assign fw_tl = FireWirePacket[1][7:2];
 assign block_data_length = {FireWirePacket[6][7:0], FireWirePacket[6][15:8]};
 
 // TEMP: Timestamp copied from Firewire.v -- should consolidate
@@ -517,10 +519,14 @@ always @(posedge sysclk or negedge reset) begin
          ST_RECEIVE_FRAME_COUNT_END:
          begin
             FrameCount <= ReadData[15:8];
-            cmdReq <= 1;
-            RegAddr <= 8'h7C;
-            state <= ST_WAIT_ACK;
-            nextState <= (ReadData[15:8] != 0) ? ST_RECEIVE_FRAME_STATUS : ST_IDLE;
+            if (ReadData[15:8] == 0)
+               state <= ST_IDLE;
+            else begin
+               cmdReq <= 1;
+               RegAddr <= 8'h7C;
+               state <= ST_WAIT_ACK;
+               nextState <= ST_RECEIVE_FRAME_STATUS;
+            end
          end
 
          ST_RECEIVE_FRAME_STATUS:
@@ -673,6 +679,21 @@ always @(posedge sysclk or negedge reset) begin
                end
                else begin
                   ethIoError <= 1;
+               end
+            end
+            else if (count == 5'd0) begin
+               // Check the destination of this packet
+               if ({ReadData[7:0],ReadData[15:12]} == 12'hFFC) begin
+                  // all ok, keep going
+                  // TODO: check against board_id
+                  cmdReq <= 1;
+                  state <= ST_WAIT_ACK;
+                  nextState <= ST_RECEIVE_DMA_FIREWIRE_PACKET;
+                  count <= 5'd1;
+               end
+               else begin
+                  // invalid destination address, flush packet
+                  state <= ST_RECEIVE_FLUSH_START;
                end
             end
             else begin
@@ -864,7 +885,7 @@ always @(posedge sysclk or negedge reset) begin
             cmdReq <= 1;
             case (count[2:0])
                //0:  WriteData <= 16'h0;     // dest-id
-               3'd1: WriteData <= {quadRead ? `TC_QRESP : `TC_BRESP, 12'h000};
+               3'd1: WriteData <= {quadRead ? `TC_QRESP : `TC_BRESP, 4'd0, fw_tl, 2'd0};
                //2:  WriteData <= 16'h0;     // src-id
                //3:  WriteData <= 16'h0;     // rcode, reserved
                3'd4: WriteData <= {FrameCount, 8'h2b};     // reserved, but use it for debugging
