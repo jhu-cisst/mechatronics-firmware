@@ -1,6 +1,6 @@
 /*******************************************************************************
  *
- * Copyright(C) 2008-2015 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2008-2016 ERC CISST, Johns Hopkins University.
  *
  * This module implements the FireWire link layer state machine, which defines
  * the operation of the phy-link interface.  The state machine is triggered on
@@ -109,7 +109,7 @@
 `include "Constants.v"
 
 // constants for receive speed codes
-// See Book P237 Receving Packets, D[0] is omitted here
+// See Book P237 Receiving Packets, D[0] is omitted here
 `define RX_S100 3'b000            // 100 Mbps
 `define RX_S200 3'b001            // 200 Mbps
 `define RX_S400 3'b101            // 400 Mbps

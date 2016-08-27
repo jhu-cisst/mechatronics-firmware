@@ -78,19 +78,10 @@ module KSZ8851(
     input wire[7:0] RegAddr,      // Register address (N/A for DMA mode)
     input wire[15:0] DataIn,      // Data to be written to chip (N/A for read)
     output reg[15:0] DataOut,     // Data read from chip (N/A for write)
-    input wire initOK,            // 1 -> Initialization successful (from higher layer)
-    input wire ethIoError,        // 1 -> Error from higher layer
     output reg eth_error,         // 1 -> I/O request received when not in idle state
 
-    input wire quadRead,
-    input wire quadWrite,
-    input wire blockRead,
-    input wire blockWrite,
-    input wire isMulticast,
     output reg sendReq,
     input wire sendAck,
-    input wire eth_io_isIdle,
-    input wire[1:0] waitInfo,
     output wire ksz_isIdle,
 
     // Interface from FireWire
