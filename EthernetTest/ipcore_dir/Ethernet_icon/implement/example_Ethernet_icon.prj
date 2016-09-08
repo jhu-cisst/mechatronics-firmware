@@ -1,2 +1,0 @@
-verilog work "../example_design/example_ethernet_icon.v"
-verilog work "../example_design/ethernet_icon_bb_lib.v"
