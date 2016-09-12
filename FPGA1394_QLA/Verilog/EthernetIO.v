@@ -760,7 +760,6 @@ always @(posedge sysclk or negedge reset) begin
             if (quadWrite) begin
                eth_write_en <= 1;
                eth_block_en <= 1;
-               lreq_trig <= 0;     // Clear lreq_trig in case it was set
             end
             else if (blockWrite) begin
                reg_waddr[7:4] <= 4'd2;
@@ -781,6 +780,7 @@ always @(posedge sysclk or negedge reset) begin
             if (quadWrite) begin
                eth_write_en <= 0;
                eth_block_en <= 0;
+               lreq_trig <= 0;     // Clear lreq_trig in case it was set
             end
             else if (blockWrite) begin
                reg_waddr[7:4] <= 4'd3;
