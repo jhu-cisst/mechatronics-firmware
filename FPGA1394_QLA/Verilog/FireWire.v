@@ -114,16 +114,6 @@
 `define RX_S200 3'b001            // 200 Mbps
 `define RX_S400 3'b101            // 400 Mbps
 
-// phy request types (Ref: Book P230)
-`define LREQ_TX_IMM 3'd0          // immediate transmit header
-`define LREQ_TX_ISO 3'd1          // isochronous transmit header
-`define LREQ_TX_PRI 3'd2          // priority transmit header
-`define LREQ_TX_FAIR 3'd3         // fair transmit header
-`define LREQ_REG_RD 3'd4          // register read header
-`define LREQ_REG_WR 3'd5          // register write header
-`define LREQ_ACCEL 3'd6           // async arbitration acceleration
-`define LREQ_RES 3'd7             // reserved, presumably do nothing
-
 // transmit mode ctl constants (llc driving)
 `define CTL_IDLE 2'b00             // link asserts idle (done)
 `define CTL_DATA 2'b01             // link is transmitting data

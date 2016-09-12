@@ -56,7 +56,10 @@ module EthernetIO(
     input wire[15:0] ReadData,    // Data read from chip (N/A for write)
     output reg initOK,            // 1 -> Initialization successful
     output reg ethIoError,        // 1 -> Ethernet I/O error
-    input wire eth_error          // 1 -> I/O request received when not in idle state
+    input wire eth_error,         // 1 -> I/O request received when not in idle state
+
+    output reg lreq_trig,         // trigger signal for a FireWire phy request
+    output reg[2:0] lreq_type     // type of request to give to the FireWire phy    
 );
 
 parameter num_channels = 4;
@@ -238,6 +241,8 @@ always @(posedge sysclk or negedge reset) begin
        eth_block_start <= 0;
        ts_reset <= 0;
        waitInfo <= WAIT_NONE;
+       lreq_trig <= 0;
+       lreq_type <= 0;
     end
     else begin
 
@@ -681,6 +686,12 @@ always @(posedge sysclk or negedge reset) begin
                      reg_waddr <= {FireWirePacket[5][7:0], FireWirePacket[5][15:8]};
                      reg_wdata <= {FireWirePacket[6][7:0], FireWirePacket[6][15:8],
                                    FireWirePacket[7][7:0], FireWirePacket[7][15:8]};
+                     // Special case: write to FireWire PHY register
+                     if ({FireWirePacket[5][7:0], FireWirePacket[5][15:8]} == {`ADDR_MAIN, 8'h0, `REG_PHYCTRL}) begin
+                        // check the RW bit to determine access type (bit 12, after byte-swap)
+                        lreq_type <= (FireWirePacket[7][4] ? `LREQ_REG_WR : `LREQ_REG_RD);
+                        lreq_trig <= 1;
+                     end
                   end
                   else if (fw_tcode == `TC_BREAD) begin
                      blockRead <= 1;
@@ -706,11 +717,13 @@ always @(posedge sysclk or negedge reset) begin
                // Check the destination of this packet
                if ({ReadData[7:0],ReadData[15:12]} == 12'hFFC) begin
                   // all ok, keep going
-                  if (ReadData[11:8] == board_id) begin
+                  // Handle Ethernet multicast as a direct write to this board (i.e., local
+                  // only); this could change in the future.
+                  if (isMulticast || (ReadData[11:8] == board_id)) begin
                      isLocal <= 1;
                      isRemote <= 0;
                   end
-                  else if (ReadData[11:8] == 4'hf) begin  // broadcast (maybe 8'hff?)
+                  else if (ReadData[11:8] == 4'hf) begin  // Firewire broadcast (maybe 8'hff?)
                      isLocal <= 1;
                      isRemote <= 1;
                   end
@@ -747,6 +760,7 @@ always @(posedge sysclk or negedge reset) begin
             if (quadWrite) begin
                eth_write_en <= 1;
                eth_block_en <= 1;
+               lreq_trig <= 0;     // Clear lreq_trig in case it was set
             end
             else if (blockWrite) begin
                reg_waddr[7:4] <= 4'd2;

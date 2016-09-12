@@ -72,8 +72,12 @@ module FPGA1394EthQLA
     //
 
     wire eth1394;               // 1: eth1394 mode 0: firewire mode
-    wire lreq_trig;
-    wire[2:0] lreq_type;
+    wire lreq_trig;             // phy request trigger
+    wire fw_lreq_trig;          // phy request trigger from FireWire
+    wire eth_lreq_trig;         // phy request trigger from Ethernet
+    wire[2:0] lreq_type;        // phy request type
+    wire[2:0] fw_lreq_type;     // phy request type from FireWire
+    wire[2:0] eth_lreq_type;    // phy request type from Ethernet
     wire reg_wen;               // register write signal
     wire fw_reg_wen;            // register write signal from FireWire
     wire eth_reg_wen;           // register write signal from Ethernet
@@ -108,6 +112,10 @@ assign reg_wdata = (eth_reg_wen | eth_blk_wen) ? eth_reg_wdata : fw_reg_wdata;
 assign reg_wen = fw_reg_wen | eth_reg_wen;
 assign blk_wen = fw_blk_wen | eth_blk_wen;
 assign blk_wstart = fw_blk_wstart | eth_blk_wstart;
+// Following is for debugging; it is a little risky to allow Ethernet to
+// access the FireWire PHY registers without some type of arbitration.
+assign lreq_trig = eth_lreq_trig | fw_lreq_trig;
+assign lreq_type = eth_lreq_trig ? eth_lreq_type : fw_lreq_type;
 
 // Mux routing read data based on read address
 //   See Constants.v for detail
@@ -170,8 +178,8 @@ PhyLinkInterface phy(
     .reg_rdata(reg_rdata),     // in:  read data to external register
     .reg_wdata(fw_reg_wdata),  // out: write data to external register
 
-    .lreq_trig(lreq_trig),   // out: phy request trigger
-    .lreq_type(lreq_type)    // out: phy request type
+    .lreq_trig(fw_lreq_trig),  // out: phy request trigger
+    .lreq_type(fw_lreq_type)   // out: phy request type
 );
 
 
@@ -274,7 +282,10 @@ EthernetIO EthernetTransfers(
     .RegAddr(eth_reg_addr),
     .WriteData(eth_to_chip),
     .ReadData(eth_from_chip),
-    .eth_error(eth_error)
+    .eth_error(eth_error),
+
+    .lreq_trig(eth_lreq_trig),  // out: phy request trigger
+    .lreq_type(eth_lreq_type)   // out: phy request type
 );
 
 

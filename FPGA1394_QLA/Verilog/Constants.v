@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2013 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2013-2016 ERC CISST, Johns Hopkins University.
  *
  * Purpose: Global constants e.g. device address
  * 
@@ -27,7 +27,7 @@
 
 // firmware constants
 `define VERSION 32'h514C4131       // hard-wired version number "QLA1" = 0x514C4131 
-`define FW_VERSION 32'h05          // firmware version = 5
+`define FW_VERSION 32'h06          // firmware version = 6
 
 // address space  
 `define ADDR_MAIN     4'h0         // board reg & device reg
@@ -73,5 +73,15 @@
 `define TC_BRESP 4'd7             // block read response
 `define TC_CSTART 4'd8            // cycle start packet
 `define RC_DONE 4'd0              // complete response code
+
+// FireWire phy request types (Ref: Book P230)
+`define LREQ_TX_IMM 3'd0          // immediate transmit header
+`define LREQ_TX_ISO 3'd1          // isochronous transmit header
+`define LREQ_TX_PRI 3'd2          // priority transmit header
+`define LREQ_TX_FAIR 3'd3         // fair transmit header
+`define LREQ_REG_RD 3'd4          // register read header
+`define LREQ_REG_WR 3'd5          // register write header
+`define LREQ_ACCEL 3'd6           // async arbitration acceleration
+`define LREQ_RES 3'd7             // reserved, presumably do nothing
 
 `endif  // _fpgaqla_constanst_v_
