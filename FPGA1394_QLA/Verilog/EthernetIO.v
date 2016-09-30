@@ -145,10 +145,11 @@ reg[1:0] waitInfo;
 reg isLocal;       // 1 -> FireWire packet should be processed locally
 reg isRemote;      // 1 -> FireWire packet should be forwarded
 
-reg quadRead;
-reg quadWrite;
-reg blockRead;
-reg blockWrite;
+wire quadRead;
+wire quadWrite;
+wire blockRead;
+wire blockWrite;
+
 reg isMulticast;
 
 // VALID(1) 0(6) ERROR(1) PME(1) IRQ(1) State(4) Data(16)
@@ -185,17 +186,21 @@ reg[15:0] Length;        // Not currently used
 //    - 20 bytes (10 words) for quadlet write
 //    - (24+block_data_length) bytes for block write
 //      - currently, block_data_length = 4*4 = 16
-//      - thus, max size in words is 20
-// Consider making this 32-bit.
-reg[15:0] FireWirePacket[0:19];  // FireWire packet memory (max 20 words)
+//      - thus, max size is 20 words or 10 quadlets
+reg[31:0] FireWirePacket[0:9];  // FireWire packet memory (max 10 quadlets)
 
 wire[3:0] fw_tcode;            // FireWire transaction code
 wire[5:0] fw_tl;               // FireWire transaction label
 wire[15:0] block_data_length;  // Data length (in bytes) for block read/write requests
 
-assign fw_tcode = FireWirePacket[1][15:12];
-assign fw_tl = FireWirePacket[1][7:2];
-assign block_data_length = {FireWirePacket[6][7:0], FireWirePacket[6][15:8]};
+assign fw_tl = FireWirePacket[0][15:10];
+assign fw_tcode = FireWirePacket[0][7:4];
+assign block_data_length = FireWirePacket[3][31:16];
+
+assign quadRead = (fw_tcode == `TC_QREAD) ? 1'd1 : 1'd0;
+assign quadWrite = (fw_tcode == `TC_QWRITE) ? 1'd1 : 1'd0;
+assign blockRead = (fw_tcode == `TC_BREAD) ? 1'd1 : 1'd0;
+assign blockWrite = (fw_tcode == `TC_BWRITE) ? 1'd1 : 1'd0;
 
 // TEMP: Timestamp copied from Firewire.v -- should consolidate
 reg[31:0] timestamp;          // timestamp counter register
@@ -226,10 +231,6 @@ always @(posedge sysclk or negedge reset) begin
        isMulticast <= 0;
        isLocal <= 0;
        isRemote <= 0;
-       quadRead <= 0;
-       quadWrite <= 0;
-       blockRead <= 0;
-       blockWrite <= 0;
        sendAck <= 0;
        srcMac[0] <= 16'd0;
        srcMac[1] <= 16'd0;
@@ -292,8 +293,10 @@ always @(posedge sysclk or negedge reset) begin
                state <= ST_WAIT_ACK_CLEAR;
                readCount <= 4'd0;
             end
-            else if (!cmdReq)
+            else if (!cmdReq) begin
                state <= ST_WAIT_ACK_CLEAR;
+               readCount <= 4'd0;
+            end
             else
                waitInfo <= WAIT_ACK;
          end
@@ -545,10 +548,6 @@ always @(posedge sysclk or negedge reset) begin
          ST_RECEIVE_FRAME_STATUS:
          begin
             FrameCount <= FrameCount-8'd1;
-            quadRead <= 0;
-            quadWrite <= 0;
-            blockRead <= 0;
-            blockWrite <= 0;
             isLocal <= 0;
             isRemote <= 0;
             if (ReadData[15]) begin // if valid
@@ -669,44 +668,39 @@ always @(posedge sysclk or negedge reset) begin
 
          ST_RECEIVE_DMA_FIREWIRE_PACKET:
          begin
-            // Read FireWire packet; don't byteswap because
-            // FireWire is also big endian.
-            FireWirePacket[count] <= ReadData;
+            // Read FireWire packet, byteswap to make it easier to work with;
+            // might need to byteswap again if sending it out via FireWire.
+            if (count[0] == 0)
+               FireWirePacket[count[4:1]][31:16] <= {ReadData[7:0],ReadData[15:8]};
+            else
+               FireWirePacket[count[4:1]][15:0] <= {ReadData[7:0],ReadData[15:8]};
+
             // Clear block started signal (replicates FireWire.v implementation)
             eth_block_start <= 0;
             if (count == maxCount) begin
                state <= ST_RECEIVE_FLUSH_START;
                // In parallel, can start processing FireWire packet (for writes)
                if (isLocal) begin
-                  if (fw_tcode == `TC_QREAD) begin
-                     quadRead <= 1;
-                  end
-                  else if (fw_tcode == `TC_QWRITE) begin
-                     quadWrite <= 1;
-                     reg_waddr <= {FireWirePacket[5][7:0], FireWirePacket[5][15:8]};
-                     reg_wdata <= {FireWirePacket[6][7:0], FireWirePacket[6][15:8],
-                                   FireWirePacket[7][7:0], FireWirePacket[7][15:8]};
+                  if (fw_tcode == `TC_QWRITE) begin
+                     reg_waddr <= FireWirePacket[2][15:0];
+                     reg_wdata <= FireWirePacket[3];
                      // Special case: write to FireWire PHY register
-                     if ({FireWirePacket[5][7:0], FireWirePacket[5][15:8]} == {`ADDR_MAIN, 8'h0, `REG_PHYCTRL}) begin
-                        // check the RW bit to determine access type (bit 12, after byte-swap)
-                        lreq_type <= (FireWirePacket[7][4] ? `LREQ_REG_WR : `LREQ_REG_RD);
+                     if (FireWirePacket[2][15:0] == {`ADDR_MAIN, 8'h0, `REG_PHYCTRL}) begin
+                        // check the RW bit to determine access type
+                        lreq_type <= (FireWirePacket[3][12] ? `LREQ_REG_WR : `LREQ_REG_RD);
                         lreq_trig <= 1;
                      end
                   end
-                  else if (fw_tcode == `TC_BREAD) begin
-                     blockRead <= 1;
-                  end
                   else if (fw_tcode == `TC_BWRITE) begin
-                      blockWrite <= 1;
                       // For now, hard-code as write to ADDR_MAIN
                       reg_waddr[15:12] <= `ADDR_MAIN;
                       reg_waddr[7:4] <= 4'd1;  // start with channel 1
                       reg_waddr[3:0] <= `OFF_DAC_CTRL;
                       // MSB is "valid" bit
-                      eth_write_en <= FireWirePacket[10][7];
-                      reg_wdata[15:0] <= {FireWirePacket[11][7:0], FireWirePacket[11][15:8]};
+                      eth_write_en <= FireWirePacket[5][31];
+                      reg_wdata[15:0] <= FireWirePacket[5][15:0];
                   end
-                  else begin
+                  else if ((fw_tcode != `TC_QREAD) && (fw_tcode != `TC_BREAD)) begin
                      ethIoError <= 1;
                   end
                end
@@ -764,8 +758,8 @@ always @(posedge sysclk or negedge reset) begin
             else if (blockWrite) begin
                reg_waddr[7:4] <= 4'd2;
                // MSB is "valid" bit
-               eth_write_en <= FireWirePacket[12][7];
-               reg_wdata[15:0] <= {FireWirePacket[13][7:0], FireWirePacket[13][15:8]};
+               eth_write_en <= FireWirePacket[6][31];
+               reg_wdata[15:0] <= FireWirePacket[6][15:0];
             end
          end
 
@@ -785,8 +779,8 @@ always @(posedge sysclk or negedge reset) begin
             else if (blockWrite) begin
                reg_waddr[7:4] <= 4'd3;
                // MSB is "valid" bit
-               eth_write_en <= FireWirePacket[14][7];
-               reg_wdata[15:0] <= {FireWirePacket[15][7:0], FireWirePacket[15][15:8]};
+               eth_write_en <= FireWirePacket[7][31];
+               reg_wdata[15:0] <= FireWirePacket[7][15:0];
             end
          end
 
@@ -800,8 +794,8 @@ always @(posedge sysclk or negedge reset) begin
             if (blockWrite) begin
                reg_waddr[7:4] <= 4'd4;
                // MSB is "valid" bit
-               eth_write_en <= FireWirePacket[16][7];
-               reg_wdata[15:0] <= {FireWirePacket[17][7:0], FireWirePacket[17][15:8]};
+               eth_write_en <= FireWirePacket[8][31];
+               reg_wdata[15:0] <= FireWirePacket[8][15:0];
                eth_block_en <= 1;
             end
          end
@@ -939,7 +933,7 @@ always @(posedge sysclk or negedge reset) begin
                   begin
                      WriteData <= eth_status[31:16]; // normally reserved, but use it for debugging
                      count[2:0] <= 3'd0;
-                     reg_raddr <= {FireWirePacket[5][7:0], FireWirePacket[5][15:8]};
+                     reg_raddr <= FireWirePacket[2][15:0];
                      if (quadRead) begin
                         // Get ready to read data from the board.
                         eth_read_en <= 1;
