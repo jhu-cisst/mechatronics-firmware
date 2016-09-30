@@ -142,8 +142,8 @@ reg[1:0] waitInfo;
 
 // Following flags are set based on the destination address. Note that a
 // a FireWire broadcast packet will set both isLocal and isRemote.
-reg isLocal;       // 1 -> FireWire packet should be processed locally
-reg isRemote;      // 1 -> FireWire packet should be forwarded
+wire isLocal;       // 1 -> FireWire packet should be processed locally
+wire isRemote;      // 1 -> FireWire packet should be forwarded
 
 wire quadRead;
 wire quadWrite;
@@ -172,22 +172,31 @@ assign eth_status[18] = eth_io_isIdle; // 18: Ethernet I/O state machine is idle
 assign eth_status[17:16] = waitInfo;   // 17-16: Wait points in EthernetIO.v
 
 reg[7:0] FrameCount;   // Number of received frames
-reg[4:0] count;        // General use counter
+reg[7:0] count;        // General use counter
 reg[3:0] readCount;    // Wait for read valid
-reg[4:0] maxCount;     // For reading FireWire packets
+reg[7:0] maxCount;     // For reading FireWire packets
 reg[2:0] next_addr;    // Address of next device (for block read)
+reg[6:0] block_index;  // Index into data block (5-70)
 
 reg[15:0] destMac[0:2];  // Not currently used
 reg[15:0] srcMac[0:2];
 reg[15:0] Length;        // Not currently used
 
 // Firewire packet received from host
-//    - 16 bytes (8 words) for quadlet read request
-//    - 20 bytes (10 words) for quadlet write
+//    - 16 bytes (4 quadlets) for quadlet read request
+//    - 20 bytes (5 quadlets) for quadlet write or block read request
 //    - (24+block_data_length) bytes for block write
-//      - currently, block_data_length = 4*4 = 16
-//      - thus, max size is 20 words or 10 quadlets
-reg[31:0] FireWirePacket[0:9];  // FireWire packet memory (max 10 quadlets)
+//      - real-time block_data_length = 4*4 = 16 bytes
+//        max size in quadlets is (24+16)/4 = 10
+//      - HUB block_data_length = 4*4*64 = 1024 (in theory for 64 nodes),
+//        but if board ids are limited to 16, then 4*4*16 = 256 bytes
+//      - PROM write block_data_length can be up to 260 bytes
+//        max size in quadlets is (24+260)/4 = 71
+//      - QLA PROM write block_data_length can be up to 16*4 = 64 bytes
+//        max size in quadlets is (24+64)/4 = 22
+// To summarize, maximum size in quadlets would be 71.
+// For now, we will make the buffer big enough to hold 71 quadlets.
+reg[31:0] FireWirePacket[0:70];  // FireWire packet memory (max 71 quadlets)
 
 wire[3:0] fw_tcode;            // FireWire transaction code
 wire[5:0] fw_tl;               // FireWire transaction label
@@ -197,10 +206,25 @@ assign fw_tl = FireWirePacket[0][15:10];
 assign fw_tcode = FireWirePacket[0][7:4];
 assign block_data_length = FireWirePacket[3][31:16];
 
+// Valid destination address
+wire valid_dest_id;
+assign valid_dest_id = (FireWirePacket[0][31:20] == 12'hFFC) ? 1'd1 : 1'd0;
+wire[3:0] dest_board;
+assign dest_board = FireWirePacket[0][19:16];
+
+// Local write if Ethernet multicast, addresses this board, or FireWire broadcast
+// Note: maybe use 8'hff for FireWire broadcast
+assign isLocal = isMulticast || (dest_board == board_id) || (dest_board == 4'hf);
+assign isRemote = (dest_board != board_id);
+
 assign quadRead = (fw_tcode == `TC_QREAD) ? 1'd1 : 1'd0;
 assign quadWrite = (fw_tcode == `TC_QWRITE) ? 1'd1 : 1'd0;
 assign blockRead = (fw_tcode == `TC_BREAD) ? 1'd1 : 1'd0;
 assign blockWrite = (fw_tcode == `TC_BWRITE) ? 1'd1 : 1'd0;
+
+assign addrMain = (FireWirePacket[2][15:12] == `ADDR_MAIN) ? 1'd1 : 1'd0;
+assign addrPROM = (FireWirePacket[2][15:12] == `ADDR_PROM) ? 1'd1 : 1'd0;
+assign addrQLA  = (FireWirePacket[2][15:12] == `ADDR_PROM_QLA) ? 1'd1 : 1'd0;
 
 // TEMP: Timestamp copied from Firewire.v -- should consolidate
 reg[31:0] timestamp;          // timestamp counter register
@@ -229,8 +253,6 @@ always @(posedge sysclk or negedge reset) begin
        initOK <= 0;
        ethIoError <= 0;
        isMulticast <= 0;
-       isLocal <= 0;
-       isRemote <= 0;
        sendAck <= 0;
        srcMac[0] <= 16'd0;
        srcMac[1] <= 16'd0;
@@ -244,6 +266,7 @@ always @(posedge sysclk or negedge reset) begin
        waitInfo <= WAIT_NONE;
        lreq_trig <= 0;
        lreq_type <= 0;
+       block_index <= 0;
     end
     else begin
 
@@ -257,6 +280,7 @@ always @(posedge sysclk or negedge reset) begin
             eth_write_en <= 0;
             eth_block_en <= 0;
             eth_block_start <= 0;
+            block_index <= 0;
             waitInfo <= WAIT_NONE;
             if (initReq) begin
                cmdReq <= 1;
@@ -548,8 +572,6 @@ always @(posedge sysclk or negedge reset) begin
          ST_RECEIVE_FRAME_STATUS:
          begin
             FrameCount <= FrameCount-8'd1;
-            isLocal <= 0;
-            isRemote <= 0;
             if (ReadData[15]) begin // if valid
                cmdReq <= 1;
                isMulticast <= ReadData[6];
@@ -593,7 +615,7 @@ always @(posedge sysclk or negedge reset) begin
             WriteData <= {ReadData[15:4],1'b1,ReadData[2:0]};
             state <= ST_WAIT_ACK;
             nextState <= ST_RECEIVE_DMA_SKIP;
-            count <= 5'd0;
+            count <= 8'd0;
          end
 
          ST_RECEIVE_DMA_SKIP:
@@ -627,36 +649,22 @@ always @(posedge sysclk or negedge reset) begin
               3'd6: Length <= {ReadData[7:0],ReadData[15:8]};
             endcase
             if (count[2:0] == 3'd6) begin
-               // Check for packets of expected length and ignore (flush) others; note that
-               // we cannot use Length below because it is not yet updated
-               if (ReadData[7:0] == 8'd0) begin
-                  if (ReadData[15:8] == 8'd16) begin       // quadlet read request
-                     cmdReq <= 1;
-                     state <= ST_WAIT_ACK;
-                     nextState <= ST_RECEIVE_DMA_FIREWIRE_PACKET;
-                     maxCount <= 5'd7;
-                  end
-                  else if (ReadData[15:8] == 8'd20) begin  // quadlet write or block read request
-                     cmdReq <= 1;
-                     state <= ST_WAIT_ACK;
-                     nextState <= ST_RECEIVE_DMA_FIREWIRE_PACKET;
-                     maxCount <= 5'd9;
-                  end
-                  else if (ReadData[15:8] == 8'd40) begin  // block write (6+4 quadlets)
-                     cmdReq <= 1;
-                     state <= ST_WAIT_ACK;
-                     nextState <= ST_RECEIVE_DMA_FIREWIRE_PACKET;
-                     maxCount <= 5'd19;
-                     eth_block_start <= 1;
-                  end
-                  else begin
-                     state <= ST_RECEIVE_FLUSH_START;
-                  end
+               // Maximum data length is currently 284 bytes (block write to PROM); as a sanity
+               // check, we flush any packets greater than 512 bytes in length.
+               if (ReadData[7:1] == 7'd0) begin
+                  cmdReq <= 1;
+                  state <= ST_WAIT_ACK;
+                  nextState <= ST_RECEIVE_DMA_FIREWIRE_PACKET;
+                  // Set up maxCount based on number of words (numBytes/2-1).
+                  // Note that this can be larger than the current buffer size (142 words or 71 quadlets),
+                  // but later on we have a check to prevent buffer overflow.
+                  maxCount <= {ReadData[0],ReadData[15:9]}-8'd1;
                end
                else begin
+                  ethIoError <= 1;
                   state <= ST_RECEIVE_FLUSH_START;
                end
-               count <= 5'd0;
+               count <= 8'd0;
             end
             else begin
                cmdReq <= 1;
@@ -675,92 +683,114 @@ always @(posedge sysclk or negedge reset) begin
             else
                FireWirePacket[count[4:1]][15:0] <= {ReadData[7:0],ReadData[15:8]};
 
-            // Clear block started signal (replicates FireWire.v implementation)
-            eth_block_start <= 0;
-            if (count == maxCount) begin
+            // Following handles state transitions and incrementing count
+            if ((count == 8'd2) && !valid_dest_id) begin
+               // invalid destination address, flush packet
+               ethIoError <= 1;
                state <= ST_RECEIVE_FLUSH_START;
-               // In parallel, can start processing FireWire packet (for writes)
-               if (isLocal) begin
-                  if (fw_tcode == `TC_QWRITE) begin
-                     reg_waddr <= FireWirePacket[2][15:0];
-                     reg_wdata <= FireWirePacket[3];
-                     // Special case: write to FireWire PHY register
-                     if (FireWirePacket[2][15:0] == {`ADDR_MAIN, 8'h0, `REG_PHYCTRL}) begin
-                        // check the RW bit to determine access type
-                        lreq_type <= (FireWirePacket[3][12] ? `LREQ_REG_WR : `LREQ_REG_RD);
-                        lreq_trig <= 1;
-                     end
-                  end
-                  else if (fw_tcode == `TC_BWRITE) begin
-                      // For now, hard-code as write to ADDR_MAIN
-                      reg_waddr[15:12] <= `ADDR_MAIN;
-                      reg_waddr[7:4] <= 4'd1;  // start with channel 1
-                      reg_waddr[3:0] <= `OFF_DAC_CTRL;
-                      // MSB is "valid" bit
-                      eth_write_en <= FireWirePacket[5][31];
-                      reg_wdata[15:0] <= FireWirePacket[5][15:0];
-                  end
-                  else if ((fw_tcode != `TC_QREAD) && (fw_tcode != `TC_BREAD)) begin
-                     ethIoError <= 1;
-                  end
-               end
+            end
+            else if (count == maxCount) begin
+               // normal completion
+               state <= ST_RECEIVE_FLUSH_START;
                if (isRemote) begin
                end
             end
-            else if (count == 5'd0) begin
-               // Check the destination of this packet
-               if ({ReadData[7:0],ReadData[15:12]} == 12'hFFC) begin
-                  // all ok, keep going
-                  // Handle Ethernet multicast as a direct write to this board (i.e., local
-                  // only); this could change in the future.
-                  if (isMulticast || (ReadData[11:8] == board_id)) begin
-                     isLocal <= 1;
-                     isRemote <= 0;
-                  end
-                  else if (ReadData[11:8] == 4'hf) begin  // Firewire broadcast (maybe 8'hff?)
-                     isLocal <= 1;
-                     isRemote <= 1;
-                  end
-                  else begin
-                     isLocal <= 0;
-                     isRemote <= 1;
-                  end
-                  cmdReq <= 1;
-                  state <= ST_WAIT_ACK;
-                  nextState <= ST_RECEIVE_DMA_FIREWIRE_PACKET;
-                  count <= 5'd1;
-               end
-               else begin
-                  // invalid destination address, flush packet
-                  state <= ST_RECEIVE_FLUSH_START;
-               end
+            else if (count == 8'd141) begin
+               // packet too long; stop here to avoid buffer overflow
+               ethIoError <= 1;
+               state <= ST_RECEIVE_FLUSH_START;
             end
             else begin
                cmdReq <= 1;
                state <= ST_WAIT_ACK;
                nextState <= ST_RECEIVE_DMA_FIREWIRE_PACKET;
-               count <= count + 5'd1;
+               count <= count + 8'd1;
+            end
+
+            // Handle local quadlet and block writes (no state transitions below).
+            // Note that isLocal, quadWrite, and blockWrite are not valid right away,
+            // but will be valid for the counts that are used below.
+            // Also, the counts are set so that the referenced FireWirePacket data is valid;
+            // for example, count==8 corresponds to the start of reading FireWirePacket[4],
+            // so FireWirePacket[0:3] are valid. This works because all FireWire packets have
+            // a CRC at the end, so we are sure to process the last data packet.
+            // Note that we do not check the FireWire CRC because we assume that the Ethernet
+            // checksum has already guaranteed that the data is valid.
+            if (isLocal) begin
+               if (quadWrite) begin
+                  if (count == 8'd8) begin
+                     eth_block_en <= 1;
+                     reg_waddr <= FireWirePacket[2][15:0];
+                     reg_wdata <= FireWirePacket[3];
+                     // Special case: write to FireWire PHY register
+                     if (addrMain && (FireWirePacket[2][11:0] == {8'h0, `REG_PHYCTRL})) begin
+                        // check the RW bit to determine access type (bit 12, after byte-swap)
+                        lreq_type <= (FireWirePacket[3][12] ? `LREQ_REG_WR : `LREQ_REG_RD);
+                        lreq_trig <= 1;
+                     end
+                  end
+                  else if (count == 8'd9) begin
+                     eth_write_en <= 1;
+                     lreq_trig <= 0;     // Clear lreq_trig in case it was set
+                     state <= ST_RECEIVE_FLUSH_START;
+                  end
+               end
+               else if (blockWrite) begin
+                  // Set and clear eth_block_start before starting block write
+                  // (arbitrarily chose to set it at count==8).
+                  if (count == 8'd8)
+                     eth_block_start <= 1;
+                  else if (count == 8'd11)
+                     eth_block_start <= 0;
+                  else if (count == 8'd12) begin
+                     reg_waddr[15:12] <= FireWirePacket[2][15:12];
+                     if (addrMain) begin
+                        reg_waddr[7:4] <= 4'd1;  // start with channel 1
+                        reg_waddr[3:0] <= `OFF_DAC_CTRL;
+                        reg_wdata[15:0] <= FireWirePacket[5][15:0];
+                     end
+                     else begin
+                        reg_waddr[11:0] <= FireWirePacket[2][11:0];
+                        reg_wdata <= FireWirePacket[5];
+                     end
+                     block_index <= 7'd5;
+                  end
+                  else if (block_index != 7'd0) begin  // count > 12
+                     if (count[0] == 0) begin      // (even)
+                        eth_write_en <= 0;
+                        if (addrMain) begin
+                           reg_waddr[7:4] <= reg_waddr[7:4] + 4'd1;
+                           reg_wdata[15:0] <= FireWirePacket[block_index][15:0];
+                        end
+                        else begin
+                           reg_waddr <= reg_waddr + 16'd1;
+                           reg_wdata <= FireWirePacket[block_index];
+                        end
+                     end
+                     else begin                    // (odd)
+                        // MSB is "valid" bit for DAC write (addrMain)
+                        eth_write_en <= addrMain ? FireWirePacket[block_index][31] : 1;
+                        block_index <= block_index + 7'd1;
+                        if (count == maxCount)
+                            eth_block_en <= 1;
+                     end
+                  end
+               end
             end
          end
 
          ST_RECEIVE_FLUSH_START:
-         begin
+           begin
+            // Clean up from quadlet/block writes
+            eth_write_en <= 0;
+            eth_block_en <= 0;
+            // Move on to the next state
             cmdReq <= 1;
             isDMA <= 0;
             isWrite <= 0;
             RegAddr <= 8'h82;
             state <= ST_WAIT_ACK;
             nextState <= ST_RECEIVE_FLUSH_EXECUTE;
-            if (quadWrite) begin
-               eth_write_en <= 1;
-               eth_block_en <= 1;
-            end
-            else if (blockWrite) begin
-               reg_waddr[7:4] <= 4'd2;
-               // MSB is "valid" bit
-               eth_write_en <= FireWirePacket[6][31];
-               reg_wdata[15:0] <= FireWirePacket[6][15:0];
-            end
          end
 
          ST_RECEIVE_FLUSH_EXECUTE:
@@ -771,17 +801,6 @@ always @(posedge sysclk or negedge reset) begin
             WriteData <= {ReadData[15:4],1'b0,ReadData[2:1],1'b1};
             state <= ST_WAIT_ACK;
             nextState <= ST_RECEIVE_FLUSH_WAIT_START;
-            if (quadWrite) begin
-               eth_write_en <= 0;
-               eth_block_en <= 0;
-               lreq_trig <= 0;     // Clear lreq_trig in case it was set
-            end
-            else if (blockWrite) begin
-               reg_waddr[7:4] <= 4'd3;
-               // MSB is "valid" bit
-               eth_write_en <= FireWirePacket[7][31];
-               reg_wdata[15:0] <= FireWirePacket[7][15:0];
-            end
          end
 
          ST_RECEIVE_FLUSH_WAIT_START:
@@ -791,13 +810,6 @@ always @(posedge sysclk or negedge reset) begin
             // RegAddr is already set to 8'h82
             state <= ST_WAIT_ACK;
             nextState <= ST_RECEIVE_FLUSH_WAIT_CHECK;
-            if (blockWrite) begin
-               reg_waddr[7:4] <= 4'd4;
-               // MSB is "valid" bit
-               eth_write_en <= FireWirePacket[8][31];
-               reg_wdata[15:0] <= FireWirePacket[8][15:0];
-               eth_block_en <= 1;
-            end
          end
 
          ST_RECEIVE_FLUSH_WAIT_CHECK:
@@ -812,11 +824,6 @@ always @(posedge sysclk or negedge reset) begin
                  state <= ST_SEND_DMA_STATUS_READ;
               else
                  state <= (FrameCount == 8'd0) ? ST_IDLE : ST_RECEIVE_FRAME_STATUS;
-              if (blockWrite) begin
-                 // Already did write in parallel with flush
-                 eth_write_en <= 0;
-                 eth_block_en <= 0;
-               end
                waitInfo <= WAIT_NONE;
             end
             else begin
@@ -867,7 +874,7 @@ always @(posedge sysclk or negedge reset) begin
             WriteData <= quadRead ? 16'd34 : (16'd38 + block_data_length);
             state <= ST_WAIT_ACK;
             nextState <= ST_SEND_DMA_DESTADDR;
-            count <= 5'd0;
+            count <= 8'd0;
          end
 
          ST_SEND_DMA_DESTADDR:
@@ -911,7 +918,7 @@ always @(posedge sysclk or negedge reset) begin
          begin
             cmdReq <= 1;
             state <= ST_WAIT_ACK;
-            count <= 5'd0;
+            count <= 8'd0;
             // 20 bytes for quadlet read response
             // (24 + block_data_length) bytes for block read response
             WriteData <= quadRead ? 16'd20 : (16'd24 + block_data_length);
