@@ -223,6 +223,7 @@ assign blockRead = (fw_tcode == `TC_BREAD) ? 1'd1 : 1'd0;
 assign blockWrite = (fw_tcode == `TC_BWRITE) ? 1'd1 : 1'd0;
 
 assign addrMain = (FireWirePacket[2][15:12] == `ADDR_MAIN) ? 1'd1 : 1'd0;
+assign addrHub = (FireWirePacket[2][15:12] == `ADDR_HUB) ? 1'd1 : 1'd0;
 assign addrPROM = (FireWirePacket[2][15:12] == `ADDR_PROM) ? 1'd1 : 1'd0;
 assign addrQLA  = (FireWirePacket[2][15:12] == `ADDR_PROM_QLA) ? 1'd1 : 1'd0;
 
@@ -992,14 +993,17 @@ always @(posedge sysclk or negedge reset) begin
             end
             if (count[1:0] == 2'd3) begin
                 count[1:0] <= 2'd0;
-                if (reg_raddr[15:12] == `ADDR_MAIN) begin
+                if (addrMain) begin
                    nextState <= ST_SEND_DMA_PACKETDATA_BLOCK_MAIN;
                 end
-                else if ((reg_raddr[15:12] == `ADDR_PROM) ||
-                         (reg_raddr[15:12] == `ADDR_PROM_QLA)) begin
+                else if (addrHub) begin
+                   // TODO: implement read from Hub (for now, abort)
+                   nextState <= ST_SEND_DMA_STOP_READ;
+                end
+                else if (addrPROM || addrQLA) begin
                    // Get ready to read data
                    eth_read_en <= 1;
-                   reg_raddr[5:0] <= 6'd0;  // Just to be sure
+                   reg_raddr[7:0] <= 8'd0;  // Just to be sure
                    nextState <= ST_SEND_DMA_PACKETDATA_BLOCK_PROM;
                 end
                 else begin
