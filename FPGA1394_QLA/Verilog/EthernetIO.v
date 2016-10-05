@@ -38,9 +38,9 @@ module EthernetIO(
     output reg       eth_read_en,
     output reg[31:0] reg_wdata,
     output reg[15:0] reg_waddr,
-    output reg       eth_write_en,
-    output reg       eth_block_en,
-    output reg       eth_block_start,
+    output reg       eth_reg_wen,
+    output reg       eth_block_wen,
+    output reg       eth_block_wstart,
 
     // Interface to lower layer (KSZ8851)
     input wire initReq,           // 1 -> Chip has been reset; initialization requested
@@ -55,7 +55,6 @@ module EthernetIO(
     output reg[15:0] WriteData,   // Data to be written to chip (N/A for read)
     input wire[15:0] ReadData,    // Data read from chip (N/A for write)
     output reg initOK,            // 1 -> Initialization successful
-    output reg ethIoError,        // 1 -> Ethernet I/O error
     input wire eth_error,         // 1 -> I/O request received when not in idle state
 
     output reg lreq_trig,         // trigger signal for a FireWire phy request
@@ -63,6 +62,11 @@ module EthernetIO(
 );
 
 parameter num_channels = 4;
+
+// Error flags
+reg ethIoError;        // 1 -> Ethernet I/O error
+reg ethPacketError;    // 1 -> Packet too long
+reg ethDestError;      // 1 -> Incorrect destination
 
 // Current state and next state
 reg[5:0] state;
@@ -158,10 +162,12 @@ assign eth_status[30] = eth_error;     // 30: 1 -> error occurred
 assign eth_status[29] = initOK;        // 29: 1 -> Initialization OK
 assign eth_status[28] = initReq;       // 28: 1 -> Reset executed, init requested
 assign eth_status[27] = ethIoError;    // 27: 1 -> ethernet I/O error (higher layer)
+assign eth_status[26] = ethPacketError;  // 26: 1 -> ethernet packet too long (higher layer)
+assign eth_status[25] = ethDestError;    // 25: 1 -> ethernet destination error (higher layer)
 //assign eth_status[26] = cmdReq;        // 26: 1 -> command requested by higher level
 //assign eth_status[25] = cmdAck;        // 25: 1 -> command acknowledged by lower level
-assign eth_status[26] = isLocal;       // 26: 1 -> command requested by higher level
-assign eth_status[25] = isRemote;      // 25: 1 -> command acknowledged by lower level
+//assign eth_status[26] = isLocal;       // 26: 1 -> command requested by higher level
+//assign eth_status[25] = isRemote;      // 25: 1 -> command acknowledged by lower level
 assign eth_status[24] = quadRead;      // 24: quadRead (debugging)
 assign eth_status[23] = quadWrite;     // 23: quadWrite (debugging)
 assign eth_status[22] = blockRead;     // 22: blockRead (debugging)
@@ -253,6 +259,8 @@ always @(posedge sysclk or negedge reset) begin
        initAck <= 0;
        initOK <= 0;
        ethIoError <= 0;
+       ethPacketError <= 0;
+       ethDestError <= 0;
        isMulticast <= 0;
        sendAck <= 0;
        srcMac[0] <= 16'd0;
@@ -260,9 +268,9 @@ always @(posedge sysclk or negedge reset) begin
        srcMac[2] <= 16'd0;
        Length <= 16'd0;
        eth_read_en <= 0;
-       eth_write_en <= 0;
-       eth_block_en <= 0;
-       eth_block_start <= 0;
+       eth_reg_wen <= 0;
+       eth_block_wen <= 0;
+       eth_block_wstart <= 0;
        ts_reset <= 0;
        waitInfo <= WAIT_NONE;
        lreq_trig <= 0;
@@ -278,9 +286,9 @@ always @(posedge sysclk or negedge reset) begin
             isDMA <= 0;
             isWord <= 1;       // all transfers are word
             eth_read_en <= 0;
-            eth_write_en <= 0;
-            eth_block_en <= 0;
-            eth_block_start <= 0;
+            eth_reg_wen <= 0;
+            eth_block_wen <= 0;
+            eth_block_wstart <= 0;
             block_index <= 0;
             waitInfo <= WAIT_NONE;
             if (initReq) begin
@@ -292,6 +300,8 @@ always @(posedge sysclk or negedge reset) begin
                initAck <= 1;
                initOK <= 0;
                ethIoError <= 0;
+               ethPacketError <= 0;
+               ethDestError <= 0;
             end
             else if (~ETH_IRQn) begin
                cmdReq <= 1;
@@ -662,7 +672,7 @@ always @(posedge sysclk or negedge reset) begin
                   maxCount <= {ReadData[0],ReadData[15:9]}-8'd1;
                end
                else begin
-                  ethIoError <= 1;
+                  ethPacketError <= 1;
                   state <= ST_RECEIVE_FLUSH_START;
                end
                count <= 8'd0;
@@ -687,7 +697,7 @@ always @(posedge sysclk or negedge reset) begin
             // Following handles state transitions and incrementing count
             if ((count == 8'd2) && !valid_dest_id) begin
                // invalid destination address, flush packet
-               ethIoError <= 1;
+               ethDestError <= 1;
                state <= ST_RECEIVE_FLUSH_START;
             end
             else if (count == maxCount) begin
@@ -698,7 +708,7 @@ always @(posedge sysclk or negedge reset) begin
             end
             else if (count == 8'd141) begin
                // packet too long; stop here to avoid buffer overflow
-               ethIoError <= 1;
+               ethPacketError <= 1;
                state <= ST_RECEIVE_FLUSH_START;
             end
             else begin
@@ -720,7 +730,7 @@ always @(posedge sysclk or negedge reset) begin
             if (isLocal) begin
                if (quadWrite) begin
                   if (count == 8'd8) begin
-                     eth_block_en <= 1;
+                     eth_block_wen <= 1;
                      reg_waddr <= FireWirePacket[2][15:0];
                      reg_wdata <= FireWirePacket[3];
                      // Special case: write to FireWire PHY register
@@ -731,18 +741,18 @@ always @(posedge sysclk or negedge reset) begin
                      end
                   end
                   else if (count == 8'd9) begin
-                     eth_write_en <= 1;
+                     eth_reg_wen <= 1;
                      lreq_trig <= 0;     // Clear lreq_trig in case it was set
                      state <= ST_RECEIVE_FLUSH_START;
                   end
                end
                else if (blockWrite) begin
-                  // Set and clear eth_block_start before starting block write
+                  // Set and clear eth_block_wstart before starting block write
                   // (arbitrarily chose to set it at count==8).
                   if (count == 8'd8)
-                     eth_block_start <= 1;
+                     eth_block_wstart <= 1;
                   else if (count == 8'd11)
-                     eth_block_start <= 0;
+                     eth_block_wstart <= 0;
                   else if (count == 8'd12) begin
                      reg_waddr[15:12] <= FireWirePacket[2][15:12];
                      if (addrMain) begin
@@ -758,7 +768,7 @@ always @(posedge sysclk or negedge reset) begin
                   end
                   else if (block_index != 7'd0) begin  // count > 12
                      if (count[0] == 0) begin      // (even)
-                        eth_write_en <= 0;
+                        eth_reg_wen <= 0;
                         if (addrMain) begin
                            reg_waddr[7:4] <= reg_waddr[7:4] + 4'd1;
                            reg_wdata[15:0] <= FireWirePacket[block_index][15:0];
@@ -770,10 +780,10 @@ always @(posedge sysclk or negedge reset) begin
                      end
                      else begin                    // (odd)
                         // MSB is "valid" bit for DAC write (addrMain)
-                        eth_write_en <= addrMain ? FireWirePacket[block_index][31] : 1;
+                        eth_reg_wen <= addrMain ? FireWirePacket[block_index][31] : 1;
                         block_index <= block_index + 7'd1;
                         if (count == maxCount)
-                            eth_block_en <= 1;
+                            eth_block_wen <= 1;
                      end
                   end
                end
@@ -783,8 +793,8 @@ always @(posedge sysclk or negedge reset) begin
          ST_RECEIVE_FLUSH_START:
            begin
             // Clean up from quadlet/block writes
-            eth_write_en <= 0;
-            eth_block_en <= 0;
+            eth_reg_wen <= 0;
+            eth_block_wen <= 0;
             // Move on to the next state
             cmdReq <= 1;
             isDMA <= 0;

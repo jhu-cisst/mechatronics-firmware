@@ -98,7 +98,7 @@ module FPGA1394EthQLA
     wire[31:0] fw_reg_wdata;    // reg write data from FireWire
     wire[31:0] eth_reg_wdata;   // reg write data from Ethernet
     wire[31:0] reg_rd[0:15];
-    wire eth_read_en;           // 1 -> Ethernet is reading from board registers
+    wire eth_read_en;           // 1 -> Ethernet is driving reg_raddr to read from board registers
 
 //------------------------------------------------------------------------------
 // hardware description
@@ -267,9 +267,9 @@ EthernetIO EthernetTransfers(
     .eth_read_en(eth_read_en),
     .reg_wdata(eth_reg_wdata),
     .reg_waddr(eth_reg_waddr),
-    .eth_write_en(eth_reg_wen),
-    .eth_block_en(eth_blk_wen),
-    .eth_block_start(eth_blk_wstart),
+    .eth_reg_wen(eth_reg_wen),
+    .eth_block_wen(eth_blk_wen),
+    .eth_block_wstart(eth_blk_wstart),
 
     .initReq(eth_init_req),
     .initAck(eth_init_ack),
