@@ -24,6 +24,7 @@
 
 // uncomment for simulation mode
 //`define USE_SIMULATION 
+//`define USE_CHIPSCOPE
 
 // firmware constants
 `define VERSION 32'h514C4131       // hard-wired version number "QLA1" = 0x514C4131 

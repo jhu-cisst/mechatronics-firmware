@@ -319,23 +319,26 @@ end
 //------------------------------
 // chipscope
 //------------------------------
-//wire[35:0] control_prom;
-//
-//icon_prom icon_p(
-//    .CONTROL0(control_prom)
-//);
-//
-//wire[3:0] spi_debug;
-//assign spi_debug = { prom_mosi, prom_miso, prom_sclk, prom_cs };
-//
-//ila_prom ila_p(
-//    .CONTROL(control_prom),
-//    .CLK(clk),
-//    .TRIG0(spi_debug),         // 4-bit
-//    .TRIG1(reg_raddr[15:0]),   // 16-bit
-//    .TRIG2(reg_wdata),         // 32-bit
-//    .TRIG3(prom_result)        // 32-bit
-//);
+`ifdef USE_CHIPSCOPE
+
+wire[35:0] control_prom;
+
+icon_prom icon_p(
+    .CONTROL0(control_prom)
+);
+
+wire[3:0] spi_debug;
+assign spi_debug = { prom_mosi, prom_miso, prom_sclk, prom_cs };
+
+ila_prom ila_p(
+    .CONTROL(control_prom),
+    .CLK(clk),
+    .TRIG0(spi_debug),         // 4-bit
+    .TRIG1(reg_raddr[15:0]),   // 16-bit
+    .TRIG2(reg_wdata),         // 32-bit
+    .TRIG3(prom_result)        // 32-bit
+);
+`endif
 
 
 endmodule
