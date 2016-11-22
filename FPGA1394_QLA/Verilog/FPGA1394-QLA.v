@@ -394,6 +394,7 @@ BoardRegs chan0(
     .home({IO2[20],IO2[18],IO2[16],IO2[14]}),
     .fault({IO2[37],IO2[35],IO2[33],IO2[31]}),
     .relay(IO2[9]),
+    .mv_faultn(IO1[7]),
     .mv_good(IO2[11]),
     .v_fault(IO1[9]),
     .board_id(~wenid),

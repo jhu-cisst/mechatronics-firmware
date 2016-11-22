@@ -46,8 +46,9 @@ module BoardRegs(
     input  wire[4:1] fault,
     
     input  wire relay,              // relay signal
+    input  wire mv_faultn,          // motor power fault (active low) from LT4356, over-voltage or over-current
     input  wire mv_good,            // motor voltage good 
-    input  wire v_fault,           
+    input  wire v_fault,            // encoder supply voltage fault
     input  wire[3:0] board_id,      // board id (rotary switch)
     input  wire[15:0] temp_sense,   // temperature sensor reading
     
@@ -157,9 +158,11 @@ always @(posedge(sysclk) or negedge(reset))
                 wdog_timeout, eth1394, dout_cfg_valid, dout_cfg_bidir,
                 // mv_good, power enable, safety relay state, safety relay control      
                 mv_good, pwr_enable, ~relay, relay_on,   
-                // Byte 1: 1 -> amplifier on, 0 -> fault (up to 8 axes)
-                4'd0, fault,
-                // Byte 0: 1 -> amplifier enabled, 0 -> disabled (up to 8 axes)                   
+                // mv_fault, unused (0)
+                ~mv_faultn, 3'd0,
+                // amplifier: 1 -> amplifier on, 0 -> fault (4 axes)
+                fault,
+                // Byte 0: 1 -> amplifier enabled, 0 -> disabled
                 safety_amp_disable[4:1], ~reg_disable[3:0] };     
         `REG_PHYCTRL: reg_rdata <= phy_ctrl;
         `REG_PHYDATA: reg_rdata <= phy_data;
