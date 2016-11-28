@@ -16,6 +16,11 @@
 // global constant e.g. register & device address
 `include "Constants.v"
 
+// constants KSZ8851 chip
+`define ETH_IER_VALUE 16'h2000    // Interrupt Enable Register
+`define ETH_IER_ADDR  8'h90
+
+
 module EthernetIO(
     // global clock and reset
     input wire sysclk,
@@ -121,26 +126,30 @@ parameter[5:0]
     ST_RECEIVE_FLUSH_WAIT_CHECK = 6'd35,
     ST_RECEIVE_ENABLE_INTERRUPT = 6'd36,
     ST_RECEIVE_END = 6'd37,
-    ST_SEND_DMA_STATUS_READ = 6'd38,
-    ST_SEND_DMA_STATUS_WRITE = 6'd39,
-    ST_SEND_DMA_CONTROLWORD = 6'd40,
-    ST_SEND_DMA_BYTECOUNT = 6'd41,
-    ST_SEND_DMA_DESTADDR = 6'd42,
-    ST_SEND_DMA_SRCADDR = 6'd43,
-    ST_SEND_DMA_LENGTH = 6'd44,
-    ST_SEND_DMA_PACKETDATA_HEADER = 6'd45,
-    ST_SEND_DMA_PACKETDATA_QUAD = 6'd46,
-    ST_SEND_DMA_PACKETDATA_BLOCK_START = 6'd47,
-    ST_SEND_DMA_PACKETDATA_BLOCK_MAIN = 6'd48,
-    ST_SEND_DMA_PACKETDATA_BLOCK_CHANNEL = 6'd49,
-    ST_SEND_DMA_PACKETDATA_BLOCK_PROM = 6'd50,
-    ST_SEND_DMA_PACKETDATA_CHECKSUM = 6'd51,
-    ST_SEND_DMA_STOP_READ = 6'd52,
-    ST_SEND_DMA_STOP_WRITE = 6'd53,
-    ST_SEND_TXQ_ENQUEUE_START = 6'd54,
-    ST_SEND_TXQ_ENQUEUE_END = 6'd55,
-    ST_SEND_TXQ_ENQUEUE_WAIT_START = 6'd56,
-    ST_SEND_TXQ_ENQUEUE_WAIT_CHECK = 6'd57;
+    ST_SEND_DISABLE_INTERRUPT = 6'd38,
+    ST_SEND_DMA_STATUS_READ = 6'd39,
+    ST_SEND_DMA_STATUS_WRITE = 6'd40,
+    ST_SEND_DMA_CONTROLWORD = 6'd41,
+    ST_SEND_DMA_BYTECOUNT = 6'd42,
+    ST_SEND_DMA_DESTADDR = 6'd43,
+    ST_SEND_DMA_SRCADDR = 6'd44,
+    ST_SEND_DMA_LENGTH = 6'd45,
+    ST_SEND_DMA_PACKETDATA_HEADER = 6'd46,
+    ST_SEND_DMA_PACKETDATA_QUAD = 6'd47,
+    ST_SEND_DMA_PACKETDATA_BLOCK_START = 6'd48,
+    ST_SEND_DMA_PACKETDATA_BLOCK_MAIN = 6'd49,
+    ST_SEND_DMA_PACKETDATA_BLOCK_CHANNEL = 6'd450,
+    ST_SEND_DMA_PACKETDATA_BLOCK_PROM = 6'd51,
+    ST_SEND_DMA_PACKETDATA_CHECKSUM = 6'd52,
+    ST_SEND_DMA_STOP_READ = 6'd53,
+    ST_SEND_DMA_STOP_WRITE = 6'd54,
+    ST_SEND_TXQ_ENQUEUE_START = 6'd55,
+    ST_SEND_TXQ_ENQUEUE_END = 6'd56,
+    ST_SEND_TXQ_ENQUEUE_WAIT_START = 6'd57,
+    ST_SEND_TXQ_ENQUEUE_WAIT_CHECK = 6'd58,
+    ST_SEND_ENABLE_INTERRUPT = 6'd59,
+    ST_SEND_END = 6'd60;
+   
 
 // Debugging support
 
@@ -327,7 +336,7 @@ always @(posedge sysclk or negedge reset) begin
                // Not yet used. Will need this mechanism in the future,
                // but will need a way to specify what is to be sent
                // (e.g., FireWirePacket).
-               state <= ST_SEND_DMA_STATUS_READ;
+               state <= ST_SEND_DISABLE_INTERRUPT;
                sendAck <= 1;
             end
          end
@@ -876,17 +885,26 @@ always @(posedge sysclk or negedge reset) begin
              //   - else go to idle state
              // TODO: check node id and forward via FireWire if necessary
              if (quadRead || blockRead)
-                 state <= ST_SEND_DMA_STATUS_READ;
+                 state <= ST_SEND_DISABLE_INTERRUPT;
              else
                  state <= (FrameCount == 8'd0) ? ST_IDLE : ST_RECEIVE_FRAME_STATUS;
          end
 
          //*************** States for sending Ethernet packets ******************
          // First, should check if enough memory on QMU TXQ
+         ST_SEND_DISABLE_INTERRUPT:
+         begin
+             sendAck <= 0;  // TEMP
+             cmdReq <= 1;
+             isWrite <= 1;
+             RegAddr <= 8'h90;         // IER
+             WriteData <= 16'h0000;    // Disable interrupt 
+             state <= ST_WAIT_ACK;
+             nextState <= ST_SEND_DMA_STATUS_READ;            
+         end
 
          ST_SEND_DMA_STATUS_READ:  // same as ST_RECEIVE_DMA_STATUS_READ
          begin
-            sendAck <= 0;  // TEMP
             cmdReq <= 1;
             isWrite <= 0;
             RegAddr <= 8'h82;       // RXQCR
@@ -1246,12 +1264,27 @@ always @(posedge sysclk or negedge reset) begin
          begin
             // Wait for bit 0 in Register 0x80 to be cleared
             if (ReadData[0] == 1'b0) begin
-                state <= (FrameCount == 8'd0) ?  ST_IDLE : ST_RECEIVE_FRAME_STATUS;
+                state <= ST_SEND_ENABLE_INTERRUPT;
             end
             else begin
                state <= ST_SEND_TXQ_ENQUEUE_WAIT_START;
                waitInfo <= WAIT_FLUSH;  // TEMP: use WAIT_FLUSH, but should be WAIT_TXQ_ENQUEUE
             end
+         end // case: ST_SEND_TXQ_ENQUEUE_WAIT_CHECK
+
+         ST_SEND_ENABLE_INTERRUPT:
+         begin
+             cmdReq <= 1;
+             isWrite <= 1;
+             RegAddr <= 8'h90;
+             WriteData <= 16'hE000;
+             state <= ST_WAIT_ACK;
+             nextState <= ST_SEND_END;
+         end
+
+         ST_SEND_END:
+         begin
+             state <= (FrameCount == 8'd0) ?  ST_IDLE : ST_RECEIVE_FRAME_STATUS;
          end
 
          endcase // case (state)
