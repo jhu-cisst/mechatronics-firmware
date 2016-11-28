@@ -53,11 +53,11 @@ module getAddr(
 endmodule
 
 module KSZ8851(
-    // global clock and reset
+    // Global clock and reset
     input      sysclk,
     input      reset,
 
-    // interface to KSZ8851
+    // Interface to KSZ8851
     output reg ETH_RSTn,  // chip reset (active low)
     output reg ETH_CMD,   // 0 for data, 1 for address
     output reg ETH_RDn,   // read strobe (active low)
@@ -85,10 +85,13 @@ module KSZ8851(
     output wire ksz_isIdle,
 
     // Interface from FireWire
-    input  wire reg_wen,             // write enable
-    input  wire[15:0] reg_waddr,     // write address
-    input  wire[31:0] reg_wdata,     // write data
-    output reg[15:0]  eth_data       // Data to/from KSZ8851
+    input  wire reg_wen,          // write enable
+    input  wire[15:0] reg_waddr,  // write address
+    input  wire[31:0] reg_wdata,  // write data
+    output reg[15:0]  eth_data,   // Data to/from KSZ8851
+    
+    // Interface to Chipscope icon
+    output wire[3:0] dbg_state    // debug state 
 );
 
 // tri-state bus configuration
@@ -116,6 +119,8 @@ getAddr newAddr(
 
 reg[3:0] state;
 reg[20:0] count;
+
+assign dbg_state = state;
 
 // state machine states
 parameter[3:0]
@@ -199,7 +204,19 @@ always @(posedge sysclk or negedge reset) begin
                 eth_isWord <= isWord;
                 eth_addr <= RegAddr;
                 eth_data <= DataIn;
-                state <= (isDMA ? (isWrite ? ST_WRITE_START : ST_READ_START) : ST_ADDR_START);
+//                state <= (isDMA ? (isWrite ? ST_WRITE_START : ST_READ_START) : ST_ADDR_START);
+                if (isDMA && isWrite) begin
+                    state <= ST_WRITE_START;
+                end 
+                else if (isDMA && !isWrite) begin
+                    state <= ST_READ_START;
+//                    ETH_RDn <= 0;
+                end
+                else begin
+                    state <= ST_ADDR_START;
+//                    SDReg <= Addr16;
+                end
+               
                 ETH_CMD <= isDMA ? 1'd0 : 1'd1;
                 cmdAck <= 1;
                 count <= 21'd0;
@@ -266,7 +283,13 @@ always @(posedge sysclk or negedge reset) begin
             end
             else begin
                 ETH_CMD <= 0;
-                state <= eth_isWrite ? ST_WRITE_START : ST_READ_START;
+//                state <= eth_isWrite ? ST_WRITE_START : ST_READ_START;
+                if (eth_isWrite) begin
+                    state <= ST_WRITE_START;
+                end 
+                else begin
+                    state <= ST_READ_START;
+                end
                 count[0] <= 1'd0;
             end
         end
@@ -286,8 +309,17 @@ always @(posedge sysclk or negedge reset) begin
         end
 
         ST_WRITE_HOLD:
+//        begin
+//           state <= ST_WRITE_END;
+//           
+//        end
         begin
-           state <= ST_WRITE_END;
+            if (count[0] == 1'd0)
+                count[0] <= 1'd1;
+            else begin
+                state <= ST_WRITE_END;
+                count[0] <= 1'd0;
+            end
         end
 
         ST_WRITE_END:
@@ -298,39 +330,40 @@ always @(posedge sysclk or negedge reset) begin
 
         ST_READ_START:
         begin
-            ETH_CMD <= 0;
-            ETH_RDn <= 0;
             state <= ST_READ_HOLD;
+            ETH_RDn <= 0;
+            count[0] <= 1'd0;
         end
 
         ST_READ_HOLD:
         begin
-           if (count[0] == 1'd0)
-              count[0] <= 1'd1;
+           if (count[0] == 1'd0) begin
+               count[0] <= 1'd1;
+           end
            else begin
-              state <= ST_READ_END;
-              count[0] <= 1'd0;
+               state <= ST_READ_END;
+               count[0] <= 1'd0;
            end
         end
 
         ST_READ_END:
         begin
             if (count[0] == 1'd0) begin
-               eth_data <= SD;
-               DataOut <= SD;
-               count[0] <= 1'd1;
-               // Set the dataValid signal here. The higher-level
-               // should wait one cycle to be sure that the data
-               // has propagated through the latch.
-               // An alternate design would be to set dataValid
-               // in the else clause below.
-               dataValid <= 1;
+                eth_data <= SD;
+                DataOut <= SD;
+                count[0] <= 1'd1;
+                // Set the dataValid signal here. The higher-level
+                // should wait one cycle to be sure that the data
+                // has propagated through the latch.
+                // An alternate design would be to set dataValid
+                // in the else clause below.
+                dataValid <= 1;
             end
-            else begin
-               ETH_RDn <= 1;
-               state <= ST_IDLE;
-               count[0] <= 1'd0;
-            end
+            else begin 
+                ETH_RDn <= 1;
+                state <= ST_IDLE;
+                count[0] <= 1'd0;
+            end                       
         end
 
         endcase

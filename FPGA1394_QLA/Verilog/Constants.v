@@ -49,10 +49,8 @@
 `define REG_PROMRES  4'd9          // PROM result (from M25P16)
 `define REG_DIGIN    4'd10         // Digital inputs (home, neg lim, pos lim)
 `define REG_ETHRES   4'd12         // Ethernet register I/O result (from KSZ8851)
-
+`define REG_DEBUG    4'd15         // Debug register for testing 
 // `define REG_SAFETY  4'd11          // Safety amp disable 
-// `define REG_WDOG    4'd14          // TEMP wdog_samp_disable
-// `define REG_REGDISABLE 4'd15       // TEMP reg_disable 
 
 // device register file offsets from channel base
 `define OFF_ADC_DATA 4'd0          // adc data register offset (pot + cur)

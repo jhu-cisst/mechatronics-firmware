@@ -9,7 +9,8 @@
  * to the KSZ8851 MAC/PHY chip.
  *
  * Revision history
- *     12/21/15    Peter Kazanzides
+ *     12/21/15    Peter Kazanzides    Initial Revision
+ *     11/28/16    Zihan Chen          Added Disable/Enable in RECEIVE
  */
 
 // global constant e.g. register & device address
@@ -58,7 +59,12 @@ module EthernetIO(
     input wire eth_error,         // 1 -> I/O request received when not in idle state
 
     output reg lreq_trig,         // trigger signal for a FireWire phy request
-    output reg[2:0] lreq_type     // type of request to give to the FireWire phy    
+    output reg[2:0] lreq_type,    // type of request to give to the FireWire phy
+    
+    // Interface to Chipscope icon
+//    input  wire[35:0] control     // icon control  
+    output wire[5:0] dbg_state_eth,
+    output wire[5:0] dbg_nextState_eth
 );
 
 parameter num_channels = 4;
@@ -71,6 +77,9 @@ reg ethDestError;      // 1 -> Incorrect destination
 // Current state and next state
 reg[5:0] state;
 reg[5:0] nextState;
+
+assign dbg_state_eth = state;
+assign dbg_nextState_eth = nextState;
    
 // state machine states
 parameter[5:0]
@@ -95,40 +104,43 @@ parameter[5:0]
     ST_INIT_RECEIVE_ENABLE_READ = 6'd18,
     ST_INIT_RECEIVE_ENABLE_WRITE = 6'd19,
     ST_INIT_DONE = 6'd20,
-    ST_RECEIVE_CLEAR_RXIS = 6'd21,
-    ST_RECEIVE_FRAME_COUNT_START = 6'd22,
-    ST_RECEIVE_FRAME_COUNT_END = 6'd23,
-    ST_RECEIVE_FRAME_STATUS = 6'd24,
-    ST_RECEIVE_FRAME_LENGTH = 6'd25,
-    ST_RECEIVE_DMA_STATUS_READ = 6'd26,
-    ST_RECEIVE_DMA_STATUS_WRITE = 6'd27,
-    ST_RECEIVE_DMA_SKIP = 6'd28,
-    ST_RECEIVE_DMA_FRAME_HEADER = 6'd29,
-    ST_RECEIVE_DMA_FIREWIRE_PACKET = 6'd30,
-    ST_RECEIVE_FLUSH_START = 6'd31,
-    ST_RECEIVE_FLUSH_EXECUTE = 6'd32,
-    ST_RECEIVE_FLUSH_WAIT_START = 6'd33,
-    ST_RECEIVE_FLUSH_WAIT_CHECK = 6'd34,
-    ST_SEND_DMA_STATUS_READ = 6'd35,
-    ST_SEND_DMA_STATUS_WRITE = 6'd36,
-    ST_SEND_DMA_CONTROLWORD = 6'd37,
-    ST_SEND_DMA_BYTECOUNT = 6'd38,
-    ST_SEND_DMA_DESTADDR = 6'd39,
-    ST_SEND_DMA_SRCADDR = 6'd40,
-    ST_SEND_DMA_LENGTH = 6'd41,
-    ST_SEND_DMA_PACKETDATA_HEADER = 6'd42,
-    ST_SEND_DMA_PACKETDATA_QUAD = 6'd43,
-    ST_SEND_DMA_PACKETDATA_BLOCK_START = 6'd44,
-    ST_SEND_DMA_PACKETDATA_BLOCK_MAIN = 6'd45,
-    ST_SEND_DMA_PACKETDATA_BLOCK_CHANNEL = 6'd46,
-    ST_SEND_DMA_PACKETDATA_BLOCK_PROM = 6'd47,
-    ST_SEND_DMA_PACKETDATA_CHECKSUM = 6'd48,
-    ST_SEND_DMA_STOP_READ = 6'd49,
-    ST_SEND_DMA_STOP_WRITE = 6'd50,
-    ST_SEND_TXQ_ENQUEUE_START = 6'd51,
-    ST_SEND_TXQ_ENQUEUE_END = 6'd52,
-    ST_SEND_TXQ_ENQUEUE_WAIT_START = 6'd53,
-    ST_SEND_TXQ_ENQUEUE_WAIT_CHECK = 6'd54;
+    ST_RECEIVE_DISABLE_INTERRUPT = 6'd21,
+    ST_RECEIVE_CLEAR_RXIS = 6'd22,
+    ST_RECEIVE_FRAME_COUNT_START = 6'd23,
+    ST_RECEIVE_FRAME_COUNT_END = 6'd24,
+    ST_RECEIVE_FRAME_STATUS = 6'd25,
+    ST_RECEIVE_FRAME_LENGTH = 6'd26,
+    ST_RECEIVE_DMA_STATUS_READ = 6'd27,
+    ST_RECEIVE_DMA_STATUS_WRITE = 6'd28,
+    ST_RECEIVE_DMA_SKIP = 6'd29,
+    ST_RECEIVE_DMA_FRAME_HEADER = 6'd30,
+    ST_RECEIVE_DMA_FIREWIRE_PACKET = 6'd31,
+    ST_RECEIVE_FLUSH_START = 6'd32,
+    ST_RECEIVE_FLUSH_EXECUTE = 6'd33,
+    ST_RECEIVE_FLUSH_WAIT_START = 6'd34,
+    ST_RECEIVE_FLUSH_WAIT_CHECK = 6'd35,
+    ST_RECEIVE_ENABLE_INTERRUPT = 6'd36,
+    ST_RECEIVE_END = 6'd37,
+    ST_SEND_DMA_STATUS_READ = 6'd38,
+    ST_SEND_DMA_STATUS_WRITE = 6'd39,
+    ST_SEND_DMA_CONTROLWORD = 6'd40,
+    ST_SEND_DMA_BYTECOUNT = 6'd41,
+    ST_SEND_DMA_DESTADDR = 6'd42,
+    ST_SEND_DMA_SRCADDR = 6'd43,
+    ST_SEND_DMA_LENGTH = 6'd44,
+    ST_SEND_DMA_PACKETDATA_HEADER = 6'd45,
+    ST_SEND_DMA_PACKETDATA_QUAD = 6'd46,
+    ST_SEND_DMA_PACKETDATA_BLOCK_START = 6'd47,
+    ST_SEND_DMA_PACKETDATA_BLOCK_MAIN = 6'd48,
+    ST_SEND_DMA_PACKETDATA_BLOCK_CHANNEL = 6'd49,
+    ST_SEND_DMA_PACKETDATA_BLOCK_PROM = 6'd50,
+    ST_SEND_DMA_PACKETDATA_CHECKSUM = 6'd51,
+    ST_SEND_DMA_STOP_READ = 6'd52,
+    ST_SEND_DMA_STOP_WRITE = 6'd53,
+    ST_SEND_TXQ_ENQUEUE_START = 6'd54,
+    ST_SEND_TXQ_ENQUEUE_END = 6'd55,
+    ST_SEND_TXQ_ENQUEUE_WAIT_START = 6'd56,
+    ST_SEND_TXQ_ENQUEUE_WAIT_CHECK = 6'd57;
 
 // Debugging support
 
@@ -308,7 +320,8 @@ always @(posedge sysclk or negedge reset) begin
                isWrite <= 0;
                RegAddr <= 8'h92;
                state <= ST_WAIT_ACK;
-               nextState <= ST_RECEIVE_CLEAR_RXIS;
+//               nextState <= ST_RECEIVE_CLEAR_RXIS;
+               nextState <= ST_RECEIVE_DISABLE_INTERRUPT;
             end
             else if (sendReq) begin
                // Not yet used. Will need this mechanism in the future,
@@ -534,7 +547,6 @@ always @(posedge sysclk or negedge reset) begin
             nextState <= ST_INIT_DONE;
          end
 
-
          ST_INIT_DONE:
          begin
             initOK <= 1;
@@ -542,20 +554,29 @@ always @(posedge sysclk or negedge reset) begin
          end
 
          //*************** States for receiving Ethernet packets ******************
-
+         ST_RECEIVE_DISABLE_INTERRUPT:
+         begin
+             if (ReadData[13] == 1'b1) begin  // RXIS asserted 
+                 cmdReq <= 1;
+                 isWrite <= 1;
+                 RegAddr <= 8'h90;         // IER
+                 WriteData <= 16'h0000;    // Disable interrupt 
+                 state <= ST_WAIT_ACK;
+                 nextState <= ST_RECEIVE_CLEAR_RXIS;
+             end
+             else begin
+                 state <= ST_IDLE;
+             end
+         end
+         
          ST_RECEIVE_CLEAR_RXIS:
          begin
-            if (ReadData[13] == 1'b1) begin   // RXIS asserted
-               cmdReq <= 1;
-               isWrite <= 1;
-               // RegAddr is already set to 8'h92
-               WriteData <= 16'h2000;  // clear interrupt
-               state <= ST_WAIT_ACK;
-               nextState <= ST_RECEIVE_FRAME_COUNT_START;
-            end
-            else begin
-               state <= ST_IDLE;
-            end
+             cmdReq <= 1;
+             isWrite <= 1;
+             RegAddr <= 8'h92;       // ISR
+             WriteData <= 16'h2000;  // clear interrupt
+             state <= ST_WAIT_ACK;
+             nextState <= ST_RECEIVE_FRAME_COUNT_START;
          end
 
          ST_RECEIVE_FRAME_COUNT_START:
@@ -631,7 +652,8 @@ always @(posedge sysclk or negedge reset) begin
 
          ST_RECEIVE_DMA_SKIP:
          begin
-            // Skip first 3 words in the packet (ignore, status, byte-count)
+            // Skip first 4 words in the packet 
+            // ignore(2) + status(1) + byte-count(1)
             cmdReq <= 1;
             isDMA <= 1;
             isWrite <= 0;
@@ -825,22 +847,38 @@ always @(posedge sysclk or negedge reset) begin
 
          ST_RECEIVE_FLUSH_WAIT_CHECK:
          begin
-            // Wait for bit 0 in Register 0x82 to be cleared; then
-            //   - if a read command, start sending response (check FrameCount after send complete)
-            //   - else if more frames available, receive status of next frame
-            //   - else go to idle state
-            // TODO: check node id and forward via FireWire if necessary
+            // Wait for bit 0 in Register 0x82 to be cleared; 
+            // Then enable interrupt
             if (ReadData[0] == 1'b0) begin
-              if (quadRead || blockRead)
-                 state <= ST_SEND_DMA_STATUS_READ;
-              else
-                 state <= (FrameCount == 8'd0) ? ST_IDLE : ST_RECEIVE_FRAME_STATUS;
-               waitInfo <= WAIT_NONE;
+                state <= ST_RECEIVE_ENABLE_INTERRUPT;
+                waitInfo <= WAIT_NONE;
             end
             else begin
                state <= ST_RECEIVE_FLUSH_WAIT_START;
                waitInfo <= WAIT_FLUSH;
             end
+         end
+         
+         ST_RECEIVE_ENABLE_INTERRUPT:
+         begin
+             cmdReq <= 1;
+             isWrite <= 1;
+             RegAddr <= 8'h90;
+             WriteData <= 16'hE000;
+             state <= ST_WAIT_ACK;
+             nextState <= ST_RECEIVE_END;
+         end
+         
+         ST_RECEIVE_END:
+         begin
+             //   - if a read command, start sending response (check FrameCount after send complete)
+             //   - else if more frames available, receive status of next frame 
+             //   - else go to idle state
+             // TODO: check node id and forward via FireWire if necessary
+             if (quadRead || blockRead)
+                 state <= ST_SEND_DMA_STATUS_READ;
+             else
+                 state <= (FrameCount == 8'd0) ? ST_IDLE : ST_RECEIVE_FRAME_STATUS;
          end
 
          //*************** States for sending Ethernet packets ******************
@@ -851,7 +889,7 @@ always @(posedge sysclk or negedge reset) begin
             sendAck <= 0;  // TEMP
             cmdReq <= 1;
             isWrite <= 0;
-            RegAddr <= 8'h82;
+            RegAddr <= 8'h82;       // RXQCR
             state <= ST_WAIT_ACK;
             nextState <= ST_SEND_DMA_STATUS_WRITE;
          end

@@ -67,7 +67,11 @@ module BoardRegs(
     input  wire[31:0] eth_result,
 
     // Safety amp_disable
-    input  wire[4:1] safety_amp_disable
+    input  wire[4:1] safety_amp_disable,
+    
+    // Interface to Chipscope icon
+//    input  wire[35:0] control     // icon control 
+    output reg[31:0] reg_debug     // for debug purpose only
 );
 
     // -------------------------------------------------------------------------
@@ -78,6 +82,7 @@ module BoardRegs(
     reg[3:0] reg_disable;       // register the disable signals
     reg[15:0] phy_ctrl;         // for phy request bitstream
     reg[15:0] phy_data;         // for phy register transfer data
+//    reg[31:0] reg_debug;        // for debug purpose only
 
     // watchdog timer
     wire wdog_clk;              // watchdog clock
@@ -145,6 +150,7 @@ always @(posedge(sysclk) or negedge(reset))
         `REG_TIMEOUT: wdog_period <= reg_wdata[15:0];
         // Write to DOUT is handled in CtrlDout.v
         // Write to PROM command register (8) is handled in M25P16.v
+        `REG_DEBUG:   reg_debug <= reg_wdata[31:0];
         endcase
     end
 
@@ -175,6 +181,7 @@ always @(posedge(sysclk) or negedge(reset))
         `REG_PROMRES: reg_rdata <= prom_result;
         `REG_DIGIN: reg_rdata <= {v_fault, 3'd0, enc_a, enc_b, enc_i, dout, neg_limit, pos_limit, home};
         `REG_ETHRES: reg_rdata <= eth_result;
+        `REG_DEBUG:  reg_rdata <= reg_debug;
 
         // `REG_SAFETY: reg_rdata <= { 28'd0, safety_amp_disable};
         // `REG_WDOG: reg_rdata <= {28'd0, wdog_amp_disable};

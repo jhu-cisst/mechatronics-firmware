@@ -138,6 +138,25 @@ assign ETH_CSn = 0;         // Always select
 assign ETH_8n = 1;          // 16-bit bus
 
 // --------------------------------------------------------------------------
+// Chipscope debug
+// --------------------------------------------------------------------------
+wire[35:0] control_ksz;
+//wire[35:0] control_eth;
+//wire[35:0] control_brd_reg;
+
+icon_ethernet icon_e(
+    .CONTROL0(control_ksz)
+);
+
+wire[7:0] eth_port_debug;
+wire[3:0] dbg_state;
+wire[31:0] dbg_reg_debug;
+assign eth_port_debug = {1'd0, reg_wen, ETH_RSTn, ETH_CMD, ETH_RDn, ETH_WRn, ETH_IRQn, ETH_PME};
+wire[5:0] dbg_state_eth;
+wire[5:0] dbg_nextState_eth;
+
+
+// --------------------------------------------------------------------------
 // hub register module
 // --------------------------------------------------------------------------
 
@@ -248,7 +267,9 @@ KSZ8851 EthernetChip(
     .reg_wen(fw_reg_wen),          // in: write enable from FireWire
     .reg_waddr(fw_reg_waddr),      // in: write address from FireWire
     .reg_wdata(fw_reg_wdata),      // in: data from FireWire
-    .eth_data(Eth_Result[15:0])    // out: Last register read
+    .eth_data(Eth_Result[15:0]),    // out: Last register read 
+
+    .dbg_state(dbg_state)
 );
 
 EthernetIO EthernetTransfers(
@@ -285,7 +306,10 @@ EthernetIO EthernetTransfers(
     .eth_error(eth_error),
 
     .lreq_trig(eth_lreq_trig),  // out: phy request trigger
-    .lreq_type(eth_lreq_type)   // out: phy request type
+    .lreq_type(eth_lreq_type),   // out: phy request type 
+
+    .dbg_state_eth(dbg_state_eth),
+    .dbg_nextState_eth(dbg_nextState_eth)
 );
 
 
@@ -546,7 +570,8 @@ BoardRegs chan0(
     .prom_status(PROM_Status),
     .prom_result(PROM_Result),
     .eth_result(Eth_Result),
-    .safety_amp_disable(safety_amp_disable)
+    .safety_amp_disable(safety_amp_disable),
+    .reg_debug(dbg_reg_debug)
 );
 
 // ----------------------------------------------------------------------------
@@ -717,6 +742,25 @@ CtrlLED qla_led(
     .led1_red(IO2[3]),
     .led2_grn(IO2[5]),
     .led2_red(IO2[7])
+);
+
+
+// ----------------------------
+// Chipscope 
+// ----------------------------
+ila_eth_chip ila_ec(
+    .CONTROL(control_ksz),
+    .CLK(sysclk),
+    .TRIG0(eth_port_debug),    // 8-bit
+    .TRIG1(SD),                // 16-bit
+    .TRIG2(dbg_state),         // 4-bit
+    .TRIG3(reg_waddr),         // 16-bit
+    .TRIG4(reg_wdata),         // 32-bit    
+    .TRIG5(dbg_reg_debug),     // 32-bit
+    .TRIG6(dbg_state_eth),     // 6-bit
+    .TRIG7(dbg_nextState_eth), // 6-bit
+    .TRIG8(eth_to_chip),       // 16-bit
+    .TRIG9(eth_from_chip)      // 16-bit
 );
 
 endmodule

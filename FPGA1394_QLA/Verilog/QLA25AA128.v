@@ -319,6 +319,8 @@ end
 //------------------------------
 // chipscope
 //------------------------------
+
+//`define USE_CHIPSCOPE
 `ifdef USE_CHIPSCOPE
 
 wire[35:0] control_prom;
