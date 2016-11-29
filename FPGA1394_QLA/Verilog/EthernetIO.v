@@ -11,6 +11,9 @@
  * Revision history
  *     12/21/15    Peter Kazanzides    Initial Revision
  *     11/28/16    Zihan Chen          Added Disable/Enable in RECEIVE
+ * 
+ * Todo
+ *   - Replace address with constants
  */
 
 // global constant e.g. register & device address
@@ -109,50 +112,48 @@ parameter[5:0]
     ST_INIT_RECEIVE_ENABLE_READ = 6'd18,
     ST_INIT_RECEIVE_ENABLE_WRITE = 6'd19,
     ST_INIT_DONE = 6'd20,
-    ST_RECEIVE_DISABLE_INTERRUPT = 6'd21,
-    ST_RECEIVE_CLEAR_RXIS = 6'd22,
-    ST_RECEIVE_FRAME_COUNT_START = 6'd23,
-    ST_RECEIVE_FRAME_COUNT_END = 6'd24,
-    ST_RECEIVE_FRAME_STATUS = 6'd25,
-    ST_RECEIVE_FRAME_LENGTH = 6'd26,
-    ST_RECEIVE_DMA_STATUS_READ = 6'd27,
-    ST_RECEIVE_DMA_STATUS_WRITE = 6'd28,
-    ST_RECEIVE_DMA_SKIP = 6'd29,
-    ST_RECEIVE_DMA_FRAME_HEADER = 6'd30,
-    ST_RECEIVE_DMA_FIREWIRE_PACKET = 6'd31,
-    ST_RECEIVE_FLUSH_START = 6'd32,
-    ST_RECEIVE_FLUSH_EXECUTE = 6'd33,
-    ST_RECEIVE_FLUSH_WAIT_START = 6'd34,
-    ST_RECEIVE_FLUSH_WAIT_CHECK = 6'd35,
-    ST_RECEIVE_ENABLE_INTERRUPT = 6'd36,
-    ST_RECEIVE_END = 6'd37,
-    ST_SEND_DISABLE_INTERRUPT = 6'd38,
-    ST_SEND_DMA_STATUS_READ = 6'd39,
-    ST_SEND_DMA_STATUS_WRITE = 6'd40,
-    ST_SEND_DMA_CONTROLWORD = 6'd41,
-    ST_SEND_DMA_BYTECOUNT = 6'd42,
-    ST_SEND_DMA_DESTADDR = 6'd43,
-    ST_SEND_DMA_SRCADDR = 6'd44,
-    ST_SEND_DMA_LENGTH = 6'd45,
-    ST_SEND_DMA_PACKETDATA_HEADER = 6'd46,
-    ST_SEND_DMA_PACKETDATA_QUAD = 6'd47,
-    ST_SEND_DMA_PACKETDATA_BLOCK_START = 6'd48,
-    ST_SEND_DMA_PACKETDATA_BLOCK_MAIN = 6'd49,
-    ST_SEND_DMA_PACKETDATA_BLOCK_CHANNEL = 6'd450,
-    ST_SEND_DMA_PACKETDATA_BLOCK_PROM = 6'd51,
-    ST_SEND_DMA_PACKETDATA_CHECKSUM = 6'd52,
-    ST_SEND_DMA_STOP_READ = 6'd53,
-    ST_SEND_DMA_STOP_WRITE = 6'd54,
-    ST_SEND_TXQ_ENQUEUE_START = 6'd55,
-    ST_SEND_TXQ_ENQUEUE_END = 6'd56,
-    ST_SEND_TXQ_ENQUEUE_WAIT_START = 6'd57,
-    ST_SEND_TXQ_ENQUEUE_WAIT_CHECK = 6'd58,
-    ST_SEND_ENABLE_INTERRUPT = 6'd59,
+    ST_IRQ_HANDLER = 6'd21,
+    ST_IRQ_DISPATCH = 6'd22,
+    ST_IRQ_ENABLE = 6'd23,
+    ST_IRQ_CLEAR_LCIS = 6'd24,
+    ST_RECEIVE_CLEAR_RXIS = 6'd25,
+    ST_RECEIVE_FRAME_COUNT_START = 6'd26,
+    ST_RECEIVE_FRAME_COUNT_END = 6'd27,
+    ST_RECEIVE_FRAME_STATUS = 6'd28,
+    ST_RECEIVE_FRAME_LENGTH = 6'd29,
+    ST_RECEIVE_DMA_STATUS_READ = 6'd30,
+    ST_RECEIVE_DMA_STATUS_WRITE = 6'd31,
+    ST_RECEIVE_DMA_SKIP = 6'd32,
+    ST_RECEIVE_DMA_FRAME_HEADER = 6'd33,
+    ST_RECEIVE_DMA_FIREWIRE_PACKET = 6'd34,
+    ST_RECEIVE_FLUSH_START = 6'd35,
+    ST_RECEIVE_FLUSH_EXECUTE = 6'd36,
+    ST_RECEIVE_FLUSH_WAIT_START = 6'd37,
+    ST_RECEIVE_FLUSH_WAIT_CHECK = 6'd38,
+    ST_SEND_START = 6'd39,
+    ST_SEND_DMA_STATUS_READ = 6'd40,
+    ST_SEND_DMA_STATUS_WRITE = 6'd41,
+    ST_SEND_DMA_CONTROLWORD = 6'd42,
+    ST_SEND_DMA_BYTECOUNT = 6'd43,
+    ST_SEND_DMA_DESTADDR = 6'd44,
+    ST_SEND_DMA_SRCADDR = 6'd45,
+    ST_SEND_DMA_LENGTH = 6'd46,
+    ST_SEND_DMA_PACKETDATA_HEADER = 6'd47,
+    ST_SEND_DMA_PACKETDATA_QUAD = 6'd48,
+    ST_SEND_DMA_PACKETDATA_BLOCK_START = 6'd49,
+    ST_SEND_DMA_PACKETDATA_BLOCK_MAIN = 6'd50,
+    ST_SEND_DMA_PACKETDATA_BLOCK_CHANNEL = 6'd51,
+    ST_SEND_DMA_PACKETDATA_BLOCK_PROM = 6'd52,
+    ST_SEND_DMA_PACKETDATA_CHECKSUM = 6'd53,
+    ST_SEND_DMA_STOP_READ = 6'd54,
+    ST_SEND_DMA_STOP_WRITE = 6'd55,
+    ST_SEND_TXQ_ENQUEUE_START = 6'd56,
+    ST_SEND_TXQ_ENQUEUE_END = 6'd57,
+    ST_SEND_TXQ_ENQUEUE_WAIT_START = 6'd58,
+    ST_SEND_TXQ_ENQUEUE_WAIT_CHECK = 6'd59,
     ST_SEND_END = 6'd60;
-   
 
 // Debugging support
-
 assign eth_io_isIdle = (state == ST_IDLE) ? 1 : 0;
 
 // Keep track of areas where state machine may wait
@@ -198,6 +199,9 @@ assign eth_status[19] = ksz_isIdle;    // 19: KSZ8851 state machine is idle
 assign eth_status[18] = eth_io_isIdle; // 18: Ethernet I/O state machine is idle
 assign eth_status[17:16] = waitInfo;   // 17-16: Wait points in EthernetIO.v
 
+
+reg isInIRQ;             // True if IRQ handle routing
+reg[15:0] RegISR;      // 16-bit ISR register
 reg[7:0] FrameCount;   // Number of received frames
 reg[7:0] count;        // General use counter
 reg[3:0] readCount;    // Wait for read valid
@@ -275,6 +279,7 @@ always @(posedge sysclk or negedge reset) begin
        isDMA <= 0;
        isWrite <= 0;
        isWord <= 1;   // all transfers are word
+       isInIRQ <= 0;
        state <= ST_IDLE;
        nextState <= ST_IDLE;
        initAck <= 0;
@@ -301,11 +306,11 @@ always @(posedge sysclk or negedge reset) begin
     else begin
 
        case (state)
-
          ST_IDLE:
          begin
             isDMA <= 0;
             isWord <= 1;       // all transfers are word
+            isInIRQ <= 0;
             eth_read_en <= 0;
             eth_reg_wen <= 0;
             eth_block_wen <= 0;
@@ -329,14 +334,15 @@ always @(posedge sysclk or negedge reset) begin
                isWrite <= 0;
                RegAddr <= 8'h92;
                state <= ST_WAIT_ACK;
-//               nextState <= ST_RECEIVE_CLEAR_RXIS;
-               nextState <= ST_RECEIVE_DISABLE_INTERRUPT;
+               // nextState <= ST_RECEIVE_CLEAR_RXIS;
+               // nextState <= ST_RECEIVE_DISABLE_INTERRUPT;
+               nextState <= ST_IRQ_HANDLER;
             end
             else if (sendReq) begin
                // Not yet used. Will need this mechanism in the future,
                // but will need a way to specify what is to be sent
                // (e.g., FireWirePacket).
-               state <= ST_SEND_DISABLE_INTERRUPT;
+               state <= ST_SEND_START;
                sendAck <= 1;
             end
          end
@@ -562,30 +568,71 @@ always @(posedge sysclk or negedge reset) begin
             state <= ST_IDLE;
          end
 
-         //*************** States for receiving Ethernet packets ******************
-         ST_RECEIVE_DISABLE_INTERRUPT:
+         //*************** States for handling IRQs ******************
+         ST_IRQ_HANDLER:
          begin
-             if (ReadData[13] == 1'b1) begin  // RXIS asserted 
-                 cmdReq <= 1;
-                 isWrite <= 1;
-                 RegAddr <= 8'h90;         // IER
-                 WriteData <= 16'h0000;    // Disable interrupt 
-                 state <= ST_WAIT_ACK;
-                 nextState <= ST_RECEIVE_CLEAR_RXIS;
+            RegISR <= ReadData;
+            if (ReadData[15] || ReadData[13]) begin
+               cmdReq <= 1;
+               isWrite <= 1;
+               isInIRQ <= 1;
+               RegAddr <= 8'h90;         // IER
+               WriteData <= 16'h0000;    // Disable interrupt
+               state <= ST_WAIT_ACK;
+               nextState <= ST_IRQ_DISPATCH;
+            end
+            else begin
+               state <= ST_IDLE;
+               isInIRQ <= 0;
+            end
+         end // case: ST_IRQ_HANDLER
+
+         ST_IRQ_DISPATCH:
+         begin
+             if (RegISR[15] == 1'b1) begin
+                 // Handle link change
+                 state <= ST_IRQ_CLEAR_LCIS;
+             end
+             else if (RegISR[13] == 1'b1) begin
+                 // Handle receive
+                 state <= ST_RECEIVE_CLEAR_RXIS;
              end
              else begin
-                 state <= ST_IDLE;
+                // Done IRQ handle, clear flag & enable IRQ
+                isInIRQ <= 0;
+                state <= ST_IRQ_ENABLE;
              end
+         end // case: ST_IRQ_DISPATCH
+
+         ST_IRQ_ENABLE:
+         begin
+            cmdReq <= 1;
+            RegAddr <= 8'h90;
+            WriteData <= 16'hE000;   // Enable interrupts
+            state <= ST_WAIT_ACK;
+            nextState <= ST_IDLE;
          end
-         
-         ST_RECEIVE_CLEAR_RXIS:
+
+         ST_IRQ_CLEAR_LCIS:
          begin
              cmdReq <= 1;
              isWrite <= 1;
-             RegAddr <= 8'h92;       // ISR
-             WriteData <= 16'h2000;  // clear interrupt
+             RegAddr <= 8'h92;         // ISR
+             WriteData <= 16'h8000;    // Clear interrupt
+             RegISR[15] <= 1'b0;       // Clear RegISR
              state <= ST_WAIT_ACK;
-             nextState <= ST_RECEIVE_FRAME_COUNT_START;
+             nextState <= ST_IRQ_DISPATCH;
+         end
+
+         //*************** States for receiving Ethernet packets ******************
+         ST_RECEIVE_CLEAR_RXIS:
+         begin
+            cmdReq <= 1;
+            isWrite <= 1;
+            RegAddr <= 8'h92;       // ISR
+            WriteData <= 16'h2000;  // clear interrupt
+            state <= ST_WAIT_ACK;
+            nextState <= ST_RECEIVE_FRAME_COUNT_START;
          end
 
          ST_RECEIVE_FRAME_COUNT_START:
@@ -858,9 +905,24 @@ always @(posedge sysclk or negedge reset) begin
          begin
             // Wait for bit 0 in Register 0x82 to be cleared; 
             // Then enable interrupt
+            //   - if a read command, start sending response (check FrameCount after send complete)
+            //   - else if more frames available, receive status of next frame
+            //   - else go to idle state
+            // TODO: check node id and forward via FireWire if necessary
             if (ReadData[0] == 1'b0) begin
-                state <= ST_RECEIVE_ENABLE_INTERRUPT;
-                waitInfo <= WAIT_NONE;
+               if (quadRead || blockRead) begin
+                  state <= ST_SEND_START;
+               end
+               else begin
+                  if (FrameCount == 8'd0) begin
+                     state <= ST_IRQ_DISPATCH;
+                     RegISR[13] <= 1'b0;   // clear ISR receive IRQ bit
+                  end
+                  else begin
+                     state <= ST_RECEIVE_FRAME_STATUS;
+                  end
+               end
+               waitInfo <= WAIT_NONE;
             end
             else begin
                state <= ST_RECEIVE_FLUSH_WAIT_START;
@@ -868,39 +930,24 @@ always @(posedge sysclk or negedge reset) begin
             end
          end
          
-         ST_RECEIVE_ENABLE_INTERRUPT:
-         begin
-             cmdReq <= 1;
-             isWrite <= 1;
-             RegAddr <= 8'h90;
-             WriteData <= 16'hE000;
-             state <= ST_WAIT_ACK;
-             nextState <= ST_RECEIVE_END;
-         end
-         
-         ST_RECEIVE_END:
-         begin
-             //   - if a read command, start sending response (check FrameCount after send complete)
-             //   - else if more frames available, receive status of next frame 
-             //   - else go to idle state
-             // TODO: check node id and forward via FireWire if necessary
-             if (quadRead || blockRead)
-                 state <= ST_SEND_DISABLE_INTERRUPT;
-             else
-                 state <= (FrameCount == 8'd0) ? ST_IDLE : ST_RECEIVE_FRAME_STATUS;
-         end
-
          //*************** States for sending Ethernet packets ******************
          // First, should check if enough memory on QMU TXQ
-         ST_SEND_DISABLE_INTERRUPT:
+
+         ST_SEND_START:
          begin
-             sendAck <= 0;  // TEMP
-             cmdReq <= 1;
-             isWrite <= 1;
-             RegAddr <= 8'h90;         // IER
-             WriteData <= 16'h0000;    // Disable interrupt 
-             state <= ST_WAIT_ACK;
-             nextState <= ST_SEND_DMA_STATUS_READ;            
+            // Disable IRQ if not IRQ handle mode
+            if (isInIRQ == 1'b0) begin
+               sendAck <= 0;  // TEMP
+               cmdReq <= 1;
+               isWrite <= 1;
+               RegAddr <= 8'h90;         // IER
+               WriteData <= 16'h0000;    // Disable interrupt 
+               state <= ST_WAIT_ACK;
+               nextState <= ST_SEND_DMA_STATUS_READ;
+            end
+            else begin
+               state <= ST_SEND_DMA_STATUS_READ;
+            end
          end
 
          ST_SEND_DMA_STATUS_READ:  // same as ST_RECEIVE_DMA_STATUS_READ
@@ -1264,7 +1311,7 @@ always @(posedge sysclk or negedge reset) begin
          begin
             // Wait for bit 0 in Register 0x80 to be cleared
             if (ReadData[0] == 1'b0) begin
-                state <= ST_SEND_ENABLE_INTERRUPT;
+                state <= ST_SEND_END;
             end
             else begin
                state <= ST_SEND_TXQ_ENQUEUE_WAIT_START;
@@ -1272,19 +1319,20 @@ always @(posedge sysclk or negedge reset) begin
             end
          end // case: ST_SEND_TXQ_ENQUEUE_WAIT_CHECK
 
-         ST_SEND_ENABLE_INTERRUPT:
-         begin
-             cmdReq <= 1;
-             isWrite <= 1;
-             RegAddr <= 8'h90;
-             WriteData <= 16'hE000;
-             state <= ST_WAIT_ACK;
-             nextState <= ST_SEND_END;
-         end
-
          ST_SEND_END:
          begin
-             state <= (FrameCount == 8'd0) ?  ST_IDLE : ST_RECEIVE_FRAME_STATUS;
+            if (isInIRQ) begin
+               if (FrameCount == 8'd0) begin
+                  state <= ST_IRQ_DISPATCH;
+                  RegISR[13] <= 1'b0;    // clear ISR receive IRQ bit
+               end
+               else begin
+                  state <= ST_RECEIVE_FRAME_STATUS;
+               end
+            end
+            else begin
+               state <= ST_IRQ_ENABLE;
+            end
          end
 
          endcase // case (state)
