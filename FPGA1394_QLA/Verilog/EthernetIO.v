@@ -12,17 +12,30 @@
  *     12/21/15    Peter Kazanzides    Initial Revision
  *     11/28/16    Zihan Chen          Added Disable/Enable in RECEIVE
  * 
- * Todo
- *   - Replace address with constants
  */
 
 // global constant e.g. register & device address
 `include "Constants.v"
 
 // constants KSZ8851 chip
-`define ETH_IER_VALUE 16'h2000    // Interrupt Enable Register
-`define ETH_IER_ADDR  8'h90
+`define ETH_IER_VALUE 16'h2000
 
+`define ETH_ADDR_MARL    8'h10     // Host MAC Address Reg Low
+`define ETH_ADDR_MARM    8'h12     // Host MAC Address Reg Middle
+`define ETH_ADDR_MARH    8'h14     // Host MAC Address Reg High
+`define ETH_ADDR_TXCR    8'h70     // Transmit Control Reg
+`define ETH_ADDR_RXCR1   8'h74     // RX Control Register 1
+`define ETH_ADDR_RXFHSR  8'h7C     // RX Frame Header Status Reg
+`define ETH_ADDR_RXFHBCR 8'h7E     // RX Frame Header Byte Count Reg
+`define ETH_ADDR_TXQCR   8'h80     // TXQ Command Reg
+`define ETH_ADDR_RXQCR   8'h82     // RXQ Command Reg
+`define ETH_ADDR_TXFDPR  8'h84     // TX Frame Data Pointer Reg
+`define ETH_ADDR_RXFDPR  8'h86     // RX Frame Data Pointer Reg
+`define ETH_ADDR_IER     8'h90     // Interrupt Enable Reg
+`define ETH_ADDR_ISR     8'h92     // Interrupt Status Reg
+`define ETH_ADDR_RXFCTR  8'h9C     // RX Frame Count and Threshold Reg
+`define ETH_ADDR_MAHTR1  8'hA2     // MAC Address Hash Table Reg 1
+`define ETH_ADDR_CIDER   8'hC0     // Chip ID and Enable Reg
 
 module EthernetIO(
     // global clock and reset
@@ -98,13 +111,13 @@ parameter[5:0]
     ST_INIT_WRITE_MAC_LOW = 6'd4,     // Write MAC address low
     ST_INIT_WRITE_MAC_MID = 6'd5,     // Write MAC address middle
     ST_INIT_WRITE_MAC_HIGH = 6'd6,    // Write MAC address high
-    ST_INIT_REG_84 = 6'd7,
-    ST_INIT_REG_70 = 6'd8,
-    ST_INIT_REG_86 = 6'd9,
-    ST_INIT_REG_9C = 6'd10,
-    ST_INIT_REG_74 = 6'd11,
+    ST_INIT_REG_TXFDPR = 6'd7,
+    ST_INIT_REG_TXCR = 6'd8,
+    ST_INIT_REG_RXFDPR = 6'd9,
+    ST_INIT_REG_RXFCTR = 6'd10,
+    ST_INIT_REG_RXCR1 = 6'd11,
     ST_INIT_MULTICAST = 6'd12,
-    ST_INIT_REG_82 = 6'd13,
+    ST_INIT_REG_RXQCR = 6'd13,
     ST_INIT_IRQ_CLEAR = 6'd14,
     ST_INIT_IRQ_ENABLE = 6'd15,
     ST_INIT_TRANSMIT_ENABLE_READ = 6'd16,
@@ -320,7 +333,7 @@ always @(posedge sysclk or negedge reset) begin
             if (initReq) begin
                cmdReq <= 1;
                isWrite <= 0;
-               RegAddr <= 8'hC0;  // Read Chip ID
+               RegAddr <= `ETH_ADDR_CIDER;  // Read Chip ID
                state <= ST_WAIT_ACK;
                nextState <= ST_INIT_CHECK_CHIPID;
                initAck <= 1;
@@ -332,7 +345,7 @@ always @(posedge sysclk or negedge reset) begin
             else if (~ETH_IRQn) begin
                cmdReq <= 1;
                isWrite <= 0;
-               RegAddr <= 8'h92;
+               RegAddr <= `ETH_ADDR_ISR;
                state <= ST_WAIT_ACK;
                // nextState <= ST_RECEIVE_CLEAR_RXIS;
                // nextState <= ST_RECEIVE_DISABLE_INTERRUPT;
@@ -410,7 +423,7 @@ always @(posedge sysclk or negedge reset) begin
          begin
             cmdReq <= 1;
             isWrite <= 1;
-            RegAddr <= 8'h10;                 // MAC address low
+            RegAddr <= `ETH_ADDR_MARL;        // MAC address low
             WriteData <= {12'h940,board_id};  //   0x940n (n = board id)
             state <= ST_WAIT_ACK;
             nextState <= ST_INIT_WRITE_MAC_MID;
@@ -419,7 +432,7 @@ always @(posedge sysclk or negedge reset) begin
          ST_INIT_WRITE_MAC_MID:
          begin
             cmdReq <= 1;
-            RegAddr <= 8'h12;       // MAC address mid
+            RegAddr <= `ETH_ADDR_MARM;        // MAC address mid
             WriteData <= 16'h0E13;  //   0x0E13
             state <= ST_WAIT_ACK;
             nextState <= ST_INIT_WRITE_MAC_HIGH;
@@ -428,54 +441,54 @@ always @(posedge sysclk or negedge reset) begin
          ST_INIT_WRITE_MAC_HIGH:
          begin
             cmdReq <= 1;
-            RegAddr <= 8'h14;       // MAC address high
+            RegAddr <= `ETH_ADDR_MARH;       // MAC address high
             WriteData <= 16'hFA61;  //   0xFA61
             state <= ST_WAIT_ACK;
-            nextState <= ST_INIT_REG_84;
+            nextState <= ST_INIT_REG_TXFDPR;
          end
               
-         ST_INIT_REG_84:
+         ST_INIT_REG_TXFDPR:
          begin
             cmdReq <= 1;
-            RegAddr <= 8'h84;
+            RegAddr <= `ETH_ADDR_TXFDPR;
             WriteData <= 16'h4000;   // Enable QMU transmit frame data pointer auto increment
             state <= ST_WAIT_ACK;
-            nextState <= ST_INIT_REG_70;
+            nextState <= ST_INIT_REG_TXCR;
          end
 
-         ST_INIT_REG_70:
+         ST_INIT_REG_TXCR:
          begin
             cmdReq <= 1;
-            RegAddr <= 8'h70;
+            RegAddr <= `ETH_ADDR_TXCR;
             WriteData <= 16'h01EE;   // Enable QMU transmit flow control, CRC, and padding
             state <= ST_WAIT_ACK;
-            nextState <= ST_INIT_REG_86;
+            nextState <= ST_INIT_REG_RXFDPR;
          end
 
-         ST_INIT_REG_86:
+         ST_INIT_REG_RXFDPR:
          begin
             cmdReq <= 1;
-            RegAddr <= 8'h86;
+            RegAddr <= `ETH_ADDR_RXFDPR;
             // Enable QMU receive frame data pointer auto increment and decrease write data
             // valid sample time to 4 nS (max).
             WriteData <= 16'h5000;
             state <= ST_WAIT_ACK;
-            nextState <= ST_INIT_REG_9C;
+            nextState <= ST_INIT_REG_RXFCTR;
          end
 
-         ST_INIT_REG_9C:
+         ST_INIT_REG_RXFCTR:
          begin
             cmdReq <= 1;
-            RegAddr <= 8'h9C;
+            RegAddr <= `ETH_ADDR_RXFCTR;
             WriteData <= 16'h0001;   // Configure receive frame threshold for 1 frame
             state <= ST_WAIT_ACK;
-            nextState <= ST_INIT_REG_74;
+            nextState <= ST_INIT_REG_RXCR1;
          end
 
-         ST_INIT_REG_74:
+         ST_INIT_REG_RXCR1:
          begin
             cmdReq <= 1;
-            RegAddr <= 8'h74;
+            RegAddr <= `ETH_ADDR_RXCR1;
             // 7: enable UDP, TCP, and IP checksums
             // C: enable MAC address filtering, enable flow control (for receive in full duplex mode)
             // E: enable broadcast, multicast, and unicast
@@ -493,16 +506,16 @@ always @(posedge sysclk or negedge reset) begin
             // this MAC address and then using the first two (most significant) bits to determine
             // the register and the next four bits to determine which bit to set.
             // See code in mainEth1394.cpp.
-            RegAddr <= 8'hA2;   // MAHTR1
+            RegAddr <= `ETH_ADDR_MAHTR1;   // MAHTR1
             WriteData <= 16'h0008;
             state <= ST_WAIT_ACK;
-            nextState <= ST_INIT_REG_82;
+            nextState <= ST_INIT_REG_RXQCR;
          end
 
-         ST_INIT_REG_82:
+         ST_INIT_REG_RXQCR:
          begin
             cmdReq <= 1;
-            RegAddr <= 8'h82;
+            RegAddr <= `ETH_ADDR_RXQCR;
             WriteData <= 16'h0020;   // Enable QMU frame count threshold (1), no auto-dequeue
             state <= ST_WAIT_ACK;
             nextState <= ST_INIT_IRQ_CLEAR;
@@ -511,7 +524,7 @@ always @(posedge sysclk or negedge reset) begin
          ST_INIT_IRQ_CLEAR:
          begin
             cmdReq <= 1;
-            RegAddr <= 8'h92;
+            RegAddr <= `ETH_ADDR_ISR;
             WriteData <= 16'hFFFF;   // Clear all pending interrupts
             state <= ST_WAIT_ACK;
             nextState <= ST_INIT_IRQ_ENABLE;
@@ -520,7 +533,7 @@ always @(posedge sysclk or negedge reset) begin
          ST_INIT_IRQ_ENABLE:
          begin
             cmdReq <= 1;
-            RegAddr <= 8'h90;
+            RegAddr <= `ETH_ADDR_IER;
             WriteData <= 16'h2000;   // Enable receive interrupts (TODO: also consider link change interrupt)
             state <= ST_WAIT_ACK;
             nextState <= ST_INIT_TRANSMIT_ENABLE_READ;
@@ -530,7 +543,7 @@ always @(posedge sysclk or negedge reset) begin
          begin
             cmdReq <= 1;
             isWrite <= 0;
-            RegAddr <= 8'h70;
+            RegAddr <= `ETH_ADDR_TXCR;
             state <= ST_WAIT_ACK;
             nextState <= ST_INIT_TRANSMIT_ENABLE_WRITE;
          end
@@ -548,7 +561,7 @@ always @(posedge sysclk or negedge reset) begin
          begin
             cmdReq <= 1;
             isWrite <= 0;
-            RegAddr <= 8'h74;
+            RegAddr <= `ETH_ADDR_RXCR1;
             state <= ST_WAIT_ACK;
             nextState <= ST_INIT_RECEIVE_ENABLE_WRITE;
          end
@@ -576,7 +589,7 @@ always @(posedge sysclk or negedge reset) begin
                cmdReq <= 1;
                isWrite <= 1;
                isInIRQ <= 1;
-               RegAddr <= 8'h90;         // IER
+               RegAddr <= `ETH_ADDR_IER;
                WriteData <= 16'h0000;    // Disable interrupt
                state <= ST_WAIT_ACK;
                nextState <= ST_IRQ_DISPATCH;
@@ -607,7 +620,7 @@ always @(posedge sysclk or negedge reset) begin
          ST_IRQ_ENABLE:
          begin
             cmdReq <= 1;
-            RegAddr <= 8'h90;
+            RegAddr <= `ETH_ADDR_IER;
             WriteData <= 16'hE000;   // Enable interrupts
             state <= ST_WAIT_ACK;
             nextState <= ST_IDLE;
@@ -615,13 +628,13 @@ always @(posedge sysclk or negedge reset) begin
 
          ST_IRQ_CLEAR_LCIS:
          begin
-             cmdReq <= 1;
-             isWrite <= 1;
-             RegAddr <= 8'h92;         // ISR
-             WriteData <= 16'h8000;    // Clear interrupt
-             RegISR[15] <= 1'b0;       // Clear RegISR
-             state <= ST_WAIT_ACK;
-             nextState <= ST_IRQ_DISPATCH;
+            cmdReq <= 1;
+            isWrite <= 1;
+            RegAddr <= `ETH_ADDR_ISR;
+            WriteData <= 16'h8000;    // Clear interrupt
+            RegISR[15] <= 1'b0;       // Clear RegISR
+            state <= ST_WAIT_ACK;
+            nextState <= ST_IRQ_DISPATCH;
          end
 
          //*************** States for receiving Ethernet packets ******************
@@ -629,7 +642,7 @@ always @(posedge sysclk or negedge reset) begin
          begin
             cmdReq <= 1;
             isWrite <= 1;
-            RegAddr <= 8'h92;       // ISR
+            RegAddr <= `ETH_ADDR_ISR;
             WriteData <= 16'h2000;  // clear interrupt
             state <= ST_WAIT_ACK;
             nextState <= ST_RECEIVE_FRAME_COUNT_START;
@@ -639,7 +652,7 @@ always @(posedge sysclk or negedge reset) begin
          begin
             cmdReq <= 1;
             isWrite <= 0;
-            RegAddr <= 8'h9C;
+            RegAddr <= `ETH_ADDR_RXFCTR;
             state <= ST_WAIT_ACK;
             nextState <= ST_RECEIVE_FRAME_COUNT_END;
          end
@@ -651,7 +664,7 @@ always @(posedge sysclk or negedge reset) begin
                state <= ST_IDLE;
             else begin
                cmdReq <= 1;
-               RegAddr <= 8'h7C;
+               RegAddr <= `ETH_ADDR_RXFHSR;
                state <= ST_WAIT_ACK;
                nextState <= ST_RECEIVE_FRAME_STATUS;
             end
@@ -664,7 +677,7 @@ always @(posedge sysclk or negedge reset) begin
                cmdReq <= 1;
                isMulticast <= ReadData[6];
                isWrite <= 0;
-               RegAddr <= 8'h7E;
+               RegAddr <= `ETH_ADDR_RXFHBCR;
                state <= ST_WAIT_ACK;
                nextState <= ST_RECEIVE_FRAME_LENGTH;
             end
@@ -680,7 +693,7 @@ always @(posedge sysclk or negedge reset) begin
             // Set QMU RXQ frame pointer to 0
             cmdReq <= 1;
             isWrite <= 1;
-            RegAddr <= 8'h86;
+            RegAddr <= `ETH_ADDR_RXFDPR;
             WriteData <= 16'h5000;
             state <= ST_WAIT_ACK;
             nextState <= ST_RECEIVE_DMA_STATUS_READ;
@@ -690,7 +703,7 @@ always @(posedge sysclk or negedge reset) begin
          begin
             cmdReq <= 1;
             isWrite <= 0;
-            RegAddr <= 8'h82;
+            RegAddr <= `ETH_ADDR_RXQCR;
             state <= ST_WAIT_ACK;
             nextState <= ST_RECEIVE_DMA_STATUS_WRITE;
          end
@@ -869,7 +882,7 @@ always @(posedge sysclk or negedge reset) begin
          end
 
          ST_RECEIVE_FLUSH_START:
-           begin
+         begin
             // Clean up from quadlet/block writes
             eth_reg_wen <= 0;
             eth_block_wen <= 0;
@@ -877,7 +890,7 @@ always @(posedge sysclk or negedge reset) begin
             cmdReq <= 1;
             isDMA <= 0;
             isWrite <= 0;
-            RegAddr <= 8'h82;
+            RegAddr <= `ETH_ADDR_RXQCR;
             state <= ST_WAIT_ACK;
             nextState <= ST_RECEIVE_FLUSH_EXECUTE;
          end
@@ -896,7 +909,7 @@ always @(posedge sysclk or negedge reset) begin
          begin
             cmdReq <= 1;
             isWrite <= 0;
-            // RegAddr is already set to 8'h82
+            // RegAddr is already set to RXQCR
             state <= ST_WAIT_ACK;
             nextState <= ST_RECEIVE_FLUSH_WAIT_CHECK;
          end
@@ -940,7 +953,7 @@ always @(posedge sysclk or negedge reset) begin
                sendAck <= 0;  // TEMP
                cmdReq <= 1;
                isWrite <= 1;
-               RegAddr <= 8'h90;         // IER
+               RegAddr <= `ETH_ADDR_IER;
                WriteData <= 16'h0000;    // Disable interrupt 
                state <= ST_WAIT_ACK;
                nextState <= ST_SEND_DMA_STATUS_READ;
@@ -954,7 +967,7 @@ always @(posedge sysclk or negedge reset) begin
          begin
             cmdReq <= 1;
             isWrite <= 0;
-            RegAddr <= 8'h82;       // RXQCR
+            RegAddr <= `ETH_ADDR_RXQCR;
             state <= ST_WAIT_ACK;
             nextState <= ST_SEND_DMA_STATUS_WRITE;
          end
@@ -1262,7 +1275,7 @@ always @(posedge sysclk or negedge reset) begin
             cmdReq <= 1;
             isWrite <= 0;
             isDMA <= 0;
-            RegAddr <= 8'h82;
+            RegAddr <= `ETH_ADDR_RXQCR;
             state <= ST_WAIT_ACK;
             nextState <= ST_SEND_DMA_STOP_WRITE;
          end
@@ -1281,7 +1294,7 @@ always @(posedge sysclk or negedge reset) begin
          begin
             cmdReq <= 1;
             isWrite <= 0;
-            RegAddr <= 8'h80;
+            RegAddr <= `ETH_ADDR_TXQCR;
             state <= ST_WAIT_ACK;
             nextState <= ST_SEND_TXQ_ENQUEUE_END;
          end
@@ -1302,7 +1315,7 @@ always @(posedge sysclk or negedge reset) begin
          begin
             cmdReq <= 1;
             isWrite <= 0;
-            // RegAddr is already set to 8'h80
+            // RegAddr is already set to TXQCR
             state <= ST_WAIT_ACK;
             nextState <= ST_SEND_TXQ_ENQUEUE_WAIT_CHECK;
          end
