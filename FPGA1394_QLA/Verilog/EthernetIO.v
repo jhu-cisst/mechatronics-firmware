@@ -12,6 +12,8 @@
  *     12/21/15    Peter Kazanzides    Initial Revision
  *     11/28/16    Zihan Chen          Added Disable/Enable in RECEIVE
  * 
+ * Todo
+ *   - Replace address with constants
  */
 
 // global constant e.g. register & device address
@@ -347,8 +349,6 @@ always @(posedge sysclk or negedge reset) begin
                isWrite <= 0;
                RegAddr <= `ETH_ADDR_ISR;
                state <= ST_WAIT_ACK;
-               // nextState <= ST_RECEIVE_CLEAR_RXIS;
-               // nextState <= ST_RECEIVE_DISABLE_INTERRUPT;
                nextState <= ST_IRQ_HANDLER;
             end
             else if (sendReq) begin
@@ -621,6 +621,7 @@ always @(posedge sysclk or negedge reset) begin
          begin
             cmdReq <= 1;
             RegAddr <= `ETH_ADDR_IER;
+            isWrite <= 1;
             WriteData <= 16'hE000;   // Enable interrupts
             state <= ST_WAIT_ACK;
             nextState <= ST_IDLE;
@@ -741,6 +742,7 @@ always @(posedge sysclk or negedge reset) begin
          begin
             // Read dest MAC, source MAC, and length (7 words, byte-swapped).
             // Don't byte swap srcMAC because we need to send it back byte-swapped.
+            // 
             case (count[2:0])
               3'd0: destMac[0] <= {ReadData[7:0],ReadData[15:8]};
               3'd1: destMac[1] <= {ReadData[7:0],ReadData[15:8]};
@@ -748,7 +750,7 @@ always @(posedge sysclk or negedge reset) begin
               3'd3: srcMac[0] <= ReadData;
               3'd4: srcMac[1] <= ReadData;
               3'd5: srcMac[2] <= ReadData;
-              3'd6: Length <= {ReadData[7:0],ReadData[15:8]};
+              3'd6: Length <= {ReadData[7:0],ReadData[15:8]}; 
             endcase
             if (count[2:0] == 3'd6) begin
                // Maximum data length is currently 284 bytes (block write to PROM); as a sanity
