@@ -119,11 +119,18 @@ assign lreq_type = eth_lreq_trig ? eth_lreq_type : fw_lreq_type;
 
 // Mux routing read data based on read address
 //   See Constants.v for detail
-//     addr[15:12]  main | hub | prom | prom_qla 
+//     addr[15:12]  main | hub | prom | prom_qla | eth
+
+// route HubReg data to global reg_rdata
+wire[31:0] reg_rdata_hub;       // reg_rdata_hub is for hub memory
+wire [31:0] reg_rdata_prom;     // reg_rdata_prom is for block reads from PROM
+wire[31:0] reg_rdata_prom_qla;  // reads from QLA prom
+wire[31:0] reg_rdata_eth;       // for eth memory access
 assign reg_rdata = (reg_raddr[15:12]==`ADDR_HUB) ? (reg_rdata_hub) :
                   ((reg_raddr[15:12]==`ADDR_PROM) ? (reg_rdata_prom) :
                   ((reg_raddr[15:12]==`ADDR_PROM_QLA) ? (reg_rdata_prom_qla) : 
-                  ((reg_raddr[7:4]==4'd0) ? reg_rdata_chan0 : reg_rd[reg_raddr[3:0]])));
+                  ((reg_raddr[15:12]==`ADDR_ETH) ? (reg_rdata_eth) : 
+                  ((reg_raddr[7:4]==4'd0) ? reg_rdata_chan0 : reg_rd[reg_raddr[3:0]]))));
 
 
 // 1394 phy low reset, never reset
@@ -160,10 +167,6 @@ wire[5:0] dbg_nextState_eth;
 // hub register module
 // --------------------------------------------------------------------------
 
-// route HubReg data to global reg_rdata
-wire[31:0] reg_rdata_hub;
-// assign reg_rdata_hub = 32'h0;
-
 HubReg hub(
     .sysclk(sysclk),
     .reg_wen(reg_wen),
@@ -177,6 +180,8 @@ HubReg hub(
 // --------------------------------------------------------------------------
 // firewire modules
 // --------------------------------------------------------------------------
+wire eth_send_fw_req;
+wire eth_send_fw_ack;
 
 // phy-link interface
 PhyLinkInterface phy(
@@ -197,6 +202,9 @@ PhyLinkInterface phy(
     .reg_rdata(reg_rdata),     // in:  read data to external register
     .reg_wdata(fw_reg_wdata),  // out: write data to external register
 
+    .eth_send_fw_req(eth_send_fw_req), // in: send req from eth
+    .eth_send_fw_ack(eth_send_fw_ack), // out: ack send req to eth
+                     
     .lreq_trig(fw_lreq_trig),  // out: phy request trigger
     .lreq_type(fw_lreq_type)   // out: phy request type
 );
@@ -283,14 +291,17 @@ EthernetIO EthernetTransfers(
     .sendAck(eth_send_ack),
     .ksz_isIdle(ksz_isIdle),
 
-    .reg_rdata(reg_rdata),
-    .reg_raddr(eth_reg_raddr),
-    .eth_read_en(eth_read_en),
-    .reg_wdata(eth_reg_wdata),
-    .reg_waddr(eth_reg_waddr),
-    .eth_reg_wen(eth_reg_wen),
-    .eth_block_wen(eth_blk_wen),
-    .eth_block_wstart(eth_blk_wstart),
+    .reg_rdata(reg_rdata_eth),
+    .reg_raddr(reg_raddr),
+
+    .eth_reg_rdata(reg_rdata),         //  in: reg read data
+    .eth_reg_raddr(eth_reg_raddr),     // out: reg read addr
+    .eth_read_en(eth_read_en),         // out: reg read enable
+    .eth_reg_wdata(eth_reg_wdata),     // out: reg write data
+    .eth_reg_waddr(eth_reg_waddr),     // out: reg write addr
+    .eth_reg_wen(eth_reg_wen),         // out; reg write enable
+    .eth_block_wen(eth_blk_wen),       // out: blk write enable
+    .eth_block_wstart(eth_blk_wstart), // out: blk write start
 
     .initReq(eth_init_req),
     .initAck(eth_init_ack),
@@ -306,7 +317,10 @@ EthernetIO EthernetTransfers(
     .eth_error(eth_error),
 
     .lreq_trig(eth_lreq_trig),  // out: phy request trigger
-    .lreq_type(eth_lreq_type),   // out: phy request type 
+    .lreq_type(eth_lreq_type),   // out: phy request type
+
+    .eth_send_fw_req(eth_send_fw_req),
+    .eth_send_fw_ack(eth_send_fw_ack),
 
     .dbg_state_eth(dbg_state_eth),
     .dbg_nextState_eth(dbg_nextState_eth)
@@ -470,7 +484,6 @@ Max6576 T2(
 // --------------------------------------------------------------------------
 
 // Route PROM status result between M25P16 and BoardRegs modules
-wire[31:0] reg_rdata_prom;   // reg_rdata_prom is for block reads from PROM
 wire[31:0] PROM_Status;
 wire[31:0] PROM_Result;
    
@@ -502,8 +515,6 @@ M25P16 prom(
 //    - SPI pin connection see QLA schematics
 //    - TEMP version, interface subject to future change
 // --------------------------------------------------------------------------
-
-wire[31:0] reg_rdata_prom_qla;  // reads from QLA prom
 
 QLA25AA128 prom_qla(
     .clk(sysclk),

@@ -93,7 +93,7 @@ module KSZ8851(
     // Interface to Chipscope icon
     output wire[3:0] dbg_state    // debug state 
 );
-   ;                            // 
+
 // tri-state bus configuration
 // Drive bus except when ETH_RDn is active (low)
 reg[15:0] SDReg;
@@ -175,8 +175,8 @@ always @(posedge sysclk or negedge reset) begin
         // Format of 32-bit reg_wdata:
         // 0(4) DMA(1) Reset(1) R/W(1) W/B(1) Addr(8) Data(16)
         // bit 27: DMA
-        // bit 26: reset
-        // bit 25: R/W Read or Write
+        // bit 26: reset 
+        // bit 25: R/W Read (0) or Write (1)
         // bit 24: W/B Word or Byte
         // bit 23-16: 8-bit address
         // bit 15-0 : 16-bit data
@@ -287,19 +287,6 @@ always @(posedge sysclk or negedge reset) begin
         else
             count <= count + 21'd1;
         end
-
-        // ST_ADDR_START:
-        // begin
-        //     if (count[0] == 1'd0) begin
-        //        SDReg <= Addr16;
-        //        count[0] <= 1'd1;
-        //     end
-        //     else begin
-        //        ETH_WRn <= 0;
-        //        state <= ST_ADDR_HOLD;
-        //        count[0] <= 1'd0;
-        //     end
-        // end // case: ST_ADDR_START
 
         ST_ADDR_START:
         begin

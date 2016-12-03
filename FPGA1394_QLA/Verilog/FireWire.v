@@ -146,13 +146,14 @@
 `define ACK_DATA 4'hD             // ack crc error, used as a general error
 
 // types of transmissions
-`define TX_TYPE_NULL 4'd0         // no transmission
-`define TX_TYPE_DONE 4'd1         // ack complete (for write requests)
-`define TX_TYPE_PEND 4'd2         // ack pending (for read requests)
-`define TX_TYPE_DATA 4'd3         // ack data error, for crc or data length
+`define TX_TYPE_NULL  4'd0        // no transmission
+`define TX_TYPE_DONE  4'd1        // ack complete (for write requests)
+`define TX_TYPE_PEND  4'd2        // ack pending (for read requests)
+`define TX_TYPE_DATA  4'd3        // ack data error, for crc or data length
 `define TX_TYPE_QRESP 4'd4        // for quadlet read response
 `define TX_TYPE_BRESP 4'd5        // for block read response
 `define TX_TYPE_BBC   4'd6        // for block write broadcast
+`define TX_TYPE_FWD   4'd7        // for 1394 pkt forward from eth port
 
 
 // other
@@ -178,12 +179,16 @@ module PhyLinkInterface(
     // register access
     output reg[15:0] reg_raddr,   // read address to external register file
     output reg[15:0] reg_waddr,   // write address to external register file
-    input wire[31:0] reg_rdata,  // read data from external register file
-    output reg[31:0] reg_wdata,  // write data to external register file
+    input wire[31:0] reg_rdata,   // read data from external register file
+    output reg[31:0] reg_wdata,   // write data to external register file
     
+    // eth/fw interface
+    input wire eth_send_fw_req,   // request from ethernet to send fw pkt
+    output reg eth_send_fw_ack,   // ack sent fw pkt
+
     // transmit parameters
-    output reg lreq_trig,        // trigger signal for a phy request
-    output reg[2:0] lreq_type    // type of request to give to the phy    
+    output reg lreq_trig,         // trigger signal for a phy request
+    output reg[2:0] lreq_type     // type of request to give to the phy
 );
 
 
@@ -282,8 +287,9 @@ module PhyLinkInterface(
         ST_TX_HEAD_BC = 10,       // tx state, link transmits block write broadcast to PC
         ST_TX_DATA = 11,          // tx state, link transmits block data
         ST_TX_DATA_HUB = 12,      // tx state, link transmits hub block data
-        ST_TX_DONE1 = 13,         // tx state, link finalizes transmission
-        ST_TX_DONE2 = 14;         // tx state, phy regains phy-link bus
+        ST_TX_FWD = 13,           // tx state, link transmits forward data from eth
+        ST_TX_DONE1 = 14,         // tx state, link finalizes transmission
+        ST_TX_DONE2 = 15;         // tx state, phy regains phy-link bus
 
 
 
@@ -446,7 +452,7 @@ begin
                 end
                 
                 2'b01: state <= ST_RX_D_ON;        // phy data from the bus
-                2'b11: state <= ST_TX;             // phy grants tx request                
+                2'b11: state <= ST_TX;             // phy grants tx request
                 2'b10: begin                       // phy status transfer
                     st_buff <= {16'b0, data2b};    // clock in status bits
                     state <= ST_STATUS;            // continue status loop
@@ -846,7 +852,7 @@ begin
             end
             
             // transmit block write broadcast to pc
-            // ZC: broadcast requires no ack and response packet,
+            //     broadcast requires no ack and response packet,
             //     which saves bus bandwidth
             //     dest_id = 0xffff (for broadcasting)
             //     priority (bits 3:0) 
@@ -857,7 +863,12 @@ begin
                 buffer <= { 16'hffff, rx_tag, 2'd0, `TC_BWRITE, 4'hA };
                 next <= ST_TX_HEAD_BC;
                 numbits <= `SZ_BBC;
-            end          
+            end
+
+            // transmit packet from Ethernet
+            `TX_TYPE_FWD: begin
+               next <= ST_TX_FWD;
+            end
             
             // for crc/unknown errors, send an error ack
             default: begin
@@ -1015,7 +1026,8 @@ begin
                 end
 
             endcase
-        end
+        end // case: ST_TX_HEAD
+        
         
         // ---------------------------------------------------------------------
         // link shifts block write header bits out to the phy/bus
@@ -1163,7 +1175,34 @@ begin
                     buffer <= { ~crc_in[23:0], 8'd0 };
                 end
             end 
-        end
+        end // case: ST_TX_DATA
+
+
+        // ---------------------------------------------------------------------
+        // link shifts packet from ethernet out to the phy/bus
+        //
+        ST_TX_FWD:
+        begin
+           if (count == numbits) begin
+              // stop
+              ctl <= `CTL_IDLE;
+              state <= ST_TX_DONE1;
+           end
+           else begin
+              // shift out transmit bit from buffer
+              ctl <= `CTL_DATA;
+              data <= txmsb8b;
+              buffer <= buffer << 8;
+              count <= count + 16'd8;
+              crc_in <= crc_8b;   // ? probably not necessary
+
+              // latch data & update address
+              if (count[4:0] == 5'd24) begin
+                 reg_raddr <= reg_raddr + 1'b1;
+                 buffer <= reg_rdata;
+              end
+           end
+        end // case: ST_TX_FWD
 
         // ---------------------------------------------------------------------
         // drive one more cycle of idle

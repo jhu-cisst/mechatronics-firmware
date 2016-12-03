@@ -15,8 +15,8 @@
 module HubReg(
     input  wire sysclk,            // system clk 
     input  wire reg_wen,           // hub reg write enable 
-    input  wire[15:0] reg_raddr,    // hub reg addr 10-bit
-    input  wire[15:0] reg_waddr,    // hub reg addr 10-bit
+    input  wire[15:0] reg_raddr,   // hub reg addr 9-bit
+    input  wire[15:0] reg_waddr,   // hub reg addr 9-bit
     output wire[31:0] reg_rdata,   // hub outgoing read data 
     input  wire[31:0] reg_wdata    // hub incoming write data 
 );

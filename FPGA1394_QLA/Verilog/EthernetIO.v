@@ -20,13 +20,14 @@
 `include "Constants.v"
 
 // constants KSZ8851 chip
-`define ETH_IER_VALUE 16'h2000
+`define ETH_IER_VALUE 16'hE000
 
 `define ETH_ADDR_MARL    8'h10     // Host MAC Address Reg Low
 `define ETH_ADDR_MARM    8'h12     // Host MAC Address Reg Middle
 `define ETH_ADDR_MARH    8'h14     // Host MAC Address Reg High
 `define ETH_ADDR_TXCR    8'h70     // Transmit Control Reg
 `define ETH_ADDR_RXCR1   8'h74     // RX Control Register 1
+`define ETH_ADDR_TXMIR   8'h78     // TXQ Memory Information Reg
 `define ETH_ADDR_RXFHSR  8'h7C     // RX Frame Header Status Reg
 `define ETH_ADDR_RXFHBCR 8'h7E     // RX Frame Header Byte Count Reg
 `define ETH_ADDR_TXQCR   8'h80     // TXQ Command Reg
@@ -56,12 +57,17 @@ module EthernetIO(
     output reg sendAck,
     input wire ksz_isIdle,
 
-    // Interface to board registers
-    input wire[31:0] reg_rdata,
-    output reg[15:0] reg_raddr,
+    // Register interface
+    input  wire[15:0] reg_raddr,
+    output wire[31:0] reg_rdata,
+
+    // Interface to/from board registers
+    // Ethenret module drives
+    input wire[31:0] eth_reg_rdata,
+    output reg[15:0] eth_reg_raddr,
     output reg       eth_read_en,
-    output reg[31:0] reg_wdata,
-    output reg[15:0] reg_waddr,
+    output reg[31:0] eth_reg_wdata,
+    output reg[15:0] eth_reg_waddr,
     output reg       eth_reg_wen,
     output reg       eth_block_wen,
     output reg       eth_block_wstart,
@@ -83,9 +89,11 @@ module EthernetIO(
 
     output reg lreq_trig,         // trigger signal for a FireWire phy request
     output reg[2:0] lreq_type,    // type of request to give to the FireWire phy
+
+    output reg eth_send_fw_req,   // reqest to send firewire packet
+    input wire eth_send_fw_ack,   // ack from firewire module
     
     // Interface to Chipscope icon
-//    input  wire[35:0] control     // icon control  
     output wire[5:0] dbg_state_eth,
     output wire[5:0] dbg_nextState_eth
 );
@@ -146,27 +154,28 @@ parameter[5:0]
     ST_RECEIVE_FLUSH_WAIT_START = 6'd37,
     ST_RECEIVE_FLUSH_WAIT_CHECK = 6'd38,
     ST_SEND_START = 6'd39,
-    ST_SEND_DMA_STATUS_READ = 6'd40,
-    ST_SEND_DMA_STATUS_WRITE = 6'd41,
-    ST_SEND_DMA_CONTROLWORD = 6'd42,
-    ST_SEND_DMA_BYTECOUNT = 6'd43,
-    ST_SEND_DMA_DESTADDR = 6'd44,
-    ST_SEND_DMA_SRCADDR = 6'd45,
-    ST_SEND_DMA_LENGTH = 6'd46,
-    ST_SEND_DMA_PACKETDATA_HEADER = 6'd47,
-    ST_SEND_DMA_PACKETDATA_QUAD = 6'd48,
-    ST_SEND_DMA_PACKETDATA_BLOCK_START = 6'd49,
-    ST_SEND_DMA_PACKETDATA_BLOCK_MAIN = 6'd50,
-    ST_SEND_DMA_PACKETDATA_BLOCK_CHANNEL = 6'd51,
-    ST_SEND_DMA_PACKETDATA_BLOCK_PROM = 6'd52,
-    ST_SEND_DMA_PACKETDATA_CHECKSUM = 6'd53,
-    ST_SEND_DMA_STOP_READ = 6'd54,
-    ST_SEND_DMA_STOP_WRITE = 6'd55,
-    ST_SEND_TXQ_ENQUEUE_START = 6'd56,
-    ST_SEND_TXQ_ENQUEUE_END = 6'd57,
-    ST_SEND_TXQ_ENQUEUE_WAIT_START = 6'd58,
-    ST_SEND_TXQ_ENQUEUE_WAIT_CHECK = 6'd59,
-    ST_SEND_END = 6'd60;
+    ST_SEND_TXMIR_READ = 6'd40,
+    ST_SEND_DMA_STATUS_READ = 6'd41,
+    ST_SEND_DMA_STATUS_WRITE = 6'd42,
+    ST_SEND_DMA_CONTROLWORD = 6'd43,
+    ST_SEND_DMA_BYTECOUNT = 6'd44,
+    ST_SEND_DMA_DESTADDR = 6'd45,
+    ST_SEND_DMA_SRCADDR = 6'd46,
+    ST_SEND_DMA_LENGTH = 6'd47,
+    ST_SEND_DMA_PACKETDATA_HEADER = 6'd48,
+    ST_SEND_DMA_PACKETDATA_QUAD = 6'd49,
+    ST_SEND_DMA_PACKETDATA_BLOCK_START = 6'd50,
+    ST_SEND_DMA_PACKETDATA_BLOCK_MAIN = 6'd51,
+    ST_SEND_DMA_PACKETDATA_BLOCK_CHANNEL = 6'd52,
+    ST_SEND_DMA_PACKETDATA_BLOCK_PROM = 6'd53,
+    ST_SEND_DMA_PACKETDATA_CHECKSUM = 6'd54,
+    ST_SEND_DMA_STOP_READ = 6'd55,
+    ST_SEND_DMA_STOP_WRITE = 6'd56,
+    ST_SEND_TXQ_ENQUEUE_START = 6'd57,
+    ST_SEND_TXQ_ENQUEUE_END = 6'd58,
+    ST_SEND_TXQ_ENQUEUE_WAIT_START = 6'd59,
+    ST_SEND_TXQ_ENQUEUE_WAIT_CHECK = 6'd60,
+    ST_SEND_END = 6'd61;
 
 // Debugging support
 assign eth_io_isIdle = (state == ST_IDLE) ? 1 : 0;
@@ -242,7 +251,10 @@ reg[15:0] Length;        // Not currently used
 //        max size in quadlets is (24+64)/4 = 22
 // To summarize, maximum size in quadlets would be 71.
 // For now, we will make the buffer big enough to hold 71 quadlets.
-reg[31:0] FireWirePacket[0:70];  // FireWire packet memory (max 71 quadlets)
+// reg[31:0] FireWirePacket[0:70];  // FireWire packet memory (max 71 quadlets)
+reg [31:0] FireWirePacket[0:127];
+assign reg_rdata = FireWirePacket[reg_raddr[6:0]];
+   
 
 wire[3:0] fw_tcode;            // FireWire transaction code
 wire[5:0] fw_tl;               // FireWire transaction label
@@ -288,6 +300,20 @@ begin
         timestamp <= timestamp + 1'b1;
 end
 
+
+// always @(posedge sysclk or negedge reset) 
+// begin
+//    if (reset == 0) begin
+//       reg_rdata <= 32'd0;
+//    end
+//    else begin
+//       reg_rdata <= Firewire[reg_raddr[5:0]];
+//    end
+// end
+
+// -------------------------------------------------------
+// Ethernet state machine
+// -------------------------------------------------------
 always @(posedge sysclk or negedge reset) begin
     if (reset == 0) begin
        cmdReq <= 0;
@@ -534,7 +560,7 @@ always @(posedge sysclk or negedge reset) begin
          begin
             cmdReq <= 1;
             RegAddr <= `ETH_ADDR_IER;
-            WriteData <= 16'h2000;   // Enable receive interrupts (TODO: also consider link change interrupt)
+            WriteData <= 16'hE000;   // Enable receive interrupts (TODO: also consider link change interrupt)
             state <= ST_WAIT_ACK;
             nextState <= ST_INIT_TRANSMIT_ENABLE_READ;
          end
@@ -824,8 +850,8 @@ always @(posedge sysclk or negedge reset) begin
                if (quadWrite) begin
                   if (count == 8'd8) begin
                      eth_block_wen <= 1;
-                     reg_waddr <= FireWirePacket[2][15:0];
-                     reg_wdata <= FireWirePacket[3];
+                     eth_reg_waddr <= FireWirePacket[2][15:0];
+                     eth_reg_wdata <= FireWirePacket[3];
                      // Special case: write to FireWire PHY register
                      if (addrMain && (FireWirePacket[2][11:0] == {8'h0, `REG_PHYCTRL})) begin
                         // check the RW bit to determine access type (bit 12, after byte-swap)
@@ -847,15 +873,15 @@ always @(posedge sysclk or negedge reset) begin
                   else if (count == 8'd11)
                      eth_block_wstart <= 0;
                   else if (count == 8'd12) begin
-                     reg_waddr[15:12] <= FireWirePacket[2][15:12];
+                     eth_reg_waddr[15:12] <= FireWirePacket[2][15:12];
                      if (addrMain) begin
-                        reg_waddr[7:4] <= 4'd1;  // start with channel 1
-                        reg_waddr[3:0] <= `OFF_DAC_CTRL;
-                        reg_wdata[15:0] <= FireWirePacket[5][15:0];
+                        eth_reg_waddr[7:4] <= 4'd1;  // start with channel 1
+                        eth_reg_waddr[3:0] <= `OFF_DAC_CTRL;
+                        eth_reg_wdata[15:0] <= FireWirePacket[5][15:0];
                      end
                      else begin
-                        reg_waddr[11:0] <= FireWirePacket[2][11:0];
-                        reg_wdata <= FireWirePacket[5];
+                        eth_reg_waddr[11:0] <= FireWirePacket[2][11:0];
+                        eth_reg_wdata <= FireWirePacket[5];
                      end
                      block_index <= 7'd5;
                   end
@@ -863,12 +889,12 @@ always @(posedge sysclk or negedge reset) begin
                      if (count[0] == 0) begin      // (even)
                         eth_reg_wen <= 0;
                         if (addrMain) begin
-                           reg_waddr[7:4] <= reg_waddr[7:4] + 4'd1;
-                           reg_wdata[15:0] <= FireWirePacket[block_index][15:0];
+                           eth_reg_waddr[7:4] <= eth_reg_waddr[7:4] + 4'd1;
+                           eth_reg_wdata[15:0] <= FireWirePacket[block_index][15:0];
                         end
                         else begin
-                           reg_waddr <= reg_waddr + 16'd1;
-                           reg_wdata <= FireWirePacket[block_index];
+                           eth_reg_waddr <= eth_reg_waddr + 16'd1;
+                           eth_reg_wdata <= FireWirePacket[block_index];
                         end
                      end
                      else begin                    // (odd)
@@ -956,13 +982,24 @@ always @(posedge sysclk or negedge reset) begin
                cmdReq <= 1;
                isWrite <= 1;
                RegAddr <= `ETH_ADDR_IER;
-               WriteData <= 16'h0000;    // Disable interrupt 
+               WriteData <= 16'h0000;    // Disable interrupt
                state <= ST_WAIT_ACK;
-               nextState <= ST_SEND_DMA_STATUS_READ;
+               // nextState <= ST_SEND_DMA_STATUS_READ;
+               nextState <= ST_SEND_TXMIR_READ;
             end
             else begin
-               state <= ST_SEND_DMA_STATUS_READ;
+               // state <= ST_SEND_DMA_STATUS_READ;
+               state <= ST_SEND_TXMIR_READ;
             end
+         end // case: ST_SEND_START
+
+         ST_SEND_TXMIR_READ:
+         begin
+            cmdReq <= 1;
+            isWrite <= 0;
+            RegAddr <= `ETH_ADDR_TXMIR;
+            state <= ST_WAIT_ACK;
+            nextState <= ST_SEND_DMA_STATUS_READ;
          end
 
          ST_SEND_DMA_STATUS_READ:  // same as ST_RECEIVE_DMA_STATUS_READ
@@ -1069,7 +1106,7 @@ always @(posedge sysclk or negedge reset) begin
                   begin
                      WriteData <= eth_status[31:16]; // normally reserved, but use it for debugging
                      count[2:0] <= 3'd0;
-                     reg_raddr <= FireWirePacket[2][15:0];
+                     eth_reg_raddr <= FireWirePacket[2][15:0];
                      if (quadRead) begin
                         // Get ready to read data from the board.
                         eth_read_en <= 1;
@@ -1092,12 +1129,12 @@ always @(posedge sysclk or negedge reset) begin
             cmdReq <= 1;
             state <= ST_WAIT_ACK;
             if (count[0] == 0) begin
-               WriteData <= {reg_rdata[23:16], reg_rdata[31:24]};
+               WriteData <= {eth_reg_rdata[23:16], eth_reg_rdata[31:24]};
                count[0] <= 1;
                nextState <= ST_SEND_DMA_PACKETDATA_QUAD;
             end
             else begin
-               WriteData <= {reg_rdata[7:0], reg_rdata[15:8]};
+               WriteData <= {eth_reg_rdata[7:0], eth_reg_rdata[15:8]};
                // Stop accessing FPGA registers
                eth_read_en <= 0;
                count[0] <= 0;
@@ -1131,7 +1168,7 @@ always @(posedge sysclk or negedge reset) begin
                 else if (addrPROM || addrQLA) begin
                    // Get ready to read data
                    eth_read_en <= 1;
-                   reg_raddr[7:0] <= 8'd0;  // Just to be sure
+                   eth_reg_raddr[7:0] <= 8'd0;  // Just to be sure
                    nextState <= ST_SEND_DMA_PACKETDATA_BLOCK_PROM;
                 end
                 else begin
@@ -1157,39 +1194,39 @@ always @(posedge sysclk or negedge reset) begin
                     ts_reset <= 1;
                     // Get ready to read data from the board.
                     eth_read_en <= 1;
-                    reg_raddr <= {12'd0, `REG_STATUS};   // address of status register
+                    eth_reg_raddr <= {12'd0, `REG_STATUS};   // address of status register
                  end
               3'd2:
                  begin
-                    WriteData <= {reg_rdata[23:16], reg_rdata[31:24]};  // status
+                    WriteData <= {eth_reg_rdata[23:16], eth_reg_rdata[31:24]};  // status
                     ts_reset <= 0;
                  end
               3'd3:
                  begin
-                    WriteData <= {reg_rdata[7:0], reg_rdata[15:8]};     // status
-                    reg_raddr <= {12'd0, `REG_DIGIN};   // address of digital I/O register
+                    WriteData <= {eth_reg_rdata[7:0], eth_reg_rdata[15:8]};     // status
+                    eth_reg_raddr <= {12'd0, `REG_DIGIN};   // address of digital I/O register
                  end
               3'd4:
                  begin
-                    WriteData <= {reg_rdata[23:16], reg_rdata[31:24]};  // digital I/O
+                    WriteData <= {eth_reg_rdata[23:16], eth_reg_rdata[31:24]};  // digital I/O
                  end
               3'd5:
                  begin
-                    WriteData <= {reg_rdata[7:0], reg_rdata[15:8]};     // digital I/O
-                    reg_raddr <= {12'd0, `REG_TEMPSNS};  // address of temperature sensors
+                    WriteData <= {eth_reg_rdata[7:0], eth_reg_rdata[15:8]};     // digital I/O
+                    eth_reg_raddr <= {12'd0, `REG_TEMPSNS};  // address of temperature sensors
                  end
               3'd6:
                  begin
-                    WriteData <= {reg_rdata[23:16], reg_rdata[31:24]};  // temperature sensors
+                    WriteData <= {eth_reg_rdata[23:16], eth_reg_rdata[31:24]};  // temperature sensors
                  end
               3'd7:
                  begin
-                    WriteData <= {reg_rdata[7:0], reg_rdata[15:8]};     // temperature sensors
-                    reg_raddr[7:4] <= 4'h1;        // start from channel 1
+                    WriteData <= {eth_reg_rdata[7:0], eth_reg_rdata[15:8]};     // temperature sensors
+                    eth_reg_raddr[7:4] <= 4'h1;        // start from channel 1
                     // NOTE: Following is hard-coded to first read from channel 0,
                     //       and then from 5,6,7. This is correct, but less flexible
                     //       than the implementation in Firewire.v, which uses dev_addr[].
-                    reg_raddr[3:0] <= 4'd0;        // 1st device address
+                    eth_reg_raddr[3:0] <= 4'd0;        // 1st device address
                     next_addr <= 3'd5;             // set next device address
                  end
               default: WriteData <= 16'h0;
@@ -1211,26 +1248,26 @@ always @(posedge sysclk or negedge reset) begin
               state <= ST_WAIT_ACK;
               if (count[0] == 0) begin
                   count[0] <= 1;
-                  WriteData <= {reg_rdata[23:16], reg_rdata[31:24]};
+                  WriteData <= {eth_reg_rdata[23:16], eth_reg_rdata[31:24]};
                   nextState <= ST_SEND_DMA_PACKETDATA_BLOCK_CHANNEL;
               end
               else begin
                   count[0] <= 0;
-                  WriteData <= {reg_rdata[7:0], reg_rdata[15:8]};
-                  if (reg_raddr[7:4] == num_channels) begin
+                  WriteData <= {eth_reg_rdata[7:0], eth_reg_rdata[15:8]};
+                  if (eth_reg_raddr[7:4] == num_channels) begin
                       if (next_addr == 3'd7) begin
                           eth_read_en <= 0;  // we are done
                           nextState <= ST_SEND_DMA_PACKETDATA_CHECKSUM;
                       end
                       else begin
-                          reg_raddr[7:4] <= 4'd1;
-                          reg_raddr[2:0] <= next_addr;
+                          eth_reg_raddr[7:4] <= 4'd1;
+                          eth_reg_raddr[2:0] <= next_addr;
                           next_addr <= next_addr + 3'd1;
                           nextState <= ST_SEND_DMA_PACKETDATA_BLOCK_CHANNEL;
                       end
                   end
                   else begin
-                      reg_raddr[7:4] <= reg_raddr[7:4] + 4'd1;
+                      eth_reg_raddr[7:4] <= eth_reg_raddr[7:4] + 4'd1;
                       nextState <= ST_SEND_DMA_PACKETDATA_BLOCK_CHANNEL;
                   end
               end
@@ -1242,19 +1279,19 @@ always @(posedge sysclk or negedge reset) begin
             state <= ST_WAIT_ACK;
             if (count[0] == 0) begin
                 count[0] <= 1;
-                WriteData <= {reg_rdata[23:16], reg_rdata[31:24]};
+                WriteData <= {eth_reg_rdata[23:16], eth_reg_rdata[31:24]};
                 nextState <= ST_SEND_DMA_PACKETDATA_BLOCK_PROM;
             end
             else begin
                 count[0] <= 0;
-                WriteData <= {reg_rdata[7:0], reg_rdata[15:8]};
-                reg_raddr[5:0] <= reg_raddr[5:0] + 6'd1;
-                // reg_raddr increments quadlets (32-bits), whereas block_data_length
+                WriteData <= {eth_reg_rdata[7:0], eth_reg_rdata[15:8]};
+                eth_reg_raddr[5:0] <= eth_reg_raddr[5:0] + 6'd1;
+                // eth_reg_raddr increments quadlets (32-bits), whereas block_data_length
                 // is in bytes (8-bits). Note that maximum PROM read is 256 bytes,
                 // or 64 quadlets. The second term below takes care of the overflow
                 // case in the first term.
-                if (((reg_raddr[5:0] + 6'd1) == block_data_length[7:2]) ||
-                    (reg_raddr[5:0] == 6'h3f)) begin
+                if (((eth_reg_raddr[5:0] + 6'd1) == block_data_length[7:2]) ||
+                    (eth_reg_raddr[5:0] == 6'h3f)) begin
                     nextState <= ST_SEND_DMA_PACKETDATA_CHECKSUM;
                     eth_read_en <= 0; // we are done
                 end
