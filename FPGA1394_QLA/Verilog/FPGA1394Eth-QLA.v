@@ -147,12 +147,14 @@ assign ETH_8n = 1;          // 16-bit bus
 // --------------------------------------------------------------------------
 // Chipscope debug
 // --------------------------------------------------------------------------
-wire[35:0] control_ksz;
+wire [35:0] control_ksz;
+wire [35:0] control_fw;
 //wire[35:0] control_eth;
 //wire[35:0] control_brd_reg;
 
 icon_ethernet icon_e(
-    .CONTROL0(control_ksz)
+    .CONTROL0(control_ksz),
+    .CONTROL1(control_fw)
 );
 
 wire[7:0] eth_port_debug;
@@ -182,6 +184,10 @@ HubReg hub(
 // --------------------------------------------------------------------------
 wire eth_send_fw_req;
 wire eth_send_fw_ack;
+wire[6:0] eth_fwpkt_raddr;
+wire[31:0] eth_fwpkt_rdata;
+wire[15:0] eth_fwpkt_len;
+   
 
 // phy-link interface
 PhyLinkInterface phy(
@@ -204,9 +210,14 @@ PhyLinkInterface phy(
 
     .eth_send_fw_req(eth_send_fw_req), // in: send req from eth
     .eth_send_fw_ack(eth_send_fw_ack), // out: ack send req to eth
+    .eth_fwpkt_raddr(eth_fwpkt_raddr), // out: eth fw packet addr
+    .eth_fwpkt_rdata(eth_fwpkt_rdata), // in: eth fw packet data
+    .eth_fwpkt_len(eth_fwpkt_len),     // out: eth fw packet length
                      
     .lreq_trig(fw_lreq_trig),  // out: phy request trigger
-    .lreq_type(fw_lreq_type)   // out: phy request type
+    .lreq_type(fw_lreq_type),  // out: phy request type
+
+    .ila_control(control_fw)   // in: control
 );
 
 
@@ -268,8 +279,6 @@ KSZ8851 EthernetChip(
     .DataOut(eth_from_chip),
     .eth_error(eth_error),              // error from lower layer (KSZ8851)
 
-    .sendReq(eth_send_req),
-    .sendAck(eth_send_ack),
     .ksz_isIdle(ksz_isIdle),
 
     .reg_wen(fw_reg_wen),          // in: write enable from FireWire
@@ -319,8 +328,11 @@ EthernetIO EthernetTransfers(
     .lreq_trig(eth_lreq_trig),  // out: phy request trigger
     .lreq_type(eth_lreq_type),   // out: phy request type
 
-    .eth_send_fw_req(eth_send_fw_req),
-    .eth_send_fw_ack(eth_send_fw_ack),
+    .eth_send_fw_req(eth_send_fw_req), // out: req to send fw pkt
+    .eth_send_fw_ack(eth_send_fw_ack), // in: ack from fw module
+    .eth_fwpkt_raddr(eth_fwpkt_raddr), // out: eth fw packet addr
+    .eth_fwpkt_rdata(eth_fwpkt_rdata), // in: eth fw packet data
+    .eth_fwpkt_len(eth_fwpkt_len),     // out: eth fw packet len
 
     .dbg_state_eth(dbg_state_eth),
     .dbg_nextState_eth(dbg_nextState_eth)

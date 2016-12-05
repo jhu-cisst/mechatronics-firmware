@@ -1,7 +1,7 @@
 ##############################################################
 #
 # Xilinx Core Generator version 13.4
-# Date: Sat Nov 26 04:10:35 2016
+# Date: Sun Dec  4 23:32:17 2016
 #
 ##############################################################
 #
@@ -43,7 +43,7 @@ CSET component_name=icon_ethernet
 CSET constraint_type=external
 CSET enable_jtag_bufg=true
 CSET example_design=false
-CSET number_control_ports=1
+CSET number_control_ports=2
 CSET use_ext_bscan=false
 CSET use_softbscan=false
 CSET use_unused_bscan=false
@@ -53,4 +53,4 @@ CSET user_scan_chain=USER1
 MISC pkg_timestamp=2012-01-07T09:19:07Z
 # END Extra information
 GENERATE
-# CRC: 27b3e020
+# CRC: 164a1862

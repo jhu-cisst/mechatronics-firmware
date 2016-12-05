@@ -8,7 +8,7 @@
 // \   \   \/     Version    : 13.4
 //  \   \         Application: Xilinx CORE Generator
 //  /   /         Filename   : icon_ethernet.v
-// /___/   /\     Timestamp  : Fri Nov 25 23:11:04 EST 2016
+// /___/   /\     Timestamp  : Sun Dec 04 18:32:46 EST 2016
 // \   \  /  \
 //  \___\/\___\
 //
@@ -19,9 +19,11 @@
 `timescale 1ns/1ps
 
 module icon_ethernet(
-    CONTROL0);
+    CONTROL0,
+    CONTROL1);
 
 
 inout [35 : 0] CONTROL0;
+inout [35 : 0] CONTROL1;
 
 endmodule

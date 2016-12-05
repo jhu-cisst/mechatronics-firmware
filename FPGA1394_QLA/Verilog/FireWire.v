@@ -24,6 +24,7 @@
  *     10/16/13    Zihan Chen          Modified to support hub capability
  *     10/28/13    Zihan Chen          Added seperate write address line
  *     08/23/14    Zihan Chen          Added support for Eth1394
+ *     12/02/16    Zihan Chen          Added packet forward from Ethernet
  */
 
 // LLC: link layer controller (implemented in this file)
@@ -185,10 +186,16 @@ module PhyLinkInterface(
     // eth/fw interface
     input wire eth_send_fw_req,   // request from ethernet to send fw pkt
     output reg eth_send_fw_ack,   // ack sent fw pkt
+    output reg[6:0] eth_fwpkt_raddr,  // firewire pkt read addr
+    input wire[31:0] eth_fwpkt_rdata, // firewire pkt read data
+    input wire[15:0] eth_fwpkt_len,   // firewire pkt len in bytes
 
     // transmit parameters
     output reg lreq_trig,         // trigger signal for a phy request
-    output reg[2:0] lreq_type     // type of request to give to the phy
+    output reg[2:0] lreq_type,    // type of request to give to the phy
+
+    // debug
+    input[35:0] ila_control       // ila control module
 );
 
 
@@ -409,7 +416,7 @@ begin
         blk_wen <= 0;             // keep block writes inactive by default
         lreq_trig <= 0;           // clear the phy request trigger
         lreq_type <= 0;           // set phy request type to known value
-        fw_node_id <= 0;             // hope phy updates this during self-id
+        fw_node_id <= 0;          // hope phy updates this during self-id
         bus_id <= 10'h3ff;        // set default bus_id to 10'h3ff
         reg_raddr <= 0;           // set reg address to known value
         reg_waddr <= 0;           // set reg address to known value
@@ -420,8 +427,14 @@ begin
         data_block <= 0;          // indicates data portion of block writes
     end
 
-    // phy-link state machine
     else begin
+
+        // Remove cmdAck when cmdReq is negated
+        if (eth_send_fw_ack && !eth_send_fw_req) begin
+            eth_send_fw_ack <= 0;
+        end
+
+        // phy-link state machine
         case (state)
 
         /***********************************************************************
@@ -445,6 +458,14 @@ begin
                         lreq_trig <= 1;
                         lreq_type <= `LREQ_TX_ISO;
                         tx_type <= `TX_TYPE_BBC;
+                    end
+                    else if (eth_send_fw_req) begin
+                        eth_send_fw_ack <= 1;
+                        lreq_trig <= 1;
+                        lreq_type <= `LREQ_TX_ISO;
+                        tx_type <= `TX_TYPE_FWD;
+                        eth_fwpkt_raddr <= 7'h00;
+                        numbits <= (eth_fwpkt_len << 3);
                     end
                     else begin
                         lreq_trig <= 0;
@@ -556,7 +577,7 @@ begin
                         // latch data from data block on quadlet boundaries
                         if (count[4:0] == 0) begin
                             // Clear write started signal
-                            blk_wstart <= 0;  
+                            blk_wstart <= 0;
 
                             // main address: special case
                             if (reg_waddr[15:12]==`ADDR_MAIN) begin
@@ -576,7 +597,7 @@ begin
                             end
                             // other space
                             else begin
-                                // block write 
+                                // block write
                                 //    1 - hub regs
                                 //    2 - prom (M25P16)
                                 //    3 - prom (25AA128)
@@ -636,7 +657,7 @@ begin
                             end
 
                             // process broadcast packets (NOTE: broadcast is write only)
-                            else if (buffer[31:16] == 16'hffff) begin                                
+                            else if (buffer[31:16] == 16'hffff) begin
                                // no response for bc packets
                                lreq_trig <= 0;
                                lreq_type <= `LREQ_RES;
@@ -651,7 +672,7 @@ begin
                                 end
                             end
                             // unknown ignore
-                            else begin  
+                            else begin
                                 rx_active <= 0;
                                 lreq_trig <= 0;
                                 lreq_type <= `LREQ_RES;
@@ -792,9 +813,9 @@ begin
                     //   & - bitwise AND
                     //   result is a 1-bit and assigned to reg_wen 
                     //   NO quadlet write event for bc read request
-                    reg_wen <= (rx_active & (rx_tcode==`TC_QWRITE) & (rx_bc_bread == 1'b0));  // ??? SHOULD WE 
+                    reg_wen <= (rx_active & (rx_tcode==`TC_QWRITE) & (rx_bc_bread == 1'b0));
                     // reg_wen <= (rx_active & (rx_tcode==`TC_QWRITE)); 
-                    blk_wen <= (rx_active & ((rx_tcode==`TC_QWRITE) | (rx_tcode==`TC_BWRITE))); 
+                    blk_wen <= (rx_active & ((rx_tcode==`TC_QWRITE) | (rx_tcode==`TC_BWRITE)));
                 end
 
                 // -------------------------------------------------------------
@@ -867,7 +888,10 @@ begin
 
             // transmit packet from Ethernet
             `TX_TYPE_FWD: begin
-               next <= ST_TX_FWD;
+                buffer <= eth_fwpkt_rdata;
+                next <= ST_TX_FWD;
+                numbits <= (eth_fwpkt_len << 3);  // len in bytes => in bits
+                eth_fwpkt_raddr <= eth_fwpkt_raddr + 1'b1;
             end
             
             // for crc/unknown errors, send an error ack
@@ -1194,12 +1218,11 @@ begin
               data <= txmsb8b;
               buffer <= buffer << 8;
               count <= count + 16'd8;
-              crc_in <= crc_8b;   // ? probably not necessary
 
               // latch data & update address
               if (count[4:0] == 5'd24) begin
-                 reg_raddr <= reg_raddr + 1'b1;
-                 buffer <= reg_rdata;
+                 eth_fwpkt_raddr <= eth_fwpkt_raddr + 1'b1;
+                 buffer <= eth_fwpkt_rdata;
               end
            end
         end // case: ST_TX_FWD
@@ -1234,6 +1257,19 @@ begin
         endcase
     end
 end
+
+
+
+// debug hub timing
+ila_fw_packet ila_hw(
+    .CONTROL(ila_control),
+    .CLK(sysclk),
+    .TRIG0({state, next}),
+    .TRIG1(eth_fwpkt_rdata),
+    .TRIG2(eth_fwpkt_raddr),
+    .TRIG3(ctl),
+    .TRIG4(data)
+);
 
 endmodule  // PhyLinkInterface
 

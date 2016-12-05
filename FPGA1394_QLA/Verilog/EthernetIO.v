@@ -90,9 +90,13 @@ module EthernetIO(
     output reg lreq_trig,         // trigger signal for a FireWire phy request
     output reg[2:0] lreq_type,    // type of request to give to the FireWire phy
 
+    // Interface to/from FireWire module
     output reg eth_send_fw_req,   // reqest to send firewire packet
     input wire eth_send_fw_ack,   // ack from firewire module
-    
+    input  wire[6:0] eth_fwpkt_raddr,
+    output wire[31:0] eth_fwpkt_rdata,
+    output wire[15:0] eth_fwpkt_len,  // eth received fw pkt length 
+
     // Interface to Chipscope icon
     output wire[5:0] dbg_state_eth,
     output wire[5:0] dbg_nextState_eth
@@ -193,6 +197,7 @@ reg[1:0] waitInfo;
 // Following flags are set based on the destination address. Note that a
 // a FireWire broadcast packet will set both isLocal and isRemote.
 wire isLocal;       // 1 -> FireWire packet should be processed locally
+
 wire isRemote;      // 1 -> FireWire packet should be forwarded
 
 wire quadRead;
@@ -235,7 +240,8 @@ reg[6:0] block_index;  // Index into data block (5-70)
 
 reg[15:0] destMac[0:2];  // Not currently used
 reg[15:0] srcMac[0:2];
-reg[15:0] Length;        // Not currently used
+reg[15:0] LengthFW;        // fw packet length in bytes
+assign eth_fwpkt_len = LengthFW;
 
 // Firewire packet received from host
 //    - 16 bytes (4 quadlets) for quadlet read request
@@ -252,8 +258,10 @@ reg[15:0] Length;        // Not currently used
 // To summarize, maximum size in quadlets would be 71.
 // For now, we will make the buffer big enough to hold 71 quadlets.
 // reg[31:0] FireWirePacket[0:70];  // FireWire packet memory (max 71 quadlets)
+// Allocate pow(2,7) = 128 quadlets
 reg [31:0] FireWirePacket[0:127];
 assign reg_rdata = FireWirePacket[reg_raddr[6:0]];
+assign eth_fwpkt_rdata = FireWirePacket[eth_fwpkt_raddr[6:0]];
    
 
 wire[3:0] fw_tcode;            // FireWire transaction code
@@ -333,7 +341,7 @@ always @(posedge sysclk or negedge reset) begin
        srcMac[0] <= 16'd0;
        srcMac[1] <= 16'd0;
        srcMac[2] <= 16'd0;
-       Length <= 16'd0;
+       LengthFW <= 16'd0;
        eth_read_en <= 0;
        eth_reg_wen <= 0;
        eth_block_wen <= 0;
@@ -345,6 +353,11 @@ always @(posedge sysclk or negedge reset) begin
        block_index <= 0;
     end
     else begin
+
+       // Clear eth_send_fw_req flag
+       if (eth_send_fw_req && eth_send_fw_ack) begin
+          eth_send_fw_req <= 0;
+       end
 
        case (state)
          ST_IDLE:
@@ -776,7 +789,7 @@ always @(posedge sysclk or negedge reset) begin
               3'd3: srcMac[0] <= ReadData;
               3'd4: srcMac[1] <= ReadData;
               3'd5: srcMac[2] <= ReadData;
-              3'd6: Length <= {ReadData[7:0],ReadData[15:8]}; 
+              3'd6: LengthFW <= {ReadData[7:0],ReadData[15:8]}; 
             endcase
             if (count[2:0] == 3'd6) begin
                // Maximum data length is currently 284 bytes (block write to PROM); as a sanity
@@ -823,6 +836,8 @@ always @(posedge sysclk or negedge reset) begin
                // normal completion
                state <= ST_RECEIVE_FLUSH_START;
                if (isRemote) begin
+                  // Request to forward pkt
+                  eth_send_fw_req <= 1;
                end
             end
             else if (count == 8'd141) begin

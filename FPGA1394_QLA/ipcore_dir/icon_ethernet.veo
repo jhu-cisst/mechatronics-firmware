@@ -8,7 +8,7 @@
 // \   \   \/     Version    : 13.4
 //  \   \         Application: Xilinx CORE Generator
 //  /   /         Filename   : icon_ethernet.veo
-// /___/   /\     Timestamp  : Fri Nov 25 23:11:04 EST 2016
+// /___/   /\     Timestamp  : Sun Dec 04 18:32:46 EST 2016
 // \   \  /  \
 //  \___\/\___\
 //
@@ -21,7 +21,8 @@
 
 //----------- Begin Cut here for INSTANTIATION Template ---// INST_TAG
 icon_ethernet YourInstanceName (
-    .CONTROL0(CONTROL0) // INOUT BUS [35:0]
+    .CONTROL0(CONTROL0), // INOUT BUS [35:0]
+    .CONTROL1(CONTROL1) // INOUT BUS [35:0]
 );
 
 // INST_TAG_END ------ End INSTANTIATION Template ---------
