@@ -1204,23 +1204,47 @@ always @(posedge sysclk or negedge reset) begin
             end
             if (count[1:0] == 2'd3) begin
                 count[1:0] <= 2'd0;
-                if (addrMain) begin
-                   nextState <= ST_SEND_DMA_PACKETDATA_BLOCK_MAIN;
-                end
-                else if (addrHub) begin
-                   // TODO: implement read from Hub (for now, abort)
-                   nextState <= ST_SEND_DMA_STOP_READ;
-                end
-                else if (addrPROM || addrQLA) begin
-                   // Get ready to read data
-                   eth_read_en <= 1;
-                   eth_reg_raddr[7:0] <= 8'd0;  // Just to be sure
-                   nextState <= ST_SEND_DMA_PACKETDATA_BLOCK_PROM;
-                end
-                else begin
-                   // Abort and let the KSZ8851 chip pad the packet
-                   nextState <= ST_SEND_DMA_STOP_READ;
-                end
+
+               case (FireWirePacket[2][15:12])
+               `ADDR_MAIN: 
+               begin
+                  nextState <= ST_SEND_DMA_PACKETDATA_BLOCK_MAIN;
+               end
+               `ADDR_PROM_QLA, `ADDR_PROM:
+               begin
+                  // Get ready to read data
+                  eth_read_en <= 1;
+                  eth_reg_raddr[7:0] <= 8'd0;  // Just to be sure
+                  nextState <= ST_SEND_DMA_PACKETDATA_BLOCK_PROM;
+               end
+               `ADDR_HUB, `ADDR_ETH, `ADDR_FW:
+               begin
+                  // TODO: implement read from Hub (for now, abort)
+                  eth_read_en <= 1;
+                  nextState <= ST_SEND_DMA_PACKETDATA_BLOCK_PROM;
+               end
+               default:
+               begin
+                  // Abort and let the KSZ8851 chip pad the packet
+                  nextState <= ST_SEND_DMA_STOP_READ;
+               end
+               endcase
+                // if (addrMain) begin
+                //    nextState <= ST_SEND_DMA_PACKETDATA_BLOCK_MAIN;
+                // end
+                // else if (addrHub) begin
+
+                // end
+                // else if (addrPROM || addrQLA) begin
+                //    // Get ready to read data
+                //    eth_read_en <= 1;
+                //    eth_reg_raddr[7:0] <= 8'd0;  // Just to be sure
+                //    nextState <= ST_SEND_DMA_PACKETDATA_BLOCK_PROM;
+                // end
+                // else begin
+                //    // Abort and let the KSZ8851 chip pad the packet
+                //    nextState <= ST_SEND_DMA_STOP_READ;
+                // end
             end
             else begin
                 nextState <= ST_SEND_DMA_PACKETDATA_BLOCK_START;

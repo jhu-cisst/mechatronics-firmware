@@ -193,7 +193,7 @@ module PhyLinkInterface(
     output reg eth_send_req,         // request to send ethernet packet
     input wire eth_send_ack,         // ack from ethernet module
     input wire[6:0] eth_send_addr,   // packet address bus
-    output reg[31:0] eth_send_data,  // packet data bus
+    output wire[31:0] eth_send_data, // packet data bus
     output reg[15:0] eth_send_len,   // packet data len
 
     // transmit parameters
@@ -281,8 +281,7 @@ module PhyLinkInterface(
     reg ts_reset;                 // timestamp counter reset signal
     reg data_block;               // flag for block write data being received
     
-    // ----- hub -------
-    
+    // ----- hub -------    
     parameter num_channels = 4;
 
     // state machine states
@@ -349,6 +348,19 @@ assign dev_addr[1] = 4'd5;        // enc position address
 assign dev_addr[2] = 4'd6;        // enc period address
 assign dev_addr[3] = 4'd7;        // enc frequency address
 
+// packet module (used to store FireWire packet)
+reg pkt_mem_wen;
+reg [6:0] pkt_mem_waddr;
+reg [31:0] pkt_mem_wdata;
+pkt_mem_gen pkt_mem(.clka(sysclk),
+                    .wea(pkt_mem_wen),
+                    .addra(pkt_mem_waddr),
+                    .dina(pkt_mem_wdata),
+                    .clkb(sysclk),
+                    .addrb(eth_send_addr),
+                    .doutb(eth_send_data)
+                    );
+   
 // -------------------------------------------------------
 // Timestamp 
 // -------------------------------------------------------
@@ -437,8 +449,13 @@ begin
 
         // Remove cmdAck when cmdReq is negated
         if (eth_send_fw_ack && !eth_send_fw_req) begin
-            eth_send_fw_ack <= 0;
+            eth_send_fw_ack <= 1'b0;
         end
+
+       // Remove eth_send_req when eth_send_ack is negated
+       if (eth_send_req && !eth_send_ack) begin
+          eth_send_req <= 1'b0;
+       end
 
         // phy-link state machine
         case (state)
@@ -552,6 +569,7 @@ begin
                     crc_in <= `CRC_INIT;            // start crc calculation
                     crc_ini <= 0;                   // clear the crc reset flag
                     data_block <= 0;                // clear block write flag
+                    pkt_mem_waddr <= (7'd0 - 7'd2); // set pkt mem addr, dump 2
                 end
                 default: state <= ST_IDLE;          // null packet or error
             endcase
@@ -576,6 +594,16 @@ begin
                     // ---------------------------------------------------------
                     // process block write data portion of incoming packet
                     //
+
+                    // store packet
+                    if (count[4:0] == 0) begin
+                       pkt_mem_wen <= 1'b1;
+                       pkt_mem_waddr <= pkt_mem_waddr + 7'd1;
+                       pkt_mem_wdata <= buffer;
+                    end
+                    else begin
+                       pkt_mem_wen <= 1'b0;
+                    end
                     
                     // now process data
                     if (data_block) begin
@@ -1195,7 +1223,7 @@ begin
                             reg_raddr[4:0] <= reg_raddr[4:0] + 1'b1;
                         end
                     end
-                    else begin   // PROM & PROM_QLA
+                    else begin   // PROM & PROM_QLA // ETH // FW
                         reg_raddr[5:0] <= reg_raddr[5:0] + 1'b1;
                     end
                 end

@@ -36,6 +36,7 @@
 `define ADDR_PROM     4'h2         // prom address space
 `define ADDR_PROM_QLA 4'h3         // prom qla address space
 `define ADDR_ETH      4'h4         // ethernet (firewire packet) address space
+`define ADDR_FW       4'h5         // firewire packet address space
 
 // channel 0 (board) registers
 `define REG_STATUS   4'd0          // board id (8), fault (8), enable/masks (16)

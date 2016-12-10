@@ -122,15 +122,17 @@ assign lreq_type = eth_lreq_trig ? eth_lreq_type : fw_lreq_type;
 //     addr[15:12]  main | hub | prom | prom_qla | eth
 
 // route HubReg data to global reg_rdata
-wire[31:0] reg_rdata_hub;       // reg_rdata_hub is for hub memory
+wire [31:0] reg_rdata_hub;      // reg_rdata_hub is for hub memory
 wire [31:0] reg_rdata_prom;     // reg_rdata_prom is for block reads from PROM
-wire[31:0] reg_rdata_prom_qla;  // reads from QLA prom
-wire[31:0] reg_rdata_eth;       // for eth memory access
+wire [31:0] reg_rdata_prom_qla; // reads from QLA prom
+wire [31:0] reg_rdata_eth;      // for eth memory access
+wire [31:0] reg_rdata_fw;       // for fw memory access
 assign reg_rdata = (reg_raddr[15:12]==`ADDR_HUB) ? (reg_rdata_hub) :
                   ((reg_raddr[15:12]==`ADDR_PROM) ? (reg_rdata_prom) :
                   ((reg_raddr[15:12]==`ADDR_PROM_QLA) ? (reg_rdata_prom_qla) : 
-                  ((reg_raddr[15:12]==`ADDR_ETH) ? (reg_rdata_eth) : 
-                  ((reg_raddr[7:4]==4'd0) ? reg_rdata_chan0 : reg_rd[reg_raddr[3:0]]))));
+                  ((reg_raddr[15:12]==`ADDR_ETH) ? (reg_rdata_eth) :
+                  ((reg_raddr[15:12]==`ADDR_FW) ? (reg_rdata_fw) :
+                  ((reg_raddr[7:4]==4'd0) ? reg_rdata_chan0 : reg_rd[reg_raddr[3:0]])))));
 
 
 // 1394 phy low reset, never reset
@@ -187,6 +189,12 @@ wire eth_send_fw_ack;
 wire[6:0] eth_fwpkt_raddr;
 wire[31:0] eth_fwpkt_rdata;
 wire[15:0] eth_fwpkt_len;
+
+wire eth_send_req;
+wire eth_send_ack;
+wire [6:0] eth_send_addr;
+wire [31:0] eth_send_data;
+wire [15:0] eth_send_len;
    
 
 // phy-link interface
@@ -213,6 +221,14 @@ PhyLinkInterface phy(
     .eth_fwpkt_raddr(eth_fwpkt_raddr), // out: eth fw packet addr
     .eth_fwpkt_rdata(eth_fwpkt_rdata), // in: eth fw packet data
     .eth_fwpkt_len(eth_fwpkt_len),     // out: eth fw packet length
+
+    .eth_send_req(eth_send_req),
+    .eth_send_ack(eth_send_ack),
+    .eth_send_addr(reg_raddr[6:0]),
+    .eth_send_data(reg_rdata_fw),
+    // .eth_send_addr(eth_send_addr),
+    // .eth_send_data(eth_send_data),
+    .eth_send_len(eth_send_len),
                      
     .lreq_trig(fw_lreq_trig),  // out: phy request trigger
     .lreq_type(fw_lreq_type),  // out: phy request type
@@ -249,11 +265,6 @@ wire[15:0] eth_from_chip;
 wire eth_error;
 
 wire eth_recv_enabled;  // for debugging
-wire eth_send_req;
-wire eth_send_ack;
-wire [6:0] eth_send_addr;
-wire [31:0] eth_send_data;
-wire [15:0] eth_send_len;
    
 wire ksz_isIdle;
 wire[31:0] Eth_Result;
