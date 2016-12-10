@@ -190,6 +190,12 @@ module PhyLinkInterface(
     input wire[31:0] eth_fwpkt_rdata, // firewire pkt read data
     input wire[15:0] eth_fwpkt_len,   // firewire pkt len in bytes
 
+    output reg eth_send_req,         // request to send ethernet packet
+    input wire eth_send_ack,         // ack from ethernet module
+    input wire[6:0] eth_send_addr,   // packet address bus
+    output reg[31:0] eth_send_data,  // packet data bus
+    output reg[15:0] eth_send_len,   // packet data len
+
     // transmit parameters
     output reg lreq_trig,         // trigger signal for a phy request
     output reg[2:0] lreq_type,    // type of request to give to the phy
@@ -1266,7 +1272,7 @@ ila_fw_packet ila_hw(
     .CLK(sysclk),
     .TRIG0({state, next}),
     .TRIG1(eth_fwpkt_rdata),
-    .TRIG2(eth_fwpkt_raddr),
+    .TRIG2({9'd0, eth_fwpkt_raddr}),
     .TRIG3(ctl),
     .TRIG4(data)
 );

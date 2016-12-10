@@ -55,6 +55,9 @@ module EthernetIO(
     output wire[31:16] eth_status,
     input wire sendReq,
     output reg sendAck,
+    output reg[6:0] sendAddr,
+    input wire[31:0] sendData,
+    input wire[15:0] sendLen,
     input wire ksz_isIdle,
 
     // Register interface
@@ -173,20 +176,21 @@ localparam [5:0]
     ST_SEND_DMA_PACKETDATA_BLOCK_CHANNEL = 6'd52,
     ST_SEND_DMA_PACKETDATA_BLOCK_PROM = 6'd53,
     ST_SEND_DMA_PACKETDATA_CHECKSUM = 6'd54,
-    ST_SEND_DMA_STOP_READ = 6'd55,
-    ST_SEND_DMA_STOP_WRITE = 6'd56,
-    ST_SEND_TXQ_ENQUEUE_START = 6'd57,
-    ST_SEND_TXQ_ENQUEUE_END = 6'd58,
-    ST_SEND_TXQ_ENQUEUE_WAIT_START = 6'd59,
-    ST_SEND_TXQ_ENQUEUE_WAIT_CHECK = 6'd60,
-    ST_SEND_END = 6'd61;
+    ST_SEND_DMA_FWD = 6'd55,
+    ST_SEND_DMA_STOP_READ = 6'd56,
+    ST_SEND_DMA_STOP_WRITE = 6'd57,
+    ST_SEND_TXQ_ENQUEUE_START = 6'd58,
+    ST_SEND_TXQ_ENQUEUE_END = 6'd59,
+    ST_SEND_TXQ_ENQUEUE_WAIT_START = 6'd60,
+    ST_SEND_TXQ_ENQUEUE_WAIT_CHECK = 6'd61,
+    ST_SEND_END = 6'd62;
 
 // Debugging support
 assign eth_io_isIdle = (state == ST_IDLE) ? 1'b1 : 1'b0;
 
 // Keep track of areas where state machine may wait
 // for unknown amount of time (for debugging)
-parameter[1:0]
+localparam [1:0]
     WAIT_NONE = 0,
     WAIT_ACK = 1,
     WAIT_ACK_CLEAR = 2,
@@ -197,7 +201,6 @@ reg[1:0] waitInfo;
 // Following flags are set based on the destination address. Note that a
 // a FireWire broadcast packet will set both isLocal and isRemote.
 wire isLocal;       // 1 -> FireWire packet should be processed locally
-
 wire isRemote;      // 1 -> FireWire packet should be forwarded
 
 wire quadRead;
@@ -293,8 +296,14 @@ assign addrHub = (FireWirePacket[2][15:12] == `ADDR_HUB) ? 1'd1 : 1'd0;
 assign addrPROM = (FireWirePacket[2][15:12] == `ADDR_PROM) ? 1'd1 : 1'd0;
 assign addrQLA  = (FireWirePacket[2][15:12] == `ADDR_PROM_QLA) ? 1'd1 : 1'd0;
 
+
+// ----------------------------------------
+// Forward forward packet
+// ----------------------------------------
+reg isForward = 0;
+
 // TEMP: Timestamp copied from Firewire.v -- should consolidate
-reg[31:0] timestamp;          // timestamp counter register
+reg[31:0]  timestamp;          // timestamp counter register
 reg ts_reset;                 // timestamp counter reset signal
 // -------------------------------------------------------
 // Timestamp
@@ -356,7 +365,11 @@ always @(posedge sysclk or negedge reset) begin
 
        // Clear eth_send_fw_req flag
        if (eth_send_fw_req && eth_send_fw_ack) begin
-          eth_send_fw_req <= 0;
+          eth_send_fw_req <= 1'd0;
+       end
+
+       if (sendAck && !sendReq) begin
+          sendAck <= 1'd0;
        end
 
        case (state)
@@ -395,6 +408,7 @@ always @(posedge sysclk or negedge reset) begin
                // but will need a way to specify what is to be sent
                // (e.g., FireWirePacket).
                state <= ST_SEND_START;
+               isForward <= 1;
                sendAck <= 1;
             end
          end
@@ -1048,11 +1062,16 @@ always @(posedge sysclk or negedge reset) begin
          ST_SEND_DMA_BYTECOUNT:
          begin
             cmdReq <= 1;
-            // Set byte count:
-            //   + 34 for quadlet read response (14+20)
-            //   + (14+24+block_data_length) for block read response
-            //     (block_data_length must be a multiple of 4)
-            WriteData <= quadRead ? 16'd34 : (16'd38 + block_data_length);
+            if (~isForward) begin
+               // Set byte count:
+               //   + 34 for quadlet read response (14+20)
+               //   + (14+24+block_data_length) for block read response
+               //     (block_data_length must be a multiple of 4)
+               WriteData <= quadRead ? 16'd34 : (16'd38 + block_data_length);
+            end
+            else begin
+               WriteData <= 16'd14 + sendLen;
+            end
             state <= ST_WAIT_ACK;
             nextState <= ST_SEND_DMA_DESTADDR;
             count <= 8'd0;
@@ -1100,10 +1119,22 @@ always @(posedge sysclk or negedge reset) begin
             cmdReq <= 1;
             state <= ST_WAIT_ACK;
             count <= 8'd0;
-            // 20 bytes for quadlet read response
-            // (24 + block_data_length) bytes for block read response
-            WriteData <= quadRead ? 16'd20 : (16'd24 + block_data_length);
-            nextState <= ST_SEND_DMA_PACKETDATA_HEADER;
+
+            if (~isForward) begin
+               // 20 bytes for quadlet read response
+               // (24 + block_data_length) bytes for block read response
+               WriteData <= quadRead ? 16'd20 : (16'd24 + block_data_length);
+               nextState <= ST_SEND_DMA_PACKETDATA_HEADER;
+            end
+            else begin
+               WriteData <= sendLen;
+               nextState <= ST_SEND_DMA_FWD;
+               sendAddr <= 7'd0;
+               count <= 8'd0;
+               maxCount <= sendLen[8:1] - 8'd1;
+               isForward <= 1'd0;
+            end
+
          end
 
          // Send first 5 quadlets, which are nearly identical between quadlet read response
@@ -1322,6 +1353,17 @@ always @(posedge sysclk or negedge reset) begin
             WriteData <= 16'd0;    // Checksum currently not set
             state <= ST_WAIT_ACK;
             nextState <= (count[0] == 0) ? ST_SEND_DMA_PACKETDATA_CHECKSUM : ST_SEND_DMA_STOP_READ;
+         end
+
+         ST_SEND_DMA_FWD:
+         begin
+            count <= count + 8'd1;
+            cmdReq <= 1;
+            isWrite <= 1;
+            WriteData <= (count[0] == 0) ? sendData[15:0] : sendData[31:16];
+            if (count[0] == 1) sendAddr <= sendAddr + 7'd1;
+            state <= ST_WAIT_ACK;
+            nextState <= (count == maxCount) ? ST_SEND_DMA_STOP_READ : ST_SEND_DMA_FWD;
          end
 
          ST_SEND_DMA_STOP_READ:

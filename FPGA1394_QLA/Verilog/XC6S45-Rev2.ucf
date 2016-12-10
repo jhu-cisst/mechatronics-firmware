@@ -102,9 +102,9 @@ TIMESPEC "TS_CLK_IN1394x" = PERIOD "CLK_IN1394x" 20.345 ns HIGH 50% INPUT_JITTER
 ################################################################################
 # Serial Interface (shared with Soft JTAG)
 ################################################################################
-NET  "RxD"        LOC = "B20"     | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "TxD"        LOC = "A21"     | IOSTANDARD = "LVCMOS33";
-NET  "RTS"        LOC = "A20"     | IOSTANDARD = "LVCMOS33" | PULLUP;
+# NET  "RxD"        LOC = "B20"     | IOSTANDARD = "LVCMOS33" | PULLUP;
+# NET  "TxD"        LOC = "A21"     | IOSTANDARD = "LVCMOS33";
+# NET  "RTS"        LOC = "A20"     | IOSTANDARD = "LVCMOS33" | PULLUP;
 # NET  "CTS"        LOC = "B21"   | IOSTANDARD = "LVCMOS33";
 
 ################################################################################

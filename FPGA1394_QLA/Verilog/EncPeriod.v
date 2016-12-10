@@ -96,9 +96,8 @@ module EncPeriodQuad(
     input wire reset,         // global reset signal
     input wire a,             // quad encoder line a
     input wire b,             // quad encoder line b
-    input wire dir,           // dir from EncQuad 
-    output reg[31:0] period, // num of fast clock ticks 
-    inout wire[35:0] control0 // cp debug control line
+    input wire dir,           // dir from EncQuad
+    output reg[31:0] period   // num of fast clock ticks
 );
 
     reg[1:0] mux;

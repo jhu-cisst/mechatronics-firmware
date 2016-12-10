@@ -44,9 +44,9 @@ module FPGA1394EthQLA
     inout [15:0]     SD,
 
     // serial interface
-    input wire 	     RxD,
-    input wire 	     RTS,
-    output wire      TxD,
+    // input wire 	     RxD,
+    // input wire 	     RTS,
+    // output wire       TxD,
 
     // debug I/Os
     input wire       clk25m,    // 25.0000 MHz 
@@ -251,6 +251,10 @@ wire eth_error;
 wire eth_recv_enabled;  // for debugging
 wire eth_send_req;
 wire eth_send_ack;
+wire [6:0] eth_send_addr;
+wire [31:0] eth_send_data;
+wire [15:0] eth_send_len;
+   
 wire ksz_isIdle;
 wire[31:0] Eth_Result;
 
@@ -263,8 +267,6 @@ KSZ8851 EthernetChip(
     .ETH_RDn(ETH_RDn),        // out: read strobe to KSZ8851
     .ETH_WRn(ETH_WRn),        // out: write strobe to KSZ8851
     .SD(SD),                  // inout: addr/data bus to KSZ8851
-    .ETH_IRQn(ETH_IRQn),      // in: interrupt request from KSZ8851
-    .ETH_PME(ETH_PME),        // in: power management event
 
     .initReq(eth_init_req),
     .initAck(eth_init_ack),
@@ -289,6 +291,7 @@ KSZ8851 EthernetChip(
     .dbg_state(dbg_state)
 );
 
+
 EthernetIO EthernetTransfers(
     .sysclk(sysclk),          // in: global clock
     .reset(reset),            // in: FPGA reset
@@ -298,6 +301,9 @@ EthernetIO EthernetTransfers(
     .eth_status(Eth_Result[31:16]),
     .sendReq(eth_send_req),
     .sendAck(eth_send_ack),
+    .sendAddr(eth_send_addr),
+    .sendData(eth_send_data),
+    .sendLen(eth_send_len),
     .ksz_isIdle(ksz_isIdle),
 
     .reg_rdata(reg_rdata_eth),
@@ -637,92 +643,6 @@ SafetyCheck safe4(
     .amp_disable(safety_amp_disable[4])
 );
 
-
-//------------------------------------------------------------------------------
-// USB Serial 
-//
-
-wire clkfb;    // Clock feedback
-wire _out29;   // 29.491 MHz Clock signal
-wire _out14;   // 14.746 MHz Clock signal
-wire _ref25;   // 25.000 MHz Clock reference (Input)
-
-//-----------------------------------------------------------------------------
-//
-// Input/Output Buffering
-//
-//   The Inputs/Outputs of the PLL module are regular signals, NOT clocks.
-//
-//   The output signals have to connected to BUFG buffers, which are among the
-//   specialized primitives that can drive the global clock lines.
-//
-//   Similarly, an external reference clock connected to a clock pin on the
-//   FPGA needs to be routed through an IBUFG primitive to get an ordinary
-//   signal that can be used by the PLL Module
-//
-//-----------------------------------------------------------------------------
-BUFG  clk_buf1 (.I(clk25m),  .O(_ref25));
-BUFG  clk_buf2 (.I(_out29),  .O(clk_29_pll));
-BUFG  clk_buf3 (.I(_out14),  .O(clk_14_pll));
-
-//-----------------------------------------------------------------------------
-//
-// PLL Primitive
-//
-//   The "Base PLL" primitive has a PLL, a feedback path and 6 clock outputs,
-//   each with its own 7 bit divider to generate 6 different output frequencies
-//   that are integer division of the PLL frequency. The "Base" PLL provides
-//   basic PLL/Clock-Generation capabilities. For detailed information, see
-//   Chapter 3, "General Usage Description" section of the Spartan-6 FPGA 
-//   Clocking Resource, Xilinx Document # UG382.
-//
-//   The PLL has a dedicated Feedback Output and Feedback Input. This output
-//   must be connected to this input outside the primitive. For applications
-//   where the phase relationship between the reference input and the output
-//   clock is not critical (present application), this connection can be made
-//   in the module. Where this phase relationship is critical, the feedback
-//   path can include routing on the FPGA or even off-chip connections.
-//
-//   The Input/Output of the PLL module are ordinary signals, NOT clocks.
-//   These signals must be routed through specialized buffers in order for
-//   them to be connected to the global clock buses and be used as clocks.
-//
-//-----------------------------------------------------------------------------
-PLL_BASE # (.BANDWIDTH         ("OPTIMIZED"),
-            .CLK_FEEDBACK      ("CLKFBOUT"),
-            .COMPENSATION      ("INTERNAL"),
-            .DIVCLK_DIVIDE     (1),
-            .CLKFBOUT_MULT     (20),        // VCO = 25.000* 20/1 = 500.0000MHz
-            .CLKFBOUT_PHASE    (0.000),
-            .CLKOUT0_DIVIDE    (  17  ),    // CLK0 = 500.00/17 = 29.412
-            .CLKOUT0_PHASE     (  0.00),
-            .CLKOUT0_DUTY_CYCLE(  0.50),
-            .CLKOUT1_DIVIDE    (  34  ),    // CLK1 = 500.00/34 = 14.706
-            .CLKOUT1_PHASE     (  0.00),
-            .CLKOUT1_DUTY_CYCLE(  0.50),
-            .CLKOUT2_DIVIDE    (  32  ),    // Unused Output. The divider still needs a
-            .CLKOUT3_DIVIDE    (  32  ),    //    reasonable value because the clock is
-            .CLKOUT4_DIVIDE    (  32  ),    //    still being generated even if unconnected.
-            .CLKOUT5_DIVIDE    (  32  ))    //
-_PLL1 (     .CLKFBOUT          (clkfb),     // The FB-Out is connected to FB-In inside
-            .CLKFBIN           (clkfb),     //    the module.
-            .CLKIN             (_ref25),    // 25.00 MHz reference clock
-            .CLKOUT0           (_out29),    // 29.49 MHz Output signal
-            .CLKOUT1           (_out14),    // 14.75 MHz Output signal
-            .CLKOUT2           (),          // Unused outputs
-            .CLKOUT3           (),          //
-            .CLKOUT4           (),          //
-            .CLKOUT5           (),          //
-            .LOCKED            (),          //
-            .RST               (1'b0));     // Reset Disable
-
-CtrlUart uart_debug(
-    .clk_14_pll(clk_14_pll),  // not used
-    .clk_29_pll(clk_29_pll),
-    .reset(reset),
-    .RxD(RxD),
-    .TxD(TxD)
-);
 
 //------------------------------------------------------------------------------
 // debugging, etc.

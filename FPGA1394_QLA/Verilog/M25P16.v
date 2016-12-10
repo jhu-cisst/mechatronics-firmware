@@ -86,7 +86,6 @@ reg [6:0] rd_index;          // Current read index (7-bit), incremented in this 
 
 // local wires
 wire prom_reg_wen;       // main quadlet reg interface
-wire prom_blk_enable;    // prom block interface
 wire prom_blk_wen;
 wire prom_blk_start;  
 wire prom_blk_end;
@@ -94,7 +93,6 @@ wire[5:0] prom_blk_raddr;   // data block read address
 wire[5:0] prom_blk_waddr;   // data block write address
 
 assign prom_reg_wen = (reg_waddr == {`ADDR_MAIN, 4'h0, 8'h08}) ? reg_wen : 1'b0;
-assign prom_blk_enable = (reg_waddr[15:12] == `ADDR_PROM) ? 1'b1 : 1'b0;
 assign prom_blk_wen = (reg_waddr[15:12] == `ADDR_PROM) ? reg_wen : 1'b0;
 assign prom_blk_start = (reg_waddr[15:12] == `ADDR_PROM) ? blk_wstart : 1'b0;
 assign prom_blk_end = (reg_waddr[15:12] == `ADDR_PROM) ? blk_wen : 1'b0;

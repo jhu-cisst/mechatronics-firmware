@@ -63,8 +63,6 @@ module KSZ8851(
     output reg ETH_RDn,   // read strobe (active low)
     output reg ETH_WRn,   // write strobe (active low)
     inout[15:0] SD,       // address/data bus
-    input wire ETH_IRQn,  // interrupt request
-    input wire ETH_PME,   // power management event
 
     // Interface to/from higher level (EthernetIO.v)
     output reg initReq,           // 1 -> Chip has been reset; higher-level initialization requested
