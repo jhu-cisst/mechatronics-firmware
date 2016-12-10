@@ -56,8 +56,8 @@
 
 
 module QLA25AA128(
-    input  clk,                    // input clock
-    input  reset,                  // global reset signal    
+    input  wire clk,               // input clock
+    input  wire reset,             // global reset signal
 
     input  wire[15:0] reg_raddr,   // read address
     input  wire[15:0] reg_waddr,   // write address
@@ -75,13 +75,14 @@ module QLA25AA128(
 );
 
 // State machine
-parameter ST_IDLE = 0,
-          ST_CHIP_SELECT = 1,
-          ST_WRITE = 2,
-          ST_WRITE_BLOCK = 3,
-          ST_READ = 4,
-          ST_CHIP_DESELECT = 5,
-          ST_IO_DISABLE = 6;
+localparam [2:0]
+    ST_IDLE = 0,
+    ST_CHIP_SELECT = 1,
+    ST_WRITE = 2,
+    ST_WRITE_BLOCK = 3,
+    ST_READ = 4,
+    ST_CHIP_DESELECT = 5,
+    ST_IO_DISABLE = 6;
 
 reg       io_disabled;
 reg[2:0]  state;

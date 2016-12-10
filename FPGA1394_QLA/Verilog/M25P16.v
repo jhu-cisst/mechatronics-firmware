@@ -58,13 +58,14 @@ module M25P16(
 );
 
 // State machine
-parameter PROM_IDLE = 0,
-          PROM_CHIP_SELECT = 1,
-          PROM_WRITE = 2,
-          PROM_WRITE_BLOCK = 3,
-          PROM_READ = 4,
-          PROM_CHIP_DESELECT = 5,
-          PROM_IO_DISABLE = 6;
+localparam [2:0]
+    PROM_IDLE = 0,
+    PROM_CHIP_SELECT = 1,
+    PROM_WRITE = 2,
+    PROM_WRITE_BLOCK = 3,
+    PROM_READ = 4,
+    PROM_CHIP_DESELECT = 5,
+    PROM_IO_DISABLE = 6;
 
 // registers
 reg       io_disabled;

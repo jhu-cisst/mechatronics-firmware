@@ -53,19 +53,19 @@ end
 
 // show green 1, red 1, green 2, red 2 leds using pwm
 wire led1_grn_pwm;
-LEDPWM led_green_pwm_1(sysclk, reset, led1_grn_pwm);
+LEDPWM led_green_pwm_1(sysclk, led1_grn_pwm);
 defparam led_green_pwm_1.start_phase = 250;
 
 wire led1_red_pwm;
-LEDPWM led_red_pwm_1(sysclk, reset, led1_red_pwm);
+LEDPWM led_red_pwm_1(sysclk, led1_red_pwm);
 defparam led_red_pwm_1.start_phase = 700;
 
 wire led2_grn_pwm;
-LEDPWM led_green_pwm_2(sysclk, reset, led2_grn_pwm);
+LEDPWM led_green_pwm_2(sysclk, led2_grn_pwm);
 defparam led_green_pwm_2.start_phase = 0;
 
 wire led2_red_pwm;
-LEDPWM led_red_pwm_2(sysclk, reset, led2_red_pwm);
+LEDPWM led_red_pwm_2(sysclk, led2_red_pwm);
 defparam led_red_pwm_2.start_phase = 200;
 
 // output to led using mux

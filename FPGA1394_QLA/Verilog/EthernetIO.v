@@ -117,7 +117,7 @@ assign dbg_state_eth = state;
 assign dbg_nextState_eth = nextState;
    
 // state machine states
-parameter[5:0]
+localparam [5:0]
     ST_IDLE = 6'd0,
     ST_WAIT_ACK = 6'd1,
     ST_WAIT_ACK_CLEAR = 6'd2,
@@ -182,7 +182,7 @@ parameter[5:0]
     ST_SEND_END = 6'd61;
 
 // Debugging support
-assign eth_io_isIdle = (state == ST_IDLE) ? 1 : 0;
+assign eth_io_isIdle = (state == ST_IDLE) ? 1'b1 : 1'b0;
 
 // Keep track of areas where state machine may wait
 // for unknown amount of time (for debugging)
@@ -914,7 +914,7 @@ always @(posedge sysclk or negedge reset) begin
                      end
                      else begin                    // (odd)
                         // MSB is "valid" bit for DAC write (addrMain)
-                        eth_reg_wen <= addrMain ? FireWirePacket[block_index][31] : 1;
+                        eth_reg_wen <= addrMain ? FireWirePacket[block_index][31] : 1'b1;
                         block_index <= block_index + 7'd1;
                         if (count == maxCount)
                             eth_block_wen <= 1;
@@ -966,7 +966,7 @@ always @(posedge sysclk or negedge reset) begin
             //   - else go to idle state
             // TODO: check node id and forward via FireWire if necessary
             if (ReadData[0] == 1'b0) begin
-               if (quadRead || blockRead) begin
+               if ((quadRead || blockRead) && isLocal) begin
                   state <= ST_SEND_START;
                end
                else begin

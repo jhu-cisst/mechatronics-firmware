@@ -152,7 +152,7 @@ parameter[3:0]
     ST_WRITE_HOLD = 4'd11,
     ST_WRITE_END = 4'd12;
 
-assign ksz_isIdle = (state == ST_IDLE) ? 1 : 0;
+assign ksz_isIdle = (state == ST_IDLE) ? 1'b1 : 1'b0;
 
 // KSZ8851 timing:
 //    RDn, WRn pulses must be kept low for 40 ns (min)
