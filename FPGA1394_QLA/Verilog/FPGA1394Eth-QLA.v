@@ -224,10 +224,10 @@ PhyLinkInterface phy(
 
     .eth_send_req(eth_send_req),
     .eth_send_ack(eth_send_ack),
-    .eth_send_addr(reg_raddr[6:0]),
-    .eth_send_data(reg_rdata_fw),
-    // .eth_send_addr(eth_send_addr),
-    // .eth_send_data(eth_send_data),
+    // .eth_send_addr(reg_raddr[6:0]),
+    // .eth_send_data(reg_rdata_fw),
+    .eth_send_addr(eth_send_addr),
+    .eth_send_data(eth_send_data),
     .eth_send_len(eth_send_len),
                      
     .lreq_trig(fw_lreq_trig),  // out: phy request trigger

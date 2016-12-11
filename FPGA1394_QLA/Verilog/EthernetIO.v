@@ -1114,6 +1114,7 @@ always @(posedge sysclk or negedge reset) begin
             end
          end
 
+         // EtherType: reuse not standard
          ST_SEND_DMA_LENGTH:
          begin
             cmdReq <= 1;
@@ -1384,7 +1385,8 @@ always @(posedge sysclk or negedge reset) begin
             count <= count + 8'd1;
             cmdReq <= 1;
             isWrite <= 1;
-            WriteData <= (count[0] == 0) ? sendData[15:0] : sendData[31:16];
+            // WriteData <= (count[0] == 0) ? sendData[15:0] : sendData[31:16];
+            WriteData <= (count[0] == 0) ? {sendData[23:16], sendData[31:24]} : {sendData[7:0], sendData[15:8]};
             if (count[0] == 1) sendAddr <= sendAddr + 7'd1;
             state <= ST_WAIT_ACK;
             nextState <= (count == maxCount) ? ST_SEND_DMA_STOP_READ : ST_SEND_DMA_FWD;

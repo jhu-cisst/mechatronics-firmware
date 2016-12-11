@@ -657,7 +657,7 @@ begin
                             rx_dest <= buffer[31:16];     // destination addr
                             rx_tag <= buffer[15:10];      // transaction tag
                             rx_tcode <= buffer[7:4];      // transaction code
-                            rx_pri <= buffer[3:0];        // priority 
+                            rx_pri <= buffer[3:0];        // priority
 
                             // trigger an ack if dest address matches us
                             if (buffer[21:16] == node_id) begin
@@ -765,6 +765,16 @@ begin
                                 // check the RW bit to determine access type
                                 lreq_type <= (phy_rw ? `LREQ_REG_WR : `LREQ_REG_RD);
                                 lreq_trig <= 1;
+                            end
+
+                            // trigger packet forward if packet is for pc
+                            if ((rx_dest[15:0] == 16'hffff) && (rx_tcode == `TC_QRESP)) begin
+                               eth_send_req <= 1;
+                               eth_send_len <= 16'd20;
+                            end
+                            else if ((rx_dest[15:0] == 16'hffff) && (rx_tcode == `TC_BRESP)) begin
+                               eth_send_req <= 1;
+                               eth_send_len <= 16'd24 + buffer[31:16];
                             end
                         end
                         // quadlet 4.5 -----------------------------------------
