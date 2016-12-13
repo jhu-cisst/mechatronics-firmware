@@ -47,6 +47,7 @@ module EthernetIO(
 
     // board id (rotary switch)
     input wire[3:0] board_id,
+    input wire[5:0] node_id,
 
     // KSZ8851 interrupt
     input wire ETH_IRQn,          // interrupt request
@@ -278,13 +279,18 @@ assign block_data_length = FireWirePacket[3][31:16];
 // Valid destination address
 wire valid_dest_id;
 assign valid_dest_id = (FireWirePacket[0][31:20] == 12'hFFC) ? 1'd1 : 1'd0;
-wire[3:0] dest_board;
-assign dest_board = FireWirePacket[0][19:16];
+wire[5:0] dest_node_id;
+assign dest_node_id = FireWirePacket[0][21:16];
+
+// wire[3:0] dest_board;
+// assign dest_board = FireWirePacket[0][19:16];
+// assign isLocal = isMulticast || (dest_board == board_id) || (dest_board == 4'hf);
+// assign isRemote = (dest_board != board_id) && (~isMulticast);
 
 // Local write if Ethernet multicast, addresses this board, or FireWire broadcast
 // Note: maybe use 8'hff for FireWire broadcast
-assign isLocal = isMulticast || (dest_board == board_id) || (dest_board == 4'hf);
-assign isRemote = (dest_board != board_id) && (~isMulticast);
+assign isLocal = isMulticast || (dest_node_id == node_id) || (dest_node_id == 6'h3f);
+assign isRemote = (dest_node_id != node_id) && (~isMulticast);
 
 assign quadRead = (fw_tcode == `TC_QREAD) ? 1'd1 : 1'd0;
 assign quadWrite = (fw_tcode == `TC_QWRITE) ? 1'd1 : 1'd0;
@@ -317,16 +323,6 @@ begin
         timestamp <= timestamp + 1'b1;
 end
 
-
-// always @(posedge sysclk or negedge reset) 
-// begin
-//    if (reset == 0) begin
-//       reg_rdata <= 32'd0;
-//    end
-//    else begin
-//       reg_rdata <= Firewire[reg_raddr[5:0]];
-//    end
-// end
 
 // -------------------------------------------------------
 // Ethernet state machine

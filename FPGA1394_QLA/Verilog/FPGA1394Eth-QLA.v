@@ -99,6 +99,7 @@ module FPGA1394EthQLA
     wire[31:0] eth_reg_wdata;   // reg write data from Ethernet
     wire[31:0] reg_rd[0:15];
     wire eth_read_en;           // 1 -> Ethernet is driving reg_raddr to read from board registers
+    wire[5:0] node_id;          // 6-bit phy node id
 
 //------------------------------------------------------------------------------
 // hardware description
@@ -203,6 +204,7 @@ PhyLinkInterface phy(
     .reset(reset),           // in: global reset
     .eth1394(eth1394),       // in: eth1394 mode
     .board_id(~wenid),       // in: board id (rotary switch)
+    .node_id(node_id),       // out: phy node id
     
     .ctl_ext(ctl),           // bi: phy ctl lines
     .data_ext(data),         // bi: phy data lines
@@ -306,7 +308,8 @@ KSZ8851 EthernetChip(
 EthernetIO EthernetTransfers(
     .sysclk(sysclk),          // in: global clock
     .reset(reset),            // in: FPGA reset
-    .board_id(~wenid),
+    .board_id(~wenid),        // in: board id (rotary switch)
+    .node_id(node_id),        // in: phy node id
 
     .ETH_IRQn(ETH_IRQn),      // in: interrupt request from KSZ8851
     .eth_status(Eth_Result[31:16]),

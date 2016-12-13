@@ -167,7 +167,8 @@ module PhyLinkInterface(
     input wire reset,            // global reset
     input wire eth1394,          // global eth1394
     input wire[3:0] board_id,    // global board id
-    
+    output wire[5:0] node_id,    // phy node id
+
     // phy-link interface bus
     inout[1:0] ctl_ext,          // control line
     inout[7:0] data_ext,         // data bus
@@ -225,7 +226,6 @@ module PhyLinkInterface(
     reg[2:0] rx_speed;            // received speed code
     reg[3:0] tx_type;             // encodes transmit type
     reg[9:0] bus_id;              // phy bus id (10 bits)
-    wire[5:0] node_id;            // phy node id 
     reg[5:0] fw_node_id;          // phy node id firewire (6 bits)
     wire[15:0] local_id;          // full addr = bus_id + node_id
 
@@ -316,7 +316,7 @@ module PhyLinkInterface(
 // node_id based on eth1394 mode
 assign node_id = eth1394 ? {2'b00, board_id} : fw_node_id;
 // full local_id
-assign local_id = { bus_id[9:0], node_id[5:0] };   // full addr = bus_id + node_id     
+assign local_id = { bus_id[9:0], node_id[5:0] };   // full addr = bus_id + node_id
 
 // hack for xilinx, compiler doesn't like inout ports as registers
 assign data_ext = data;
