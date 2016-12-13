@@ -264,8 +264,8 @@ assign eth_fwpkt_len = LengthFW;
 // Allocate pow(2,7) = 128 quadlets
 reg [31:0] FireWirePacket[0:127];
 assign reg_rdata = FireWirePacket[reg_raddr[6:0]];
-assign eth_fwpkt_rdata = FireWirePacket[eth_fwpkt_raddr[6:0]];
-   
+assign eth_fwpkt_rdata = FireWirePacket[eth_fwpkt_raddr[6:0]]; 
+  
 
 wire[3:0] fw_tcode;            // FireWire transaction code
 wire[5:0] fw_tl;               // FireWire transaction label
@@ -284,7 +284,7 @@ assign dest_board = FireWirePacket[0][19:16];
 // Local write if Ethernet multicast, addresses this board, or FireWire broadcast
 // Note: maybe use 8'hff for FireWire broadcast
 assign isLocal = isMulticast || (dest_board == board_id) || (dest_board == 4'hf);
-assign isRemote = (dest_board != board_id);
+assign isRemote = (dest_board != board_id) && (~isMulticast);
 
 assign quadRead = (fw_tcode == `TC_QREAD) ? 1'd1 : 1'd0;
 assign quadWrite = (fw_tcode == `TC_QWRITE) ? 1'd1 : 1'd0;
@@ -1144,11 +1144,11 @@ always @(posedge sysclk or negedge reset) begin
          begin
             cmdReq <= 1;
             case (count[2:0])
-               //0:  WriteData <= 16'h0;     // dest-id
-               3'd1: WriteData <= {quadRead ? `TC_QRESP : `TC_BRESP, 4'd0, fw_tl, 2'd0};
-               //2:  WriteData <= 16'h0;     // src-id
-               //3:  WriteData <= 16'h0;     // rcode, reserved
-               3'd4: WriteData <= {FrameCount, 8'h2b};     // reserved, but use it for debugging
+               3'd0: WriteData <= FireWirePacket[1][31:16];   // quadlet 0: dest-id
+               3'd1: WriteData <= {quadRead ? `TC_QRESP : `TC_BRESP, 4'd0, fw_tl, 2'd0}; // quadlet 0: tcode
+               3'd2: WriteData <= FireWirePacket[2][31:16];   // src-id
+               3'd3: WriteData <= 16'h0;                      // rcode, reserved
+               3'd4: WriteData <= {FrameCount, 8'h2b};        // reserved, but use it for debugging
                3'd5:
                   begin
                      WriteData <= eth_status[31:16]; // normally reserved, but use it for debugging

@@ -184,8 +184,6 @@ always @(posedge(sysclk) or negedge(reset))
         `REG_DEBUG:  reg_rdata <= reg_debug;
 
         // `REG_SAFETY: reg_rdata <= { 28'd0, safety_amp_disable};
-        // `REG_WDOG: reg_rdata <= {28'd0, wdog_amp_disable};
-        // `REG_REGDISABLE: reg_rdata <= {28'd0, amp_disable};
         
         default:  reg_rdata <= 32'd0;
         endcase
