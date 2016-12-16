@@ -76,10 +76,10 @@ assign reg_rdata = (reg_raddr[3:0]==`OFF_DOUT_CTRL) ? reg_rd[reg_raddr[7:4]] : 3
 // Note: reading of digital output state is done in BoardRegs.v
 
 // Instantiate module for each digital output      
-DoutPWM DoutPWM1(sysclk, reset, reg_rd[1], dout_ctrl_en[1], reg_wdata, dout_set_en[1], dout_cfg_bidir ? ~reg_wdata[0] : reg_wdata[0], dout[1]);
-DoutPWM DoutPWM2(sysclk, reset, reg_rd[2], dout_ctrl_en[2], reg_wdata, dout_set_en[2], dout_cfg_bidir ? ~reg_wdata[1] : reg_wdata[1], dout[2]);
-DoutPWM DoutPWM3(sysclk, reset, reg_rd[3], dout_ctrl_en[3], reg_wdata, dout_set_en[3], dout_cfg_bidir ? ~reg_wdata[2] : reg_wdata[2], dout[3]);
-DoutPWM DoutPWM4(sysclk, reset, reg_rd[4], dout_ctrl_en[4], reg_wdata, dout_set_en[4], dout_cfg_bidir ? ~reg_wdata[3] : reg_wdata[3], dout[4]);
+DoutPWM DoutPWM1(sysclk, reset, reg_rd[1], dout_ctrl_en[1], reg_wdata, dout_set_en[1], reg_wdata[0], dout[1]);
+DoutPWM DoutPWM2(sysclk, reset, reg_rd[2], dout_ctrl_en[2], reg_wdata, dout_set_en[2], reg_wdata[1], dout[2]);
+DoutPWM DoutPWM3(sysclk, reset, reg_rd[3], dout_ctrl_en[3], reg_wdata, dout_set_en[3], reg_wdata[2], dout[3]);
+DoutPWM DoutPWM4(sysclk, reset, reg_rd[4], dout_ctrl_en[4], reg_wdata, dout_set_en[4], reg_wdata[3], dout[4]);
 
 // The following code is for a configuration check. QLA Version 1.4 has bidirectional transceivers instead of the
 // MOSFET drivers used in prior versions of the QLA. We can detect this by checking the state of the two

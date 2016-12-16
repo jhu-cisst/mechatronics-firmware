@@ -175,7 +175,7 @@ always @(posedge(sysclk) or negedge(reset))
         `REG_TIMEOUT: reg_rdata <= wdog_period;
         `REG_VERSION: reg_rdata <= `VERSION;
         `REG_TEMPSNS: reg_rdata <= {16'd0, temp_sense};
-        `REG_DIGIOUT: reg_rdata <= dout_cfg_bidir ? ~dout : dout;
+        `REG_DIGIOUT: reg_rdata <= dout;
         `REG_FVERSION: reg_rdata <= `FW_VERSION;
         `REG_PROMSTAT: reg_rdata <= prom_status;
         `REG_PROMRES: reg_rdata <= prom_result;

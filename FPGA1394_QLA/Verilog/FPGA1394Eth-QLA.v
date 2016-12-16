@@ -465,8 +465,15 @@ assign reg_rd[`OFF_DOUT_CTRL] = reg_rdout;
 // DOUT hardware configuration
 wire dout_config_valid;
 wire dout_config_bidir;
+wire [3:0] dout;
 
-CtrlDout dout(
+// IO1[16]: DOUT 4
+// IO1[17]: DOUT 3
+// IO1[18]: DOUT 2
+// IO1[19]: DOUT 1
+assign {IO1[16],IO1[17],IO1[18],IO1[19]} = (dout_config_bidir) ? (~dout) : dout;
+
+CtrlDout cdout(
     .sysclk(sysclk),
     .reset(reset),
     .reg_raddr(reg_raddr),
@@ -474,7 +481,7 @@ CtrlDout dout(
     .reg_rdata(reg_rdout),
     .reg_wdata(reg_wdata),
     .reg_wen(reg_wen),
-    .dout({IO1[16],IO1[17],IO1[18],IO1[19]}),
+    .dout(dout),
     .dir12(IO1[6]),
     .dir34(IO1[5]),
     .dout_cfg_valid(dout_config_valid),
@@ -586,7 +593,7 @@ BoardRegs chan0(
     .clkaux(clk25m),
     .reset(reset),
     .amp_disable({IO2[38],IO2[36],IO2[34],IO2[32]}),
-    .dout({IO1[16],IO1[17],IO1[18],IO1[19]}),
+    .dout(dout),
     .dout_cfg_valid(dout_config_valid),
     .dout_cfg_bidir(dout_config_bidir),
     .pwr_enable(IO1[32]),

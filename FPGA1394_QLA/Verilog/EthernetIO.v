@@ -651,13 +651,17 @@ always @(posedge sysclk or negedge reset) begin
 
          ST_IRQ_DISPATCH:
          begin
-             if (RegISR[15] == 1'b1) begin
-                 // Handle link change
-                 state <= ST_IRQ_CLEAR_LCIS;
-             end
-             else if (RegISR[13] == 1'b1) begin
-                 // Handle receive
-                 state <= ST_RECEIVE_CLEAR_RXIS;
+             // if (RegISR[15] == 1'b1) begin
+             //     // Handle link change
+             //     state <= ST_IRQ_CLEAR_LCIS;
+             // end
+             // else if (RegISR[13] == 1'b1) begin
+             //     // Handle receive
+             //     state <= ST_RECEIVE_CLEAR_RXIS;
+             // end
+             if (RegISR[13] == 1'b1) begin
+                // Handle receive
+                state <= ST_RECEIVE_CLEAR_RXIS;
              end
              else begin
                 // Done IRQ handle, clear flag & enable IRQ
