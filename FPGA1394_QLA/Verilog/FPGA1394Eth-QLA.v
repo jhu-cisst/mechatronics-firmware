@@ -147,6 +147,7 @@ assign ETH_CSn = 0;         // Always select
 // By default, R45 is not populated, so driving this pin has no effect.
 assign ETH_8n = 1;          // 16-bit bus
 
+`ifdef USE_CHIPSCOPE
 // --------------------------------------------------------------------------
 // Chipscope debug
 // --------------------------------------------------------------------------
@@ -166,7 +167,7 @@ wire[31:0] dbg_reg_debug;
 assign eth_port_debug = {1'd0, reg_wen, ETH_RSTn, ETH_CMD, ETH_RDn, ETH_WRn, ETH_IRQn, ETH_PME};
 wire[5:0] dbg_state_eth;
 wire[5:0] dbg_nextState_eth;
-
+`endif
 
 // --------------------------------------------------------------------------
 // hub register module
@@ -299,9 +300,12 @@ KSZ8851 EthernetChip(
     .reg_wen(fw_reg_wen),          // in: write enable from FireWire
     .reg_waddr(fw_reg_waddr),      // in: write address from FireWire
     .reg_wdata(fw_reg_wdata),      // in: data from FireWire
-    .eth_data(Eth_Result[15:0]),    // out: Last register read 
+    .eth_data(Eth_Result[15:0])    // out: Last register read
 
+`ifdef USE_CHIPSCOPE
+    ,
     .dbg_state(dbg_state)
+`endif
 );
 
 
@@ -352,10 +356,13 @@ EthernetIO EthernetTransfers(
     .eth_send_fw_ack(eth_send_fw_ack), // in: ack from fw module
     .eth_fwpkt_raddr(eth_fwpkt_raddr), // out: eth fw packet addr
     .eth_fwpkt_rdata(eth_fwpkt_rdata), // in: eth fw packet data
-    .eth_fwpkt_len(eth_fwpkt_len),     // out: eth fw packet len
+    .eth_fwpkt_len(eth_fwpkt_len)      // out: eth fw packet len
 
+`ifdef USE_CHIPSCOPE
+    ,
     .dbg_state_eth(dbg_state_eth),
     .dbg_nextState_eth(dbg_nextState_eth)
+`endif
 );
 
 
@@ -620,8 +627,11 @@ BoardRegs chan0(
     .prom_status(PROM_Status),
     .prom_result(PROM_Result),
     .eth_result(Eth_Result),
-    .safety_amp_disable(safety_amp_disable),
+    .safety_amp_disable(safety_amp_disable)
+`ifdef USE_CHIPSCOPE
+    ,
     .reg_debug(dbg_reg_debug)
+`endif
 );
 
 // ----------------------------------------------------------------------------
@@ -709,6 +719,7 @@ CtrlLED qla_led(
 );
 
 
+`ifdef USE_CHIPSCOPE
 // ----------------------------
 // Chipscope 
 // ----------------------------
@@ -726,5 +737,6 @@ ila_eth_chip ila_ec(
     .TRIG8(eth_to_chip),       // 16-bit
     .TRIG9(eth_from_chip)      // 16-bit
 );
+`endif
 
 endmodule

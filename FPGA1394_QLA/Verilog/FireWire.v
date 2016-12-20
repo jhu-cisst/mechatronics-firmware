@@ -1303,7 +1303,7 @@ begin
 end
 
 
-
+`ifdef USE_CHIPSCOPE
 // debug hub timing
 ila_fw_packet ila_hw(
     .CONTROL(ila_control),
@@ -1314,6 +1314,7 @@ ila_fw_packet ila_hw(
     .TRIG3(ctl),
     .TRIG4(data)
 );
+`endif
 
 endmodule  // PhyLinkInterface
 
