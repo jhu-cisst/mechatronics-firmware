@@ -27,6 +27,7 @@
 `define ETH_ADDR_MARH    8'h14     // Host MAC Address Reg High
 `define ETH_ADDR_TXCR    8'h70     // Transmit Control Reg
 `define ETH_ADDR_RXCR1   8'h74     // RX Control Register 1
+`define ETH_ADDR_RXCR2   8'h76     // RX Control Register 2
 `define ETH_ADDR_TXMIR   8'h78     // TXQ Memory Information Reg
 `define ETH_ADDR_RXFHSR  8'h7C     // RX Frame Header Status Reg
 `define ETH_ADDR_RXFHBCR 8'h7E     // RX Frame Header Byte Count Reg
@@ -184,7 +185,8 @@ localparam [5:0]
     ST_SEND_TXQ_ENQUEUE_END = 6'd59,
     ST_SEND_TXQ_ENQUEUE_WAIT_START = 6'd60,
     ST_SEND_TXQ_ENQUEUE_WAIT_CHECK = 6'd61,
-    ST_SEND_END = 6'd62;
+    ST_SEND_END = 6'd62,
+    ST_INIT_REG_RXCR2 = 6'd63;
 
 // Debugging support
 assign eth_io_isIdle = (state == ST_IDLE) ? 1'b1 : 1'b0;
@@ -514,6 +516,8 @@ always @(posedge sysclk or negedge reset) begin
             nextState <= ST_INIT_REG_RXFDPR;
          end
 
+          // TODO: TRY with 4000 instead
+          // Bit 12, set Write Sample Time to 4 nS
          ST_INIT_REG_RXFDPR:
          begin
             cmdReq <= 1;
@@ -544,6 +548,17 @@ always @(posedge sysclk or negedge reset) begin
             // Bit 4 = 0, Bit 1 = 0, Bit 11 = 1, Bit 8 = 0 (hash perfect, default)
             WriteData <= 16'h7CE0;
             state <= ST_WAIT_ACK;
+            // nextState <= ST_INIT_MULTICAST;
+            nextState <= ST_INIT_REG_RXCR2;
+         end // case: ST_INIT_REG_RXCR1
+
+         // TODO: RXCR2
+         ST_INIT_REG_RXCR2:
+         begin
+            cmdReq <= 1;
+            RegAddr <= `ETH_ADDR_RXCR2;
+            WriteData <= 16'h0016;
+            state <= ST_WAIT_ACK;
             nextState <= ST_INIT_MULTICAST;
          end
 
@@ -561,6 +576,7 @@ always @(posedge sysclk or negedge reset) begin
             nextState <= ST_INIT_REG_RXQCR;
          end
 
+          // TODO: try auto-deque & read the whole packet instead of flush
          ST_INIT_REG_RXQCR:
          begin
             cmdReq <= 1;
@@ -579,6 +595,7 @@ always @(posedge sysclk or negedge reset) begin
             nextState <= ST_INIT_IRQ_ENABLE;
          end
 
+          // TODO: try A = 1010 0000 
          ST_INIT_IRQ_ENABLE:
          begin
             cmdReq <= 1;
@@ -973,7 +990,7 @@ always @(posedge sysclk or negedge reset) begin
 
          ST_RECEIVE_FLUSH_WAIT_CHECK:
          begin
-            // Wait for bit 0 in Register 0x82 to be cleared; 
+            // Wait for bit 0 in Register RXQCR to be cleared;
             // Then enable interrupt
             //   - if a read command, start sending response (check FrameCount after send complete)
             //   - else if more frames available, receive status of next frame
