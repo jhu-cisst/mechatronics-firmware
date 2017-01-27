@@ -552,7 +552,6 @@ always @(posedge sysclk or negedge reset) begin
             nextState <= ST_INIT_REG_RXCR2;
          end // case: ST_INIT_REG_RXCR1
 
-         // TODO: RXCR2
          ST_INIT_REG_RXCR2:
          begin
             cmdReq <= 1;
@@ -600,7 +599,7 @@ always @(posedge sysclk or negedge reset) begin
          begin
             cmdReq <= 1;
             RegAddr <= `ETH_ADDR_IER;
-            WriteData <= 16'hE000;   // Enable receive interrupts (TODO: also consider link change interrupt)
+            WriteData <= `ETH_IER_VALUE;   // Enable receive interrupts 
             state <= ST_WAIT_ACK;
             nextState <= ST_INIT_TRANSMIT_ENABLE_READ;
          end
@@ -692,7 +691,7 @@ always @(posedge sysclk or negedge reset) begin
             cmdReq <= 1;
             RegAddr <= `ETH_ADDR_IER;
             isWrite <= 1;
-            WriteData <= 16'hE000;   // Enable interrupts
+            WriteData <= `ETH_IER_VALUE;   // Enable interrupts
             state <= ST_WAIT_ACK;
             nextState <= ST_IDLE;
          end
