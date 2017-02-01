@@ -322,7 +322,7 @@ end
 //------------------------------
 
 //`define USE_CHIPSCOPE
-`ifdef USE_CHIPSCOPE
+`ifdef USE_CHIPSCOPE_QLA_PROM
 
 wire[35:0] control_prom;
 

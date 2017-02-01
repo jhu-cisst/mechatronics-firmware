@@ -106,6 +106,7 @@ module BoardRegs(
 //------------------------------------------------------------------------------
 // hardware description
 //
+initial reg_debug = 32'h2000;
 
 // mv_amp_disable for 40 ms sleep after board pwr enable
 assign amp_disable = (reg_disable[3:0] | mv_amp_disable[4:1]);

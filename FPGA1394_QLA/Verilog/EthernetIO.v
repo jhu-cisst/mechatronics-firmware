@@ -20,8 +20,6 @@
 `include "Constants.v"
 
 // constants KSZ8851 chip
-`define ETH_IER_VALUE 16'hE000
-
 `define ETH_ADDR_MARL    8'h10     // Host MAC Address Reg Low
 `define ETH_ADDR_MARM    8'h12     // Host MAC Address Reg Middle
 `define ETH_ADDR_MARH    8'h14     // Host MAC Address Reg High
@@ -104,7 +102,10 @@ module EthernetIO(
 
     // Interface to Chipscope icon
     output wire[5:0] dbg_state_eth,
-    output wire[5:0] dbg_nextState_eth
+    output wire[5:0] dbg_nextState_eth,
+
+    // Input debug
+    input wire[31:0] dbg_reg_debug
 );
 
 parameter num_channels = 4;
@@ -120,6 +121,18 @@ reg[5:0] nextState;
 
 assign dbg_state_eth = state;
 assign dbg_nextState_eth = nextState;
+
+// Debug IER value
+// B15: LCIE link change interrupt enable
+// B14: TXIE transmit interrupt enable
+// B13: RXIE receive interrupt enable
+`ifdef USE_CHIPSCOPE
+// `define ETH_IER_VALUE 16'h2000
+wire[15:0] ETH_IER_VALUE;
+assign ETH_IER_VALUE = dbg_reg_debug[15:0];
+`else
+reg[15:0] ETH_IER_VALUE = 16'h2000;
+`endif
    
 // state machine states
 localparam [5:0]
@@ -599,7 +612,7 @@ always @(posedge sysclk or negedge reset) begin
          begin
             cmdReq <= 1;
             RegAddr <= `ETH_ADDR_IER;
-            WriteData <= `ETH_IER_VALUE;   // Enable receive interrupts 
+            WriteData <= ETH_IER_VALUE;   // Enable receive interrupts 
             state <= ST_WAIT_ACK;
             nextState <= ST_INIT_TRANSMIT_ENABLE_READ;
          end
@@ -667,23 +680,23 @@ always @(posedge sysclk or negedge reset) begin
 
          ST_IRQ_DISPATCH:
          begin
-             // if (RegISR[15] == 1'b1) begin
-             //     // Handle link change
-             //     state <= ST_IRQ_CLEAR_LCIS;
-             // end
-             // else if (RegISR[13] == 1'b1) begin
-             //     // Handle receive
-             //     state <= ST_RECEIVE_CLEAR_RXIS;
-             // end
-             if (RegISR[13] == 1'b1) begin
+            if (RegISR[15] == 1'b1) begin
+                // Handle link change
+                state <= ST_IRQ_CLEAR_LCIS;
+            end
+            else if (RegISR[13] == 1'b1) begin
                 // Handle receive
                 state <= ST_RECEIVE_CLEAR_RXIS;
-             end
-             else begin
-                // Done IRQ handle, clear flag & enable IRQ
-                isInIRQ <= 0;
-                state <= ST_IRQ_ENABLE;
-             end
+            end
+            // if (RegISR[13] == 1'b1) begin
+            //     // Handle receive
+            //     state <= ST_RECEIVE_CLEAR_RXIS;
+            //  end
+            else begin
+               // Done IRQ handle, clear flag & enable IRQ
+               isInIRQ <= 0;
+               state <= ST_IRQ_ENABLE;
+            end
          end // case: ST_IRQ_DISPATCH
 
          ST_IRQ_ENABLE:
@@ -691,7 +704,7 @@ always @(posedge sysclk or negedge reset) begin
             cmdReq <= 1;
             RegAddr <= `ETH_ADDR_IER;
             isWrite <= 1;
-            WriteData <= `ETH_IER_VALUE;   // Enable interrupts
+            WriteData <= ETH_IER_VALUE;   // Enable interrupts
             state <= ST_WAIT_ACK;
             nextState <= ST_IDLE;
          end
@@ -730,8 +743,10 @@ always @(posedge sysclk or negedge reset) begin
          ST_RECEIVE_FRAME_COUNT_END:
          begin
             FrameCount <= ReadData[15:8];
-            if (ReadData[15:8] == 0)
-               state <= ST_IDLE;
+            if (ReadData[15:8] == 0) begin
+               // state <= ST_IDLE;
+               state <= ST_IRQ_ENABLE;
+            end
             else begin
                cmdReq <= 1;
                RegAddr <= `ETH_ADDR_RXFHSR;

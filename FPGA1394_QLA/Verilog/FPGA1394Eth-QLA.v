@@ -361,7 +361,8 @@ EthernetIO EthernetTransfers(
 `ifdef USE_CHIPSCOPE
     ,
     .dbg_state_eth(dbg_state_eth),
-    .dbg_nextState_eth(dbg_nextState_eth)
+    .dbg_nextState_eth(dbg_nextState_eth),
+    .dbg_reg_debug(dbg_reg_debug)
 `endif
 );
 
