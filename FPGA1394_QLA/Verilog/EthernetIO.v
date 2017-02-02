@@ -225,6 +225,7 @@ wire blockRead;
 wire blockWrite;
 
 reg isMulticast;
+// reg[1:0] invalidCnt = 2'd0;
 
 // VALID(1) 0(6) ERROR(1) PME(1) IRQ(1) State(4) Data(16)
 assign eth_status[31] = 1'b1;          // 31: 1 -> Ethernet is present
@@ -246,6 +247,7 @@ assign eth_status[20] = isMulticast;   // 20: multicast received
 assign eth_status[19] = ksz_isIdle;    // 19: KSZ8851 state machine is idle
 assign eth_status[18] = eth_io_isIdle; // 18: Ethernet I/O state machine is idle
 assign eth_status[17:16] = waitInfo;   // 17-16: Wait points in EthernetIO.v
+// assign eth_status[17:16] = invalidCnt; // 17-16: invalid count
 
 
 reg isInIRQ;             // True if IRQ handle routing
@@ -371,6 +373,7 @@ always @(posedge sysclk or negedge reset) begin
        lreq_trig <= 0;
        lreq_type <= 0;
        block_index <= 0;
+       eth_send_fw_req <= 0;
     end
     else begin
 
@@ -758,7 +761,13 @@ always @(posedge sysclk or negedge reset) begin
          ST_RECEIVE_FRAME_STATUS:
          begin
             FrameCount <= FrameCount-8'd1;
-            if (ReadData[15]) begin // if valid
+            // Check packet valid
+            // B15: RXFV  receive frame valid
+            // B02: RXFTL receive frame too long
+            // B01: RXRF  receive runt frame, damaged by collision
+            // B00: RXCE  receive CRC error
+            // if (ReadData[15] && ~ReadData[2] && ~ReadData[1] && ~ReadData[0]) begin
+            if (ReadData[15]) begin
                cmdReq <= 1;
                isMulticast <= ReadData[6];
                isWrite <= 0;
@@ -768,6 +777,7 @@ always @(posedge sysclk or negedge reset) begin
             end
             else begin
                state <= ST_RECEIVE_FLUSH_START;
+               // invalidCnt <= invalidCnt + 2'd1;
             end
          end
 

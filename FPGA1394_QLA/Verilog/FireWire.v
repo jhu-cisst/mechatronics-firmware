@@ -443,6 +443,8 @@ begin
         crc_tx <= 0;              // flag for crc; 0=non-transmit state
         ts_reset <= 0;            // clear the timestamp reset signal
         data_block <= 0;          // indicates data portion of block writes
+        eth_send_req <= 0;        // clear send eth pkt request
+        eth_send_fw_ack <= 0;     // clear send firewire pkt ack
     end
 
     else begin
