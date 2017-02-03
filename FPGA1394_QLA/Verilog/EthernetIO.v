@@ -596,7 +596,9 @@ always @(posedge sysclk or negedge reset) begin
          begin
             cmdReq <= 1;
             RegAddr <= `ETH_ADDR_RXQCR;
-            WriteData <= 16'h0020;   // Enable QMU frame count threshold (1), no auto-dequeue
+            // B5: RXFCTE enable QMU frame count threshold (1)
+            // B4: ADRFE  auto-dequeue
+            WriteData <= 16'h0030;   // Enable QMU frame count threshold (1), auto-dequeue
             state <= ST_WAIT_ACK;
             nextState <= ST_INIT_IRQ_CLEAR;
          end
@@ -766,8 +768,7 @@ always @(posedge sysclk or negedge reset) begin
             // B02: RXFTL receive frame too long
             // B01: RXRF  receive runt frame, damaged by collision
             // B00: RXCE  receive CRC error
-            // if (ReadData[15] && ~ReadData[2] && ~ReadData[1] && ~ReadData[0]) begin
-            if (ReadData[15]) begin
+            if (ReadData[15] && ~ReadData[2] && ~ReadData[1] && ~ReadData[0]) begin
                cmdReq <= 1;
                isMulticast <= ReadData[6];
                isWrite <= 0;
@@ -816,8 +817,8 @@ always @(posedge sysclk or negedge reset) begin
 
          ST_RECEIVE_DMA_SKIP:
          begin
-            // Skip first 4 words in the packet 
-            // ignore(2) + status(1) + byte-count(1)
+            // Skip first 3 words in the packet
+            // ignore(1) + status(1) + byte-count(1)
             cmdReq <= 1;
             isDMA <= 1;
             isWrite <= 0;
