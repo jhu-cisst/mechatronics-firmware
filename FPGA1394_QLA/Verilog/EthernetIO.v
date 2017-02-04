@@ -162,8 +162,7 @@ localparam [5:0]
     ST_IRQ_ENABLE = 6'd23,
     ST_IRQ_CLEAR_LCIS = 6'd24,
     ST_IRQ_CLEAR_RXIS = 6'd25,
-    ST_RECEIVE_FRAME_COUNT_START = 6'd26,
-    ST_RECEIVE_FRAME_COUNT_END = 6'd27,
+    ST_RECEIVE_FRAME_COUNT = 6'd26,
     ST_RECEIVE_FRAME_STATUS = 6'd28,
     ST_RECEIVE_FRAME_LENGTH = 6'd29,
     ST_RECEIVE_DMA_STATUS_READ = 6'd30,
@@ -730,29 +729,32 @@ always @(posedge sysclk or negedge reset) begin
             RegAddr <= `ETH_ADDR_ISR;
             WriteData <= 16'h2000;  // clear interrupt
             state <= ST_WAIT_ACK;
-            nextState <= ST_RECEIVE_FRAME_COUNT_START;
+            nextState <= ST_RECEIVE_FRAME_COUNT;
+            count <= 8'd0;
          end
 
-         ST_RECEIVE_FRAME_COUNT_START:
+         ST_RECEIVE_FRAME_COUNT:
          begin
-            cmdReq <= 1;
-            isWrite <= 0;
-            RegAddr <= `ETH_ADDR_RXFCTR;
-            state <= ST_WAIT_ACK;
-            nextState <= ST_RECEIVE_FRAME_COUNT_END;
-         end
-
-         ST_RECEIVE_FRAME_COUNT_END:
-         begin
-            FrameCount <= ReadData[15:8];
-            if (ReadData[15:8] == 0) begin
-               state <= ST_IRQ_DISPATCH;
+            if (count[0] == 1'b0) begin
+               cmdReq <= 1;
+               isWrite <= 0;
+               RegAddr <= `ETH_ADDR_RXFCTR;
+               state <= ST_WAIT_ACK;
+               nextState <= ST_RECEIVE_FRAME_COUNT;
+               count[0] <= 1'd1;
             end
             else begin
-               cmdReq <= 1;
-               RegAddr <= `ETH_ADDR_RXFHSR;
-               state <= ST_WAIT_ACK;
-               nextState <= ST_RECEIVE_FRAME_STATUS;
+               FrameCount <= ReadData[15:8];
+               count[0] <= 1'd0;
+               if (ReadData[15:8] == 0) begin
+                  state <= ST_IRQ_DISPATCH;
+               end
+               else begin
+                  cmdReq <= 1;
+                  RegAddr <= `ETH_ADDR_RXFHSR;
+                  state <= ST_WAIT_ACK;
+                  nextState <= ST_RECEIVE_FRAME_STATUS;
+               end
             end
          end
 
