@@ -161,7 +161,7 @@ localparam [5:0]
     ST_IRQ_DISPATCH = 6'd22,
     ST_IRQ_ENABLE = 6'd23,
     ST_IRQ_CLEAR_LCIS = 6'd24,
-    ST_RECEIVE_CLEAR_RXIS = 6'd25,
+    ST_IRQ_CLEAR_RXIS = 6'd25,
     ST_RECEIVE_FRAME_COUNT_START = 6'd26,
     ST_RECEIVE_FRAME_COUNT_END = 6'd27,
     ST_RECEIVE_FRAME_STATUS = 6'd28,
@@ -598,7 +598,8 @@ always @(posedge sysclk or negedge reset) begin
             RegAddr <= `ETH_ADDR_RXQCR;
             // B5: RXFCTE enable QMU frame count threshold (1)
             // B4: ADRFE  auto-dequeue
-            WriteData <= 16'h0030;   // Enable QMU frame count threshold (1), auto-dequeue
+            WriteData <= 16'h0030;
+            // WriteData <= 16'h0020;
             state <= ST_WAIT_ACK;
             nextState <= ST_INIT_IRQ_CLEAR;
          end
@@ -691,12 +692,8 @@ always @(posedge sysclk or negedge reset) begin
             end
             else if (RegISR[13] == 1'b1) begin
                 // Handle receive
-                state <= ST_RECEIVE_CLEAR_RXIS;
+                state <= ST_IRQ_CLEAR_RXIS;
             end
-            // if (RegISR[13] == 1'b1) begin
-            //     // Handle receive
-            //     state <= ST_RECEIVE_CLEAR_RXIS;
-            //  end
             else begin
                // Done IRQ handle, clear flag & enable IRQ
                isInIRQ <= 0;
@@ -726,7 +723,7 @@ always @(posedge sysclk or negedge reset) begin
          end
 
          //*************** States for receiving Ethernet packets ******************
-         ST_RECEIVE_CLEAR_RXIS:
+         ST_IRQ_CLEAR_RXIS:
          begin
             cmdReq <= 1;
             isWrite <= 1;
@@ -749,8 +746,7 @@ always @(posedge sysclk or negedge reset) begin
          begin
             FrameCount <= ReadData[15:8];
             if (ReadData[15:8] == 0) begin
-               // state <= ST_IDLE;
-               state <= ST_IRQ_ENABLE;
+               state <= ST_IRQ_DISPATCH;
             end
             else begin
                cmdReq <= 1;
@@ -1096,6 +1092,9 @@ always @(posedge sysclk or negedge reset) begin
          begin
             cmdReq <= 1;
             isDMA <= 1;
+            // TX Control word
+            // B15  : TXIC transmit interrupt on completion
+            // B0-B5: TXFID transmit frame ID
             WriteData <= 16'h0;  // Control word = 0
             state <= ST_WAIT_ACK;
             nextState <= ST_SEND_DMA_BYTECOUNT;
@@ -1272,22 +1271,6 @@ always @(posedge sysclk or negedge reset) begin
                   nextState <= ST_SEND_DMA_STOP_READ;
                end
                endcase
-                // if (addrMain) begin
-                //    nextState <= ST_SEND_DMA_PACKETDATA_BLOCK_MAIN;
-                // end
-                // else if (addrHub) begin
-
-                // end
-                // else if (addrPROM || addrQLA) begin
-                //    // Get ready to read data
-                //    eth_read_en <= 1;
-                //    eth_reg_raddr[7:0] <= 8'd0;  // Just to be sure
-                //    nextState <= ST_SEND_DMA_PACKETDATA_BLOCK_PROM;
-                // end
-                // else begin
-                //    // Abort and let the KSZ8851 chip pad the packet
-                //    nextState <= ST_SEND_DMA_STOP_READ;
-                // end
             end
             else begin
                 nextState <= ST_SEND_DMA_PACKETDATA_BLOCK_START;
@@ -1427,7 +1410,6 @@ always @(posedge sysclk or negedge reset) begin
             count <= count + 8'd1;
             cmdReq <= 1;
             isWrite <= 1;
-            // WriteData <= (count[0] == 0) ? sendData[15:0] : sendData[31:16];
             WriteData <= (count[0] == 0) ? {sendData[23:16], sendData[31:24]} : {sendData[7:0], sendData[15:8]};
             if (count[0] == 1) sendAddr <= sendAddr + 7'd1;
             state <= ST_WAIT_ACK;
