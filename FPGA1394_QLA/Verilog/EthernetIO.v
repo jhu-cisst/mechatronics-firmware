@@ -148,21 +148,22 @@ localparam [5:0]
     ST_INIT_REG_RXFDPR = 6'd9,
     ST_INIT_REG_RXFCTR = 6'd10,
     ST_INIT_REG_RXCR1 = 6'd11,
-    ST_INIT_MULTICAST = 6'd12,
-    ST_INIT_REG_RXQCR = 6'd13,
-    ST_INIT_IRQ_CLEAR = 6'd14,
-    ST_INIT_IRQ_ENABLE = 6'd15,
-    ST_INIT_TRANSMIT_ENABLE_READ = 6'd16,
-    ST_INIT_TRANSMIT_ENABLE_WRITE = 6'd17,
-    ST_INIT_RECEIVE_ENABLE_READ = 6'd18,
-    ST_INIT_RECEIVE_ENABLE_WRITE = 6'd19,
-    ST_INIT_DONE = 6'd20,
-    ST_IRQ_HANDLER = 6'd21,
-    ST_IRQ_DISPATCH = 6'd22,
-    ST_IRQ_ENABLE = 6'd23,
-    ST_IRQ_CLEAR_LCIS = 6'd24,
-    ST_IRQ_CLEAR_RXIS = 6'd25,
-    ST_RECEIVE_FRAME_COUNT = 6'd26,
+    ST_INIT_REG_RXCR2 = 6'd12,
+    ST_INIT_MULTICAST = 6'd13,
+    ST_INIT_REG_RXQCR = 6'd14,
+    ST_INIT_IRQ_CLEAR = 6'd15,
+    ST_INIT_IRQ_ENABLE = 6'd16,
+    ST_INIT_TRANSMIT_ENABLE_READ = 6'd17,
+    ST_INIT_TRANSMIT_ENABLE_WRITE = 6'd18,
+    ST_INIT_RECEIVE_ENABLE_READ = 6'd19,
+    ST_INIT_RECEIVE_ENABLE_WRITE = 6'd20,
+    ST_INIT_DONE = 6'd21,
+    ST_IRQ_HANDLER = 6'd22,
+    ST_IRQ_DISPATCH = 6'd23,
+    ST_IRQ_ENABLE = 6'd24,
+    ST_IRQ_CLEAR_LCIS = 6'd25,
+    ST_IRQ_CLEAR_RXIS = 6'd26,
+    ST_RECEIVE_FRAME_COUNT = 6'd27,
     ST_RECEIVE_FRAME_STATUS = 6'd28,
     ST_RECEIVE_FRAME_LENGTH = 6'd29,
     ST_RECEIVE_DMA_STATUS_READ = 6'd30,
@@ -191,14 +192,14 @@ localparam [5:0]
     ST_SEND_DMA_PACKETDATA_BLOCK_PROM = 6'd53,
     ST_SEND_DMA_PACKETDATA_CHECKSUM = 6'd54,
     ST_SEND_DMA_FWD = 6'd55,
-    ST_SEND_DMA_STOP_READ = 6'd56,
-    ST_SEND_DMA_STOP_WRITE = 6'd57,
+    ST_SEND_DMA_DUMMY_DWORD = 6'd56,
+    ST_SEND_DMA_STOP = 6'd57,
     ST_SEND_TXQ_ENQUEUE_START = 6'd58,
     ST_SEND_TXQ_ENQUEUE_END = 6'd59,
     ST_SEND_TXQ_ENQUEUE_WAIT_START = 6'd60,
     ST_SEND_TXQ_ENQUEUE_WAIT_CHECK = 6'd61,
-    ST_SEND_END = 6'd62,
-    ST_INIT_REG_RXCR2 = 6'd63;
+    ST_SEND_END = 6'd62;
+
 
 // Debugging support
 assign eth_io_isIdle = (state == ST_IDLE) ? 1'b1 : 1'b0;
@@ -249,7 +250,7 @@ assign eth_status[17:16] = waitInfo;   // 17-16: Wait points in EthernetIO.v
 // assign eth_status[17:16] = invalidCnt; // 17-16: invalid count
 
 
-reg isInIRQ;             // True if IRQ handle routing
+reg isInIRQ;           // True if IRQ handle routing
 reg[15:0] RegISR;      // 16-bit ISR register
 reg[7:0] FrameCount;   // Number of received frames
 reg[7:0] count;        // General use counter
@@ -257,6 +258,7 @@ reg[3:0] readCount;    // Wait for read valid
 reg[7:0] maxCount;     // For reading FireWire packets
 reg[2:0] next_addr;    // Address of next device (for block read)
 reg[6:0] block_index;  // Index into data block (5-70)
+reg[15:0] txPktWords;  // Num of words sent
 
 reg[15:0] destMac[0:2];  // Not currently used
 reg[15:0] srcMac[0:2];
@@ -417,9 +419,7 @@ always @(posedge sysclk or negedge reset) begin
                nextState <= ST_IRQ_HANDLER;
             end
             else if (sendReq) begin
-               // Not yet used. Will need this mechanism in the future,
-               // but will need a way to specify what is to be sent
-               // (e.g., FireWirePacket).
+               // forward packet from FireWire
                state <= ST_SEND_START;
                isForward <= 1;
                sendAck <= 1;
@@ -434,19 +434,24 @@ always @(posedge sysclk or negedge reset) begin
                cmdReq <= 0;
                state <= ST_WAIT_ACK_CLEAR;
                readCount <= 4'd0;
+               if (isWrite && isDMA) begin
+                  txPktWords <= txPktWords + 16'd1;
+               end
             end
             else if (!cmdReq) begin
                state <= ST_WAIT_ACK_CLEAR;
                readCount <= 4'd0;
             end
-            else
+            else begin
                waitInfo <= WAIT_ACK;
+            end
          end
 
          ST_WAIT_ACK_CLEAR:
          begin
             if (initReq && !initAck)
                state <= ST_IDLE;
+            // else if (!cmdAck && !cmdReq) begin
             else if (~cmdAck) begin
                if (isWrite || readValid) begin
                    state <= nextState;
@@ -465,8 +470,9 @@ always @(posedge sysclk or negedge reset) begin
                   readCount <= readCount + 4'd1;
                end
             end
-            else
-                waitInfo <= WAIT_ACK_CLEAR;
+            else begin
+               waitInfo <= WAIT_ACK_CLEAR;
+            end
          end
          
          //*************** States for initializing Ethernet ******************
@@ -750,33 +756,40 @@ always @(posedge sysclk or negedge reset) begin
                   state <= ST_IRQ_DISPATCH;
                end
                else begin
-                  cmdReq <= 1;
-                  RegAddr <= `ETH_ADDR_RXFHSR;
-                  state <= ST_WAIT_ACK;
-                  nextState <= ST_RECEIVE_FRAME_STATUS;
+                  state <= ST_RECEIVE_FRAME_STATUS;
                end
             end
          end
 
          ST_RECEIVE_FRAME_STATUS:
          begin
-            FrameCount <= FrameCount-8'd1;
-            // Check packet valid
-            // B15: RXFV  receive frame valid
-            // B02: RXFTL receive frame too long
-            // B01: RXRF  receive runt frame, damaged by collision
-            // B00: RXCE  receive CRC error
-            if (ReadData[15] && ~ReadData[2] && ~ReadData[1] && ~ReadData[0]) begin
+            if (count[0] == 1'b0) begin
                cmdReq <= 1;
-               isMulticast <= ReadData[6];
                isWrite <= 0;
-               RegAddr <= `ETH_ADDR_RXFHBCR;
+               RegAddr <= `ETH_ADDR_RXFHSR;
                state <= ST_WAIT_ACK;
-               nextState <= ST_RECEIVE_FRAME_LENGTH;
+               nextState <= ST_RECEIVE_FRAME_STATUS;
+               count[0] <= 1'd1;
             end
             else begin
-               state <= ST_RECEIVE_FLUSH_START;
-               // invalidCnt <= invalidCnt + 2'd1;
+               FrameCount <= FrameCount-8'd1;
+               count[0] <= 1'd0;
+               // Check packet valid
+               // B15: RXFV  receive frame valid
+               // B02: RXFTL receive frame too long
+               // B01: RXRF  receive runt frame, damaged by collision
+               // B00: RXCE  receive CRC error
+               if (ReadData[15] && ~ReadData[2] && ~ReadData[1] && ~ReadData[0]) begin
+                  cmdReq <= 1;
+                  isMulticast <= ReadData[6];
+                  isWrite <= 0;
+                  RegAddr <= `ETH_ADDR_RXFHBCR;
+                  state <= ST_WAIT_ACK;
+                  nextState <= ST_RECEIVE_FRAME_LENGTH;
+               end
+               else begin
+                  state <= ST_RECEIVE_FLUSH_START;
+               end
             end
          end
 
@@ -1015,7 +1028,8 @@ always @(posedge sysclk or negedge reset) begin
          begin
             // Wait for bit 0 in Register RXQCR to be cleared;
             // Then enable interrupt
-            //   - if a read command, start sending response (check FrameCount after send complete)
+            //   - if a read command, start sending response
+            //     (check FrameCount after send complete)
             //   - else if more frames available, receive status of next frame
             //   - else go to idle state
             // TODO: check node id and forward via FireWire if necessary
@@ -1053,13 +1067,13 @@ always @(posedge sysclk or negedge reset) begin
                RegAddr <= `ETH_ADDR_IER;
                WriteData <= 16'h0000;    // Disable interrupt
                state <= ST_WAIT_ACK;
-               // nextState <= ST_SEND_DMA_STATUS_READ;
                nextState <= ST_SEND_TXMIR_READ;
             end
             else begin
-               // state <= ST_SEND_DMA_STATUS_READ;
                state <= ST_SEND_TXMIR_READ;
             end
+            // Reset pkt words count
+            txPktWords <= 16'd0;
          end // case: ST_SEND_START
 
          ST_SEND_TXMIR_READ:
@@ -1118,7 +1132,7 @@ always @(posedge sysclk or negedge reset) begin
             state <= ST_WAIT_ACK;
             nextState <= ST_SEND_DMA_DESTADDR;
             count <= 8'd0;
-         end
+         end // case: ST_SEND_DMA_BYTECOUNT
 
          ST_SEND_DMA_DESTADDR:
          begin
@@ -1270,7 +1284,7 @@ always @(posedge sysclk or negedge reset) begin
                default:
                begin
                   // Abort and let the KSZ8851 chip pad the packet
-                  nextState <= ST_SEND_DMA_STOP_READ;
+                  nextState <= ST_SEND_DMA_DUMMY_DWORD;
                end
                endcase
             end
@@ -1404,7 +1418,7 @@ always @(posedge sysclk or negedge reset) begin
             count[0] <= 1;
             WriteData <= 16'd0;    // Checksum currently not set
             state <= ST_WAIT_ACK;
-            nextState <= (count[0] == 0) ? ST_SEND_DMA_PACKETDATA_CHECKSUM : ST_SEND_DMA_STOP_READ;
+            nextState <= (count[0] == 0) ? ST_SEND_DMA_PACKETDATA_CHECKSUM : ST_SEND_DMA_DUMMY_DWORD;
          end
 
          ST_SEND_DMA_FWD:
@@ -1415,28 +1429,45 @@ always @(posedge sysclk or negedge reset) begin
             WriteData <= (count[0] == 0) ? {sendData[23:16], sendData[31:24]} : {sendData[7:0], sendData[15:8]};
             if (count[0] == 1) sendAddr <= sendAddr + 7'd1;
             state <= ST_WAIT_ACK;
-            nextState <= (count == maxCount) ? ST_SEND_DMA_STOP_READ : ST_SEND_DMA_FWD;
+            nextState <= (count == maxCount) ? ST_SEND_DMA_DUMMY_DWORD : ST_SEND_DMA_FWD;
          end
 
-         ST_SEND_DMA_STOP_READ:
+         ST_SEND_DMA_DUMMY_DWORD:
          begin
-            cmdReq <= 1;
-            isWrite <= 0;
-            isDMA <= 0;
-            RegAddr <= `ETH_ADDR_RXQCR;
-            state <= ST_WAIT_ACK;
-            nextState <= ST_SEND_DMA_STOP_WRITE;
+            count <= 8'd0;
+            if (txPktWords[0]) begin
+               cmdReq <= 1;
+               isWrite <= 1;
+               WriteData <= 0;
+               state <= ST_WAIT_ACK;
+               nextState <= ST_SEND_DMA_STOP;
+            end
+            else begin
+               state <= ST_SEND_DMA_STOP;
+            end
          end
 
-         ST_SEND_DMA_STOP_WRITE:
+         ST_SEND_DMA_STOP:
          begin
-            // Disable DMA transfers
-            cmdReq <= 1;
-            isWrite <= 1;
-            WriteData <= {ReadData[15:4],1'b0,ReadData[2:0]};
-            state <= ST_WAIT_ACK;
-            nextState <= ST_SEND_TXQ_ENQUEUE_START;
-          end
+            if (count[0] == 0) begin
+               cmdReq <= 1;
+               isWrite <= 0;
+               isDMA <= 0;
+               RegAddr <= `ETH_ADDR_RXQCR;
+               state <= ST_WAIT_ACK;
+               nextState <= ST_SEND_DMA_STOP;
+               count[0] <= 1;
+            end
+            else begin
+               // Disable DMA transfers
+               cmdReq <= 1;
+               isWrite <= 1;
+               WriteData <= {ReadData[15:4],1'b0,ReadData[2:0]};
+               state <= ST_WAIT_ACK;
+               nextState <= ST_SEND_TXQ_ENQUEUE_START;
+               count[0] <= 0;
+            end
+         end
 
          ST_SEND_TXQ_ENQUEUE_START:
          begin
