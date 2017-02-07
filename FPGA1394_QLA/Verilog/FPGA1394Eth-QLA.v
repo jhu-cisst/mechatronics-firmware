@@ -43,15 +43,8 @@ module FPGA1394EthQLA
     output wire      ETH_WRn,
     inout [15:0]     SD,
 
-    // serial interface
-    // input wire 	     RxD,
-    // input wire 	     RTS,
-    // output wire       TxD,
-
     // debug I/Os
     input wire       clk25m,    // 25.0000 MHz 
-    //input wire       clk29m,    // 29.4989 MHz
-    //input wire       clk40m,    // 40.0000 MHz 
     //output wire [3:0] DEBUG,
 
     // misc board I/Os
@@ -164,7 +157,10 @@ icon_ethernet icon_e(
 wire[7:0] eth_port_debug;
 wire[3:0] dbg_state;
 wire[31:0] dbg_reg_debug;
-assign eth_port_debug = {1'd0, reg_wen, ETH_RSTn, ETH_CMD, ETH_RDn, ETH_WRn, ETH_IRQn, ETH_PME};
+assign eth_port_debug = {1'd0, reg_wen, ETH_RSTn, ETH_CMD, ETH_RDn, 
+                         ETH_WRn, ETH_IRQn, ETH_PME};
+// assign eth_port_debug = {eth_cmd_req, reg_wen, ETH_RSTn,
+//                          ETH_CMD, ETH_RDn, ETH_WRn, ETH_IRQn, eth_cmd_ack};
 wire[5:0] dbg_state_eth;
 wire[5:0] dbg_nextState_eth;
 `endif
@@ -721,6 +717,12 @@ CtrlLED qla_led(
 
 
 `ifdef USE_CHIPSCOPE
+
+
+wire[31:0] dbg_eth_ksz;
+assign dbg_eth_ksz = {26'd0, eth_cmd_req, eth_cmd_ack, eth_read_valid, eth_is_dma, 
+                      eth_is_word, eth_error};
+
 // ----------------------------
 // Chipscope 
 // ----------------------------
@@ -731,8 +733,9 @@ ila_eth_chip ila_ec(
     .TRIG1(SD),                // 16-bit
     .TRIG2(dbg_state),         // 4-bit
     .TRIG3(reg_waddr),         // 16-bit
-    .TRIG4(reg_wdata),         // 32-bit    
-    .TRIG5(dbg_reg_debug),     // 32-bit
+    .TRIG4(reg_wdata),         // 32-bit
+    // .TRIG5(dbg_reg_debug),     // 32-bit
+    .TRIG5(dbg_eth_ksz),
     .TRIG6(dbg_state_eth),     // 6-bit
     .TRIG7(dbg_nextState_eth), // 6-bit
     .TRIG8(eth_to_chip),       // 16-bit

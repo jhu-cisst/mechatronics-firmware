@@ -82,7 +82,6 @@ module BoardRegs(
     reg[3:0] reg_disable;       // register the disable signals
     reg[15:0] phy_ctrl;         // for phy request bitstream
     reg[15:0] phy_data;         // for phy register transfer data
-//    reg[31:0] reg_debug;        // for debug purpose only
 
     // watchdog timer
     wire wdog_clk;              // watchdog clock

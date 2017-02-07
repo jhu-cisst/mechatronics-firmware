@@ -98,14 +98,17 @@ module EthernetIO(
     input wire eth_send_fw_ack,   // ack from firewire module
     input  wire[6:0] eth_fwpkt_raddr,
     output wire[31:0] eth_fwpkt_rdata,
-    output wire[15:0] eth_fwpkt_len,  // eth received fw pkt length 
+    output wire[15:0] eth_fwpkt_len      // eth received fw pkt length
 
+`ifdef USE_CHIPSCOPE
+    ,
     // Interface to Chipscope icon
     output wire[5:0] dbg_state_eth,
     output wire[5:0] dbg_nextState_eth,
 
     // Input debug
     input wire[31:0] dbg_reg_debug
+`endif
 );
 
 parameter num_channels = 4;
@@ -233,12 +236,12 @@ assign eth_status[30] = eth_error;     // 30: 1 -> error occurred
 assign eth_status[29] = initOK;        // 29: 1 -> Initialization OK
 assign eth_status[28] = initReq;       // 28: 1 -> Reset executed, init requested
 assign eth_status[27] = ethIoError;    // 27: 1 -> ethernet I/O error (higher layer)
-assign eth_status[26] = ethPacketError;  // 26: 1 -> ethernet packet too long (higher layer)
-assign eth_status[25] = ethDestError;    // 25: 1 -> ethernet destination error (higher layer)
-//assign eth_status[26] = cmdReq;        // 26: 1 -> command requested by higher level
-//assign eth_status[25] = cmdAck;        // 25: 1 -> command acknowledged by lower level
-//assign eth_status[26] = isLocal;       // 26: 1 -> command requested by higher level
-//assign eth_status[25] = isRemote;      // 25: 1 -> command acknowledged by lower level
+// assign eth_status[26] = ethPacketError;  // 26: 1 -> ethernet packet too long (higher layer)
+// assign eth_status[25] = ethDestError;    // 25: 1 -> ethernet destination error (higher layer)
+// assign eth_status[26] = cmdReq;        // 26: 1 -> command requested by higher level
+// assign eth_status[25] = cmdAck;        // 25: 1 -> command acknowledged by lower level
+assign eth_status[26] = isLocal;       // 26: 1 -> command requested by higher level
+assign eth_status[25] = isRemote;      // 25: 1 -> command acknowledged by lower level
 assign eth_status[24] = quadRead;      // 24: quadRead (debugging)
 assign eth_status[23] = quadWrite;     // 23: quadWrite (debugging)
 assign eth_status[22] = blockRead;     // 22: blockRead (debugging)
@@ -247,7 +250,6 @@ assign eth_status[20] = isMulticast;   // 20: multicast received
 assign eth_status[19] = ksz_isIdle;    // 19: KSZ8851 state machine is idle
 assign eth_status[18] = eth_io_isIdle; // 18: Ethernet I/O state machine is idle
 assign eth_status[17:16] = waitInfo;   // 17-16: Wait points in EthernetIO.v
-// assign eth_status[17:16] = invalidCnt; // 17-16: invalid count
 
 
 reg isInIRQ;           // True if IRQ handle routing
