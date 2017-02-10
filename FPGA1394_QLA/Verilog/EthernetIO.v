@@ -432,6 +432,14 @@ always @(posedge sysclk or negedge reset) begin
          begin
             if (initReq && !initAck)
                state <= ST_IDLE;
+            // else if (cmdAck && cmdReq) begin
+            //    cmdReq <= 0;
+            //    state <= ST_WAIT_ACK_CLEAR;
+            //    readCount <= 4'd0;
+            //    if (isWrite && isDMA) begin
+            //       txPktWords <= txPktWords + 16'd1;
+            //    end
+            // end
             else if (cmdAck) begin
                cmdReq <= 0;
                state <= ST_WAIT_ACK_CLEAR;
@@ -739,6 +747,7 @@ always @(posedge sysclk or negedge reset) begin
             state <= ST_WAIT_ACK;
             nextState <= ST_RECEIVE_FRAME_COUNT;
             count <= 8'd0;
+            RegISR[13] <= 1'b0;   // clear ISR receive IRQ bit
          end
 
          ST_RECEIVE_FRAME_COUNT:
@@ -1042,7 +1051,6 @@ always @(posedge sysclk or negedge reset) begin
                else begin
                   if (FrameCount == 8'd0) begin
                      state <= ST_IRQ_DISPATCH;
-                     RegISR[13] <= 1'b0;   // clear ISR receive IRQ bit
                   end
                   else begin
                      state <= ST_RECEIVE_FRAME_STATUS;
@@ -1518,7 +1526,6 @@ always @(posedge sysclk or negedge reset) begin
             if (isInIRQ) begin
                if (FrameCount == 8'd0) begin
                   state <= ST_IRQ_DISPATCH;
-                  RegISR[13] <= 1'b0;    // clear ISR receive IRQ bit
                end
                else begin
                   state <= ST_RECEIVE_FRAME_STATUS;
