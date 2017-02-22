@@ -163,11 +163,10 @@ begin
     end
     else if (ctrl_enable) begin
        HiLoTime <= reg_wdata;
-       curTime <= 16'd0;
     end
     else if (desiredTime[dout] != 16'd0) begin   // else if desired time is non-zero
        curTime <= curTime + 1;                   //    increment current time
-       if (curTime == desiredTime[dout]) begin   //    if current time == desired time
+       if (curTime > desiredTime[dout]) begin   //    if current time == desired time
           dout <= ~dout;                         //       negate digital output
           curTime <= 16'd0;                      //       set current time to 0
        end

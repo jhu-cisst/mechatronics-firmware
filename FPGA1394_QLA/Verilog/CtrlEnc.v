@@ -43,7 +43,7 @@ module CtrlEnc(
     wire[15:0] freq_data[1:4];    // encoder frequency measurement
     
     // clk for vel measurement     
-    wire clk_fast;   // 768 kHz velocity measure encoder period
+    wire clk_fast;   // 3.125 MHz velocity measure encoder period
     wire clk_slow;   // ~12 Hz  velocity measure encoder tick frequency 
 
 //------------------------------------------------------------------------------
@@ -68,7 +68,7 @@ EncQuad EncQuad3(sysclk, reset, enc_a_filt[3], enc_b_filt[3], set_enc[3], preloa
 EncQuad EncQuad4(sysclk, reset, enc_a_filt[4], enc_b_filt[4], set_enc[4], preload[4], quad_data[4], dir[4]);
 
 // modules generate fast & slow clock 
-ClkDiv divenc1(sysclk, clk_fast); defparam divenc1.width = 6;
+ClkDiv divenc1(sysclk, clk_fast); defparam divenc1.width = 4;
 ClkDiv divenc2(sysclk, clk_slow); defparam divenc2.width = 22;
 
 // velocity period (4/dT method)
