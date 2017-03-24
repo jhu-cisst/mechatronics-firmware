@@ -136,10 +136,10 @@ NET  "wenid[3]"   LOC = "P5"      | IOSTANDARD = "LVCMOS33" | PULLUP;
 # NET  "SOFT-TDO"   LOC = "A21"     | IOSTANDARD = "LVCMOS33" | PULLUP;
 # NET  "SOFT-TMS"   LOC = "A20"     | IOSTANDARD = "LVCMOS33" | PULLUP;
 
-#NET  "DEBUG[0]"   LOC = "A20"     | IOSTANDARD = "LVCMOS33";
-#NET  "DEBUG[1]"   LOC = "B20"     | IOSTANDARD = "LVCMOS33";
-#NET  "DEBUG[2]"   LOC = "A21"     | IOSTANDARD = "LVCMOS33";
-#NET  "DEBUG[3]"   LOC = "B21"     | IOSTANDARD = "LVCMOS33";
+# NET  "DEBUG[0]"   LOC = "A20"     | IOSTANDARD = "LVCMOS33";
+# NET  "DEBUG[1]"   LOC = "B20"     | IOSTANDARD = "LVCMOS33";
+# NET  "DEBUG[2]"   LOC = "A21"     | IOSTANDARD = "LVCMOS33";
+# NET  "DEBUG[3]"   LOC = "B21"     | IOSTANDARD = "LVCMOS33";
 
 ################################################################################
 # Ethernet MAC/PHY

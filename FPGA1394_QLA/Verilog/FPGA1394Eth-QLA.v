@@ -490,6 +490,7 @@ CtrlDout cdout(
     .dir34(IO1[5]),
     .dout_cfg_valid(dout_config_valid),
     .dout_cfg_bidir(dout_config_bidir)
+	 //.debug(DEBUG[3:0])
 );
 
 // --------------------------------------------------------------------------

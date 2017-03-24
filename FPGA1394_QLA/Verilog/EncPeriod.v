@@ -79,7 +79,7 @@ always @(posedge clk_fast or posedge ticks_en or negedge reset) begin
         cnter <= 16'd0;
     end
     else if (cnter != overflow) begin
-        cnter <= cnter + (dir ? 1'b1 : -1'b1);    
+        cnter <= cnter + 1;    
     end
 end
 
