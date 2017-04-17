@@ -30,6 +30,7 @@
  * Revision history
  *     9/23/15    Peter Kazanzides  Initial implementation
  *     4/21/16    Peter Kazanzides  Added support for QLA Rev 1.4
+ *		 4/07/17		Jie Ying Wu			Minor changes so PWM finishes its current period before changing duty cycle
  */
 
 `include "Constants.v" 

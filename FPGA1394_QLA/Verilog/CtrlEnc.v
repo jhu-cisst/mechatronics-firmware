@@ -9,6 +9,7 @@
  * Revision history
  *     11/16/11    Paul Thienphrapa    Initial revision
  *     10/27/13    Zihan Chen          Minor, set preload to 24'h800000
+ *		 04/07/17	 Jie Ying Wu		   Minor change to clock frequency for velocity estimation
  */
 
 // device register file offset
@@ -43,7 +44,7 @@ module CtrlEnc(
     wire[15:0] freq_data[1:4];    // encoder frequency measurement
     
     // clk for vel measurement     
-    wire clk_fast;   // 3.125 MHz velocity measure encoder period
+    wire clk_fast;   // 3.072 MHz velocity measure encoder period
     wire clk_slow;   // ~12 Hz  velocity measure encoder tick frequency 
 
 //------------------------------------------------------------------------------
