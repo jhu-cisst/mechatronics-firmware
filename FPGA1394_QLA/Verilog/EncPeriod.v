@@ -16,7 +16,7 @@
  *     02/27/12    Paul Thienphrapa    Only count up due to unknown problem
  *     02/29/12    Zihan Chen          Fix implementation and debug module
  *     03/17/14    Peter Kazanzides    Update data every ticks (dP = 4)
- *	   04/07/17    Jie Ying Wu  	   Return only larger of cnter or cnter_latch
+ *	    04/07/17    Jie Ying Wu  	      Return only larger of cnter or cnter_latch
  */
 
 // ---------- Peter ------------------
@@ -51,10 +51,10 @@ begin
    ticks_r <= ticks;
 	
 	if (cnter > cnter_latch) begin
-		count <= {1, dir, 8'h00, cnter};
+		count <= {1, dir, dir != dir_r, 7'h00, cnter};
 	end 
 	else begin
-		count <= {0, dir, 8'h00, cnter_latch};
+		count <= {0, dir, dir != dir_r, 7'h00, cnter_latch};
 	end
 end
 
@@ -86,7 +86,7 @@ begin
 		cnter <= 22'd0;
 	end
    else if (cnter != overflow) begin
-      cnter <= cnter + 1'b1;   
+      cnter <= cnter + 1;   
    end
 end
 
@@ -146,17 +146,17 @@ always @(posedge clk_fast or negedge reset) begin
         period <= 32'd0;
     end
     else if (mux == 2'b00) begin
-        period <= perd_a_up;
+		period <= {perd_a_up[31:29], 2'b00, perd_a_up[26:0]};
     end
     else if (mux == 2'b01) begin
-        period <= perd_a_dn;
+        period <= {perd_a_dn[31:29], 2'b01, perd_a_dn[26:0]};
     end
     else if (mux == 2'b10) begin
-        period <= perd_b_up;
+        period <= {perd_b_up[31:29], 2'b10, perd_b_up[26:0]};
     end
     else if (mux == 2'b11) begin
-        period <= perd_b_dn;
-    end
+        period <= {perd_b_dn[31:29], 2'b11, perd_b_dn[26:0]};
+	 end
 end
 
 endmodule
