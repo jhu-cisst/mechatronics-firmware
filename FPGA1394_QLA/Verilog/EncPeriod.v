@@ -43,6 +43,7 @@ module EncPeriod(
 
 // convert ticks to pulse
 reg dir_r;      // dir start 
+reg dir_changed; //changed direction in this cycle
 reg ticks_r;    // previous ticks
 assign ticks_en = ticks & (~ticks_r);
 
@@ -51,10 +52,10 @@ begin
    ticks_r <= ticks;
 	
 	if (cnter > cnter_latch) begin
-		count <= {1, dir, dir != dir_r, 7'h00, cnter};
+		count <= {1, dir, dir_changed, 7'h00, cnter};
 	end 
 	else begin
-		count <= {0, dir, dir != dir_r, 7'h00, cnter_latch};
+		count <= {0, dir, dir_changed, 7'h00, cnter_latch};
 	end
 end
 
@@ -69,13 +70,18 @@ always @(posedge ticks_en or negedge reset)
 begin
     if (reset == 0) begin
         cnter_latch <= 22'd0;
+		  dir_changed <= 0;
     end
     else if (dir != dir_r) begin  
         // dir changed set to overflow
-        cnter_latch <= overflow;  
+        if (cnter != 0) begin //I think dir is one clock cycle behind the edge change
+		      cnter_latch <= overflow;  
+		      dir_changed <= 1;
+		  end
     end    
     else begin
         cnter_latch <= cnter;
+		  dir_changed <= 0;
     end
 end
 
@@ -130,10 +136,10 @@ begin
     if (a_up_tick) begin
         mux <= 2'b00;
     end
-    else if (a_dn_tick) begin
+    else if (b_up_tick) begin
         mux <= 2'b01;    
     end    
-    else if (b_up_tick) begin
+    else if (a_dn_tick) begin
         mux <= 2'b10;
     end
     else if (b_dn_tick) begin
@@ -146,17 +152,37 @@ always @(posedge clk_fast or negedge reset) begin
         period <= 32'd0;
     end
     else if (mux == 2'b00) begin
-		period <= {perd_a_up[31:29], 2'b00, perd_a_up[26:0]};
+        if (perd_b_up[31] && ~perd_b_up[29]) begin
+            period <= {perd_b_up[31:29], 2'b00, perd_b_up[26:0]};
+		  end 
+		  else begin
+            period <= {perd_a_up[31:29], 2'b00, perd_a_up[26:0]};
+		  end
     end
     else if (mux == 2'b01) begin
-        period <= {perd_a_dn[31:29], 2'b01, perd_a_dn[26:0]};
+        if (perd_a_dn[31] && ~perd_a_dn[29]) begin
+				period <= {perd_a_dn[31:29], 2'b00, perd_a_dn[26:0]};
+		  end 
+		  else begin
+            period <= {perd_b_up[31:29], 2'b00, perd_b_up[26:0]};
+		  end
     end
     else if (mux == 2'b10) begin
-        period <= {perd_b_up[31:29], 2'b10, perd_b_up[26:0]};
+        if (perd_b_dn[31] && ~perd_b_dn[29]) begin
+				period <= {perd_b_dn[31:29], 2'b00, perd_b_dn[26:0]};
+		  end 
+		  else begin
+            period <= {perd_a_dn[31:29], 2'b00, perd_a_dn[26:0]};
+		  end
     end
-    else if (mux == 2'b11) begin
-        period <= {perd_b_dn[31:29], 2'b11, perd_b_dn[26:0]};
-	 end
+	 else if (mux == 2'b11) begin
+        if (perd_a_up[31] && ~perd_a_up[29]) begin
+				period <= {perd_a_up[31:29], 2'b00, perd_a_up[26:0]};
+		  end 
+		  else begin
+            period <= {perd_b_dn[31:29], 2'b00, perd_b_dn[26:0]};
+		  end
+    end
 end
 
 endmodule
