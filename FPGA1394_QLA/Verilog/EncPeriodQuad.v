@@ -16,8 +16,9 @@
  *     02/27/12    Paul Thienphrapa    Only count up due to unknown problem
  *     02/29/12    Zihan Chen          Fix implementation and debug module
  *     03/17/14    Peter Kazanzides    Update data every ticks (dP = 4)
- *	    04/07/17    Jie Ying Wu  	      Return only larger of cnter or cnter_latch
+ *		 04/07/17	 Jie Ying Wu			
  */
+
 
 // ---------- Peter ------------------
 module EncPeriod(
@@ -43,26 +44,23 @@ module EncPeriod(
 
 // convert ticks to pulse
 reg dir_r;      // dir start 
-reg dir_changed; //changed direction in this cycle
 reg ticks_r;    // previous ticks
 assign ticks_en = ticks & (~ticks_r);
 
 always @(posedge clk_fast) 
 begin
    ticks_r <= ticks;
-	
-	if (cnter > cnter_latch) begin
-		count <= {1, dir, dir_changed, 7'h00, cnter};
-	end 
-	else begin
-		count <= {0, dir, dir_changed, 7'h00, cnter_latch};
-	end
 end
 
 // latch previous dir 
-always @(posedge ticks_en) 
-begin
+always @(posedge ticks_en) begin
     dir_r <= dir;
+	 if (cnter >= cnter_latch) begin
+		count <= {1'b1, dir, 8'h00, cnter};
+	end
+	else begin
+		count <= {1'b0, dir, 8'h00, cnter_latch};
+	end
 end
 
 // latch cnter value 
@@ -70,33 +68,26 @@ always @(posedge ticks_en or negedge reset)
 begin
     if (reset == 0) begin
         cnter_latch <= 22'd0;
-		  dir_changed <= 0;
     end
     else if (dir != dir_r) begin  
         // dir changed set to overflow
-        if (cnter != 0) begin //I think dir is one clock cycle behind the edge change
-		      cnter_latch <= overflow;  
-		      dir_changed <= 1;
-		  end
+        cnter_latch <= overflow;  
     end    
     else begin
         cnter_latch <= cnter;
-		  dir_changed <= 0;
     end
 end
 
 // counter 
-always @(posedge clk_fast or posedge ticks_en or negedge reset) 
-begin
+always @(posedge clk_fast or posedge ticks_en or negedge reset) begin
 	if (reset == 0 || ticks_en) begin
 		cnter <= 22'd0;
 	end
    else if (cnter != overflow) begin
-      cnter <= cnter + 1;   
+      cnter <= cnter + 1'b1;   
    end
-end
 
-endmodule
+end
 
 
 // ------------------------------------------------
@@ -136,10 +127,10 @@ begin
     if (a_up_tick) begin
         mux <= 2'b00;
     end
-    else if (b_up_tick) begin
+    else if (a_dn_tick) begin
         mux <= 2'b01;    
     end    
-    else if (a_dn_tick) begin
+    else if (b_up_tick) begin
         mux <= 2'b10;
     end
     else if (b_dn_tick) begin
@@ -152,36 +143,16 @@ always @(posedge clk_fast or negedge reset) begin
         period <= 32'd0;
     end
     else if (mux == 2'b00) begin
-        if (perd_b_up[31] && ~perd_b_up[29]) begin
-            period <= {perd_b_up[31:29], 2'b00, perd_b_up[26:0]};
-		  end 
-		  else begin
-            period <= {perd_a_up[31:29], 2'b00, perd_a_up[26:0]};
-		  end
+        period <= perd_a_up;
     end
     else if (mux == 2'b01) begin
-        if (perd_a_dn[31] && ~perd_a_dn[29]) begin
-				period <= {perd_a_dn[31:29], 2'b00, perd_a_dn[26:0]};
-		  end 
-		  else begin
-            period <= {perd_b_up[31:29], 2'b00, perd_b_up[26:0]};
-		  end
+        period <= perd_a_dn;
     end
     else if (mux == 2'b10) begin
-        if (perd_b_dn[31] && ~perd_b_dn[29]) begin
-				period <= {perd_b_dn[31:29], 2'b00, perd_b_dn[26:0]};
-		  end 
-		  else begin
-            period <= {perd_a_dn[31:29], 2'b00, perd_a_dn[26:0]};
-		  end
+        period <= perd_b_up;
     end
-	 else if (mux == 2'b11) begin
-        if (perd_a_up[31] && ~perd_a_up[29]) begin
-				period <= {perd_a_up[31:29], 2'b00, perd_a_up[26:0]};
-		  end 
-		  else begin
-            period <= {perd_b_dn[31:29], 2'b00, perd_b_dn[26:0]};
-		  end
+    else if (mux == 2'b11) begin
+        period <= perd_b_dn;
     end
 end
 
