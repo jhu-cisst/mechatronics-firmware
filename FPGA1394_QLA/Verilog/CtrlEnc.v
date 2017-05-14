@@ -35,7 +35,7 @@ module CtrlEnc(
     reg[1:4] set_enc;              // used to raise enc preload flag
     wire[1:4] enc_a_filt;          // filtered encoder a line
     wire[1:4] enc_b_filt;          // filtered encoder b line
-    wire[1:4] dir;                 // encoder transition direction
+    wire[1:6] dir;                 // encoder transition direction
 
     // data buses to/from encoder modules
     reg[23:0]  preload[1:4];      // to encoder counter preload register
@@ -69,7 +69,7 @@ EncQuad EncQuad3(sysclk, reset, enc_a_filt[3], enc_b_filt[3], set_enc[3], preloa
 EncQuad EncQuad4(sysclk, reset, enc_a_filt[4], enc_b_filt[4], set_enc[4], preload[4], quad_data[4], dir[4]);
 
 // modules generate fast & slow clock 
-ClkDiv divenc1(sysclk, clk_fast); defparam divenc1.width = 4;
+ClkDiv divenc1(sysclk, clk_fast); defparam divenc1.width = 4; 
 ClkDiv divenc2(sysclk, clk_slow); defparam divenc2.width = 22;
 
 // velocity period (4/dT method)
@@ -79,37 +79,38 @@ EncPeriodQuad EncPerd2(sysclk, clk_fast, reset, enc_a_filt[2], enc_b_filt[2], di
 EncPeriodQuad EncPerd3(sysclk, clk_fast, reset, enc_a_filt[3], enc_b_filt[3], dir[3], perd_data[3]);
 EncPeriodQuad EncPerd4(sysclk, clk_fast, reset, enc_a_filt[4], enc_b_filt[4], dir[4], perd_data[4]);
 
-reg[1:4] enc_a_low_freq[1:4];
-reg[1:4] enc_b_low_freq[1:4];
+reg[0:5] enc_a_low_freq[1:4];
+reg[0:5] enc_b_low_freq[1:4];
+
 always @(posedge enc_a_filt[1]) begin
-   enc_a_low_freq[1] <= enc_a_low_freq[1] + 1;
+   enc_a_low_freq[1] <= enc_a_low_freq[1] + (dir[1] ? 1 : -1);
 end
 always @(posedge enc_a_filt[2]) begin
-   enc_a_low_freq[2] <= enc_a_low_freq[2] + 1;
+   enc_a_low_freq[2] <= enc_a_low_freq[2] + (dir[2] ? 1 : -1);
 end
 always @(posedge enc_a_filt[3]) begin
-   enc_a_low_freq[3] <= enc_a_low_freq[3] + 1;
+   enc_a_low_freq[3] <= enc_a_low_freq[3] + (dir[3] ? 1 : -1);
 end
 always @(posedge enc_a_filt[4]) begin
-   enc_a_low_freq[4] <= enc_a_low_freq[4] + 1;
+   enc_a_low_freq[4] <= enc_a_low_freq[4] + (dir[4] ? 1 : -1);
 end
 always @(posedge enc_b_filt[1]) begin
-   enc_b_low_freq[1] <= enc_b_low_freq[1] + 1;
+   enc_b_low_freq[1] <= enc_b_low_freq[1] + (dir[1] ? 1 : -1);
 end
 always @(posedge enc_b_filt[2]) begin
-   enc_b_low_freq[2] <= enc_b_low_freq[2] + 1;
+   enc_b_low_freq[2] <= enc_b_low_freq[2] + (dir[2] ? 1 : -1);
 end
 always @(posedge enc_b_filt[3]) begin
-   enc_b_low_freq[3] <= enc_b_low_freq[3] + 1;
+   enc_b_low_freq[3] <= enc_b_low_freq[3] + (dir[3] ? 1 : -1);
 end
 always @(posedge enc_b_filt[4]) begin
-   enc_b_low_freq[4] <= enc_b_low_freq[4] + 1;
+   enc_b_low_freq[4] <= enc_b_low_freq[4] + (dir[4] ? 1 : -1);
 end
 
-EncPeriodQuad EncPerd5(sysclk, clk_fast, reset, enc_a_low_freq[1][1], enc_b_low_freq[1][1], dir[1], freq_data[1]);
-EncPeriodQuad EncPerd6(sysclk, clk_fast, reset, enc_a_low_freq[2][1], enc_b_low_freq[2][1], dir[2], freq_data[2]);
-EncPeriodQuad EncPerd7(sysclk, clk_fast, reset, enc_a_low_freq[3][1], enc_b_low_freq[3][1], dir[3], freq_data[3]);
-EncPeriodQuad EncPerd8(sysclk, clk_fast, reset, enc_a_low_freq[4][1], enc_b_low_freq[4][1], dir[4], freq_data[4]);
+EncPeriodQuad EncPerd5(sysclk, clk_fast, reset, enc_a_low_freq[1][0], enc_b_low_freq[1][0], dir[1], freq_data[1]);
+EncPeriodQuad EncPerd6(sysclk, clk_fast, reset, enc_a_low_freq[2][0], enc_b_low_freq[2][0], dir[2], freq_data[2]);
+EncPeriodQuad EncPerd7(sysclk, clk_fast, reset, enc_a_low_freq[3][0], enc_b_low_freq[3][0], dir[3], freq_data[3]);
+EncPeriodQuad EncPerd8(sysclk, clk_fast, reset, enc_a_low_freq[4][0], enc_b_low_freq[4][0], dir[4], freq_data[4]);
 
 // velocity frequency counting 
 // NOTE: for fast motion, not used in dvrk 
