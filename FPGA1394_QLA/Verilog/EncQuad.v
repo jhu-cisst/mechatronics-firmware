@@ -42,6 +42,8 @@ assign code = { a, b };
 assign code_changed = code[1] ^ prev[1] ^ code[0] ^ prev[0];
 always @(posedge(clk)) prev <= code;
 
+// dir 0 is A leading B
+// dir 1 is B leading A
 always @(posedge clk)
 begin
     if (code_changed)

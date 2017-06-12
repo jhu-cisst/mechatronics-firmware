@@ -33,7 +33,7 @@ module EncPeriod(
     reg[21:0] cnter;        // cnter current value
     reg[21:0] cnter_latch;  // latched cnter value
 
-    // overflow value for signed 22-bit number
+    // overflow value for unsigned 22-bit number
     parameter overflow = 22'h3FFFFF;
 
 
@@ -47,22 +47,18 @@ reg dir_changed; //changed direction in this cycle
 reg ticks_r;    // previous ticks
 assign ticks_en = ticks & (~ticks_r);
 
+// choose output to be the larger of latched value or free-running counter
 always @(posedge clk_fast) 
 begin
    ticks_r <= ticks;
-	
-	if (cnter > cnter_latch) begin
-		count <= {1, dir, dir_changed, 7'h00, cnter};
+	dir_r <= dir;
+   
+	if (cnter >= cnter_latch) begin
+		count <= {0, dir, dir_changed, 7'h00, cnter};
 	end 
 	else begin
-		count <= {0, dir, dir_changed, 7'h00, cnter_latch};
+		count <= {1, dir, dir_changed, 7'h00, cnter_latch};
 	end
-end
-
-// latch previous dir 
-always @(posedge ticks_en) 
-begin
-    dir_r <= dir;
 end
 
 // latch cnter value 
@@ -70,27 +66,23 @@ always @(posedge ticks_en or negedge reset)
 begin
     if (reset == 0) begin
         cnter_latch <= 22'd0;
-		  dir_changed <= 0;
     end
-    else if (dir != dir_r) begin  
-        // dir changed set to overflow
-        if (cnter != 0) begin //I think dir is one clock cycle behind the edge change
-		      cnter_latch <= overflow;  
-		      dir_changed <= 1;
-		  end
-    end    
     else begin
         cnter_latch <= cnter;
-		  dir_changed <= 0;
     end
 end
 
-// counter 
+// free-running counter 
 always @(posedge clk_fast or posedge ticks_en or negedge reset) 
 begin
 	if (reset == 0 || ticks_en) begin
 		cnter <= 22'd0;
+      dir_changed <= 0;
 	end
+   else if (dir != dir_r) begin
+      cnter <= overflow;
+      dir_changed <= 1;
+   end
    else if (cnter != overflow) begin
       cnter <= cnter + 1;   
    end
@@ -130,59 +122,84 @@ EncPeriod EncPerDnA(clk_fast, reset, ~a, dir, a_dn_tick, perd_a_dn);
 EncPeriod EncPerUpB(clk_fast, reset,  b, dir, b_up_tick, perd_b_up);
 EncPeriod EncPerDnB(clk_fast, reset, ~b, dir, b_dn_tick, perd_b_dn);
 
+localparam[1:0] a_up = 2'b00;
+localparam[1:0] a_dn = 2'b01;
+localparam[1:0] b_up = 2'b10;
+localparam[1:0] b_dn = 2'b11;
 
+// Determine which edge is the most recent
 always @(posedge a_up_tick or posedge a_dn_tick or posedge b_up_tick or posedge b_dn_tick)
 begin
     if (a_up_tick) begin
-        mux <= 2'b00;
+        mux <= a_up;
     end
     else if (b_up_tick) begin
-        mux <= 2'b01;    
+        mux <= b_up;    
     end    
     else if (a_dn_tick) begin
-        mux <= 2'b10;
+        mux <= a_dn;
     end
     else if (b_dn_tick) begin
-        mux <= 2'b11;
+        mux <= b_dn;
     end
 end
 
+// Pass back the next expected value (depending on direction) if:
+// 1) It is from the free running counter
+// 2) There has been no direction change in its last encoder cycle
+// 3) The value is bigger than the current one
 always @(posedge clk_fast or negedge reset) begin
-    if (reset == 0) begin
-        period <= 32'd0;
-    end
-    else if (mux == 2'b00) begin
-        if (perd_b_up[31] && ~perd_b_up[29]) begin
-            period <= {perd_b_up[31:29], 2'b00, perd_b_up[26:0]};
-		  end 
-		  else begin
-            period <= {perd_a_up[31:29], 2'b00, perd_a_up[26:0]};
-		  end
-    end
-    else if (mux == 2'b01) begin
-        if (perd_a_dn[31] && ~perd_a_dn[29]) begin
-				period <= {perd_a_dn[31:29], 2'b00, perd_a_dn[26:0]};
-		  end 
-		  else begin
-            period <= {perd_b_up[31:29], 2'b00, perd_b_up[26:0]};
-		  end
-    end
-    else if (mux == 2'b10) begin
-        if (perd_b_dn[31] && ~perd_b_dn[29]) begin
-				period <= {perd_b_dn[31:29], 2'b00, perd_b_dn[26:0]};
-		  end 
-		  else begin
-            period <= {perd_a_dn[31:29], 2'b00, perd_a_dn[26:0]};
-		  end
-    end
-	 else if (mux == 2'b11) begin
-        if (perd_a_up[31] && ~perd_a_up[29]) begin
-				period <= {perd_a_up[31:29], 2'b00, perd_a_up[26:0]};
-		  end 
-		  else begin
-            period <= {perd_b_dn[31:29], 2'b00, perd_b_dn[26:0]};
-		  end
-    end
+   if (reset == 0) begin
+      period <= 32'd0;
+   end
+   
+   else if (mux == a_up) begin  // A up
+      if ((dir == 0) && (~perd_b_up[31]) && (~perd_b_up[29]) && (perd_b_up[21:0] > perd_a_up[21:0])) begin
+         period <= {perd_b_up[31:29], b_up, 2'b01, perd_b_up[24:0]};
+      end 
+      else if ((dir == 1) && (~perd_b_dn[31]) && (~perd_b_dn[29]) && (perd_b_dn[21:0] > perd_a_up[21:0])) begin
+         period <= {perd_b_dn[31:29], b_dn, 2'b10, perd_b_dn[24:0]};
+      end 
+      else begin
+         period <= {perd_a_up[31:29], a_up, 2'b11, perd_a_up[24:0]};
+      end
+   end
+   
+   else if (mux == b_up) begin  // B up
+      if ((dir == 0) && (~perd_a_dn[31]) && (~perd_a_dn[29]) && (perd_a_dn[21:0] > perd_b_up[21:0])) begin
+         period <= {perd_a_dn[31:29], a_dn, 2'b01, perd_a_dn[24:0]};
+      end 
+      else if ((dir == 1) && (~perd_a_up[31]) && (~perd_a_up[29] )&& (perd_a_up[21:0] > perd_b_up[21:0])) begin
+         period <= {perd_a_up[31:29], a_up, 2'b10, perd_a_up[24:0]};
+      end 
+      else begin
+         period <= {perd_b_up[31:29], b_up, 2'b11, perd_b_up[24:0]};
+      end
+   end
+   
+   else if (mux == a_dn) begin  // A down
+      if ((dir == 0) && (~perd_b_dn[31]) && (~perd_b_dn[29]) && (perd_b_dn[21:0] > perd_a_dn[21:0])) begin
+         period <= {perd_b_dn[31:29], b_dn, 2'b01, perd_b_dn[24:0]};
+      end 
+      else if ((dir == 1) && (~perd_b_up[31]) && (~perd_b_up[29]) && (perd_b_up[21:0] > perd_a_dn[21:0])) begin
+         period <= {perd_b_up[31:29], b_up, 2'b10, perd_b_up[24:0]};
+      end 
+      else begin
+         period <= {perd_a_dn[31:29], a_dn, 2'b11, perd_a_dn[24:0]};
+      end
+   end
+   
+   else if (mux == b_dn) begin  // B down
+      if ((dir == 0) && (~perd_a_up[31]) && (~perd_a_up[29]) && (perd_a_up[21:0] > perd_b_dn[21:0])) begin
+         period <= {perd_a_up[31:29], a_up, 2'b01, perd_a_up[24:0]};
+      end 
+      else if ((dir == 1) && (~perd_a_dn[31]) && (~perd_a_dn[29]) && (perd_a_dn[21:0] > perd_b_dn[21:0])) begin
+         period <= {perd_a_dn[31:29], a_dn, 2'b10, perd_a_dn[24:0]};
+      end
+      else begin
+         period <= {perd_b_dn[31:29], b_dn, 2'b11, perd_b_dn[24:0]};
+      end
+   end
 end
 
 endmodule
