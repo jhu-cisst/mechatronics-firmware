@@ -16,7 +16,7 @@
  *     02/27/12    Paul Thienphrapa    Only count up due to unknown problem
  *     02/29/12    Zihan Chen          Fix implementation and debug module
  *     03/17/14    Peter Kazanzides    Update data every ticks (dP = 4)
- *	    04/07/17    Jie Ying Wu  	      Return only larger of cnter or cnter_latch
+ *     04/07/17    Jie Ying Wu            Return only larger of cnter or cnter_latch
  */
 
 // ---------- Peter ------------------
@@ -51,14 +51,14 @@ assign ticks_en = ticks & (~ticks_r);
 always @(posedge clk_fast) 
 begin
    ticks_r <= ticks;
-	dir_r <= dir;
+    dir_r <= dir;
    
-	if (cnter >= cnter_latch) begin
-		count <= {0, dir, dir_changed, 7'h00, cnter};
-	end 
-	else begin
-		count <= {1, dir, dir_changed, 7'h00, cnter_latch};
-	end
+    if (cnter >= cnter_latch) begin
+        count <= {0, dir, dir_changed, 7'h00, cnter};
+    end
+    else begin
+        count <= {1, dir, dir_changed, 7'h00, cnter_latch};
+    end
 end
 
 // latch cnter value 
@@ -75,10 +75,10 @@ end
 // free-running counter 
 always @(posedge clk_fast or posedge ticks_en or negedge reset) 
 begin
-	if (reset == 0 || ticks_en) begin
-		cnter <= 22'd0;
+   if (reset == 0 || ticks_en) begin
+      cnter <= 22'd0;
       dir_changed <= 0;
-	end
+   end
    else if (dir != dir_r) begin
       cnter <= overflow;
       dir_changed <= 1;
