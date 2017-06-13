@@ -1,9 +1,9 @@
 /*******************************************************************************
  *
- * Copyright(C) 2008-2012 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2008-2017 ERC CISST, Johns Hopkins University.
  *
  * This module measures the encoder pulse period by counting the edges of a
- * fixed fast clock (~1 MHz) between encoder pulses.  Each new encoder pulse
+ * fixed fast clock (~3 MHz) between encoder pulses.  Each new encoder pulse
  * latches the current count and starts a new one.  From this measurement the
  * encoder period can be obtained by multiplying the number of counts by the
  * period of the fixed fast clock.
@@ -15,8 +15,8 @@
  *     11/21/11    Paul Thienphrapa    Fix to use ticks+ as clock
  *     02/27/12    Paul Thienphrapa    Only count up due to unknown problem
  *     02/29/12    Zihan Chen          Fix implementation and debug module
- *     03/17/14    Peter Kazanzides    Update data every ticks (dP = 4)
- *     04/07/17    Jie Ying Wu            Return only larger of cnter or cnter_latch
+ *     03/17/14    Peter Kazanzides    Update data every tick (dP = 4)
+ *     04/07/17    Jie Ying Wu         Return only larger of cnter or cnter_latch
  */
 
 // ---------- Peter ------------------
@@ -26,7 +26,7 @@ module EncPeriod(
    input wire ticks,        // encoder transition signal
    input wire dir,          // direction of the ticks
    output wire ticks_en,    // edge signal 
-   output reg[31:0] count  // number clk_fast periods per tick
+   output reg[31:0] count   // number clk_fast periods per tick
 );
 
     // local registers 
@@ -50,7 +50,7 @@ assign ticks_en = ticks & (~ticks_r);
 // choose output to be the larger of latched value or free-running counter
 always @(posedge clk_fast) 
 begin
-   ticks_r <= ticks;
+    ticks_r <= ticks;
     dir_r <= dir;
    
     if (cnter >= cnter_latch) begin
@@ -145,8 +145,8 @@ begin
 end
 
 // Pass back the next expected value (depending on direction) if:
-// 1) It is from the free running counter
-// 2) There has been no direction change in its last encoder cycle
+// 1) It is from the free running counter (bit 31 is 0)
+// 2) There has been no direction change in its last encoder cycle (bit 29 is 0)
 // 3) The value is bigger than the current one
 always @(posedge clk_fast or negedge reset) begin
    if (reset == 0) begin

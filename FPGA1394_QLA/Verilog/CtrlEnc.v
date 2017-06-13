@@ -1,6 +1,6 @@
 /*******************************************************************************
  *
- * Copyright(C) 2011 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2011-2017 ERC CISST, Johns Hopkins University.
  *
  * This module controls access to the encoder modules by selecting the data to 
  * output based on the read address, and by handling preload write commands to
@@ -9,7 +9,7 @@
  * Revision history
  *     11/16/11    Paul Thienphrapa    Initial revision
  *     10/27/13    Zihan Chen          Minor, set preload to 24'h800000
- *		 04/07/17	 Jie Ying Wu		   Minor change to clock frequency for velocity estimation
+ *     04/07/17    Jie Ying Wu         Minor change to clock frequency for velocity estimation
  */
 
 // device register file offset
