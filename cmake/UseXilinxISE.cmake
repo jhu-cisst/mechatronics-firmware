@@ -233,7 +233,6 @@ macro (ise_compile_fpga ...)
                          ${PROJ_NAME}_map.ncd ${PROJ_NAME}.ncd ${PROJ_NAME}.twr
                          ${PROJ_NAME}.bit)
 
-  # Following does not seem to work
   set_directory_properties(PROPERTIES ADDITIONAL_MAKE_CLEAN_FILES ${XILINX_CLEAN_FILES})
 
 endmacro(ise_compile_fpga)

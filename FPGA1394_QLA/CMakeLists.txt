@@ -1,6 +1,7 @@
 # Build FPGA1394-QLA (FPGA Rev 1.x) and FPGA1394Eth-QLA (FPGA Rev 2.x)
 #
-# Tested on Windows 7, with NMAKE (VS 2008) and Xilinx ISE 14.3
+# Tested on Windows 7, 64-bit, with NMAKE (VS 2008) and Xilinx ISE 14.3
+# Tested on Ubuntu 12.04, 32-bit, with make (gcc 4.6.3) and Xilinx ISE 14.7
 
 project(FPGA1394_QLA NONE)
 
@@ -68,3 +69,6 @@ ise_compile_fpga(PROJ_NAME      "FPGA1394EthQLA"
                  IPCORE_DIR     ${IPCORE_DIR}
                  TOP_LEVEL      "FPGA1394EthQLA"
                  PROJ_OUTPUT    "FPGA1394Eth-QLA")
+
+add_custom_target(timing
+                  DEPENDS FPGA1394QLA-timing FPGA1394EthQLA-timing)

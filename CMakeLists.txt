@@ -1,6 +1,9 @@
 
-# Not sure what the real minimum is...
-cmake_minimum_required(VERSION 3.0.2)
+# Set CMake minimum version requirement. This project has been
+# successfully used with CMake Version 2.8.7 (on Ubuntu 12.04),
+# so currently setting that as the minimum requirement. It is
+# possible that it would work with older CMake versions.
+cmake_minimum_required(VERSION 2.8.7)
 
 project(MechatronicsFirmware NONE)
 

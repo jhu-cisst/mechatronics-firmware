@@ -14,6 +14,10 @@ where the latter version also contains an Ethernet interface. Thus, there
 are two main Verilog modules: FPGA1394_QLA.v (for Rev 1.x) and FPGA1394Eth_QLA.v
 (for Rev 2.x).
 
+The project can be built using CMake and the Xilinx command line tools, or by loading
+one of the project files (FPGA1394-QLA.xise or FPGA1394Eth-QLA.xise) into Xilinx ISE.
+When using CMake on Windows, choose the *NMake Makefiles* generator.
+
 Documentation for the firmware is on the wiki: http://github.com/jhu-cisst/mechatronics-firmware/wiki
 
 For an overview of the boards and firmware, see: http://jhu-cisst.github.io/mechatronics/
