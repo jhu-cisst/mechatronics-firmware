@@ -1,0 +1,20 @@
+
+# Not sure what the real minimum is...
+cmake_minimum_required(VERSION 3.0.2)
+
+project(MechatronicsFirmware NONE)
+
+set (CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+find_package(XilinxISE)
+
+if (XilinxISE_FOUND)
+
+  include(${XILINX_ISE_USE_FILE})
+
+  add_subdirectory(FPGA1394_QLA)
+
+else (XilinxISE_FOUND)
+
+  message(SEND_ERROR "Xilinx ISE not found")
+
+endif (XilinxISE_FOUND)
