@@ -199,10 +199,13 @@ module PhyLinkInterface(
 
     // transmit parameters
     output reg lreq_trig,         // trigger signal for a phy request
-    output reg[2:0] lreq_type,    // type of request to give to the phy
+    output reg[2:0] lreq_type     // type of request to give to the phy
 
     // debug
-    input[35:0] ila_control       // ila control module
+`ifdef USE_CHIPSCOPE
+    ,
+    inout[35:0] ila_control       // ila control module
+`endif
 );
 
 
@@ -384,10 +387,24 @@ end
 // -------------------------------------------------------
 // counter for initiate block write to controller PC
 reg[31:0] write_counter;
-wire[14:0] write_trig_count;  // 6 bits node_id + 8 bits (256 counts)
-reg write_trig;
+wire[14:0] write_trig_count;    // 6 bits node_id + 8 bits (256 counts)
+reg write_trig;                 // triggers broadcast board status
+wire board_selected;            // flag: whether board is selected on PC side
+wire [15:0] rx_bc_fpga_masked;  // indicate whether a board exist from board 0 to board_id
 
-assign write_trig_count = eth1394 ? {count[5:0], 8'd0} : {node_id[5:0], 8'd0};
+assign rx_bc_fpga_masked = ((16'b1 << board_id) - 16'b1) & rx_bc_fpga;
+assign board_selected = rx_bc_fpga[board_id];
+
+reg [15:0] d;
+reg [5:0] write_trig_seq;   // counts how many boards before board_id
+always @ (posedge sysclk) begin
+   d <= rx_bc_fpga_masked;
+   write_trig_seq <= (((d[ 0] + d[ 1] + d[ 2] + d[ 3]) + (d[ 4] + d[ 5] + d[ 6] + d[ 7]))
+            +  ((d[ 8] + d[ 9] + d[10] + d[11]) + (d[12] + d[13] + d[14] + d[15])));
+end
+
+// assign write_trig_count = eth1394 ? {count[5:0], 8'd0} : {node_id[5:0], 8'd0};
+assign write_trig_count = eth1394 ? {count[5:0], 8'd0} : {write_trig_seq, 8'd0};
 
 always @(posedge(sysclk) or negedge(reset))
 begin
@@ -402,7 +419,7 @@ begin
         end
         else if ( write_counter == (write_trig_count + 150)) begin
             write_counter <= write_counter + 1'b1;
-            write_trig <= 1'b1;
+            write_trig <= (1'b1 && board_selected);
         end
         else if (lreq_type == `LREQ_TX_ISO) begin
             write_trig <= 1'b0;
@@ -469,7 +486,7 @@ begin
         ST_IDLE:
         begin
             blk_wstart <= 0;                       // block write not started
-            reg_wen <= 1'b0;                          // no register write events
+            reg_wen <= 1'b0;                       // no register write events
             blk_wen <= 0;                          // no block write events
             crc_tx <= 0;                           // not in a transmit state
             rx_active <= 0;                        // clear receive active     
@@ -727,12 +744,13 @@ begin
                             reg_waddr <= buffer[15:0];
                             crc_comp <= ~crc_in;          // computed crc for quadlet read
 
-                            // broadcast read request    (trick: NOT standard !!!)                            
-                            if (rx_dest[5:0] == 6'd0 && rx_tcode == `TC_QWRITE && 
+                            // broadcast read request    (trick: NOT standard !!!)
+                            if ((rx_dest[5:0] == 6'd0 || rx_dest == 16'hffff) && rx_tcode == `TC_QWRITE && 
                                 rx_addr_full[47:32] == 16'hffff && buffer[31:0] == 32'hffff000f) begin
-                                rx_bc_bread <= 1;          // set rx_bc_bread 
+                                rx_bc_bread <= 1;          // set rx_bc_bread
                                 bus_id <= rx_src[15:6];    // latch bus_id
                             end
+                            // broadcast write commands 
                             else if (rx_dest[5:0] == 6'd0 && rx_tcode == `TC_BWRITE && 
                                 rx_addr_full[47:32] == 16'hffff && buffer[31:0] == 32'hffff0000) begin
                                 rx_active <= 1;
@@ -749,7 +767,7 @@ begin
                             // quadlet write bc read start
                             if (rx_bc_bread) begin
                                 rx_bc_sequence <= buffer[31:16];    // sequence number
-                                rx_bc_fpga <= buffer[15:0];         // fpga board exist    
+                                rx_bc_fpga <= buffer[15:0];         // fpga board exist
                             end
 
                             // block read/write
@@ -1306,13 +1324,23 @@ end
 
 
 `ifdef USE_CHIPSCOPE
-// debug hub timing
+// // debug hub timing
+// ila_fw_packet ila_hw(
+//     .CONTROL(ila_control),
+//     .CLK(sysclk),
+//     .TRIG0({state, next}),
+//     .TRIG1(eth_fwpkt_rdata),
+//     .TRIG2({9'd0, eth_fwpkt_raddr}),
+//     .TRIG3(ctl),
+//     .TRIG4(data)
+// );
+
 ila_fw_packet ila_hw(
     .CONTROL(ila_control),
     .CLK(sysclk),
     .TRIG0({state, next}),
-    .TRIG1(eth_fwpkt_rdata),
-    .TRIG2({9'd0, eth_fwpkt_raddr}),
+    .TRIG1(32'd0),
+    .TRIG2(16'd0),
     .TRIG3(ctl),
     .TRIG4(data)
 );

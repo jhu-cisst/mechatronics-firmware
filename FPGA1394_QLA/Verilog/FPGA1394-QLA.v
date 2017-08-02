@@ -112,6 +112,13 @@ HubReg hub(
 // firewire modules
 // --------------------------------------------------------------------------
 
+`ifdef USE_CHIPSCOPE
+wire [35:0] control_fw;
+icon_prom icon(
+    .CONTROL0(control_fw)
+);
+`endif
+
 // phy-link interface
 PhyLinkInterface phy(
     .sysclk(sysclk),         // in: global clk  
@@ -124,15 +131,20 @@ PhyLinkInterface phy(
     
     .reg_wen(reg_wen),       // out: reg write signal
     .blk_wen(blk_wen),       // out: block write signal
-    .blk_wstart(blk_wstart),   // out: block write is starting
+    .blk_wstart(blk_wstart), // out: block write is starting
 
-    .reg_raddr(reg_raddr),     // out: register address
-    .reg_waddr(reg_waddr),     // out: register address
+    .reg_raddr(reg_raddr),   // out: register address
+    .reg_waddr(reg_waddr),   // out: register address
     .reg_rdata(reg_rdata),   // in:  read data to external register
     .reg_wdata(reg_wdata),   // out: write data to external register
 
     .lreq_trig(lreq_trig),   // out: phy request trigger
     .lreq_type(lreq_type)    // out: phy request type
+                     
+`ifdef USE_CHIPSCOPE
+    ,
+    .ila_control(control_fw) // inout: ila control
+`endif
 );
 
 
