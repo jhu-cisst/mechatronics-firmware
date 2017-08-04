@@ -419,7 +419,7 @@ begin
         end
         else if ( write_counter == (write_trig_count + 150)) begin
             write_counter <= write_counter + 1'b1;
-            write_trig <= (1'b1 && board_selected);
+            write_trig <= board_selected;
         end
         else if (lreq_type == `LREQ_TX_ISO) begin
             write_trig <= 1'b0;
@@ -745,7 +745,11 @@ begin
                             crc_comp <= ~crc_in;          // computed crc for quadlet read
 
                             // broadcast read request    (trick: NOT standard !!!)
-                            if ((rx_dest[5:0] == 6'd0 || rx_dest == 16'hffff) && rx_tcode == `TC_QWRITE && 
+                            // rx_dest == 0 is an asynchronous quadlet write; it is sent to node 0, but processed
+                            //              by all nodes.
+                            // rx_dest == 3f is a broadcast command (no ack); was used for testing.
+                            // Also, full address of ffffffff000f is used for broadcast read request by PC software.
+                            if ((rx_dest[5:0] == 6'd0 || rx_dest[5:0] == 6'h3f) && rx_tcode == `TC_QWRITE && 
                                 rx_addr_full[47:32] == 16'hffff && buffer[31:0] == 32'hffff000f) begin
                                 rx_bc_bread <= 1;          // set rx_bc_bread
                                 bus_id <= rx_src[15:6];    // latch bus_id
