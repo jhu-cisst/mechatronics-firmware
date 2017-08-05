@@ -24,10 +24,11 @@ variable in CMake and then configure again, which allow CMake to automatically f
 It is not necessary to add the Xilinx binary directory to your PATH (or LD_LIBRARY_PATH on Linux)
 to be able to compile the software using the CMake-generated makefiles.
 
-Running `make` (on Linux) or `nmake` (on Windows) will build both versions of firmware,
-and will update the MCS files in the source tree (`Generated` directory) if they are
-different. It will not run the timing analysis (Xilinx ISE `trce` tool). The timing
+Running `make` (on Linux) or `nmake` (on Windows) will build both versions of firmware.
+It will not run the timing analysis (Xilinx ISE `trce` tool). The timing
 (for both versions) can be run by invoking `make timing` or `nmake timing`.
+In addition, typing `make generated` or `nmake generated` will copy the MCS files from
+the build tree to the source tree (`Generated` directory) if they are different.
 
 Documentation for the firmware is on the wiki: http://github.com/jhu-cisst/mechatronics-firmware/wiki
 
