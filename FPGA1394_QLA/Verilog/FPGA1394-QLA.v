@@ -274,7 +274,7 @@ wire [3:0] dout;
 // IO1[19]: DOUT 1
 assign {IO1[16],IO1[17],IO1[18],IO1[19]} = (dout_config_bidir) ? (~dout) : dout;
 
-CtrlDout dout(
+CtrlDout cdout(
     .sysclk(sysclk),
     .reset(reset),
     .reg_raddr(reg_raddr),
