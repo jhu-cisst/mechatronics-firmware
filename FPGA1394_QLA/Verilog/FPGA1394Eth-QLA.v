@@ -230,9 +230,12 @@ PhyLinkInterface phy(
     .eth_send_len(eth_send_len),
                      
     .lreq_trig(fw_lreq_trig),  // out: phy request trigger
-    .lreq_type(fw_lreq_type),  // out: phy request type
+    .lreq_type(fw_lreq_type)   // out: phy request type
 
-    .ila_control(control_fw)   // in: control
+`ifdef USE_CHIPSCOPE
+    ,
+    .ila_control(control_fw)   // inout: control
+`endif
 );
 
 
