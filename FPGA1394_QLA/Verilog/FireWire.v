@@ -346,10 +346,10 @@ crc32 mycrc(crc_data, crc_in, crc_2b, crc_4b, crc_8b);
 assign phy_rw = buffer[12];
 
 // map of device address in order of appearance in block read
-assign dev_addr[0] = 4'd0;        // adc device address
-assign dev_addr[1] = 4'd5;        // enc position address
-assign dev_addr[2] = 4'd6;        // enc period address
-assign dev_addr[3] = 4'd7;        // enc frequency address
+assign dev_addr[0] = `OFF_ADC_DATA;        // adc device address
+assign dev_addr[1] = `OFF_ENC_DATA;        // enc position address
+assign dev_addr[2] = `OFF_PER_DATA;        // enc period address
+assign dev_addr[3] = `OFF_FREQ_DATA;       // enc frequency address
 
 // packet module (used to store FireWire packet)
 reg pkt_mem_wen;

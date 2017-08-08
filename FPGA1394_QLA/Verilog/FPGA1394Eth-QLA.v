@@ -437,8 +437,8 @@ CtrlDac dac(
 
 // fast (~1 MHz) / slow (~12 Hz) clocks to measure encoder period / frequency
 wire clk_1mhz, clk_12hz;
-ClkDiv divenc1(sysclk, clk_1mhz); defparam divenc1.width = 6;
-ClkDiv divenc2(sysclk, clk_12hz); defparam divenc2.width = 22;
+ClkDiv divenc1(sysclk, clk_1mhz); defparam divenc1.width = 6;   // 49.152 MHz / 2**6 ==> 768 kHz
+ClkDiv divenc2(sysclk, clk_12hz); defparam divenc2.width = 22;  // 49.152 MHz / 2**22 ==> 11.71875 Hz
 
 // map all types of encoder reads to the output of the encoder controller; the
 //   latter will select the correct data to output based on read address

@@ -69,8 +69,8 @@ EncQuad EncQuad3(sysclk, reset, enc_a_filt[3], enc_b_filt[3], set_enc[3], preloa
 EncQuad EncQuad4(sysclk, reset, enc_a_filt[4], enc_b_filt[4], set_enc[4], preload[4], quad_data[4], dir[4]);
 
 // modules generate fast & slow clock 
-ClkDiv divenc1(sysclk, clk_fast); defparam divenc1.width = 4;
-ClkDiv divenc2(sysclk, clk_slow); defparam divenc2.width = 22;
+ClkDiv divenc1(sysclk, clk_fast); defparam divenc1.width = 4;   // 49.152 MHz / 2**4 ==> 3.072 MHz
+ClkDiv divenc2(sysclk, clk_slow); defparam divenc2.width = 22;  // 49.152 MHz / 2**22 ==> 11.71875 Hz
 
 // velocity period (4/dT method)
 // quad update version
