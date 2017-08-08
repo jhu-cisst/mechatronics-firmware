@@ -85,7 +85,7 @@ macro (ise_compile_fpga ...)
   # XST Synthesis (Verilog --> NGC)
   add_custom_command (OUTPUT "${PROJ_NAME}.ngc"
                       COMMAND ${XST_NATIVE} -intstyle silent -ifn ${PROJ_NAME}.xst
-                      DEPENDS "${PROJ_NAME}-generate-xst"
+                      DEPENDS "${PROJ_NAME}-generate-xst" ${VERILOG_SOURCE}
                       COMMENT "Running XST to synthesize design")
 
   add_custom_target(${PROJ_NAME}-generate-ngc
@@ -103,7 +103,7 @@ macro (ise_compile_fpga ...)
                              -p  ${FPGA_PARTNUM}
                              ${PROJ_NAME}.ngc
                              ${PROJ_NAME}.ngd
-                     DEPENDS "${PROJ_NAME}-generate-ngc"
+                     DEPENDS "${PROJ_NAME}-generate-ngc" ${PROJ_NAME}.ngc
                      COMMENT "Running NGDBUILD")
 
   add_custom_target(${PROJ_NAME}-generate-ngd
@@ -131,7 +131,7 @@ macro (ise_compile_fpga ...)
                              -o ${PROJ_NAME}_map.ncd
                              ${PROJ_NAME}.ngd
                              ${PROJ_NAME}.pcf
-                     DEPENDS "${PROJ_NAME}-generate-ngd"
+                     DEPENDS "${PROJ_NAME}-generate-ngd" ${PROJ_NAME}.ngd
                      COMMENT "Running MAP")
 
   add_custom_target(${PROJ_NAME}-generate-map
@@ -145,7 +145,7 @@ macro (ise_compile_fpga ...)
                              ${PROJ_NAME}_map.ncd
                              ${PROJ_NAME}.ncd
                              ${PROJ_NAME}.pcf
-                     DEPENDS "${PROJ_NAME}-generate-map"
+                     DEPENDS "${PROJ_NAME}-generate-map" ${PROJ_NAME}_map.ncd ${PROJ_NAME}.pcf
                      COMMENT "Running PAR")
 
   add_custom_target(${PROJ_NAME}-generate-ncd
@@ -164,7 +164,7 @@ macro (ise_compile_fpga ...)
                              ${PROJ_NAME}.ncd
                              -o ${PROJ_NAME}.twr
                              ${PROJ_NAME}.pcf
-                     DEPENDS "${PROJ_NAME}-generate-ncd"
+                     DEPENDS "${PROJ_NAME}-generate-ncd" ${PROJ_NAME}.ncd
                      COMMENT "Running TRCE")
 
   add_custom_target(${PROJ_NAME}-timing
@@ -179,7 +179,7 @@ macro (ise_compile_fpga ...)
                      COMMAND ${BITGEN_NATIVE} -intstyle silent
                              -w -g UserID:0xFFFFFFFF -g TIMER_CFG:0xFFFF 
                              ${PROJ_NAME}.ncd
-                     DEPENDS "${PROJ_NAME}-generate-ncd"
+                     DEPENDS "${PROJ_NAME}-generate-ncd" ${PROJ_NAME}.ncd
                      COMMENT "Running BITGEN")
 
   add_custom_target(${PROJ_NAME}-generate-bit
@@ -198,7 +198,7 @@ macro (ise_compile_fpga ...)
   add_custom_command(OUTPUT "${PROJ_OUTPUT}.mcs"
                      COMMAND ${PROMGEN_NATIVE} -intstyle silent -w -p mcs -c FF -o ${PROJ_OUTPUT} -s 2048
                                                -u 0000 ${PROJ_NAME}.bit -spi
-                     DEPENDS  "${PROJ_NAME}-generate-bit"
+                     DEPENDS  "${PROJ_NAME}-generate-bit" ${PROJ_NAME}.bit
                      COMMENT "Running promgen to create ${PROJ_OUTPUT}.mcs")
 
   add_custom_target(${PROJ_NAME} ALL
@@ -206,7 +206,7 @@ macro (ise_compile_fpga ...)
 
   # Additional files to clean; ${PROJ_OUTPUT}.mcs is already handled by CMake, so here we add
   # the other generated output files (first two lines) and various log and temporary files.
-  set(XILINX_CLEAN_FILES ${PROJ_NAME}.ngd ${PROJ_NAME}.ngd ${PROJ_NAME}.pcf
+  set(XILINX_CLEAN_FILES ${PROJ_NAME}.ngc ${PROJ_NAME}.ngd ${PROJ_NAME}.pcf
                          ${PROJ_NAME}_map.ncd ${PROJ_NAME}.ncd ${PROJ_NAME}.twr ${PROJ_NAME}.bit
                          ${PROJ_NAME}.bgn ${PROJ_NAME}.bld ${PROJ_OUTPUT}.cfi ${PROJ_NAME}.drc
                          ${PROJ_NAME}.lso ${PROJ_NAME}.pad ${PROJ_NAME}.par ${PROJ_NAME}.prm
