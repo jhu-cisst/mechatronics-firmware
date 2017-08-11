@@ -43,6 +43,12 @@ reg dir_r;      // dir start
 reg ticks_r;    // previous ticks
 assign ticks_en = ticks & (~ticks_r);
 
+always @(posedge clk_fast)
+begin
+   ticks_r <= ticks;
+   dir_r <= dir;
+end
+
 // latch counter value
 always @(posedge ticks_en or negedge reset)
 begin
