@@ -139,8 +139,6 @@ end
 // Note that a direction change sets the free-running counter to overflow, so that will take priority
 // over the latched value, which is reasonable behavior (i.e., a recent direction change should result
 // in an estimated velocity of 0).
-// The 5-bit value that preceeds the 22-bit count could be set to all 0. It appears that the first
-// 2 bits indicate which of the if-else clauses was executed.
 // From EncQuad.v:
 //   dir 0 is A leading B  (cycle is Aup -> Bup -> Adown -> Bdown)
 //   dir 1 is B leading A  (cycle is Bup -> Aup -> Bdown -> Adown)
@@ -150,62 +148,62 @@ always @(posedge clk_fast or negedge reset) begin
    end
    
    else if (mux == a_up) begin  // A up
-      if ((dir == 0) && (b_up_counter[21:0] > a_up_latched[21:0])) begin
+      if ((dir == 0) && (b_up_counter[21:0] >= a_up_latched[21:0])) begin
          // Next expected edge (Bup) free-running counter is greater than Aup latched value
-         period <= {1'b0, dir, b_up_dir_changed, b_up, 5'b01000, b_up_counter};
+         period <= {1'b0, dir, b_up_dir_changed, b_up, 5'd0, b_up_counter};
       end 
-      else if ((dir == 1) && (b_dn_counter[21:0] > a_up_latched[21:0])) begin
+      else if ((dir == 1) && (b_dn_counter[21:0] >= a_up_latched[21:0])) begin
          // Next expected edge (Bdown) free-running counter is greater than Aup latched value
-         period <= {1'b0, dir, b_dn_dir_changed, b_dn, 5'b10000, b_dn_counter};
+         period <= {1'b0, dir, b_dn_dir_changed, b_dn, 5'd0, b_dn_counter};
       end 
       else begin
          // Return Aup latched value
-         period <= {1'b1, dir, a_up_dir_changed, a_up, 5'b11000, a_up_latched};
+         period <= {1'b1, dir, a_up_dir_changed, a_up, 5'd0, a_up_latched};
       end
    end
 
    else if (mux == b_up) begin  // B up
-      if ((dir == 0) && (a_dn_counter[21:0] > b_up_latched[21:0])) begin
+      if ((dir == 0) && (a_dn_counter[21:0] >= b_up_latched[21:0])) begin
          // Next expected edge (Adown) free-running counter is greater than Bup latched value
-         period <= {1'b0, dir, a_dn_dir_changed, a_dn, 5'b01000, a_dn_counter};
+         period <= {1'b0, dir, a_dn_dir_changed, a_dn, 5'd0, a_dn_counter};
       end 
-      else if ((dir == 1) && (a_up_counter[21:0] > b_up_latched[21:0])) begin
+      else if ((dir == 1) && (a_up_counter[21:0] >= b_up_latched[21:0])) begin
          // Next expected edge (Aup) free-running counter is greater than Bup latched value
-         period <= {1'b0, dir, a_up_dir_changed, a_up, 5'b10000, a_up_counter};
+         period <= {1'b0, dir, a_up_dir_changed, a_up, 5'd0, a_up_counter};
       end 
       else begin
          // Return Bup latched value
-         period <= {1'b1, dir, b_up_dir_changed, b_up, 5'b11000, b_up_latched};
+         period <= {1'b1, dir, b_up_dir_changed, b_up, 5'd0, b_up_latched};
       end
    end
 
    else if (mux == a_dn) begin  // A down
-      if ((dir == 0) && (b_dn_counter[21:0] > a_dn_latched[21:0])) begin
+      if ((dir == 0) && (b_dn_counter[21:0] >= a_dn_latched[21:0])) begin
          // Next expected edge (Bdown) free-running counter is greater than Adown latched value
-         period <= {1'b0, dir, b_dn_dir_changed, b_dn, 5'b01000, b_dn_counter};
+         period <= {1'b0, dir, b_dn_dir_changed, b_dn, 5'd0, b_dn_counter};
       end 
-      else if ((dir == 1) && (b_up_counter[21:0] > a_dn_latched[21:0])) begin
+      else if ((dir == 1) && (b_up_counter[21:0] >= a_dn_latched[21:0])) begin
          // Next expected edge (Bup) free-running counter is greater than Adown latched value
-         period <= {1'b0, dir, b_up_dir_changed, b_up, 5'b10000, b_up_counter};
+         period <= {1'b0, dir, b_up_dir_changed, b_up, 5'd0, b_up_counter};
       end 
       else begin
          // Return Adown latched value
-         period <= {1'b1, dir, a_dn_dir_changed, a_dn, 5'b11000, a_dn_counter};
+         period <= {1'b1, dir, a_dn_dir_changed, a_dn, 5'd0, a_dn_counter};
       end
    end
 
    else if (mux == b_dn) begin  // B down
-      if ((dir == 0) && (a_up_counter[21:0] > b_dn_latched[21:0])) begin
+      if ((dir == 0) && (a_up_counter[21:0] >= b_dn_latched[21:0])) begin
          // Next expected edge (Aup) free-running counter is greater than Bdown latched value
-         period <= {1'b0, dir, a_up_dir_changed, a_up, 5'b01000, a_up_counter};
+         period <= {1'b0, dir, a_up_dir_changed, a_up, 5'd0, a_up_counter};
       end 
-      else if ((dir == 1) && (a_dn_counter[21:0] > b_dn_latched[21:0])) begin
+      else if ((dir == 1) && (a_dn_counter[21:0] >= b_dn_latched[21:0])) begin
          // Next expected edge (Adown) free-running counter is greater than Bdown latched value
-         period <= {1'b0, dir, a_dn_dir_changed, a_dn, 5'b10000, a_dn_counter};
+         period <= {1'b0, dir, a_dn_dir_changed, a_dn, 5'd0, a_dn_counter};
       end
       else begin
          // Return Bdown latched value
-         period <= {1'b1, dir, b_dn_dir_changed, b_dn, 5'b11000, b_dn_latched};
+         period <= {1'b1, dir, b_dn_dir_changed, b_dn, 5'd0, b_dn_latched};
       end
    end
 end
