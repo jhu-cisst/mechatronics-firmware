@@ -1,6 +1,6 @@
 /*******************************************************************************
  *
- * Copyright(C) 2008-2016 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2008-2017 ERC CISST, Johns Hopkins University.
  *
  * This module contains a register file dedicated to general board parameters.
  * Separate register files are maintained for each I/O channel (SpiCtrl).
@@ -206,11 +206,14 @@ defparam divWdog.width = `WIDTH_WATCHDOG;
 // watchdog timer and flag, resets via any register write
 always @(posedge(wdog_clk) or negedge(reset) or posedge(reg_wen))
 begin
-    // reset counter/flag on reg write
+    // reset counter on any reg write and reset wdog_timeout flag on reg write that enables board power
     if (reset==0 || reg_wen ) begin
         wdog_count <= 0;                        // reset the timer counter
-        wdog_timeout <= 0;                      // clear the timeout flag
-        wdog_amp_disable <= 4'b0000;            // clear wdog_amp_disable 
+        wdog_amp_disable <= 4'b0000;            // clear wdog_amp_disable
+        // Clear watchdog timeout flag on reset, or when enabling board power (pwr_enable).
+        if ((reset==0) ||
+            ((reg_waddr[15:12] == `ADDR_MAIN) && (reg_waddr[7:0] == {4'd0, `REG_STATUS}) && (reg_wdata[19] & reg_wdata[18])))
+            wdog_timeout <= 0;
     end
 
     // watchdog only works when period is set
