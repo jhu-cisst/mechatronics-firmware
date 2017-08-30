@@ -3,7 +3,7 @@
 
 /*******************************************************************************    
  *
- * Copyright(C) 2011-2016 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2011-2017 ERC CISST, Johns Hopkins University.
  *
  * This is the top level module for the FPGA1394-QLA motor controller interface.
  *
@@ -387,6 +387,10 @@ QLA25AA128 prom_qla(
 // safety_amp_enable from SafetyCheck moudle
 wire[4:1] safety_amp_disable;
 
+// pwr_enable_cmd and amp_enable_cmd from BoardRegs; used to clear safety_amp_disable
+wire pwr_enable_cmd;
+wire[4:1] amp_enable_cmd;
+
 // 'channel 0' is a special axis that contains various board I/Os
 wire[31:0] reg_rdata_chan0;
 
@@ -426,7 +430,9 @@ BoardRegs chan0(
     .prom_status(PROM_Status),
     .prom_result(PROM_Result),
     .eth_result(Eth_Result),
-    .safety_amp_disable(safety_amp_disable)
+    .safety_amp_disable(safety_amp_disable),
+    .pwr_enable_cmd(pwr_enable_cmd),
+    .amp_enable_cmd(amp_enable_cmd)
 );
 
 // ----------------------------------------------------------------------------
@@ -438,7 +444,7 @@ SafetyCheck safe1(
     .reset(reset),
     .cur_in(cur_fb[1]),
     .dac_in(cur_cmd[1]),
-    .reg_wen(reg_wen),
+    .clear_disable(pwr_enable_cmd | amp_enable_cmd[1]),
     .amp_disable(safety_amp_disable[1])
 );
 
@@ -447,7 +453,7 @@ SafetyCheck safe2(
     .reset(reset),
     .cur_in(cur_fb[2]),
     .dac_in(cur_cmd[2]),
-    .reg_wen(reg_wen),
+    .clear_disable(pwr_enable_cmd | amp_enable_cmd[2]),
     .amp_disable(safety_amp_disable[2])
 );
 
@@ -456,7 +462,7 @@ SafetyCheck safe3(
     .reset(reset),
     .cur_in(cur_fb[3]),
     .dac_in(cur_cmd[3]),
-    .reg_wen(reg_wen),
+    .clear_disable(pwr_enable_cmd | amp_enable_cmd[3]),
     .amp_disable(safety_amp_disable[3])
 );
 
@@ -465,7 +471,7 @@ SafetyCheck safe4(
     .reset(reset),
     .cur_in(cur_fb[4]),
     .dac_in(cur_cmd[4]),
-    .reg_wen(reg_wen),
+    .clear_disable(pwr_enable_cmd | amp_enable_cmd[4]),
     .amp_disable(safety_amp_disable[4])
 );
 

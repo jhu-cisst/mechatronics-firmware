@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2013-2016 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2013-2017 ERC CISST, Johns Hopkins University.
  *
  * Purpose: Global constants e.g. device address
  * 
@@ -52,7 +52,6 @@
 `define REG_DIGIN    4'd10         // Digital inputs (home, neg lim, pos lim)
 `define REG_ETHRES   4'd12         // Ethernet register I/O result (from KSZ8851)
 `define REG_DEBUG    4'd15         // Debug register for testing 
-// `define REG_SAFETY  4'd11          // Safety amp disable 
 
 // device register file offsets from channel base
 `define OFF_ADC_DATA 4'd0          // adc data register offset (pot + cur)

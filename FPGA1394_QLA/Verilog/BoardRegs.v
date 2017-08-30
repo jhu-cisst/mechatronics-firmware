@@ -28,7 +28,7 @@ module BoardRegs(
     output reg  reset,
     
     // board input (PC writes)
-    output wire[4:1] amp_disable,
+    output wire[4:1] amp_disable,   // hardware connection to op amps
     input  wire[4:1] dout,          // digital outputs
     input  wire dout_cfg_valid,     // digital output configuration valid
     input  wire dout_cfg_bidir,     // whether digital outputs are bidirectional (also need to be inverted)
@@ -68,9 +68,11 @@ module BoardRegs(
 
     // Safety amp_disable
     input  wire[4:1] safety_amp_disable,
-    
-    // Interface to Chipscope icon
-//    input  wire[35:0] control     // icon control 
+
+    // Signals used to clear error flags
+    output wire pwr_enable_cmd,
+    output wire[4:1] amp_enable_cmd,
+
     output reg[31:0] reg_debug     // for debug purpose only
 );
 
@@ -85,10 +87,9 @@ module BoardRegs(
 
     // watchdog timer
     wire wdog_clk;              // watchdog clock
-    reg wdog_timeout;           // watchdog timeout status flag
+    reg  wdog_timeout;          // watchdog timeout status flag
     reg[15:0] wdog_period;      // watchdog period, user writable
     reg[15:0] wdog_count;       // watchdog timer counter
-    reg[4:1] wdog_amp_disable;  // watchdog amp_disable
     
     // mv good timer                                                                                                                                       
     reg[15:0] mv_good_counter;  // mv_good counter 
@@ -110,6 +111,25 @@ initial reg_debug = 32'h2000;
 // mv_amp_disable for 40 ms sleep after board pwr enable
 assign amp_disable = (reg_disable[3:0] | mv_amp_disable[4:1]);
 
+wire write_main;
+assign write_main = ((reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[7:4]==0) && reg_wen) ? 1'b1 : 1'b0;
+wire write_status;
+assign write_status = (write_main && (reg_waddr[3:0] == `REG_STATUS)) ? 1'b1 : 1'b0;
+
+// pwr_enable_cmd indicates that the host is attempting to enable board power.
+// This is used to clear error flags, such as wdog_timeout and safety_amp_disable.
+assign pwr_enable_cmd = write_status ? (reg_wdata[19]&reg_wdata[18]) : 1'd0;
+
+// amp_enable_cmd indicates that the host is attempting to enable amplifier power.
+// This is used to clear error flags, such as wdog_timeout and safety_amp_disable.
+assign amp_enable_cmd = write_status ? {reg_wdata[11]&reg_wdata[3], reg_wdata[10]&reg_wdata[2], 
+                                        reg_wdata[ 9]&reg_wdata[1], reg_wdata[ 8]&reg_wdata[0]}
+                                     : 4'd0;
+
+// powerup_cmd is true if the host is attempting to enable board power or any amplifier.
+wire powerup_cmd;
+assign powerup_cmd = pwr_enable_cmd | amp_enable_cmd[4] | amp_enable_cmd[3] | amp_enable_cmd[2] | amp_enable_cmd[1];
+
 // clocked process simulating a register file
 always @(posedge(sysclk) or negedge(reset))
   begin
@@ -127,7 +147,7 @@ always @(posedge(sysclk) or negedge(reset))
      end
 
     // set register values for writes
-    else if (reg_waddr[15:12]==`ADDR_MAIN && reg_waddr[7:4]==0 && reg_wen) begin
+    else if (write_main) begin
         case (reg_waddr[3:0])
         `REG_STATUS: begin
             // mask reg_wdata[15:8] with [7:0] for disable (~enable) control
@@ -183,16 +203,12 @@ always @(posedge(sysclk) or negedge(reset))
         `REG_ETHRES: reg_rdata <= eth_result;
         `REG_DEBUG:  reg_rdata <= reg_debug;
 
-        // `REG_SAFETY: reg_rdata <= { 28'd0, safety_amp_disable};
-        
         default:  reg_rdata <= 32'd0;
         endcase
-            
-        // disable all axis when wdog timeout     
-        if ( (wdog_amp_disable != 4'd0) || (safety_amp_disable != 4'd0) ) 
-        begin
-            reg_disable[3:0] <= (reg_disable[3:0] | wdog_amp_disable[4:1] | safety_amp_disable[4:1]);
-        end
+
+        // Disable axes when wdog timeout or safety amp disable. Note the minor efficiency gain
+        // below by combining safety_amp_disable with !wdog_timeout.
+        reg_disable[3:0] <= reg_disable[3:0] | (wdog_timeout ? 4'b1111 : safety_amp_disable[4:1]);
     end
 end
 
@@ -204,31 +220,28 @@ ClkDiv divWdog(sysclk, wdog_clk);
 defparam divWdog.width = `WIDTH_WATCHDOG;
 
 // watchdog timer and flag, resets via any register write
-always @(posedge(wdog_clk) or negedge(reset) or posedge(reg_wen))
+always @(posedge(wdog_clk) or negedge(reset) or posedge(reg_wen) or posedge(powerup_cmd))
 begin
-    // reset counter on any reg write and reset wdog_timeout flag on reg write that enables board power
-    if (reset==0 || reg_wen ) begin
+    if (reset==0 || powerup_cmd) begin
         wdog_count <= 0;                        // reset the timer counter
-        wdog_amp_disable <= 4'b0000;            // clear wdog_amp_disable
-        // Clear watchdog timeout flag on reset, or when enabling board power (pwr_enable).
-        if ((reset==0) ||
-            ((reg_waddr[15:12] == `ADDR_MAIN) && (reg_waddr[7:0] == {4'd0, `REG_STATUS}) && (reg_wdata[19] & reg_wdata[18])))
-            wdog_timeout <= 0;
+        wdog_timeout <= 0;                      // clear wdog_timeout
     end
-
-    // watchdog only works when period is set
+    else if (reg_wen) begin
+        // reset counter on any reg write
+        wdog_count <= 0;                        // reset the timer counter
+    end
     else if (wdog_period) begin
+        // watchdog only works when period is set
         if (wdog_count < wdog_period) begin     // time between reg writes
             wdog_count <= wdog_count + 1'b1;    // increment timer counter
         end
         else begin
             wdog_timeout <= 1'b1;               // raise flag
-            wdog_amp_disable <= 4'b1111;        // set wdog_amp_disable
         end
     end
 end
 
-// to save resoure use wdog_clk, period = 5.208333 us
+// to save resources use wdog_clk, period = 5.208333 us
 // 40 ms = 7680 cnts
 always @(posedge(wdog_clk) or negedge(reset))
 begin
