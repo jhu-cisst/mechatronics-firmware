@@ -21,13 +21,13 @@ module Debounce(
     output reg  sig_out   // debounced signal output
 );
 
+    // # of consecutive bits required for a signal transition
+    parameter bits = 9;
+
     // local wires and registers
     reg[bits-1:0] sig_shift;     // input signal shift register
     wire[bits-1:0] all_zeros;    // vector of all zeros
     wire[bits-1:0] all_ones;     // vector of all ones
-
-    // # of consecutive bits required for a signal transition
-    parameter bits = 9;
 
 //------------------------------------------------------------------------------
 // hardware description

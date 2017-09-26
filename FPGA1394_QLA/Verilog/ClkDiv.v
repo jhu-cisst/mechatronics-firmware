@@ -19,10 +19,10 @@
 //
 module ClkDiv(clkin, clkout);
 
+    parameter width = 4;       // adjustable width parameter
     input wire clkin;          // input clock to derive from
     output reg clkout;         // divided down output clock
     reg[width-1:0] counter;    // counter for clock divider
-    parameter width = 4;       // adjustable width parameter
 
 // free running counter
 always @(posedge(clkin))

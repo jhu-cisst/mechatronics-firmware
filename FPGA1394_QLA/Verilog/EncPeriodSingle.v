@@ -20,7 +20,7 @@
  */
 
 // ---------- Peter ------------------
-module EncPeriod(
+module EncPeriod1(
    input wire clk_fast,     // count this clock between encoder ticks
    input wire reset,        // global reset signal
    input wire ticks,        // encoder transition signal
@@ -54,10 +54,10 @@ begin
 	dir_r <= dir;
    
 	if (cnter >= cnter_latch) begin
-		count <= {1'b0, dir, dir_changed, 7'h00, cnter};
+		count <= {0, dir, dir_changed, 7'h00, cnter};
 	end 
 	else begin
-		count <= {1'b1, dir, dir_changed, 7'h00, cnter_latch};
+		count <= {1, dir, dir_changed, 7'h00, cnter_latch};
 	end
 end
 
@@ -94,7 +94,7 @@ endmodule
 // ------------------------------------------------
 // Quad Ticks Version 
 // ------------------------------------------------
-module EncPeriodQuad(
+module EncPeriodSingle(
     input wire clk,           // sysclk
     input wire clk_fast,      // count this clock between encoder ticks
     input wire reset,         // global reset signal
@@ -117,89 +117,10 @@ module EncPeriodQuad(
 //------------------------------------------------------------------------------
 // hardware description
 //
-EncPeriod EncPerUpA(clk_fast, reset,  a, dir, a_up_tick, perd_a_up);
-EncPeriod EncPerDnA(clk_fast, reset, ~a, dir, a_dn_tick, perd_a_dn);
-EncPeriod EncPerUpB(clk_fast, reset,  b, dir, b_up_tick, perd_b_up);
-EncPeriod EncPerDnB(clk_fast, reset, ~b, dir, b_dn_tick, perd_b_dn);
+EncPeriod1 EncPerUpA(clk_fast, reset,  a, dir, a_up_tick, perd_a_up);
 
-localparam[1:0] a_up = 2'b00;
-localparam[1:0] a_dn = 2'b01;
-localparam[1:0] b_up = 2'b10;
-localparam[1:0] b_dn = 2'b11;
-
-// Determine which edge is the most recent
-always @(posedge a_up_tick or posedge a_dn_tick or posedge b_up_tick or posedge b_dn_tick)
-begin
-    if (a_up_tick) begin
-        mux <= a_up;
-    end
-    else if (b_up_tick) begin
-        mux <= b_up;    
-    end    
-    else if (a_dn_tick) begin
-        mux <= a_dn;
-    end
-    else if (b_dn_tick) begin
-        mux <= b_dn;
-    end
-end
-
-// Pass back the next expected value (depending on direction) if:
-// 1) It is from the free running counter
-// 2) There has been no direction change in its last encoder cycle
-// 3) The value is bigger than the current one
-always @(posedge clk_fast or negedge reset) begin
-   if (reset == 0) begin
-      period <= 32'd0;
-   end
-   
-   else if (mux == a_up) begin  // A up
-      if ((dir == 0) && (~perd_b_up[31]) && (~perd_b_up[29]) && (perd_b_up[21:0] > perd_a_up[21:0])) begin
-         period <= {perd_b_up[31:29], b_up, 2'b01, perd_b_up[24:0]};
-      end 
-      else if ((dir == 1) && (~perd_b_dn[31]) && (~perd_b_dn[29]) && (perd_b_dn[21:0] > perd_a_up[21:0])) begin
-         period <= {perd_b_dn[31:29], b_dn, 2'b10, perd_b_dn[24:0]};
-      end 
-      else begin
-         period <= {perd_a_up[31:29], a_up, 2'b11, perd_a_up[24:0]};
-      end
-   end
-   
-   else if (mux == b_up) begin  // B up
-      if ((dir == 0) && (~perd_a_dn[31]) && (~perd_a_dn[29]) && (perd_a_dn[21:0] > perd_b_up[21:0])) begin
-         period <= {perd_a_dn[31:29], a_dn, 2'b01, perd_a_dn[24:0]};
-      end 
-      else if ((dir == 1) && (~perd_a_up[31]) && (~perd_a_up[29] )&& (perd_a_up[21:0] > perd_b_up[21:0])) begin
-         period <= {perd_a_up[31:29], a_up, 2'b10, perd_a_up[24:0]};
-      end 
-      else begin
-         period <= {perd_b_up[31:29], b_up, 2'b11, perd_b_up[24:0]};
-      end
-   end
-   
-   else if (mux == a_dn) begin  // A down
-      if ((dir == 0) && (~perd_b_dn[31]) && (~perd_b_dn[29]) && (perd_b_dn[21:0] > perd_a_dn[21:0])) begin
-         period <= {perd_b_dn[31:29], b_dn, 2'b01, perd_b_dn[24:0]};
-      end 
-      else if ((dir == 1) && (~perd_b_up[31]) && (~perd_b_up[29]) && (perd_b_up[21:0] > perd_a_dn[21:0])) begin
-         period <= {perd_b_up[31:29], b_up, 2'b10, perd_b_up[24:0]};
-      end 
-      else begin
-         period <= {perd_a_dn[31:29], a_dn, 2'b11, perd_a_dn[24:0]};
-      end
-   end
-   
-   else if (mux == b_dn) begin  // B down
-      if ((dir == 0) && (~perd_a_up[31]) && (~perd_a_up[29]) && (perd_a_up[21:0] > perd_b_dn[21:0])) begin
-         period <= {perd_a_up[31:29], a_up, 2'b01, perd_a_up[24:0]};
-      end 
-      else if ((dir == 1) && (~perd_a_dn[31]) && (~perd_a_dn[29]) && (perd_a_dn[21:0] > perd_b_dn[21:0])) begin
-         period <= {perd_a_dn[31:29], a_dn, 2'b10, perd_a_dn[24:0]};
-      end
-      else begin
-         period <= {perd_b_dn[31:29], b_dn, 2'b11, perd_b_dn[24:0]};
-      end
-   end
+always @ (posedge clk_fast) begin
+    period = perd_a_up;
 end
 
 endmodule
