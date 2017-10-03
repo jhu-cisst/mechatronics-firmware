@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2015-2016 Johns Hopkins University.
+ * Copyright(C) 2015-2017 Johns Hopkins University.
  *
  * This module controls access to the digital output bits. Each of the four digital
  * output bits can be set/cleared, put in PWM mode, or used as a 1-shot.
@@ -30,7 +30,7 @@
  * Revision history
  *     9/23/15    Peter Kazanzides  Initial implementation
  *     4/21/16    Peter Kazanzides  Added support for QLA Rev 1.4
- *		 4/07/17		Jie Ying Wu			Minor changes so PWM finishes its current period before changing duty cycle
+ *     4/07/17    Jie Ying Wu       Minor changes so PWM finishes its current period before changing duty cycle
  */
 
 `include "Constants.v" 
@@ -48,7 +48,6 @@ module CtrlDout(
     inout  wire dir34,            // direction control for channels 3-4 (QLA Rev 1.4+)
     output reg dout_cfg_valid,    // 1 -> DOUT configuration valid
     output reg dout_cfg_bidir     // 1 -> new DOUT hardware (bidirectional control)
-	 //output wire[4:1] debug
 );    
 
 reg dir12_reg;
@@ -65,7 +64,7 @@ assign dout_set_en[2] = dout_set && reg_wdata[9];
 assign dout_set_en[3] = dout_set && reg_wdata[10];
 assign dout_set_en[4] = dout_set && reg_wdata[11];
              
-//wire dout_ctrl;           // write to control register (hi/low times)
+wire dout_ctrl;           // write to control register (hi/low times)
 assign dout_ctrl = (reg_wen && (reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[3:0]==`OFF_DOUT_CTRL)) ? 1'd1 : 1'd0;
 wire dout_ctrl_en[1:4];   // enable signal for each digital output control register
 assign dout_ctrl_en[1] = (dout_ctrl && (reg_waddr[7:4] == 4'd1)) ? 1'd1 : 1'd0;
@@ -135,8 +134,7 @@ module DoutPWM(
     input wire [31:0]  reg_wdata,    // incoming register data (for control register)
     input wire         dout_enable,  // if 1, set dout to dout_set
     input wire         dout_set,     // new value for dout
-    output reg         dout         // digital output bit
-	 //output reg			  debug
+    output reg         dout          // digital output bit
 );
 
     // -------------------------------------------------------------------------
@@ -156,20 +154,20 @@ module DoutPWM(
 always @(posedge(sysclk) or negedge(reset))
 begin
     if (reset == 0) begin
-		 dout <= 1'd0;
+       dout <= 1'd0;
        HiLoTime <= 32'd0;
        curTime <= 16'd0;
     end
     else if (dout_enable) begin                  // if writing a new value for dout
-		 dout <= dout_set;                         //    set the value
+       dout <= dout_set;                         //    set the value
        curTime <= 16'd0;                         //    set current time to 0
     end
     else if (ctrl_enable) begin
        HiLoTime <= reg_wdata;
     end
     else if (desiredTime[dout] != 16'd0) begin   // else if desired time is non-zero
-		 curTime <= curTime + 1;                   //    increment current time
-       if (curTime > desiredTime[dout]) begin   //    if current time == desired time
+       curTime <= curTime + 1;                   //    increment current time
+       if (curTime > desiredTime[dout]) begin    //    if current time == desired time
           dout <= ~dout;                         //       negate digital output
           curTime <= 16'd0;                      //       set current time to 0
        end

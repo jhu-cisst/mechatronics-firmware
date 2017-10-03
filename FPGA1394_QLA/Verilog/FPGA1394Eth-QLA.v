@@ -3,7 +3,7 @@
 
 /*******************************************************************************    
  *
- * Copyright(C) 2011-2016 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2011-2017 ERC CISST, Johns Hopkins University.
  *
  * This is the top level module for the FPGA1394-QLA motor controller interface.
  *
@@ -156,7 +156,11 @@ icon_ethernet icon_e(
 
 wire[7:0] eth_port_debug;
 wire[3:0] dbg_state;
-wire[31:0] dbg_reg_debug;
+
+`ifdef USE_CHIPSCOPE
+    wire[31:0] dbg_reg_debug;
+`endif
+
 assign eth_port_debug = {1'd0, reg_wen, ETH_RSTn, ETH_CMD, ETH_RDn, 
                          ETH_WRn, ETH_IRQn, ETH_PME};
 // assign eth_port_debug = {eth_cmd_req, reg_wen, ETH_RSTn,
@@ -230,9 +234,12 @@ PhyLinkInterface phy(
     .eth_send_len(eth_send_len),
                      
     .lreq_trig(fw_lreq_trig),  // out: phy request trigger
-    .lreq_type(fw_lreq_type),  // out: phy request type
+    .lreq_type(fw_lreq_type)   // out: phy request type
 
-    .ila_control(control_fw)   // in: control
+`ifdef USE_CHIPSCOPE
+    ,
+    .ila_control(control_fw)   // inout: control
+`endif
 );
 
 
@@ -434,8 +441,8 @@ CtrlDac dac(
 
 // fast (~1 MHz) / slow (~12 Hz) clocks to measure encoder period / frequency
 wire clk_1mhz, clk_12hz;
-ClkDiv divenc1(sysclk, clk_1mhz); defparam divenc1.width = 6;
-ClkDiv divenc2(sysclk, clk_12hz); defparam divenc2.width = 22;
+ClkDiv divenc1(sysclk, clk_1mhz); defparam divenc1.width = 6;   // 49.152 MHz / 2**6 ==> 768 kHz
+ClkDiv divenc2(sysclk, clk_12hz); defparam divenc2.width = 22;  // 49.152 MHz / 2**22 ==> 11.71875 Hz
 
 // map all types of encoder reads to the output of the encoder controller; the
 //   latter will select the correct data to output based on read address
@@ -589,6 +596,10 @@ QLA25AA128 prom_qla(
 // safety_amp_enable from SafetyCheck moudle
 wire[4:1] safety_amp_disable;
 
+// pwr_enable_cmd and amp_enable_cmd from BoardRegs; used to clear safety_amp_disable
+wire pwr_enable_cmd;
+wire[4:1] amp_enable_cmd;
+
 // 'channel 0' is a special axis that contains various board I/Os
 wire[31:0] reg_rdata_chan0;
 
@@ -625,7 +636,9 @@ BoardRegs chan0(
     .prom_status(PROM_Status),
     .prom_result(PROM_Result),
     .eth_result(Eth_Result),
-    .safety_amp_disable(safety_amp_disable)
+    .safety_amp_disable(safety_amp_disable),
+    .pwr_enable_cmd(pwr_enable_cmd),
+    .amp_enable_cmd(amp_enable_cmd)
 `ifdef USE_CHIPSCOPE
     ,
     .reg_debug(dbg_reg_debug)
@@ -641,7 +654,7 @@ SafetyCheck safe1(
     .reset(reset),
     .cur_in(cur_fb[1]),
     .dac_in(cur_cmd[1]),
-    .reg_wen(reg_wen),
+    .clear_disable(pwr_enable_cmd | amp_enable_cmd[1]),
     .amp_disable(safety_amp_disable[1])
 );
 
@@ -650,7 +663,7 @@ SafetyCheck safe2(
     .reset(reset),
     .cur_in(cur_fb[2]),
     .dac_in(cur_cmd[2]),
-    .reg_wen(reg_wen),
+    .clear_disable(pwr_enable_cmd | amp_enable_cmd[2]),
     .amp_disable(safety_amp_disable[2])
 );
 
@@ -659,7 +672,7 @@ SafetyCheck safe3(
     .reset(reset),
     .cur_in(cur_fb[3]),
     .dac_in(cur_cmd[3]),
-    .reg_wen(reg_wen),
+    .clear_disable(pwr_enable_cmd | amp_enable_cmd[3]),
     .amp_disable(safety_amp_disable[3])
 );
 
@@ -668,7 +681,7 @@ SafetyCheck safe4(
     .reset(reset),
     .cur_in(cur_fb[4]),
     .dac_in(cur_cmd[4]),
-    .reg_wen(reg_wen),
+    .clear_disable(pwr_enable_cmd | amp_enable_cmd[4]),
     .amp_disable(safety_amp_disable[4])
 );
 

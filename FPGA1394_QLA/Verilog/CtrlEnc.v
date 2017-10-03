@@ -1,6 +1,6 @@
 /*******************************************************************************
  *
- * Copyright(C) 2011 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2011-2017 ERC CISST, Johns Hopkins University.
  *
  * This module controls access to the encoder modules by selecting the data to 
  * output based on the read address, and by handling preload write commands to
@@ -9,7 +9,7 @@
  * Revision history
  *     11/16/11    Paul Thienphrapa    Initial revision
  *     10/27/13    Zihan Chen          Minor, set preload to 24'h800000
- *		 04/07/17	 Jie Ying Wu		   Minor change to clock frequency for velocity estimation
+ *     04/07/17    Jie Ying Wu         Minor change to clock frequency for velocity estimation
  */
 
 // device register file offset
@@ -69,8 +69,8 @@ EncQuad EncQuad3(sysclk, reset, enc_a_filt[3], enc_b_filt[3], set_enc[3], preloa
 EncQuad EncQuad4(sysclk, reset, enc_a_filt[4], enc_b_filt[4], set_enc[4], preload[4], quad_data[4], dir[4]);
 
 // modules generate fast & slow clock 
-ClkDiv divenc1(sysclk, clk_fast); defparam divenc1.width = 4;
-ClkDiv divenc2(sysclk, clk_slow); defparam divenc2.width = 22;
+ClkDiv divenc1(sysclk, clk_fast); defparam divenc1.width = 4;   // 49.152 MHz / 2**4 ==> 3.072 MHz
+ClkDiv divenc2(sysclk, clk_slow); defparam divenc2.width = 22;  // 49.152 MHz / 2**22 ==> 11.71875 Hz
 
 // velocity period (4/dT method)
 // quad update version
@@ -97,7 +97,6 @@ assign reg_rdata = (reg_raddr[3:0]==`OFF_ENC_LOAD) ? (preload[reg_raddr[7:4]]) :
                   ((reg_raddr[3:0]==`OFF_ENC_DATA) ? (quad_data[reg_raddr[7:4]]) :
                   ((reg_raddr[3:0]==`OFF_PER_DATA) ? (perd_data[reg_raddr[7:4]]) : 
                   ((reg_raddr[3:0]==`OFF_FREQ_DATA) ? (freq_data[reg_raddr[7:4]]) : 32'd0)));
-
 
 // write selected preload register
 // set_enc: create a pulse when encoder preload is written

@@ -1,10 +1,10 @@
 /*******************************************************************************
  *
- * Copyright(C) 2011 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2013-2017 ERC CISST, Johns Hopkins University.
  *
  * Module: HubReg
  *
- * Purpose: Register Space for Hub Capabilit
+ * Purpose: Register Space for Hub Capability
  * 
  * Revision history
  *     09/14/13    Zihan Chen    Initial revision - ICRA14

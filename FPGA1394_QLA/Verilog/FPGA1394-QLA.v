@@ -3,7 +3,7 @@
 
 /*******************************************************************************    
  *
- * Copyright(C) 2011-2016 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2011-2017 ERC CISST, Johns Hopkins University.
  *
  * This is the top level module for the FPGA1394-QLA motor controller interface.
  *
@@ -73,9 +73,12 @@ module FPGA1394QLA
 //------------------------------------------------------------------------------
 // hardware description
 //
+wire[31:0] reg_rdata_hub;       // route HubReg data to global reg_rdata
+wire[31:0] reg_rdata_prom;      // reg_rdata_prom is for block reads from PROM
+wire[31:0] reg_rdata_prom_qla;  // reads from QLA prom
+wire[31:0] reg_rdata_chan0;     // 'channel 0' is a special axis that contains various board I/Os
 
 BUFG clksysclk(.I(clk1394), .O(sysclk));
-
 
 // Mux routing read data based on read address
 //   See Constants.v for detail
@@ -94,10 +97,6 @@ assign reset_phy = 1'b1;
 // hub register module
 // --------------------------------------------------------------------------
 
-// route HubReg data to global reg_rdata
-wire[31:0] reg_rdata_hub;
-// assign reg_rdata_hub = 32'h0;
-
 HubReg hub(
     .sysclk(sysclk),
     .reg_wen(reg_wen),
@@ -112,6 +111,13 @@ HubReg hub(
 // firewire modules
 // --------------------------------------------------------------------------
 
+`ifdef USE_CHIPSCOPE
+wire [35:0] control_fw;
+icon_prom icon(
+    .CONTROL0(control_fw)
+);
+`endif
+
 // phy-link interface
 PhyLinkInterface phy(
     .sysclk(sysclk),         // in: global clk  
@@ -124,15 +130,20 @@ PhyLinkInterface phy(
     
     .reg_wen(reg_wen),       // out: reg write signal
     .blk_wen(blk_wen),       // out: block write signal
-    .blk_wstart(blk_wstart),   // out: block write is starting
+    .blk_wstart(blk_wstart), // out: block write is starting
 
-    .reg_raddr(reg_raddr),     // out: register address
-    .reg_waddr(reg_waddr),     // out: register address
+    .reg_raddr(reg_raddr),   // out: register address
+    .reg_waddr(reg_waddr),   // out: register address
     .reg_rdata(reg_rdata),   // in:  read data to external register
     .reg_wdata(reg_wdata),   // out: write data to external register
 
     .lreq_trig(lreq_trig),   // out: phy request trigger
     .lreq_type(lreq_type)    // out: phy request type
+                     
+`ifdef USE_CHIPSCOPE
+    ,
+    .ila_control(control_fw) // inout: ila control
+`endif
 );
 
 
@@ -219,8 +230,8 @@ CtrlDac dac(
 
 // fast (~1 MHz) / slow (~12 Hz) clocks to measure encoder period / frequency
 wire clk_1mhz, clk_12hz;
-ClkDiv divenc1(sysclk, clk_1mhz); defparam divenc1.width = 6;
-ClkDiv divenc2(sysclk, clk_12hz); defparam divenc2.width = 22;
+ClkDiv divenc1(sysclk, clk_1mhz); defparam divenc1.width = 6;   // 49.152 MHz / 2**6 ==> 768 kHz
+ClkDiv divenc2(sysclk, clk_12hz); defparam divenc2.width = 22;  // 49.152 MHz / 2**22 ==> 11.71875 Hz
 
 // map all types of encoder reads to the output of the encoder controller; the
 //   latter will select the correct data to output based on read address
@@ -254,8 +265,15 @@ assign reg_rd[`OFF_DOUT_CTRL] = reg_rdout;
 // DOUT hardware configuration
 wire dout_config_valid;
 wire dout_config_bidir;
+wire [3:0] dout;
 
-CtrlDout dout(
+// IO1[16]: DOUT 4
+// IO1[17]: DOUT 3
+// IO1[18]: DOUT 2
+// IO1[19]: DOUT 1
+assign {IO1[16],IO1[17],IO1[18],IO1[19]} = (dout_config_bidir) ? (~dout) : dout;
+
+CtrlDout cdout(
     .sysclk(sysclk),
     .reset(reset),
     .reg_raddr(reg_raddr),
@@ -263,7 +281,7 @@ CtrlDout dout(
     .reg_rdata(reg_rdout),
     .reg_wdata(reg_wdata),
     .reg_wen(reg_wen),
-    .dout({IO1[16],IO1[17],IO1[18],IO1[19]}),
+    .dout(dout),
     .dir12(IO1[6]),
     .dir34(IO1[5]),
     .dout_cfg_valid(dout_config_valid),
@@ -304,7 +322,6 @@ Max6576 T2(
 // --------------------------------------------------------------------------
 
 // Route PROM status result between M25P16 and BoardRegs modules
-wire[31:0] reg_rdata_prom;   // reg_rdata_prom is for block reads from PROM
 wire[31:0] PROM_Status;
 wire[31:0] PROM_Result;
    
@@ -337,8 +354,6 @@ M25P16 prom(
 //    - TEMP version, interface subject to future change
 // --------------------------------------------------------------------------
 
-wire[31:0] reg_rdata_prom_qla;  // reads from QLA prom
-
 QLA25AA128 prom_qla(
     .clk(sysclk),
     .reset(reset),
@@ -368,8 +383,9 @@ QLA25AA128 prom_qla(
 // safety_amp_enable from SafetyCheck moudle
 wire[4:1] safety_amp_disable;
 
-// 'channel 0' is a special axis that contains various board I/Os
-wire[31:0] reg_rdata_chan0;
+// pwr_enable_cmd and amp_enable_cmd from BoardRegs; used to clear safety_amp_disable
+wire pwr_enable_cmd;
+wire[4:1] amp_enable_cmd;
 
 // There is no Ethernet on this version of board, so set the result to 0
 wire[31:0] Eth_Result;
@@ -380,7 +396,7 @@ BoardRegs chan0(
     .clkaux(clk40m),
     .reset(reset),
     .amp_disable({IO2[38],IO2[36],IO2[34],IO2[32]}),
-    .dout({IO1[16],IO1[17],IO1[18],IO1[19]}),
+    .dout(dout),
     .dout_cfg_valid(dout_config_valid),
     .dout_cfg_bidir(dout_config_bidir),
     .pwr_enable(IO1[32]),
@@ -407,7 +423,9 @@ BoardRegs chan0(
     .prom_status(PROM_Status),
     .prom_result(PROM_Result),
     .eth_result(Eth_Result),
-    .safety_amp_disable(safety_amp_disable)
+    .safety_amp_disable(safety_amp_disable),
+    .pwr_enable_cmd(pwr_enable_cmd),
+    .amp_enable_cmd(amp_enable_cmd)
 );
 
 // ----------------------------------------------------------------------------
@@ -419,7 +437,7 @@ SafetyCheck safe1(
     .reset(reset),
     .cur_in(cur_fb[1]),
     .dac_in(cur_cmd[1]),
-    .reg_wen(reg_wen),
+    .clear_disable(pwr_enable_cmd | amp_enable_cmd[1]),
     .amp_disable(safety_amp_disable[1])
 );
 
@@ -428,7 +446,7 @@ SafetyCheck safe2(
     .reset(reset),
     .cur_in(cur_fb[2]),
     .dac_in(cur_cmd[2]),
-    .reg_wen(reg_wen),
+    .clear_disable(pwr_enable_cmd | amp_enable_cmd[2]),
     .amp_disable(safety_amp_disable[2])
 );
 
@@ -437,7 +455,7 @@ SafetyCheck safe3(
     .reset(reset),
     .cur_in(cur_fb[3]),
     .dac_in(cur_cmd[3]),
-    .reg_wen(reg_wen),
+    .clear_disable(pwr_enable_cmd | amp_enable_cmd[3]),
     .amp_disable(safety_amp_disable[3])
 );
 
@@ -446,7 +464,7 @@ SafetyCheck safe4(
     .reset(reset),
     .cur_in(cur_fb[4]),
     .dac_in(cur_cmd[4]),
-    .reg_wen(reg_wen),
+    .clear_disable(pwr_enable_cmd | amp_enable_cmd[4]),
     .amp_disable(safety_amp_disable[4])
 );
 
