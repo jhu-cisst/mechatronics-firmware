@@ -76,8 +76,8 @@ ClkDiv divenc2(sysclk, clk_slow); defparam divenc2.width = 22;  // 49.152 MHz / 
 // quad update version
 EncPeriodQuad EncPerd1(sysclk, clk_fast, reset, enc_a_filt[1], enc_b_filt[1], dir[1], perd_data[1]);
 EncPeriodQuad EncPerd2(sysclk, clk_fast, reset, enc_a_filt[2], enc_b_filt[2], dir[2], perd_data[2]);
-EncPeriodSingle EncPerd3(sysclk, clk_fast, reset, enc_a_filt[1], enc_b_filt[1], dir[3], perd_data[3]);
-EncPeriodSingle EncPerd4(sysclk, clk_fast, reset, enc_a_filt[2], enc_b_filt[2], dir[4], perd_data[4]);
+EncPeriodSingle EncPerd3(sysclk, clk_fast, reset, enc_a_filt[1], enc_b_filt[1], dir[1], perd_data[3]);
+EncPeriodSingle EncPerd4(sysclk, clk_fast, reset, enc_a_filt[2], enc_b_filt[2], dir[2], perd_data[4]);
 
 
 // velocity frequency counting 
