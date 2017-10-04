@@ -70,7 +70,7 @@ begin
       overflowed <= 0;
    end
    else if (dir != dir_r) begin
-      count <= overflow;
+      //count <= overflow;
       dir_changed <= 1;
    end
    else if (count != overflow) begin
@@ -122,6 +122,7 @@ module EncPeriodQuad(
 //------------------------------------------------------------------------------
 // hardware description
 //
+
 EncPeriod EncPerUpA(clk_fast, reset,  a, dir, a_up_tick, a_up_latched, a_up_counter, a_up_dir_changed, a_up_overflow);
 EncPeriod EncPerDnA(clk_fast, reset, ~a, dir, a_dn_tick, a_dn_latched, a_dn_counter, a_dn_dir_changed, a_dn_overflow);
 EncPeriod EncPerUpB(clk_fast, reset,  b, dir, b_up_tick, b_up_latched, b_up_counter, b_up_dir_changed, b_up_overflow);

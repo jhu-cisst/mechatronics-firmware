@@ -19,66 +19,6 @@
  *     04/07/17    Jie Ying Wu         Return only larger of cnter or cnter_latch
  */
 
-module EncPeriod2(
-   input wire clk_fast,      // count this clock between encoder ticks
-   input wire reset,         // global reset signal
-   input wire ticks,         // encoder transition signal
-   input wire dir,           // direction of the ticks
-   output wire ticks_en,     // edge signal
-   output reg[21:0] latched, // latched counter from last encoder event
-   output reg[21:0] count,   // number clk_fast periods per tick
-   output reg dir_changed
-);
-
-    // overflow value for unsigned 22-bit number
-    parameter overflow = 22'h3FFFFF;
-
-
-//------------------------------------------------------------------------------
-// hardware description
-//
-
-// convert ticks to pulse
-reg dir_r;      // dir start 
-reg ticks_r;    // previous ticks
-assign ticks_en = ticks & (~ticks_r);
-
-always @(posedge clk_fast)
-begin
-   ticks_r <= ticks;
-   dir_r <= dir;
-end
-
-// latch counter value
-always @(posedge ticks_en or negedge reset)
-begin
-    if (reset == 0) begin
-        latched <= 22'd0;
-    end
-    else begin
-        latched <= count;
-    end
-end
-
-// free-running counter 
-always @(posedge clk_fast or posedge ticks_en or negedge reset) 
-begin
-   if (reset == 0 || ticks_en) begin
-      count <= 22'd0;
-      dir_changed <= 0;
-   end
-   else if (dir != dir_r) begin
-      count <= overflow;
-      dir_changed <= 1;
-   end
-   else if (count != overflow) begin
-      count <= count + 1;
-   end
-end
-
-endmodule
-
-
 // ------------------------------------------------
 // Quad Ticks Version 
 // ------------------------------------------------
@@ -92,23 +32,11 @@ module EncPeriodSingle(
     output reg[31:0] period   // num of fast clock ticks
 );
 
-    reg[1:0] mux;
     wire a_up_tick;
-    wire a_dn_tick;
-    wire b_up_tick;
-    wire b_dn_tick;
+    wire a_up_overflow;
     wire[21:0] a_up_latched;   // channel a up latched value
-    wire[21:0] a_dn_latched;   // channel a dn latched value
-    wire[21:0] b_up_latched;   // channel b up latched value
-    wire[21:0] b_dn_latched;   // channel b dn latched value
     wire[21:0] a_up_counter;   // channel a up free running counter
-    wire[21:0] a_dn_counter;   // channel a dn free running counter
-    wire[21:0] b_up_counter;   // channel b up free running counter
-    wire[21:0] b_dn_counter;   // channel b dn free running counter
     wire a_up_dir_changed;
-    wire a_dn_dir_changed;
-    wire b_up_dir_changed;
-    wire b_dn_dir_changed;
 
 //------------------------------------------------------------------------------
 // hardware description
@@ -129,7 +57,7 @@ always @(posedge clk_fast or negedge reset) begin
    if (reset == 0) begin
       period <= 32'd0;
    end else begin
-      period <= {1'b1, dir, a_up_dir_changed, a_up, 5'd0, a_up_latched};
+      period <= {1'b1, dir, a_up_dir_changed, a_up, a_up_overflow, 4'd0, a_up_latched};
    end
 end
 
