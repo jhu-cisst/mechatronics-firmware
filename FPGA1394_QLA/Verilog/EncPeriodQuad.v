@@ -70,7 +70,7 @@ begin
       overflowed <= 0;
    end
    else if (dir != dir_r) begin
-      //count <= overflow;
+      count <= latched;
       dir_changed <= 1;
    end
    else if (count != overflow) begin
