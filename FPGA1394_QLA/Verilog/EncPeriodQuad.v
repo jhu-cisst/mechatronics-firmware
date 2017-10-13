@@ -41,8 +41,10 @@ module EncPeriod(
 
 // convert ticks to pulse
 reg dir_r;      // dir start 
+wire dir_diff;  // non-latched indication for direction change
 reg ticks_r;    // previous ticks
 assign ticks_en = ticks & (~ticks_r);
+assign dir_diff = dir ^ dir_r;
 
 always @(posedge clk_fast)
 begin
@@ -69,8 +71,7 @@ begin
       dir_changed <= 0;
       overflowed <= 0;
    end
-   else if (dir != dir_r) begin
-      count <= latched;
+   else if (dir_diff) begin
       dir_changed <= 1;
    end
    else if (count != overflow) begin
