@@ -74,19 +74,18 @@ ClkDiv divenc2(sysclk, clk_slow); defparam divenc2.width = 22;  // 49.152 MHz / 
 
 // velocity period (4/dT method)
 // quad update version
-EncPeriodQuad EncPerd1(sysclk, clk_fast, reset, enc_a_filt[1], enc_b_filt[1], dir[1], perd_data[1]);
-EncPeriodQuad EncPerd2(sysclk, clk_fast, reset, enc_a_filt[2], enc_b_filt[2], dir[2], perd_data[2]);
-EncPeriodQuad EncPerd3(sysclk, clk_fast, reset, enc_a_filt[3], enc_b_filt[3], dir[3], perd_data[3]);
-EncPeriodQuad EncPerd4(sysclk, clk_fast, reset, enc_a_filt[4], enc_b_filt[4], dir[4], perd_data[4]);
+EncPeriodQuad EncPerd1(sysclk, clk_fast, reset, enc_a_filt[1], enc_b_filt[1], dir[1], perd_data[1], freq_data[1]);
+EncPeriodQuad EncPerd2(sysclk, clk_fast, reset, enc_a_filt[2], enc_b_filt[2], dir[2], perd_data[2], freq_data[2]);
+EncPeriodQuad EncPerd3(sysclk, clk_fast, reset, enc_a_filt[3], enc_b_filt[3], dir[3], perd_data[3], freq_data[3]);
+EncPeriodQuad EncPerd4(sysclk, clk_fast, reset, enc_a_filt[4], enc_b_filt[4], dir[4], perd_data[4], freq_data[4]);
 
 
 // velocity frequency counting 
 // NOTE: for fast motion, not used in dvrk 
-EncFreq EncFreq1(sysclk, clk_slow, reset, enc_b_filt[1], dir[1], freq_data[1]);
-EncFreq EncFreq2(sysclk, clk_slow, reset, enc_b_filt[2], dir[2], freq_data[2]);
-EncFreq EncFreq3(sysclk, clk_slow, reset, enc_b_filt[3], dir[3], freq_data[3]);
-EncFreq EncFreq4(sysclk, clk_slow, reset, enc_b_filt[4], dir[4], freq_data[4]);
-
+//EncFreq EncFreq1(sysclk, clk_slow, reset, enc_b_filt[1], dir[1], freq_data[1]);
+//EncFreq EncFreq2(sysclk, clk_slow, reset, enc_b_filt[2], dir[2], freq_data[2]);
+//EncFreq EncFreq3(sysclk, clk_slow, reset, enc_b_filt[3], dir[3], freq_data[3]);
+//EncFreq EncFreq4(sysclk, clk_slow, reset, enc_b_filt[4], dir[4], freq_data[4]);
 
 //------------------------------------------------------------------------------
 // register file interface to outside world

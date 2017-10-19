@@ -27,6 +27,7 @@
   wire        b;
   reg         dir;
   wire [31:0] period;
+  wire [31:0] acc;
   
   // Define encoder cycle length
   assign cycle = 20;
@@ -79,7 +80,8 @@ EncPeriodQuad VelEstimate(
     .a(a),               // quad encoder line a
     .b(b),               // quad encoder line b
     .dir(dir),           // dir from EncQuad
-    .period(period)      // num of fast clock ticks
+    .period(period),      // num of fast clock ticks
+	.acc(acc)
 );
 
 endmodule

@@ -27,8 +27,7 @@ module EncPeriod(
    output wire ticks_en,     // edge signal
    output reg[21:0] latched, // latched counter from last encoder event
    output reg[21:0] count,   // number clk_fast periods per tick
-   output reg dir_changed,
-   output reg overflowed
+   output reg dir_changed
 );
 
     // overflow value for unsigned 22-bit number
@@ -41,10 +40,8 @@ module EncPeriod(
 
 // convert ticks to pulse
 reg dir_r;      // dir start 
-wire dir_diff;  // non-latched indication for direction change
 reg ticks_r;    // previous ticks
 assign ticks_en = ticks & (~ticks_r);
-assign dir_diff = dir ^ dir_r;
 
 always @(posedge clk_fast)
 begin
@@ -69,16 +66,13 @@ begin
    if (reset == 0 || ticks_en) begin
       count <= 22'd0;
       dir_changed <= 0;
-      overflowed <= 0;
    end
-   else if (dir_diff) begin
+   else if (dir != dir_r) begin
+      count <= overflow;
       dir_changed <= 1;
    end
    else if (count != overflow) begin
       count <= count + 1;
-   end 
-   else if (count == (overflow-1)) begin
-      overflowed <= 0;
    end
 end
 
@@ -95,8 +89,7 @@ module EncPeriodQuad(
     input wire a,             // quad encoder line a
     input wire b,             // quad encoder line b
     input wire dir,           // dir from EncQuad
-    output reg[31:0] period,  // num of fast clock ticks
-    output wire[31:0] acc      // [31:16] time since last edge, [15:0] estimated acc
+    output reg[31:0] period   // num of fast clock ticks
 );
 
     reg[1:0] mux;
@@ -116,67 +109,51 @@ module EncPeriodQuad(
     wire a_dn_dir_changed;
     wire b_up_dir_changed;
     wire b_dn_dir_changed;
-    wire a_up_overflow;
-    wire a_dn_overflow;
-    wire b_up_overflow;
-    wire b_dn_overflow;
-    
+
 //------------------------------------------------------------------------------
 // hardware description
 //
-
-EncPeriod EncPerUpA(clk_fast, reset,  a, dir, a_up_tick, a_up_latched, a_up_counter, a_up_dir_changed, a_up_overflow);
-EncPeriod EncPerDnA(clk_fast, reset, ~a, dir, a_dn_tick, a_dn_latched, a_dn_counter, a_dn_dir_changed, a_dn_overflow);
-EncPeriod EncPerUpB(clk_fast, reset,  b, dir, b_up_tick, b_up_latched, b_up_counter, b_up_dir_changed, b_up_overflow);
-EncPeriod EncPerDnB(clk_fast, reset, ~b, dir, b_dn_tick, b_dn_latched, b_dn_counter, b_dn_dir_changed, b_dn_overflow);
+EncPeriod EncPerUpA(clk_fast, reset,  a, dir, a_up_tick, a_up_latched, a_up_counter, a_up_dir_changed);
+EncPeriod EncPerDnA(clk_fast, reset, ~a, dir, a_dn_tick, a_dn_latched, a_dn_counter, a_dn_dir_changed);
+EncPeriod EncPerUpB(clk_fast, reset,  b, dir, b_up_tick, b_up_latched, b_up_counter, b_up_dir_changed);
+EncPeriod EncPerDnB(clk_fast, reset, ~b, dir, b_dn_tick, b_dn_latched, b_dn_counter, b_dn_dir_changed);
 
 localparam[1:0] a_up = 2'b00;
 localparam[1:0] a_dn = 2'b01;
 localparam[1:0] b_up = 2'b10;
 localparam[1:0] b_dn = 2'b11;
 
-//Keep track of last 2 periods for acceleration and counter since last tick
-reg[15:0]   counter;
-reg[15:0]  cur_perd;
-reg[15:0] last_perd;
-reg       latched_dir_change;
-
 // Determine which edge is the most recent
 always @(posedge a_up_tick or posedge a_dn_tick or posedge b_up_tick or posedge b_dn_tick)
 begin
     if (a_up_tick) begin
         mux <= a_up;
-        cur_perd <= a_up_latched;
-        last_perd <= cur_perd;
-        latched_dir_change <= a_up_dir_change;
     end
     else if (b_up_tick) begin
         mux <= b_up;    
-        cur_perd <= b_up_latched;
-        last_perd <= cur_perd;
     end    
     else if (a_dn_tick) begin
         mux <= a_dn;
-        cur_perd <= a_dn_latched;
-        last_perd <= cur_perd;
     end
     else if (b_dn_tick) begin
         mux <= b_dn;
-        cur_perd <= b_dn_latched;
-        last_perd <= cur_perd;
     end
 end
 
+reg [21:0] counter;
+reg [21:0] prev_counter;
+reg prev_dir;
+reg latched_dir; 
 always @(posedge clk_fast) begin
-    if (a_up_tick | a_dn_tick | b_up_tick | b_dn_tick) begin
+    if (a_up_tick | b_up_tick | a_dn_tick | b_dn_tick) begin
         counter <= 0;
+        prev_counter <= counter;
+        prev_dir <= latched_dir;
     end else begin
         counter <= counter + 1;
+        latched_dir <= dir;
     end
 end
-
-assign acc[15:0] = counter;
-assign acc[31:16] = last_perd-cur_perd;
 
 // The following code returns the larger of (1) the most recent latched value (determined by mux)
 // or (2) the free-running counter for the next expected encoder transition, based on direction, dir.
@@ -191,66 +168,68 @@ always @(posedge clk_fast or negedge reset) begin
       period <= 32'd0;
    end
    
+   else if (prev_counter >= 16'hFFFF) begin
+        period <= {1'b1, prev_dir, 7'b0, prev_counter*4};
+   end 
    else if (mux == a_up) begin  // A up
       if ((dir == 0) && (b_up_counter >= a_up_latched)) begin
          // Next expected edge (Bup) free-running counter is greater than Aup latched value
-         period <= {1'b0, dir, b_up_dir_changed, b_up, b_up_overflow, 4'd0, b_up_counter};
+         period <= {1'b0, dir, b_up_dir_changed, b_up, 5'd0, b_up_counter};
       end 
       else if ((dir == 1) && (b_dn_counter >= a_up_latched)) begin
          // Next expected edge (Bdown) free-running counter is greater than Aup latched value
-         period <= {1'b0, dir, b_dn_dir_changed, b_dn, b_dn_overflow, 4'd0, b_dn_counter};
+         period <= {1'b0, dir, b_dn_dir_changed, b_dn, 5'd0, b_dn_counter};
       end 
       else begin
          // Return Aup latched value
-         period <= {1'b1, dir, a_up_dir_changed, a_up, a_up_overflow, 4'd0, a_up_latched};
+         period <= {1'b1, dir, a_up_dir_changed, a_up, 5'd0, a_up_latched};
       end
    end
 
    else if (mux == b_up) begin  // B up
       if ((dir == 0) && (a_dn_counter >= b_up_latched)) begin
          // Next expected edge (Adown) free-running counter is greater than Bup latched value
-         period <= {1'b0, dir, a_dn_dir_changed, a_dn, a_dn_overflow, 4'd0, a_dn_counter};
+         period <= {1'b0, dir, a_dn_dir_changed, a_dn, 5'd0, a_dn_counter};
       end 
       else if ((dir == 1) && (a_up_counter >= b_up_latched)) begin
          // Next expected edge (Aup) free-running counter is greater than Bup latched value
-         period <= {1'b0, dir, a_up_dir_changed, a_up, a_up_overflow, 4'd0, a_up_counter};
+         period <= {1'b0, dir, a_up_dir_changed, a_up, 5'd0, a_up_counter};
       end 
       else begin
          // Return Bup latched value
-         period <= {1'b1, dir, b_up_dir_changed, b_up, b_up_overflow, 4'd0, b_up_latched};
+         period <= {1'b1, dir, b_up_dir_changed, b_up, 5'd0, b_up_latched};
       end
    end
 
    else if (mux == a_dn) begin  // A down
       if ((dir == 0) && (b_dn_counter >= a_dn_latched)) begin
          // Next expected edge (Bdown) free-running counter is greater than Adown latched value
-         period <= {1'b0, dir, b_dn_dir_changed, b_dn, b_dn_overflow, 4'd0, b_dn_counter};
+         period <= {1'b0, dir, b_dn_dir_changed, b_dn, 5'd0, b_dn_counter};
       end 
       else if ((dir == 1) && (b_up_counter >= a_dn_latched)) begin
          // Next expected edge (Bup) free-running counter is greater than Adown latched value
-         period <= {1'b0, dir, b_up_dir_changed, b_up, b_up_overflow, 4'd0, b_up_counter};
+         period <= {1'b0, dir, b_up_dir_changed, b_up, 5'd0, b_up_counter};
       end 
       else begin
          // Return Adown latched value
-         period <= {1'b1, dir, a_dn_dir_changed, a_dn, a_dn_overflow, 4'd0, a_dn_latched};
+         period <= {1'b1, dir, a_dn_dir_changed, a_dn, 5'd0, a_dn_latched};
       end
    end
 
    else if (mux == b_dn) begin  // B down
       if ((dir == 0) && (a_up_counter >= b_dn_latched)) begin
          // Next expected edge (Aup) free-running counter is greater than Bdown latched value
-         period <= {1'b0, dir, a_up_dir_changed, a_up, a_up_overflow, 4'd0, a_up_counter};
+         period <= {1'b0, dir, a_up_dir_changed, a_up, 5'd0, a_up_counter};
       end 
       else if ((dir == 1) && (a_dn_counter >= b_dn_latched)) begin
          // Next expected edge (Adown) free-running counter is greater than Bdown latched value
-         period <= {1'b0, dir, a_dn_dir_changed, a_dn, a_dn_overflow, 4'd0, a_dn_counter};
+         period <= {1'b0, dir, a_dn_dir_changed, a_dn, 5'd0, a_dn_counter};
       end
       else begin
          // Return Bdown latched value
-         period <= {1'b1, dir, b_dn_dir_changed, b_dn, b_dn_overflow, 4'd0, b_dn_latched};
+         period <= {1'b1, dir, b_dn_dir_changed, b_dn, 5'd0, b_dn_latched};
       end
    end
-   
 end
 
 endmodule
