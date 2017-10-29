@@ -72,13 +72,13 @@ begin
       overflowed <= 0;
    end
    else if (dir_diff) begin
-      dir_changed <= 1;
+      dir_changed <= 1'b1;
    end
    else if (count != overflow) begin
-      count <= count + 1;
+      count <= count + 22'b1;
    end 
-   else if (count == (overflow-1)) begin
-      overflowed <= 0;
+   else if (count == (overflow-22'b1)) begin
+      overflowed <= 1'b0;
    end
 end
 
@@ -136,47 +136,44 @@ localparam[1:0] b_up = 2'b10;
 localparam[1:0] b_dn = 2'b11;
 
 //Keep track of last 2 periods for acceleration and counter since last tick
-reg[15:0]   counter;
-reg[15:0]  cur_perd;
-reg[15:0] last_perd;
-reg       latched_dir_change;
+reg[15:0] counter [1:6];
+
+wire any_tick;
+assign any_tick = a_up_tick | a_dn_tick | b_up_tick | b_dn_tick;
 
 // Determine which edge is the most recent
-always @(posedge a_up_tick or posedge a_dn_tick or posedge b_up_tick or posedge b_dn_tick)
+always @(posedge any_tick)
 begin
     if (a_up_tick) begin
         mux <= a_up;
-        cur_perd <= a_up_latched;
-        last_perd <= cur_perd;
-        latched_dir_change <= a_up_dir_change;
     end
     else if (b_up_tick) begin
         mux <= b_up;    
-        cur_perd <= b_up_latched;
-        last_perd <= cur_perd;
     end    
     else if (a_dn_tick) begin
         mux <= a_dn;
-        cur_perd <= a_dn_latched;
-        last_perd <= cur_perd;
     end
     else if (b_dn_tick) begin
         mux <= b_dn;
-        cur_perd <= b_dn_latched;
-        last_perd <= cur_perd;
     end
+    
 end
 
 always @(posedge clk_fast) begin
-    if (a_up_tick | a_dn_tick | b_up_tick | b_dn_tick) begin
-        counter <= 0;
-    end else begin
-        counter <= counter + 1;
+    if (any_tick) begin
+        counter[1] <= 16'b0;
+        counter[2] <= counter[1];
+        counter[3] <= counter[2];
+        counter[4] <= counter[3];
+        counter[5] <= counter[4];
+        counter[6] <= counter[5];
+    end else if (counter[1] != 16'h7FFF) begin
+        counter[1] <= counter[1] + 16'b1;
     end
 end
 
-assign acc[15:0] = counter;
-assign acc[31:16] = last_perd-cur_perd;
+assign acc[15:0] = counter[6];
+assign acc[31:16] = counter[2]; 
 
 // The following code returns the larger of (1) the most recent latched value (determined by mux)
 // or (2) the free-running counter for the next expected encoder transition, based on direction, dir.

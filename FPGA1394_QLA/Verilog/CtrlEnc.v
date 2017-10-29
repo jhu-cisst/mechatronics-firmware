@@ -41,7 +41,7 @@ module CtrlEnc(
     reg[23:0]  preload[1:4];      // to encoder counter preload register
     wire[24:0] quad_data[1:4];    // transition count FROM encoder (ovf msb)
     wire[31:0] perd_data[1:4];    // encoder period measurement    
-    wire[15:0] freq_data[1:4];    // encoder frequency measurement
+    wire[31:0] freq_data[1:4];    // encoder frequency measurement
     
     // clk for vel measurement     
     wire clk_fast;   // 3.072 MHz velocity measure encoder period
