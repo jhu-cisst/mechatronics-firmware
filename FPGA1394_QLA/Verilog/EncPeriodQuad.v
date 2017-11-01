@@ -167,7 +167,7 @@ always @(posedge clk_fast) begin
         counter[4] <= counter[3];
         counter[5] <= counter[4];
         counter[6] <= counter[5];
-    end else if (counter[1] != 16'h7FFF) begin
+    end else if (counter[1] != 16'hFFFF) begin
         counter[1] <= counter[1] + 16'b1;
     end
 end
@@ -189,63 +189,19 @@ always @(posedge clk_fast or negedge reset) begin
    end
    
    else if (mux == a_up) begin  // A up
-      if ((dir == 0) && (b_up_counter >= a_up_latched)) begin
-         // Next expected edge (Bup) free-running counter is greater than Aup latched value
-         period <= {1'b0, dir, b_up_dir_changed, b_up, b_up_overflow, 4'd0, b_up_counter};
-      end 
-      else if ((dir == 1) && (b_dn_counter >= a_up_latched)) begin
-         // Next expected edge (Bdown) free-running counter is greater than Aup latched value
-         period <= {1'b0, dir, b_dn_dir_changed, b_dn, b_dn_overflow, 4'd0, b_dn_counter};
-      end 
-      else begin
-         // Return Aup latched value
          period <= {1'b1, dir, a_up_dir_changed, a_up, a_up_overflow, 4'd0, a_up_latched};
-      end
    end
 
    else if (mux == b_up) begin  // B up
-      if ((dir == 0) && (a_dn_counter >= b_up_latched)) begin
-         // Next expected edge (Adown) free-running counter is greater than Bup latched value
-         period <= {1'b0, dir, a_dn_dir_changed, a_dn, a_dn_overflow, 4'd0, a_dn_counter};
-      end 
-      else if ((dir == 1) && (a_up_counter >= b_up_latched)) begin
-         // Next expected edge (Aup) free-running counter is greater than Bup latched value
-         period <= {1'b0, dir, a_up_dir_changed, a_up, a_up_overflow, 4'd0, a_up_counter};
-      end 
-      else begin
-         // Return Bup latched value
          period <= {1'b1, dir, b_up_dir_changed, b_up, b_up_overflow, 4'd0, b_up_latched};
-      end
    end
 
    else if (mux == a_dn) begin  // A down
-      if ((dir == 0) && (b_dn_counter >= a_dn_latched)) begin
-         // Next expected edge (Bdown) free-running counter is greater than Adown latched value
-         period <= {1'b0, dir, b_dn_dir_changed, b_dn, b_dn_overflow, 4'd0, b_dn_counter};
-      end 
-      else if ((dir == 1) && (b_up_counter >= a_dn_latched)) begin
-         // Next expected edge (Bup) free-running counter is greater than Adown latched value
-         period <= {1'b0, dir, b_up_dir_changed, b_up, b_up_overflow, 4'd0, b_up_counter};
-      end 
-      else begin
-         // Return Adown latched value
          period <= {1'b1, dir, a_dn_dir_changed, a_dn, a_dn_overflow, 4'd0, a_dn_latched};
-      end
    end
 
    else if (mux == b_dn) begin  // B down
-      if ((dir == 0) && (a_up_counter >= b_dn_latched)) begin
-         // Next expected edge (Aup) free-running counter is greater than Bdown latched value
-         period <= {1'b0, dir, a_up_dir_changed, a_up, a_up_overflow, 4'd0, a_up_counter};
-      end 
-      else if ((dir == 1) && (a_dn_counter >= b_dn_latched)) begin
-         // Next expected edge (Adown) free-running counter is greater than Bdown latched value
-         period <= {1'b0, dir, a_dn_dir_changed, a_dn, a_dn_overflow, 4'd0, a_dn_counter};
-      end
-      else begin
-         // Return Bdown latched value
          period <= {1'b1, dir, b_dn_dir_changed, b_dn, b_dn_overflow, 4'd0, b_dn_latched};
-      end
    end
    
 end
