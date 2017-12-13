@@ -51,6 +51,7 @@ module BoardRegs(
     input  wire v_fault,            // encoder supply voltage fault
     input  wire[3:0] board_id,      // board id (rotary switch)
     input  wire[15:0] temp_sense,   // temperature sensor reading
+    input  wire[31:0] running,
     
     // register file interface
     input  wire[15:0] reg_raddr,     // register read address

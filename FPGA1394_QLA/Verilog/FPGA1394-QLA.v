@@ -240,7 +240,7 @@ assign reg_rd[`OFF_ENC_LOAD] = reg_renc;    // preload
 assign reg_rd[`OFF_ENC_DATA] = reg_renc;    // quadrature
 assign reg_rd[`OFF_PER_DATA] = reg_renc;    // period
 assign reg_rd[`OFF_FREQ_DATA] = reg_renc;   // frequency
-
+wire [31:0] running;
 
 // encoder controller: the thing that manages encoder reads and preloads
 CtrlEnc enc(
@@ -252,7 +252,8 @@ CtrlEnc enc(
     .reg_waddr(reg_waddr),
     .reg_rdata(reg_renc),
     .reg_wdata(reg_wdata),
-    .reg_wen(reg_wen)
+    .reg_wen(reg_wen),
+    .running(running)
 );
 
 // --------------------------------------------------------------------------
@@ -415,6 +416,7 @@ BoardRegs chan0(
     .v_fault(IO1[9]),
     .board_id(~wenid),
     .temp_sense(tempsense),
+    .running(running),
     .reg_raddr(reg_raddr),
     .reg_waddr(reg_waddr),
     .reg_rdata(reg_rdata_chan0),
