@@ -2,15 +2,14 @@
  *
  * Copyright(C) 2017 ERC CISST, Johns Hopkins University.
  *
- * Module:  FPGA1394_QLA_tb
+ * Module:  EncCtrl_tb
  *
- * Purpose: This is a generic starting point to build a testbench for the 
- *          top level module for the FPGA1394-QLA motor controller interface. 
- *          It creates the clocks and the other signals should be changed as
- *          needed.  
+ * Purpose: This is a test bench for encoder velocity estimation. It generates
+ * quadrature signals of varying lengths in sine_wave_gen (currently sine wave 
+ * is approximated as 0s and 1s only) to simulate encoders at different velocities.
  *
  * Revision history
- *     06/27/2017    Jie Ying Wu        Initial commit
+ *     12/24/2017    Jie Ying Wu        Initial commit
  */
 
  `timescale 1ns / 1ps
@@ -73,7 +72,7 @@
 	
 ClkDiv divenc1(clk1394, clk_fast); defparam divenc1.width = 1;   // 49.152 MHz / 2**4 ==> 3.072 MHz
 	  
-EncPeriodQuad VelEstimate(
+EncPeriod VelEstimate(
     .clk(clk1394),       // sysclk
     .clk_fast(clk_fast), // count this clock between encoder ticks
     .reset(1),           // global reset signal

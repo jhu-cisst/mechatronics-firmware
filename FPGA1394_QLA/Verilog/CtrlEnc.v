@@ -67,7 +67,7 @@ EncQuad EncQuad4(sysclk, reset, enc_a_filt[4], enc_b_filt[4], set_enc[4], preloa
 
 // velocity period (4/dT method)
 // quad update version
-wire [31:0] empty[1:4]; // Assign to real things later
+wire [31:0] empty[1:4]; // Assign to output running counter later when we update packet size
 
 EncPeriodQuad EncPerd1(sysclk, reset, enc_a_filt[1], enc_b_filt[1], dir[1], perd_data[1], freq_data[1],empty[1]);
 EncPeriodQuad EncPerd2(sysclk, reset, enc_a_filt[2], enc_b_filt[2], dir[2], perd_data[2], freq_data[2],empty[2]);
