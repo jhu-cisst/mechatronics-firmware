@@ -73,9 +73,12 @@ module FPGA1394QLA
 //------------------------------------------------------------------------------
 // hardware description
 //
+wire[31:0] reg_rdata_hub;       // route HubReg data to global reg_rdata
+wire[31:0] reg_rdata_prom;      // reg_rdata_prom is for block reads from PROM
+wire[31:0] reg_rdata_prom_qla;  // reads from QLA prom
+wire[31:0] reg_rdata_chan0;     // 'channel 0' is a special axis that contains various board I/Os
 
 BUFG clksysclk(.I(clk1394), .O(sysclk));
-
 
 // Mux routing read data based on read address
 //   See Constants.v for detail
@@ -93,10 +96,6 @@ assign reset_phy = 1'b1;
 // --------------------------------------------------------------------------
 // hub register module
 // --------------------------------------------------------------------------
-
-// route HubReg data to global reg_rdata
-wire[31:0] reg_rdata_hub;
-// assign reg_rdata_hub = 32'h0;
 
 HubReg hub(
     .sysclk(sysclk),
@@ -323,7 +322,6 @@ Max6576 T2(
 // --------------------------------------------------------------------------
 
 // Route PROM status result between M25P16 and BoardRegs modules
-wire[31:0] reg_rdata_prom;   // reg_rdata_prom is for block reads from PROM
 wire[31:0] PROM_Status;
 wire[31:0] PROM_Result;
    
@@ -355,8 +353,6 @@ M25P16 prom(
 //    - SPI pin connection see QLA schematics
 //    - TEMP version, interface subject to future change
 // --------------------------------------------------------------------------
-
-wire[31:0] reg_rdata_prom_qla;  // reads from QLA prom
 
 QLA25AA128 prom_qla(
     .clk(sysclk),
@@ -390,9 +386,6 @@ wire[4:1] safety_amp_disable;
 // pwr_enable_cmd and amp_enable_cmd from BoardRegs; used to clear safety_amp_disable
 wire pwr_enable_cmd;
 wire[4:1] amp_enable_cmd;
-
-// 'channel 0' is a special axis that contains various board I/Os
-wire[31:0] reg_rdata_chan0;
 
 // There is no Ethernet on this version of board, so set the result to 0
 wire[31:0] Eth_Result;

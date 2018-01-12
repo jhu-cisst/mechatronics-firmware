@@ -24,7 +24,8 @@ module CtrlEnc(
     input  wire[15:0] reg_waddr,  // register file write addr from outside 
     output wire[31:0] reg_rdata,  // outgoing register file data
     input  wire[31:0] reg_wdata,  // incoming register file data
-    input  wire reg_wen           // write enable signal from outside world
+    input  wire reg_wen,          // write enable signal from outside world
+    output wire[31:0] running
 );    
     
     // -------------------------------------------------------------------------
@@ -41,12 +42,8 @@ module CtrlEnc(
     reg[23:0]  preload[1:4];      // to encoder counter preload register
     wire[24:0] quad_data[1:4];    // transition count FROM encoder (ovf msb)
     wire[31:0] perd_data[1:4];    // encoder period measurement    
-    wire[15:0] freq_data[1:4];    // encoder frequency measurement
+    wire[31:0] freq_data[1:4];    // encoder frequency measurement
     
-    // clk for vel measurement     
-    wire clk_fast;   // 3.072 MHz velocity measure encoder period
-    wire clk_slow;   // ~12 Hz  velocity measure encoder tick frequency 
-
 //------------------------------------------------------------------------------
 // hardware description
 //
@@ -68,25 +65,21 @@ EncQuad EncQuad2(sysclk, reset, enc_a_filt[2], enc_b_filt[2], set_enc[2], preloa
 EncQuad EncQuad3(sysclk, reset, enc_a_filt[3], enc_b_filt[3], set_enc[3], preload[3], quad_data[3], dir[3]);
 EncQuad EncQuad4(sysclk, reset, enc_a_filt[4], enc_b_filt[4], set_enc[4], preload[4], quad_data[4], dir[4]);
 
-// modules generate fast & slow clock 
-ClkDiv divenc1(sysclk, clk_fast); defparam divenc1.width = 4;   // 49.152 MHz / 2**4 ==> 3.072 MHz
-ClkDiv divenc2(sysclk, clk_slow); defparam divenc2.width = 22;  // 49.152 MHz / 2**22 ==> 11.71875 Hz
-
 // velocity period (4/dT method)
 // quad update version
-EncPeriodQuad EncPerd1(sysclk, clk_fast, reset, enc_a_filt[1], enc_b_filt[1], dir[1], perd_data[1]);
-EncPeriodQuad EncPerd2(sysclk, clk_fast, reset, enc_a_filt[2], enc_b_filt[2], dir[2], perd_data[2]);
-EncPeriodQuad EncPerd3(sysclk, clk_fast, reset, enc_a_filt[3], enc_b_filt[3], dir[3], perd_data[3]);
-EncPeriodQuad EncPerd4(sysclk, clk_fast, reset, enc_a_filt[4], enc_b_filt[4], dir[4], perd_data[4]);
+wire [31:0] empty[1:4]; // Assign to output running counter later when we update packet size
 
+EncPeriodQuad EncPerd1(sysclk, reset, enc_a_filt[1], enc_b_filt[1], dir[1], perd_data[1], freq_data[1],empty[1]);
+EncPeriodQuad EncPerd2(sysclk, reset, enc_a_filt[2], enc_b_filt[2], dir[2], perd_data[2], freq_data[2],empty[2]);
+EncPeriodQuad EncPerd3(sysclk, reset, enc_a_filt[3], enc_b_filt[3], dir[3], perd_data[3], freq_data[3],empty[3]);
+EncPeriodQuad EncPerd4(sysclk, reset, enc_a_filt[4], enc_b_filt[4], dir[4], perd_data[4], freq_data[4],empty[4]);
 
 // velocity frequency counting 
 // NOTE: for fast motion, not used in dvrk 
-EncFreq EncFreq1(sysclk, clk_slow, reset, enc_b_filt[1], dir[1], freq_data[1]);
-EncFreq EncFreq2(sysclk, clk_slow, reset, enc_b_filt[2], dir[2], freq_data[2]);
-EncFreq EncFreq3(sysclk, clk_slow, reset, enc_b_filt[3], dir[3], freq_data[3]);
-EncFreq EncFreq4(sysclk, clk_slow, reset, enc_b_filt[4], dir[4], freq_data[4]);
-
+//EncFreq EncFreq1(sysclk, clk_slow, reset, enc_b_filt[1], dir[1], freq_data[1]);
+//EncFreq EncFreq2(sysclk, clk_slow, reset, enc_b_filt[2], dir[2], freq_data[2]);
+//EncFreq EncFreq3(sysclk, clk_slow, reset, enc_b_filt[3], dir[3], freq_data[3]);
+//EncFreq EncFreq4(sysclk, clk_slow, reset, enc_b_filt[4], dir[4], freq_data[4]);
 
 //------------------------------------------------------------------------------
 // register file interface to outside world
@@ -97,7 +90,6 @@ assign reg_rdata = (reg_raddr[3:0]==`OFF_ENC_LOAD) ? (preload[reg_raddr[7:4]]) :
                   ((reg_raddr[3:0]==`OFF_ENC_DATA) ? (quad_data[reg_raddr[7:4]]) :
                   ((reg_raddr[3:0]==`OFF_PER_DATA) ? (perd_data[reg_raddr[7:4]]) : 
                   ((reg_raddr[3:0]==`OFF_FREQ_DATA) ? (freq_data[reg_raddr[7:4]]) : 32'd0)));
-
 
 // write selected preload register
 // set_enc: create a pulse when encoder preload is written
