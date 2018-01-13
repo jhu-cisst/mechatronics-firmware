@@ -15,9 +15,9 @@
  `timescale 1ns / 1ps
 
  module EncCtrl_tb;
-  
+
   reg         clk1394;
-  wire	      clk_fast;
+  wire        clk_fast;
   reg         clk_encoder;
   wire  [8:0] x;
   integer     i;
@@ -27,17 +27,17 @@
   reg         dir;
   wire [31:0] period;
   wire [31:0] acc;
-  
+
   // Define encoder cycle length
   assign cycle = 20;
-  
+
   initial begin
-		// Initialize Inputs
-		clk_encoder = 0;
-		i       = 0;
-		clk1394 = 0;
-		dir     = 0;
-	    speed[0] = 250;
+        // Initialize Inputs
+        clk_encoder = 0;
+        i       = 0;
+        clk1394 = 0;
+        dir     = 0;
+        speed[0] = 250;
         speed[1] = 200;
         speed[2] = 150;
         speed[3] = 100;
@@ -47,31 +47,31 @@
         speed[7] = 200;
         speed[8] = 250;
         speed[9] = 300;
-	end
-    
-	// generate clk
+    end
+
+    // generate clk
     always begin
         #1 clk1394 <= ~clk1394;     // system clock 
     end
-	
-	always begin
+
+    always begin
         #x clk_encoder <= ~clk_encoder;     // system clock 
     end
 
-	always begin
-		#50000 i <= (i == 9) ? 0 : i + 1;
-	end
-	
+    always begin
+        #50000 i <= (i == 9) ? 0 : i + 1;
+    end
+
     assign x = speed[i];
-	
-	sine_wave_gen uut (
+
+    sine_wave_gen uut (
         .Clk(clk_encoder), 
         .a(a),
-		.b(b)
-	);
-	
+        .b(b)
+    );
+
 ClkDiv divenc1(clk1394, clk_fast); defparam divenc1.width = 1;   // 49.152 MHz / 2**4 ==> 3.072 MHz
-	  
+
 EncPeriod VelEstimate(
     .clk(clk1394),       // sysclk
     .clk_fast(clk_fast), // count this clock between encoder ticks
@@ -80,7 +80,7 @@ EncPeriod VelEstimate(
     .b(b),               // quad encoder line b
     .dir(dir),           // dir from EncQuad
     .period(period),      // num of fast clock ticks
-	.acc(acc)
+    .acc(acc)
 );
 
 endmodule
@@ -90,17 +90,17 @@ module sine_wave_gen(Clk,a,b);
 //declare input and output
     input Clk;
     output a;
-	output b;
+    output b;
 //declare the sine ROM - 30 registers each 8 bit wide.  
     reg [7:0] sine [0:29];
 //Internal signals  
     integer i;  
-	integer j;
-	
+    integer j;
+
 //Initialize the sine rom with samples. 
     initial begin
         i = 0;
-		j = 8;
+        j = 8;
         sine[0] = 1;
         sine[1] = 1;
         sine[2] = 1;
@@ -132,17 +132,17 @@ module sine_wave_gen(Clk,a,b);
         sine[28] = 0;
         sine[29] = 0;
     end
-    
+
     assign a = (sine[i]);
     assign b = (sine[j]);
-	
+
     //At every positive edge of the clock, output a sine wave sample.
     always@ (posedge(Clk))
     begin
-		i <= i+ 1;
+        i <= i+ 1;
         if(i == 29)
             i <= 0;
-		j <= j+ 1;
+        j <= j+ 1;
         if(j == 29)
             j <= 0;
     end

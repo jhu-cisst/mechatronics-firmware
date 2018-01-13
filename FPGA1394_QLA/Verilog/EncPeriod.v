@@ -3,10 +3,13 @@
  * Copyright(C) 2008-2017 ERC CISST, Johns Hopkins University.
  *
  * This module measures the encoder pulse period by counting the edges of a
- * fixed fast clock (~3 MHz) between encoder pulses.  Each new encoder pulse
+ * fixed fast clock between encoder pulses.  Each new encoder pulse
  * latches the current count and starts a new one.  From this measurement the
  * encoder period can be obtained by multiplying the number of counts by the
  * period of the fixed fast clock.
+ *
+ * Initially, the fixed fast clock was ~3 MHz, but it is now sysclk (FireWire clock),
+ * which is 49.152 MHz.
  *
  * Assumes counter will overflow if encoder moves too slowly.
  *
@@ -20,7 +23,7 @@
  */
 
 module EncPeriod(
-   input wire clk,      // count this clock between encoder ticks
+   input wire clk,           // count this clock between encoder ticks
    input wire reset,         // global reset signal
    input wire ticks,         // encoder transition signal
    output wire ticks_en      // edge signal
@@ -52,7 +55,7 @@ module EncPeriodQuad(
     input wire b,             // quad encoder line b
     input wire dir,           // dir from EncQuad
     output reg[31:0] period,  // num of fast clock ticks
-    output reg[31:0] acc,    // [31:16] time since last edge, [15:0] estimated acc
+    output reg[31:0] acc,     // [31:16] time since last edge, [15:0] estimated acc
     output wire[31:0] t_cur   // time since last edge
 );
 
