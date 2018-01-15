@@ -115,10 +115,9 @@ always @(posedge clk or negedge reset) begin
         counter[3] <= overflow_value;
         counter[4] <= overflow_value;
         counter[5] <= overflow_value;
-        seen       <= 0;
         latched_mux <= mux;
     end else begin
-        if ((latched_mux != mux) && ~seen) begin
+        if (latched_mux != mux) begin
             // If a new edge has been detected, shift the queue and clear the running counter.
             // There is a 1-clock delay here, but since it happens for both clearing the counter
 	    // and shifting the queue, the net effect cancels out. It could be addressed by
@@ -129,7 +128,6 @@ always @(posedge clk or negedge reset) begin
             counter[3] <= counter[2];
             counter[4] <= counter[3];
             counter[5] <= counter[4];
-            seen <= 1;
             latched_mux <= mux;
             
             // Full cycle period
@@ -179,8 +177,6 @@ always @(posedge clk or negedge reset) begin
                     period[21:0] <= sum[width-1:4];
                 end
             end
-            // Clear "seen" flag
-            seen <= 0;
         end else begin
             // Indicate that overflow has occurred
             period[31] <= 1;
