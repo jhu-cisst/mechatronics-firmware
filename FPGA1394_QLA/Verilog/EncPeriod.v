@@ -75,7 +75,6 @@ localparam[1:0] b_dn = 2'b11;
 
 reg [1:0] latched_mux;   // Previous value of mux
 reg [1:0] next_edge;     // Next expected edge (not currently used)
-reg seen;                // Indicates whether mux change has been processed
 
 // Determine which edge is the most recent and sets mux (no longer a mux, but used
 // to indicate the most recent edge). Could do some error checking here; for example,
@@ -186,5 +185,5 @@ end
 
 //Should overflow more values
 // PK: why not provide all bits of counter[1]?
-assign t_cur = {6'b0, seen, latch_overflow, latched_mux, mux, counter[1][23:4]};
+assign t_cur = {7'b0, latch_overflow, latched_mux, mux, counter[1][23:4]};
 endmodule

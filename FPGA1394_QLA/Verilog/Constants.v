@@ -30,6 +30,10 @@
 `define VERSION 32'h514C4131       // hard-wired version number "QLA1" = 0x514C4131 
 `define FW_VERSION 32'h06          // firmware version = 6
 
+// define board components
+`define NUM_CHANNELS 4
+`define NUM_BRAKES   0
+
 // address space  
 `define ADDR_MAIN     4'h0         // board reg & device reg
 `define ADDR_HUB      4'h1         // hub address space
