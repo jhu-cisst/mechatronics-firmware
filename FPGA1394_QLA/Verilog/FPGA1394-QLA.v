@@ -239,7 +239,7 @@ wire[31:0] reg_renc;
 assign reg_rd[`OFF_ENC_LOAD] = reg_renc;    // preload
 assign reg_rd[`OFF_ENC_DATA] = reg_renc;    // quadrature
 assign reg_rd[`OFF_PER_DATA] = reg_renc;    // period
-assign reg_rd[`OFF_FREQ_DATA] = reg_renc;   // frequency
+assign reg_rd[`OFF_ACC_DATA] = reg_renc;   // frequency
 
 
 // encoder controller: the thing that manages encoder reads and preloads

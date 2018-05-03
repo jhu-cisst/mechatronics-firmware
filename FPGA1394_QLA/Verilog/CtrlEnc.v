@@ -16,7 +16,7 @@
  */
 
 // device register file offset
-`include "ConstantsEspm.v" 
+`include "Constants.v" 
 
 module CtrlEnc(
     input  wire sysclk,           // global clock and reset signals
@@ -24,7 +24,12 @@ module CtrlEnc(
     input  wire[1:`NUM_CHANNELS] enc_a,       // set of quadrature encoder inputs
     input  wire[1:`NUM_CHANNELS] enc_b,
     input  wire[5:0] addr,   // register file read addr from outside 
-    output wire[31:0] data  // outgoing register file data
+    output wire[31:0] data,  // outgoing register file data
+    input  wire[15:0] reg_raddr,  // register file read addr from outside 
+    input  wire[15:0] reg_waddr,  // register file write addr from outside 
+    output wire[31:0] reg_rdata,  // outgoing register file data
+    input  wire[31:0] reg_wdata,  // incoming register file data
+    input  wire reg_wen           // write enable signal from outside world
 );    
     
 // -------------------------------------------------------------------------
@@ -38,9 +43,11 @@ wire[1:`NUM_CHANNELS] enc_b_filt;          // filtered encoder b line
 wire[1:`NUM_CHANNELS] dir;                 // encoder transition direction
 
 // data buses to/from encoder modules
+reg  [23:0]   preload[1:`NUM_CHANNELS];    // to encoder counter preload register
 wire [24:0] quad_data[1:`NUM_CHANNELS];    // transition count FROM encoder (ovf msb)
 wire [31:0] perd_data[1:`NUM_CHANNELS];    // 1st encoder period measurement    
-wire [31:0]  acc_data[1:`NUM_CHANNELS];    // 2nd encoder period measurement
+wire [31:0]  acc_data[1:`NUM_CHANNELS];    // 2nd encoder period measurement    
+wire [31:0]  run_data[1:`NUM_CHANNELS];    // 2nd encoder period measurement
     
 //--------------------------------------------------------------------------
 // hardware description
@@ -59,17 +66,15 @@ endgenerate
 // position quad encoder 
 generate
 for (i = 1; i < `NUM_CHANNELS+1; i = i+1) begin : pos_loop
-   EncQuad EncQuad(sysclk, ~reset, enc_a_filt[i], enc_b_filt[i], quad_data[i], dir[i]);
+   EncQuad EncQuad(sysclk, ~reset, enc_a_filt[i], enc_b_filt[i], set_enc[i], preload[i], quad_data[i], dir[i]);
 end
 endgenerate
 
 // velocity period (4/dT method)
 // quad update version
-wire [31:0] empty; // Assign to output running counter later when we update packet size
-
 generate
 for (i = 1; i < `NUM_CHANNELS+1; i = i+1) begin : vel_loop
-   EncPeriodQuad EncPerd(sysclk, ~reset, enc_a_filt[i], enc_b_filt[i], dir[i], perd_data[i], acc_data[i], empty);
+   EncPeriodQuad EncPerd(sysclk, ~reset, enc_a_filt[i], enc_b_filt[i], dir[i], perd_data[i], acc_data[i], run_data[i]);
 end
 endgenerate
 //--------------------------------------------------------------------------
@@ -78,8 +83,29 @@ endgenerate
 
 // output selected read register
 assign data = (addr[2:0]==2'b00) ? 32'd2845 : // Should never be sent back
-              (addr[4:3]==`OFF_POS_DATA) ? ({7'b0, quad_data[addr[2:0]]}) :
-              (addr[4:3]==`OFF_VEL1_DATA) ? (perd_data[addr[2:0]]) : 
-              (addr[4:3]==`OFF_VEL2_DATA) ? (acc_data[addr[2:0]]) : 32'd0;
+              (addr[4:3]==`OFF_ENC_DATA) ? ({7'b0, quad_data[addr[2:0]]}) :
+              (addr[4:3]==`OFF_PER_DATA) ? (perd_data[addr[2:0]]) : 
+              (addr[4:3]==`OFF_ACC_DATA) ? (acc_data[addr[2:0]]) : 
+              (addr[4:3]==`OFF_RUN_DATA) ? (run_data[addr[2:0]]) : 32'd0;
+
+// write selected preload register
+// set_enc: create a pulse when encoder preload is written
+always @(posedge(sysclk) or negedge(reset))
+begin
+    if (reset == 0) begin
+        set_enc <= 4'h0;
+        preload[1] <= 24'h800000;    // set to half value
+        preload[2] <= 24'h800000;
+        preload[3] <= 24'h800000;
+        preload[4] <= 24'h800000;
+    end
+    else if (reg_wen && reg_waddr[15:12]==`ADDR_MAIN && reg_waddr[3:0]==`OFF_ENC_LOAD)
+    begin
+        preload[reg_waddr[7:4]] <= reg_wdata[23:0]; 
+        set_enc[reg_waddr[7:4]] <= 1'b1;
+    end
+    else 
+        set_enc <= 4'h0;
+end
 
 endmodule
