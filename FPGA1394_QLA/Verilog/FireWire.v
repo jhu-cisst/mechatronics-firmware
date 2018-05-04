@@ -279,7 +279,7 @@ module PhyLinkInterface(
     // real-time read stuff
     // an array of 4 4-bits device address
     // adc enc_pos enc_period enc_freq
-    wire[3:0] dev_addr[0:`NUM_FIELDS];      // order of device addresses for block read
+    wire[3:0] dev_addr[0:`NUM_PER_CHN_FIELDS];      // order of device addresses for block read
     reg[2:0] dev_index;           // selects device address from map
     reg[31:0] timestamp;          // timestamp counter register
     reg ts_reset;                 // timestamp counter reset signal
@@ -348,8 +348,9 @@ assign phy_rw = buffer[12];
 assign dev_addr[0] = `OFF_ADC_DATA;        // adc device address
 assign dev_addr[1] = `OFF_ENC_DATA;        // enc position address
 assign dev_addr[2] = `OFF_PER_DATA;        // enc period address
-assign dev_addr[3] = `OFF_ACC_DATA;       // enc frequency address
-assign dev_addr[4] = `OFF_RUN_DATA;       // enc frequency address
+assign dev_addr[3] = `OFF_QTR1_DATA;       // enc frequency address
+assign dev_addr[4] = `OFF_QTR5_DATA;       // enc frequency address
+assign dev_addr[5] = `OFF_RUN_DATA;       // enc frequency address
 
 // packet module (used to store FireWire packet)
 reg pkt_mem_wen;
@@ -1242,7 +1243,7 @@ begin
                         if (reg_raddr[7:4] == `NUM_CHANNELS) begin
                             reg_raddr[7:4] <= 4'h1;
                             reg_raddr[3:0] <= dev_addr[dev_index];
-                            dev_index <= (dev_index<`NUM_FIELDS) ? (dev_index+1'b1) : 3'd0;
+                            dev_index <= (dev_index<`NUM_PER_CHN_FIELDS) ? (dev_index+1'b1) : 3'd0;
                         end
                         else
                             reg_raddr[7:4] <= reg_raddr[7:4] + 1'b1;

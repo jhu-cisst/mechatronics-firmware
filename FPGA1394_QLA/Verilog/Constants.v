@@ -33,7 +33,7 @@
 // define board components
 `define NUM_CHANNELS 4
 `define NUM_BRAKES   0
-`define NUM_FIELDS   5
+`define NUM_PER_CHN_FIELDS   6
 
 // address space  
 `define ADDR_MAIN     4'h0         // board reg & device reg
@@ -59,16 +59,17 @@
 `define REG_DEBUG    4'd15         // Debug register for testing 
 
 // device register file offsets from channel base
-`define OFF_ADC_DATA 4'd0          // adc data register offset (pot + cur)
-`define OFF_DAC_CTRL 4'd1          // dac control register offset
-`define OFF_POT_CTRL 4'd2          // pot control register offset
-`define OFF_POT_DATA 4'd3          // pot data register offset
-`define OFF_ENC_LOAD 4'd4          // enc data preload offset
-`define OFF_ENC_DATA 4'd5          // enc quadrature register offset
-`define OFF_PER_DATA 4'd6          // enc period register offset
-`define OFF_ACC_DATA 4'd7          // enc frequency register offset
-`define OFF_DOUT_CTRL 4'd8         // dout hi/lo period (16-bits hi, 16-bits lo)
-`define OFF_RUN_DATA 4'd7          // enc running counter offset
+`define OFF_ADC_DATA 4'h0          // adc data register offset (pot + cur)
+`define OFF_DAC_CTRL 4'h1          // dac control register offset
+`define OFF_POT_CTRL 4'h2          // pot control register offset
+`define OFF_POT_DATA 4'h3          // pot data register offset
+`define OFF_ENC_LOAD 4'h4          // enc data preload offset
+`define OFF_ENC_DATA 4'h5          // enc quadrature register offset
+`define OFF_PER_DATA 4'h6          // enc period register offset
+`define OFF_QTR1_DATA 4'h7         // enc frequency register offset
+`define OFF_DOUT_CTRL 4'h8         // dout hi/lo period (16-bits hi, 16-bits lo)
+`define OFF_RUN_DATA  4'h9         // enc running counter offset
+`define OFF_QTR5_DATA 4'hA         // enc frequency register offset
 
 // FireWire transaction and response codes
 `define TC_QWRITE 4'd0            // quadlet write
