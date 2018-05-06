@@ -183,5 +183,5 @@ always @(posedge clk or negedge reset) begin
 end
 
 //Should overflow more values
-assign t_cur = {3'b0, latch_overflow, latched_mux, mux, counter[1]};
+assign t_cur = {1'b0, latch_overflow, latched_mux, mux, counter[1]};
 endmodule
