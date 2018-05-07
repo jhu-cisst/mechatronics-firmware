@@ -1,8 +1,8 @@
 /*******************************************************************************
  *
- * Copyright(C) 2011-2017 Johns Hopkins University.
+ * Copyright(C) 2011-2017 ERC CISST, Johns Hopkins University.
  *
- * Module:  CtrlFlash
+ * Module:  CtrlEnc
  *
  * Purpose: This module controls access to the encoder modules by selecting 
  *          the data to output based on the read address, and by handling
@@ -69,7 +69,7 @@ for (i = 1; i < `NUM_CHANNELS+1; i = i+1) begin : pos_loop
 end
 endgenerate
 
-// velocity period (4/dT method)
+// velocity period (4/dT method with acceleration)
 // quad update version
 generate
 for (i = 1; i < `NUM_CHANNELS+1; i = i+1) begin : vel_loop
@@ -90,14 +90,15 @@ assign reg_rdata = (reg_raddr == `OFF_ENC_LOAD) ? (preload[reg_raddr[7:4]]) :
 
 // write selected preload register
 // set_enc: create a pulse when encoder preload is written
+
+reg [0:3] j; 
 always @(posedge(sysclk) or negedge(reset))
 begin
     if (reset == 0) begin
         set_enc <= 4'h0;
-        preload[1] <= 24'h800000;    // set to half value
-        preload[2] <= 24'h800000;
-        preload[3] <= 24'h800000;
-        preload[4] <= 24'h800000;
+        for (j = 1; j < `NUM_CHANNELS + 1; j = j+1) begin
+            preload[j] <= 24'h800000;    // set to half value
+        end
     end
     else if (reg_wen && reg_waddr[15:12]==`ADDR_MAIN && reg_waddr[3:0]==`OFF_ENC_LOAD)
     begin

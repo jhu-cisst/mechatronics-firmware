@@ -279,7 +279,7 @@ module PhyLinkInterface(
     // real-time read stuff
     // an array of 4 4-bits device address
     // adc enc_pos enc_period enc_freq
-    wire[3:0] dev_addr[0:`NUM_PER_CHN_FIELDS];      // order of device addresses for block read
+    wire[3:0] dev_addr[0:`NUM_PER_CHN_FIELDS-1];      // order of device addresses for block read
     reg[2:0] dev_index;           // selects device address from map
     reg[31:0] timestamp;          // timestamp counter register
     reg ts_reset;                 // timestamp counter reset signal
@@ -347,10 +347,10 @@ assign phy_rw = buffer[12];
 // map of device address in order of appearance in block read
 assign dev_addr[0] = `OFF_ADC_DATA;        // adc device address
 assign dev_addr[1] = `OFF_ENC_DATA;        // enc position address
-assign dev_addr[2] = `OFF_PER_DATA;        // enc period address
-assign dev_addr[3] = `OFF_QTR1_DATA;       // enc frequency address
-assign dev_addr[4] = `OFF_QTR5_DATA;       // enc frequency address
-assign dev_addr[5] = `OFF_RUN_DATA;       // enc frequency address
+assign dev_addr[2] = `OFF_PER_DATA;        // enc vel period address
+assign dev_addr[3] = `OFF_QTR1_DATA;       // enc vel last quarter address
+assign dev_addr[4] = `OFF_QTR5_DATA;       // enc vel 5 quarters ago address
+assign dev_addr[5] = `OFF_RUN_DATA;        // enc vel running counter address
 
 // packet module (used to store FireWire packet)
 reg pkt_mem_wen;
@@ -1175,7 +1175,7 @@ begin
                     reg_waddr[4:0] <= 4'd1;  // hubreg 
                     reg_wdata <= timestamp;
                     buffer <= timestamp;    // latch timestamp
-                    reg_raddr[15:0] <= { `ADDR_MAIN, 4'h0, 8'h00 };      // 0: status (See BoardRegs)
+                    reg_raddr[15:0] <= { `ADDR_MAIN, 8'h0, `REG_STATUS };      // 0: status (See BoardRegs)
                     ts_reset <= 1;          // reset timestamp counter
                 end
 

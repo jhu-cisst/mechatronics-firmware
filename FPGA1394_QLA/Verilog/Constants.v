@@ -59,6 +59,7 @@
 `define REG_DEBUG    4'd15         // Debug register for testing 
 
 // device register file offsets from channel base
+// For additional fields, please see dev_addr in FireWire.v to send back data in the correct slot
 `define OFF_ADC_DATA 4'h0          // adc data register offset (pot + cur)
 `define OFF_DAC_CTRL 4'h1          // dac control register offset
 `define OFF_POT_CTRL 4'h2          // pot control register offset

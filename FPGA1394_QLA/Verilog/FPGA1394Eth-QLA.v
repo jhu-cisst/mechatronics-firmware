@@ -439,9 +439,8 @@ CtrlDac dac(
 // encoders
 // --------------------------------------------------------------------------
 
-// fast (~1 MHz) / slow (~12 Hz) clocks to measure encoder period / frequency
-wire clk_1mhz, clk_12hz;
-ClkDiv divenc1(sysclk, clk_1mhz); defparam divenc1.width = 6;   // 49.152 MHz / 2**6 ==> 768 kHz
+// fast (~1 MHz) / slow (~12 Hz) clocks to measure encoder period
+wire clk_12hz;
 ClkDiv divenc2(sysclk, clk_12hz); defparam divenc2.width = 22;  // 49.152 MHz / 2**22 ==> 11.71875 Hz
 
 // map all types of encoder reads to the output of the encoder controller; the
@@ -452,7 +451,7 @@ assign reg_rd[`OFF_ENC_DATA] = reg_renc;    // quadrature
 assign reg_rd[`OFF_PER_DATA] = reg_renc;    // period
 assign reg_rd[`OFF_QTR1_DATA] = reg_renc;   // last quarter cycle 
 assign reg_rd[`OFF_QTR5_DATA] = reg_renc;   // quarter cycle 5 edges ago
-assign reg_rd[`OFF_RUN_DATA] = reg_renc;    // frequency
+assign reg_rd[`OFF_RUN_DATA] = reg_renc;    // running counter
 
 // encoder controller: the thing that manages encoder reads and preloads
 CtrlEnc enc(
@@ -698,7 +697,6 @@ always @(posedge(sysclk)) CountI <= CountI + 1'b1;
 
 assign LED = IO1[32];     // NOTE: IO1[32] pwr_enable
 // assign LED = reg_led;
-// assign DEBUG = { clk_1mhz, clk_12hz, CountI[23], CountC[23] }; 
 
 // --- debug LED ----------
 // reg reg_led;
