@@ -36,10 +36,12 @@ the build tree to the source tree (`Generated` directory) if they are different.
 Note that if you have forgotten to get a Xilinx ISE license file, the first few steps will work
 and the build will fail when running the `map` tool.
 
-Getting a license file for Xilinx ISE on recent versions of Linux, such as Ubuntu 16.04, is problematic.
-In this case, you should run `source settings64.sh` (or `source settings32.sh`) and then run either `ise` (for the IDE,
-which will then invoke the license manager) or directly run the license manager, `xlcm`. Then,
-either or both of the following changes may be necessary:
+Getting a license file for Xilinx ISE on recent versions of Linux, such as Ubuntu 16.04, is problematic. The easiest solution
+is to get the license file by logging in to the Xilinx website, https://www.xilinx.com/getlicense.
+The alternative is to run the Xilinx license manager, `xlcm`, either directly or via `ise` (the IDE).
+In this case, you should first run `source settings64.sh` (or `source settings32.sh`). The license manager will attempt to get
+the MAC address of your network card (even though it does not seem to be needed for the WebPACK license) and then use your browser to
+connect to the Xilinx website. For these steps to work, either or both of the following changes may be necessary:
 1. Set `GRUB_CMDLINE_LINUX="net.ifnames=0 biosdevname=0"` in `\etc\default\grub`, invoke `update-grub` and reboot. This sets your network interface to `eth0`, which is required by the license manager (otherwise, it does not find the MAC address).
 2. If you are using Firefox, the license manager may fail to launch Firefox, showing an error such as `GLIBCXX_3.4.10` not found. This can be fixed by replacing the `libstdc++.so.6` in the Xilinx `common/lib/lin64` directory with a soft link to the standard library (e.g., in `/usr/lib/x86_64-linux-gnu`). This change can be reverted after getting the license file.
 
