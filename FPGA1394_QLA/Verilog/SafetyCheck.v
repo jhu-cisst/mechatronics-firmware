@@ -2,11 +2,27 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2013-2017 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2013-2018 ERC CISST, Johns Hopkins University.
  *
- * This module controls access to the adc modules by selecting the data to
- * output based on the read address, and by combining the 16-bit values for
- * analog pot and motor current into a single 32-bit word.
+ * This module performs a safety check by comparing the measured motor current
+ * (cur_in) to the commanded motor current (dac_in). If the difference is too
+ * large, the amp_disable signal is set to indicate that the motor amplifiers
+ * should be disabled.
+ *
+ * Commanded and measured motor currents are both 16-bit unsigned values,
+ * with a full scale of +/-6.25 Amps.
+ *
+ * Generally, the threshold for the safety check is 0x900 bits (about 440 mA).
+ * If the difference is greater than this, then error_counter is incremented.
+ * There are two special cases:
+ * 1) If the measured current is small (<150 mA), then error_counter is cleared.
+ * 2) If the commanded current is large (within 0x900 bits or 440 mA of the maximum
+ *    positive or negative value), then error_counter is cleared.  The rationale is that
+ *    if a large motor current is commanded, there is little value to a safety check
+ *    (i.e., the system cannot be less safe by applying a large motor current, because
+ *    that is what was requested).
+ * If error_counter reaches a value of 2457600 (50 ms, with clk=49.152 MHz), the
+ * amp_disable signal is set. It is cleared by asserting the clear_disable input.
  *
  * Revision history
  *     04/26/13    Zihan Chen    Initial revision
@@ -71,13 +87,13 @@ module SafetyCheck(
             amp_disable <= 1'b0;
         end
         
-        // 50 mS 
 `ifdef USE_SIMULATION
         // use counter limit = 5 for simulation
         else if (error_counter < 24'd5) begin 
             amp_disable <= amp_disable;
         end
 `else        
+        // 50 mS
         else if (error_counter < 24'd2457600) begin
             amp_disable <= amp_disable;
         end
