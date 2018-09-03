@@ -77,6 +77,7 @@ module FPGA1394QLA
 wire[31:0] reg_rdata_hub;       // route HubReg data to global reg_rdata
 wire[31:0] reg_rdata_prom;      // reg_rdata_prom is for block reads from PROM
 wire[31:0] reg_rdata_prom_qla;  // reads from QLA prom
+wire [31:0] reg_rdata_ds;       // for DS2505 memory access
 wire[31:0] reg_rdata_chan0;     // 'channel 0' is a special axis that contains various board I/Os
 
 BUFG clksysclk(.I(clk1394), .O(sysclk));
@@ -87,7 +88,8 @@ BUFG clksysclk(.I(clk1394), .O(sysclk));
 assign reg_rdata = (reg_raddr[15:12]==`ADDR_HUB) ? (reg_rdata_hub) :
                   ((reg_raddr[15:12]==`ADDR_PROM) ? (reg_rdata_prom) :
                   ((reg_raddr[15:12]==`ADDR_PROM_QLA) ? (reg_rdata_prom_qla) : 
-                  ((reg_raddr[7:4]==4'd0) ? reg_rdata_chan0 : reg_rd[reg_raddr[3:0]])));
+                  ((reg_raddr[15:12]==`ADDR_DS) ? (reg_rdata_ds) :
+                  ((reg_raddr[7:4]==4'd0) ? reg_rdata_chan0 : reg_rd[reg_raddr[3:0]]))));
 
 
 // 1394 phy low reset, never reset
@@ -412,6 +414,7 @@ DS2505 ds_instrument(
     .reg_raddr(reg_raddr),
     .reg_waddr(reg_waddr),
     .reg_wdata(reg_wdata),
+    .reg_rdata(reg_rdata_ds),
     .ds_status(ds_status),
     .reg_wen(reg_wen),
 

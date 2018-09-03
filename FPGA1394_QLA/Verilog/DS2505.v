@@ -27,7 +27,7 @@ module DS2505(
     input  wire reset,               // global reset signal
     input  wire[15:0] reg_raddr,     // read address
     input  wire[15:0] reg_waddr,     // write address
-    //output reg[31:0]  reg_rdata,     // read data (to Firewire)
+    output reg[31:0]  reg_rdata,     // read data (to Firewire)
     input  wire[31:0] reg_wdata,     // write data (from Firewire)
     output wire[31:0] ds_status,     // interface status (to BoardRegs)
     input  wire reg_wen,             // write enable signal
@@ -49,8 +49,12 @@ localparam[3:0]
     DS_RESET_RECOVER = 5,
     DS_WRITE_BYTE = 6,
     DS_READ_BYTE = 7,
-    DS_READ_PROM_1 = 8,
-    DS_READ_PROM_2 = 9;
+    DS_READ_PROM_START = 8,
+    DS_READ_PROM = 9,
+    DS_SET_ADDR_LOW = 10,
+    DS_SET_ADDR_HIGH = 11,
+    DS_READ_MEM_START = 12,
+    DS_READ_MEM = 13;
 
 // Local registers and wires
 reg[3:0]  state;           // state machine 
@@ -61,9 +65,16 @@ reg[7:0]  family_code;     // family code for DS2505 (0x0B)
 reg[15:0] cnt;             // counter for timing
 reg[7:0]  rise_time;       // measured rise time (for debugging)
 reg[1:0]  ds_reset;        // 0=not attempted, 1=success, 2=failed (rise-time), 3=failed (no ack from DS2505)
+reg[10:0] mem_addr;        // memory address for reading
+reg[7:0]  num_bytes;       // Number of bytes to read
 
 wire      ds_reg_wen;      // main quadlet reg interface
 assign ds_reg_wen = (reg_waddr == {`ADDR_MAIN, 8'd0, `REG_DSSTAT}) ? reg_wen : 1'b0;
+
+reg[31:0] mem_data[0:64];  // Up to 64 quadlets (256 bytes) read from chip, provided via block read
+
+wire[5:0] ds_blk_raddr;    // memory block read address (0-63)
+assign ds_blk_raddr = reg_raddr[5:0];
 
 // Definitions to use smaller counters
 `define cnt3  cnt[15:13]   // upper 3 bits (range 0-7)
@@ -93,6 +104,8 @@ begin
         state <= DS_IDLE;
         next_state <= DS_IDLE;
         family_code <= 8'd0;
+        mem_addr <= 11'd0;
+        num_bytes <= 8'd0;
     end
 
     else begin
@@ -102,18 +115,37 @@ begin
 
         DS_IDLE: begin
            ds_dir <= 1'b0;   // tri-state driver
-           if (ds_reg_wen) begin
-              // Write:  bit 0 -> ds_enable
-              //         bit 1 -> start read sequence
-              ds_enable <= (reg_wdata[0]&dout_cfg_bidir);
-              if (reg_wdata[1]&reg_wdata[0]&dout_cfg_bidir) begin
-                 state <= DS_RESET_BEGIN;
-                 rise_time <= 8'hff;
-                 ds_reset <= 2'd0;
-                 ds_dir <= 1'b1;       // enable driver
-                 ds_data_out <= 1'b0;  // start reset pulse
-                 cnt <= 16'd0;
-              end
+
+           // handle block read, data is muxed in top module
+           reg_rdata <= mem_data[ds_blk_raddr];
+
+           if (ds_reg_wen && dout_cfg_bidir) begin
+              // Write:  bits 1:0
+              //           00 -> disable interface (release control of DOUT3)
+              //           01 -> enable interface (take control of DOUT3)
+              //           10 -> enable, initialize and read first 64 bytes from memory address
+              //           11 -> continue reading next 64 bytes
+              //         bits 26:16
+              //           11-bit address (0-2047 bytes)
+              case (reg_wdata[1:0])
+                2'b00: ds_enable <= 1'd0;
+                2'b01: ds_enable <= 1'd1;
+                2'b10: begin
+                       ds_enable <= 1'd1;
+                       state <= DS_RESET_BEGIN;
+                       mem_addr <= reg_wdata[26:16];  // 11-bit address (0-2047 bytes)
+                       rise_time <= 8'hff;
+                       ds_reset <= 2'd0;
+                       ds_dir <= 1'b1;       // enable driver
+                       ds_data_out <= 1'b0;  // start reset pulse
+                       cnt <= 16'd0;
+                       end
+                2'b11: begin
+                       // ds_enable should already be 1
+                       state <= DS_READ_MEM_START;
+                       cnt <= 16'd0;
+                       end
+              endcase
            end
         end
 
@@ -182,7 +214,7 @@ begin
               if (cnt == 16'd24576) begin // 24,576 counts is about 500 usec
                 state <= DS_WRITE_BYTE;
                 out_byte <= 8'h33;   // Read PROM command
-                next_state <= DS_READ_PROM_1;
+                next_state <= DS_READ_PROM_START;
                 cnt <= 16'd0;
               end
            end
@@ -248,16 +280,54 @@ begin
            end
         end
 
-        DS_READ_PROM_1: begin
-           in_byte <= 8'd0;
+        DS_READ_PROM_START: begin
            state <= DS_READ_BYTE;
-           next_state <= DS_READ_PROM_2;
+           next_state <= DS_READ_PROM;
+           num_bytes[2:0] <= 3'd0;
         end
 
-        DS_READ_PROM_2: begin
-           family_code <= in_byte;
-           state <= DS_IDLE;
-           next_state <= DS_IDLE;
+        DS_READ_PROM: begin
+           state <= DS_READ_BYTE;
+           next_state <= DS_READ_PROM;
+           num_bytes[2:0] <= num_bytes[2:0] + 3'd1;
+           if (num_bytes[2:0] == 3'd0) begin
+              family_code <= in_byte;
+           end
+           else if (num_bytes[2:0] == 3'd7) begin
+              state <= DS_WRITE_BYTE;
+              out_byte <= 8'hF0;   // Read Memory command
+              next_state <= DS_SET_ADDR_LOW;
+              num_bytes[2:0] <= 3'd0;
+           end
+        end
+
+        DS_SET_ADDR_LOW: begin
+           out_byte <= mem_addr[7:0];           // Memory address (low byte)
+           state <= DS_WRITE_BYTE;
+           next_state <= DS_SET_ADDR_HIGH;
+        end
+
+        DS_SET_ADDR_HIGH: begin
+           out_byte <= {5'd0, mem_addr[10:8]};  // Memory address (high byte)
+           state <= DS_WRITE_BYTE;
+           next_state <= DS_READ_MEM_START;
+        end
+
+        DS_READ_MEM_START: begin
+           state <= DS_READ_BYTE;
+           next_state <= DS_READ_MEM;
+           num_bytes <= 8'd0;
+        end
+
+        DS_READ_MEM: begin
+           state <= DS_READ_BYTE;
+           next_state <= DS_READ_MEM;
+           num_bytes <= num_bytes + 8'd1;
+           mem_data[num_bytes[7:2]] <= (mem_data[num_bytes[7:2]] << 8) | in_byte;
+           if (num_bytes == 8'hff) begin
+              state <= DS_IDLE;
+              next_state <= DS_IDLE;
+           end
         end
 
         endcase // case (state)

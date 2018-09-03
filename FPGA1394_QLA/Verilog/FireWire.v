@@ -1,6 +1,6 @@
 /*******************************************************************************
  *
- * Copyright(C) 2008-2016 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2008-2018 ERC CISST, Johns Hopkins University.
  *
  * This module implements the FireWire link layer state machine, which defines
  * the operation of the phy-link interface.  The state machine is triggered on
@@ -1257,7 +1257,7 @@ begin
                             reg_raddr[4:0] <= reg_raddr[4:0] + 1'b1;
                         end
                     end
-                    else begin   // PROM & PROM_QLA // ETH // FW
+                    else begin   // PROM & PROM_QLA // ETH // FW // Dallas (DS2505)
                         reg_raddr[5:0] <= reg_raddr[5:0] + 1'b1;
                     end
                 end
