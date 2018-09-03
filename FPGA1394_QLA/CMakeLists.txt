@@ -5,8 +5,8 @@
 
 project(FPGA1394_QLA NONE)
 
-# FPGA part number
-set (FPGA_PARTNUM "xc6slx45-fgg484-3")
+# FPGA part number (-2 speed)
+set (FPGA_PARTNUM "xc6slx45-2fgg484")
 
 # Path to Verilog source code
 set (VERILOG_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/Verilog")
