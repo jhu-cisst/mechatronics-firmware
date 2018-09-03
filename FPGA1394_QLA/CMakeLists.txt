@@ -38,7 +38,8 @@ set (VERILOG_SOURCE_COMMON "${VERILOG_SOURCE_DIR}/ClkDiv.v"
                            "${VERILOG_SOURCE_DIR}/CtrlDout.v"
                            "${VERILOG_SOURCE_DIR}/CtrlDac.v"
                            "${VERILOG_SOURCE_DIR}/CtrlAdc.v"
-                           "${VERILOG_SOURCE_DIR}/BoardRegs.v")
+                           "${VERILOG_SOURCE_DIR}/BoardRegs.v"
+                           "${VERILOG_SOURCE_DIR}/DS2505.v")
 
 # Verilog source files for Rev 1 firmware
 set (VERILOG_SOURCE_REV1 ${VERILOG_SOURCE_COMMON}

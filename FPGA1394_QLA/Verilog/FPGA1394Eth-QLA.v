@@ -3,7 +3,7 @@
 
 /*******************************************************************************    
  *
- * Copyright(C) 2011-2017 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2011-2018 ERC CISST, Johns Hopkins University.
  *
  * This is the top level module for the FPGA1394-QLA motor controller interface.
  *
@@ -12,6 +12,7 @@
  *     10/27/11    Paul Thienphrapa    Initial revision (pault at cs.jhu.edu)
  *     02/29/12    Zihan Chen
  *     11/01/15    Peter Kazanzides    Modified for FPGA Rev 2 (Ethernet)
+ *     08/29/18    Peter Kazanzides    Added DS2505 module
  */
 
 `timescale 1ns / 1ps
@@ -238,7 +239,7 @@ PhyLinkInterface phy(
 
 `ifdef USE_CHIPSCOPE
     ,
-    .ila_control(control_fw)   // inout: control
+    .ila_control(control_fw)   // inout: ila control
 `endif
 );
 
@@ -476,13 +477,33 @@ assign reg_rd[`OFF_DOUT_CTRL] = reg_rdout;
 // DOUT hardware configuration
 wire dout_config_valid;
 wire dout_config_bidir;
-wire [3:0] dout;
+wire[3:0] dout;
+wire dir12_cd;
+wire dir34_cd;
+
+// Overrides from DS2505 module. When interfacing to the Dallas DS2505
+// via 1-wire interface, the DS2505 module sets ds_enable and takes over
+// control of DOUT3 and DIR34.
+wire ds_enable;
+wire dout3_ds;
+wire dir34_ds;
 
 // IO1[16]: DOUT 4
 // IO1[17]: DOUT 3
 // IO1[18]: DOUT 2
 // IO1[19]: DOUT 1
-assign {IO1[16],IO1[17],IO1[18],IO1[19]} = (dout_config_bidir) ? (~dout) : dout;
+// If dout_config_dir==1, then invert logic; note that this is accomplished using the XOR operator.
+// Note that ds_enable==1 implies that dout_config_bidir==1. Also, DS2505 output (dout3_ds) does not
+// need to be inverted.
+assign IO1[16] = dout_config_bidir ^ dout[3];
+assign IO1[17] = ds_enable ? (dir34_ds ? dout3_ds : 1'bz) : (dout_config_bidir ^ dout[2]);
+assign IO1[18] = dout_config_bidir ^ dout[1];
+assign IO1[19] = dout_config_bidir ^ dout[0];
+
+// IO1[6]: DIR 1+2
+// IO1[5]: DIR 3+4
+assign IO1[6] = (dout_config_valid && dout_config_bidir) ? dir12_cd : 1'bz;
+assign IO1[5] = (dout_config_valid && dout_config_bidir) ? (ds_enable ? dir34_ds : dir34_cd) : 1'bz;
 
 CtrlDout cdout(
     .sysclk(sysclk),
@@ -493,11 +514,12 @@ CtrlDout cdout(
     .reg_wdata(reg_wdata),
     .reg_wen(reg_wen),
     .dout(dout),
-    .dir12(IO1[6]),
-    .dir34(IO1[5]),
+    .dir12_read(IO1[6]),
+    .dir34_read(IO1[5]),
+    .dir12_reg(dir12_cd),
+    .dir34_reg(dir34_cd),
     .dout_cfg_valid(dout_config_valid),
     .dout_cfg_bidir(dout_config_bidir)
-	 //.debug(DEBUG[3:0])
 );
 
 // --------------------------------------------------------------------------
@@ -590,6 +612,31 @@ QLA25AA128 prom_qla(
 
 
 // --------------------------------------------------------------------------
+// DS2505: Dallas 1-wire interface
+// --------------------------------------------------------------------------
+wire[31:0] ds_status;
+
+DS2505 ds_instrument(
+    .clk(sysclk),
+    .reset(reset),
+
+    // address & wen
+    .reg_raddr(reg_raddr),
+    .reg_waddr(reg_waddr),
+    .reg_wdata(reg_wdata),
+    .ds_status(ds_status),
+    .reg_wen(reg_wen),
+
+    .dout_cfg_bidir(dout_config_bidir),
+
+    .ds_data_in(IO1[17]),
+    .ds_data_out(dout3_ds),
+    .ds_dir(dir34_ds),
+    .ds_enable(ds_enable)
+);
+
+
+// --------------------------------------------------------------------------
 // miscellaneous board I/Os
 // --------------------------------------------------------------------------
 
@@ -636,6 +683,7 @@ BoardRegs chan0(
     .prom_status(PROM_Status),
     .prom_result(PROM_Result),
     .eth_result(Eth_Result),
+    .ds_status(ds_status),
     .safety_amp_disable(safety_amp_disable),
     .pwr_enable_cmd(pwr_enable_cmd),
     .amp_enable_cmd(amp_enable_cmd)

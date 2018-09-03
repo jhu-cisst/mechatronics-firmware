@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2013-2017 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2013-2018 ERC CISST, Johns Hopkins University.
  *
  * Purpose: Global constants e.g. device address
  * 
@@ -28,7 +28,7 @@
 
 // firmware constants
 `define VERSION 32'h514C4131       // hard-wired version number "QLA1" = 0x514C4131 
-`define FW_VERSION 32'h06          // firmware version = 6
+`define FW_VERSION 32'h07          // firmware version = 7
 
 // address space  
 `define ADDR_MAIN     4'h0         // board reg & device reg
@@ -51,6 +51,7 @@
 `define REG_PROMRES  4'd9          // PROM result (from M25P16)
 `define REG_DIGIN    4'd10         // Digital inputs (home, neg lim, pos lim)
 `define REG_ETHRES   4'd12         // Ethernet register I/O result (from KSZ8851)
+`define REG_DSSTAT   4'd13         // Dallas chip status
 `define REG_DEBUG    4'd15         // Debug register for testing 
 
 // device register file offsets from channel base

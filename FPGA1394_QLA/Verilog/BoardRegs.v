@@ -66,6 +66,9 @@ module BoardRegs(
     // Ethernet feedback
     input  wire[31:0] eth_result,
 
+    // Dallas chip status
+    input  wire[31:0] ds_status,
+
     // Safety amp_disable
     input  wire[4:1] safety_amp_disable,
 
@@ -199,6 +202,7 @@ always @(posedge(sysclk) or negedge(reset))
         `REG_FVERSION: reg_rdata <= `FW_VERSION;
         `REG_PROMSTAT: reg_rdata <= prom_status;
         `REG_PROMRES: reg_rdata <= prom_result;
+        `REG_DSSTAT: reg_rdata <= ds_status;
         `REG_DIGIN: reg_rdata <= {v_fault, 3'd0, enc_a, enc_b, enc_i, dout, neg_limit, pos_limit, home};
         `REG_ETHRES: reg_rdata <= eth_result;
         `REG_DEBUG:  reg_rdata <= reg_debug;

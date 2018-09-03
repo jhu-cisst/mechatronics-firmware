@@ -44,17 +44,13 @@ module CtrlDout(
     input  wire[31:0] reg_wdata,  // incoming register file data
     input  wire reg_wen,          // write enable signal from outside world
     output wire[4:1] dout,        // digital outputs
-    inout  wire dir12,            // direction control for channels 1-2 (QLA Rev 1.4+)
-    inout  wire dir34,            // direction control for channels 3-4 (QLA Rev 1.4+)
+    input  wire dir12_read,       // direction control for channels 1-2 (QLA Rev 1.4+)
+    input  wire dir34_read,       // direction control for channels 3-4 (QLA Rev 1.4+)
+    output reg  dir12_reg,        // direction control for channels 1-2 (QLA Rev 1.4+)
+    output reg  dir34_reg,        // direction control for channels 3-4 (QLA Rev 1.4+)
     output reg dout_cfg_valid,    // 1 -> DOUT configuration valid
     output reg dout_cfg_bidir     // 1 -> new DOUT hardware (bidirectional control)
 );    
-
-reg dir12_reg;
-reg dir34_reg;
-
-assign dir12 = (dout_cfg_valid && dout_cfg_bidir) ? dir12_reg : 1'bz;
-assign dir34 = (dout_cfg_valid && dout_cfg_bidir) ? dir34_reg : 1'bz;
 
 wire dout_set;           // write to digital output bit (masked by reg_wdata[8:11])             
 assign dout_set = (reg_wen && (reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[7:4] == 4'd0) & (reg_waddr[3:0] == `REG_DIGIOUT)) ? 1'd1 : 1'd0;
@@ -84,7 +80,7 @@ DoutPWM DoutPWM4(sysclk, reset, reg_rd[4], dout_ctrl_en[4], reg_wdata, dout_set_
 
 // The following code is for a configuration check. QLA Version 1.4 has bidirectional transceivers instead of the
 // MOSFET drivers used in prior versions of the QLA. We can detect this by checking the state of the two
-// direction pins (dir12, dir34), if we are not driving those pins. The FPGA should power up with those pins
+// direction pins (dir12_read, dir34_read), if we are not driving those pins. The FPGA should power up with those pins
 // as inputs, but to be sure we get a correct value we first tri-state those lines (during reset) before we
 // check their values. QLA Rev 1.4+ has pulldown resistors on the direction lines, so we should read them as 0.
 // In prior versions of the QLA, those IO pins are not connected, but since the FPGA has weak pullups, they should read as 1.
@@ -107,14 +103,14 @@ begin
     end
     else begin
        if (!dout_cfg_valid) begin
-          if ((dir12 == 1'b0) && (dir34 == 1'b0)) begin
+          if ((dir12_read == 1'b0) && (dir34_read == 1'b0)) begin
              // If QLA Rev 1.4 detected, start driving outputs
              dout_cfg_bidir <= 1'b1;
              dir12_reg <= 1'b1;
              dir34_reg <= 1'b1;
              dout_cfg_valid <= 1'b1;
           end
-          else if ((dir12 == 1'b1) && (dir34 == 1'b1)) begin
+          else if ((dir12_read == 1'b1) && (dir34_read == 1'b1)) begin
              // Older version of QLA
              // dout_cfg_bidir is already set to 0 during reset
              dout_cfg_valid <= 1'b1;
@@ -166,7 +162,7 @@ begin
        HiLoTime <= reg_wdata;
     end
     else if (desiredTime[dout] != 16'd0) begin   // else if desired time is non-zero
-       curTime <= curTime + 1;                   //    increment current time
+       curTime <= curTime + 16'd1;               //    increment current time
        if (curTime > desiredTime[dout]) begin    //    if current time == desired time
           dout <= ~dout;                         //       negate digital output
           curTime <= 16'd0;                      //       set current time to 0
