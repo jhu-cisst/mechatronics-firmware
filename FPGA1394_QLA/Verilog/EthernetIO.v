@@ -3,7 +3,7 @@
 
 /*******************************************************************************    
  *
- * Copyright(C) 2014-2016 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2014-2019 ERC CISST, Johns Hopkins University.
  *
  * This module implements the higher-level Ethernet I/O, which interfaces
  * to the KSZ8851 MAC/PHY chip.
@@ -542,7 +542,7 @@ always @(posedge sysclk or negedge reset) begin
          begin
             cmdReq <= 1;
             RegAddr <= `ETH_ADDR_TXCR;
-            WriteData <= 16'h01EE;   // Enable QMU transmit flow control, CRC, and padding
+            WriteData <= 16'h00EE;   // Enable QMU transmit flow control, CRC, and padding
             state <= ST_WAIT_ACK;
             nextState <= ST_INIT_REG_RXFDPR;
          end
@@ -587,7 +587,7 @@ always @(posedge sysclk or negedge reset) begin
          begin
             cmdReq <= 1;
             RegAddr <= `ETH_ADDR_RXCR2;
-            WriteData <= 16'h0016;
+            WriteData <= 16'h001C;  // Enable UDP checksums; pass packets with 0 checksum
             state <= ST_WAIT_ACK;
             nextState <= ST_INIT_MULTICAST;
          end
