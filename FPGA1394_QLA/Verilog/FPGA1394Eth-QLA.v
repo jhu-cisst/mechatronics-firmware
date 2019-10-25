@@ -168,8 +168,8 @@ assign eth_port_debug = {1'd0, reg_wen, ETH_RSTn, ETH_CMD, ETH_RDn,
                          ETH_WRn, ETH_IRQn, ETH_PME};
 // assign eth_port_debug = {eth_cmd_req, reg_wen, ETH_RSTn,
 //                          ETH_CMD, ETH_RDn, ETH_WRn, ETH_IRQn, eth_cmd_ack};
-wire[5:0] dbg_state_eth;
-wire[5:0] dbg_nextState_eth;
+wire[6:0] dbg_state_eth;
+wire[6:0] dbg_nextState_eth;
 `endif
 
 // --------------------------------------------------------------------------
@@ -801,8 +801,8 @@ ila_eth_chip ila_ec(
     .TRIG4(reg_wdata),         // 32-bit
     // .TRIG5(dbg_reg_debug),     // 32-bit
     .TRIG5(dbg_eth_ksz),
-    .TRIG6(dbg_state_eth),     // 6-bit
-    .TRIG7(dbg_nextState_eth), // 6-bit
+    .TRIG6(dbg_state_eth),     // 6-bit  --> 7-bit
+    .TRIG7(dbg_nextState_eth), // 6-bit  --> 7-bit
     .TRIG8(eth_to_chip),       // 16-bit
     .TRIG9(eth_from_chip)      // 16-bit
 );

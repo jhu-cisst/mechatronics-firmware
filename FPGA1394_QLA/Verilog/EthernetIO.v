@@ -103,8 +103,8 @@ module EthernetIO(
 `ifdef USE_CHIPSCOPE
     ,
     // Interface to Chipscope icon
-    output wire[5:0] dbg_state_eth,
-    output wire[5:0] dbg_nextState_eth,
+    output wire[6:0] dbg_state_eth,
+    output wire[6:0] dbg_nextState_eth,
 
     // Input debug
     input wire[31:0] dbg_reg_debug
@@ -119,8 +119,8 @@ reg ethPacketError;    // 1 -> Packet too long
 reg ethDestError;      // 1 -> Incorrect destination
 
 // Current state and next state
-reg[5:0] state;
-reg[5:0] nextState;
+reg[6:0] state;
+reg[6:0] nextState;
 
 assign dbg_state_eth = state;
 assign dbg_nextState_eth = nextState;
@@ -138,70 +138,73 @@ reg[15:0] ETH_IER_VALUE = 16'h2000;
 `endif
    
 // state machine states
-localparam [5:0]
-    ST_IDLE = 6'd0,
-    ST_WAIT_ACK = 6'd1,
-    ST_WAIT_ACK_CLEAR = 6'd2,
-    ST_INIT_CHECK_CHIPID = 6'd3,      // Read chip ID
-    ST_INIT_WRITE_MAC_LOW = 6'd4,     // Write MAC address low
-    ST_INIT_WRITE_MAC_MID = 6'd5,     // Write MAC address middle
-    ST_INIT_WRITE_MAC_HIGH = 6'd6,    // Write MAC address high
-    ST_INIT_REG_TXFDPR = 6'd7,
-    ST_INIT_REG_TXCR = 6'd8,
-    ST_INIT_REG_RXFDPR = 6'd9,
-    ST_INIT_REG_RXFCTR = 6'd10,
-    ST_INIT_REG_RXCR1 = 6'd11,
-    ST_INIT_REG_RXCR2 = 6'd12,
-    ST_INIT_MULTICAST = 6'd13,
-    ST_INIT_REG_RXQCR = 6'd14,
-    ST_INIT_IRQ_CLEAR = 6'd15,
-    ST_INIT_IRQ_ENABLE = 6'd16,
-    ST_INIT_TRANSMIT_ENABLE_READ = 6'd17,
-    ST_INIT_TRANSMIT_ENABLE_WRITE = 6'd18,
-    ST_INIT_RECEIVE_ENABLE_READ = 6'd19,
-    ST_INIT_RECEIVE_ENABLE_WRITE = 6'd20,
-    ST_INIT_DONE = 6'd21,
-    ST_IRQ_HANDLER = 6'd22,
-    ST_IRQ_DISPATCH = 6'd23,
-    ST_IRQ_ENABLE = 6'd24,
-    ST_IRQ_CLEAR_LCIS = 6'd25,
-    ST_IRQ_CLEAR_RXIS = 6'd26,
-    ST_RECEIVE_FRAME_COUNT = 6'd27,
-    ST_RECEIVE_FRAME_STATUS = 6'd28,
-    ST_RECEIVE_FRAME_LENGTH = 6'd29,
-    ST_RECEIVE_DMA_STATUS_READ = 6'd30,
-    ST_RECEIVE_DMA_STATUS_WRITE = 6'd31,
-    ST_RECEIVE_DMA_SKIP = 6'd32,
-    ST_RECEIVE_DMA_FRAME_HEADER = 6'd33,
-    ST_RECEIVE_DMA_FIREWIRE_PACKET = 6'd34,
-    ST_RECEIVE_FLUSH_START = 6'd35,
-    ST_RECEIVE_FLUSH_EXECUTE = 6'd36,
-    ST_RECEIVE_FLUSH_WAIT_START = 6'd37,
-    ST_RECEIVE_FLUSH_WAIT_CHECK = 6'd38,
-    ST_SEND_START = 6'd39,
-    ST_SEND_TXMIR_READ = 6'd40,
-    ST_SEND_DMA_STATUS_READ = 6'd41,
-    ST_SEND_DMA_STATUS_WRITE = 6'd42,
-    ST_SEND_DMA_CONTROLWORD = 6'd43,
-    ST_SEND_DMA_BYTECOUNT = 6'd44,
-    ST_SEND_DMA_DESTADDR = 6'd45,
-    ST_SEND_DMA_SRCADDR = 6'd46,
-    ST_SEND_DMA_LENGTH = 6'd47,
-    ST_SEND_DMA_PACKETDATA_HEADER = 6'd48,
-    ST_SEND_DMA_PACKETDATA_QUAD = 6'd49,
-    ST_SEND_DMA_PACKETDATA_BLOCK_START = 6'd50,
-    ST_SEND_DMA_PACKETDATA_BLOCK_MAIN = 6'd51,
-    ST_SEND_DMA_PACKETDATA_BLOCK_CHANNEL = 6'd52,
-    ST_SEND_DMA_PACKETDATA_BLOCK_PROM = 6'd53,
-    ST_SEND_DMA_PACKETDATA_CHECKSUM = 6'd54,
-    ST_SEND_DMA_FWD = 6'd55,
-    ST_SEND_DMA_DUMMY_DWORD = 6'd56,
-    ST_SEND_DMA_STOP = 6'd57,
-    ST_SEND_TXQ_ENQUEUE_START = 6'd58,
-    ST_SEND_TXQ_ENQUEUE_END = 6'd59,
-    ST_SEND_TXQ_ENQUEUE_WAIT_START = 6'd60,
-    ST_SEND_TXQ_ENQUEUE_WAIT_CHECK = 6'd61,
-    ST_SEND_END = 6'd62;
+localparam [6:0]
+    ST_IDLE = 7'd0,
+    ST_WAIT_ACK = 7'd1,
+    ST_WAIT_ACK_CLEAR = 7'd2,
+    ST_INIT_CHECK_CHIPID = 7'd3,      // Read chip ID
+    ST_INIT_WRITE_MAC_LOW = 7'd4,     // Write MAC address low
+    ST_INIT_WRITE_MAC_MID = 7'd5,     // Write MAC address middle
+    ST_INIT_WRITE_MAC_HIGH = 7'd6,    // Write MAC address high
+    ST_INIT_REG_TXFDPR = 7'd7,
+    ST_INIT_REG_TXCR = 7'd8,
+    ST_INIT_REG_RXFDPR = 7'd9,
+    ST_INIT_REG_RXFCTR = 7'd10,
+    ST_INIT_REG_RXCR1 = 7'd11,
+    ST_INIT_REG_RXCR2 = 7'd12,
+    ST_INIT_MULTICAST = 7'd13,
+    ST_INIT_REG_RXQCR = 7'd14,
+    ST_INIT_IRQ_CLEAR = 7'd15,
+    ST_INIT_IRQ_ENABLE = 7'd16,
+    ST_INIT_TRANSMIT_ENABLE_READ = 7'd17,
+    ST_INIT_TRANSMIT_ENABLE_WRITE = 7'd18,
+    ST_INIT_RECEIVE_ENABLE_READ = 7'd19,
+    ST_INIT_RECEIVE_ENABLE_WRITE = 7'd20,
+    ST_INIT_DONE = 7'd21,
+    ST_IRQ_HANDLER = 7'd22,
+    ST_IRQ_DISPATCH = 7'd23,
+    ST_IRQ_ENABLE = 7'd24,
+    ST_IRQ_CLEAR_LCIS = 7'd25,
+    ST_IRQ_CLEAR_RXIS = 7'd26,
+    ST_RECEIVE_FRAME_COUNT = 7'd27,
+    ST_RECEIVE_FRAME_STATUS = 7'd28,
+    ST_RECEIVE_FRAME_LENGTH = 7'd29,
+    ST_RECEIVE_DMA_STATUS_READ = 7'd30,
+    ST_RECEIVE_DMA_STATUS_WRITE = 7'd31,
+    ST_RECEIVE_DMA_SKIP = 7'd32,
+    ST_RECEIVE_DMA_FRAME_HEADER = 7'd33,
+    ST_RECEIVE_DMA_IPV4_HEADER = 7'd34,
+    ST_RECEIVE_DMA_UDP_HEADER = 7'd35,
+    ST_RECEIVE_DMA_FIREWIRE_PACKET = 7'd36,
+    ST_RECEIVE_DMA_ARP = 7'd37,
+    ST_RECEIVE_FLUSH_START = 7'd38,
+    ST_RECEIVE_FLUSH_EXECUTE = 7'd39,
+    ST_RECEIVE_FLUSH_WAIT_START = 7'd40,
+    ST_RECEIVE_FLUSH_WAIT_CHECK = 7'd41,
+    ST_SEND_START = 7'd42,
+    ST_SEND_TXMIR_READ = 7'd43,
+    ST_SEND_DMA_STATUS_READ = 7'd44,
+    ST_SEND_DMA_STATUS_WRITE = 7'd45,
+    ST_SEND_DMA_CONTROLWORD = 7'd46,
+    ST_SEND_DMA_BYTECOUNT = 7'd47,
+    ST_SEND_DMA_DESTADDR = 7'd48,
+    ST_SEND_DMA_SRCADDR = 7'd49,
+    ST_SEND_DMA_LENGTH = 7'd50,
+    ST_SEND_DMA_PACKETDATA_HEADER = 7'd51,
+    ST_SEND_DMA_PACKETDATA_QUAD = 7'd52,
+    ST_SEND_DMA_PACKETDATA_BLOCK_START = 7'd53,
+    ST_SEND_DMA_PACKETDATA_BLOCK_MAIN = 7'd54,
+    ST_SEND_DMA_PACKETDATA_BLOCK_CHANNEL = 7'd55,
+    ST_SEND_DMA_PACKETDATA_BLOCK_PROM = 7'd56,
+    ST_SEND_DMA_PACKETDATA_CHECKSUM = 7'd57,
+    ST_SEND_DMA_FWD = 7'd58,
+    ST_SEND_DMA_DUMMY_DWORD = 7'd59,
+    ST_SEND_DMA_STOP = 7'd60,
+    ST_SEND_TXQ_ENQUEUE_START = 7'd61,
+    ST_SEND_TXQ_ENQUEUE_END = 7'd62,
+    ST_SEND_TXQ_ENQUEUE_WAIT_START = 7'd63,
+    ST_SEND_TXQ_ENQUEUE_WAIT_CHECK = 7'd64,
+    ST_SEND_END = 7'd65;
 
 
 // Debugging support
@@ -229,6 +232,9 @@ wire blockWrite;
 
 reg isMulticast;
 // reg[1:0] invalidCnt = 2'd0;
+reg isIPv4;  // debug
+reg isARP;
+reg isUDP;
 
 // VALID(1) 0(6) ERROR(1) PME(1) IRQ(1) State(4) Data(16)
 assign eth_status[31] = 1'b1;          // 31: 1 -> Ethernet is present
@@ -248,8 +254,11 @@ assign eth_status[22] = blockRead;     // 22: blockRead (debugging)
 assign eth_status[21] = blockWrite;    // 21: blockWrite (debugging)
 assign eth_status[20] = isMulticast;   // 20: multicast received
 assign eth_status[19] = ksz_isIdle;    // 19: KSZ8851 state machine is idle
-assign eth_status[18] = eth_io_isIdle; // 18: Ethernet I/O state machine is idle
-assign eth_status[17:16] = waitInfo;   // 17-16: Wait points in EthernetIO.v
+//assign eth_status[18] = eth_io_isIdle; // 18: Ethernet I/O state machine is idle
+assign eth_status[18] = isIPv4;        // 18: Ethernet IPv4 frame received
+//assign eth_status[17:16] = waitInfo;   // 17-16: Wait points in EthernetIO.v
+assign eth_status[17] = isARP;        // 17: Ethernet ARP message
+assign eth_status[16] = isUDP;        // 16: Ethernet UDP message
 
 
 reg isInIRQ;           // True if IRQ handle routing
@@ -377,6 +386,9 @@ always @(posedge sysclk or negedge reset) begin
        lreq_type <= 0;
        block_index <= 0;
        eth_send_fw_req <= 0;
+       isIPv4 <= 0;
+       isARP <= 0;
+       isUDP <= 0;
     end
     else begin
 
@@ -870,6 +882,9 @@ always @(posedge sysclk or negedge reset) begin
               3'd6: LengthFW <= {ReadData[7:0],ReadData[15:8]}; 
             endcase
             if (count[2:0] == 3'd6) begin
+               isIPv4 <= 0;
+               isARP <= 0;
+               isUDP <= 0;
                // Maximum data length is currently 284 bytes (block write to PROM); as a sanity
                // check, we flush any packets greater than 512 bytes in length.
                if (ReadData[7:1] == 7'd0) begin
@@ -880,6 +895,22 @@ always @(posedge sysclk or negedge reset) begin
                   // Note that this can be larger than the current buffer size (142 words or 71 quadlets),
                   // but later on we have a check to prevent buffer overflow.
                   maxCount <= {ReadData[0],ReadData[15:9]}-8'd1;
+               end
+               else if ({ReadData[7:0],ReadData[15:8]} ==  16'h0800) begin
+                  // IPv4 Ethertype is 0x0800
+                  isIPv4 <= 1;
+                  cmdReq <= 1;
+                  state <= ST_WAIT_ACK;
+                  nextState <= ST_RECEIVE_DMA_IPV4_HEADER;
+                  // Default value of maxCount (IPv4 header has at least 10 words)
+                  maxCount[4:0] <= 5'd9;
+               end
+               else if ({ReadData[7:0],ReadData[15:8]} ==  16'h0806) begin
+                  // ARP Ethertype is 0x0806
+                  isARP <= 1;
+                  cmdReq <= 1;
+                  state <= ST_WAIT_ACK;
+                  nextState <= ST_RECEIVE_DMA_ARP;
                end
                else begin
                   ethPacketError <= 1;
@@ -892,6 +923,81 @@ always @(posedge sysclk or negedge reset) begin
                state <= ST_WAIT_ACK;
                nextState <= ST_RECEIVE_DMA_FRAME_HEADER;
                count[2:0] <= count[2:0]+3'd1;
+            end
+         end
+
+         ST_RECEIVE_DMA_IPV4_HEADER:
+         begin
+            cmdReq <= 1;
+            state <= ST_WAIT_ACK;
+            count[4:0] <= count[4:0]+5'd1;
+            if (count[4:0] == 5'd0) begin
+               // Word 0:
+               //   Byte 0: Version, should be 4; IHL (Internet Header Length), normally should be 5
+               //   Byte 1: DSCP and ECN (ignore those)
+               if (ReadData[7:4] != 4'h4) begin
+                  ethPacketError <= 1;
+                  state <= ST_RECEIVE_FLUSH_START;
+               end
+               else begin
+                  // Set up maxCount based on number of words (2*IHL-1).
+                  // Could check that maxCount is at least 5.
+                  maxCount[4:0] <= {ReadData[3:0],1'd0}-5'd1;
+               end
+            end
+            else if (count[4:0] == 5'd1) begin
+               // Word 1: Total Length (TBD)
+               nextState <= ST_RECEIVE_DMA_IPV4_HEADER;
+            end
+            else if (count[4:0] == 5'd4) begin
+               // Word 4:
+               //   Byte 0: Time To Live (ignore)
+               //   Byte 1: Protocol (UDP is 17)
+               if (ReadData[11:8] != 4'd17) begin
+                  ethPacketError <= 1;
+                  state <= ST_RECEIVE_FLUSH_START;
+               end
+               else begin
+                  isUDP <= 1;
+                  nextState <= ST_RECEIVE_DMA_IPV4_HEADER;
+               end
+            end
+            // Word 5: Header checksum
+            // Word 6,7: Source IP address
+            // Word 8,9: Destination IP address
+            else if (count[4:0] == maxCount[4:0]) begin
+               if (isUDP) begin
+                  nextState <= ST_RECEIVE_DMA_UDP_HEADER;
+                  count[4:0] <= 5'd0;
+               end
+               else begin
+                  ethPacketError <= 1;
+                  state <= ST_RECEIVE_FLUSH_START;
+               end
+            end
+            else begin
+               nextState <= ST_RECEIVE_DMA_IPV4_HEADER;
+            end
+         end
+
+         ST_RECEIVE_DMA_UDP_HEADER:
+         // Word 0:  Source port
+         // Word 1:  Destination port
+         // Word 2:  Length
+         // Word 3:  Checksum
+         begin
+            cmdReq <= 1;
+            state <= ST_WAIT_ACK;
+            count[1:0] <= count[1:0] + 2'd1;
+            if (count[1:0] == 2'd1) begin
+               if ({ReadData[7:0],ReadData[15:8]} != 16'd1394) begin
+                  ethPacketError <= 1;
+                  state <= ST_RECEIVE_FLUSH_START;
+               end
+            end
+            else if (count[1:0] == 2'd3) begin
+               nextState <= ST_RECEIVE_DMA_FRAME_HEADER;
+               count[1:0] <= 2'd0;
             end
          end
 
@@ -999,6 +1105,27 @@ always @(posedge sysclk or negedge reset) begin
                      end
                   end
                end
+            end
+         end
+
+         ST_RECEIVE_DMA_ARP:
+           // Word 0: Hardware type (HTYPE):  1 for Ethernet
+           // Word 1: Protocol type (PTYPE):  0x0800 for IPv4
+           // Word 2:
+           //   MSB: Hardware address length (HLEN):  6
+           //   LSB: Protocol address length (PLEN):  4
+           // Word 3: Operation (OPER):  1 for request, 2 for reply
+           // Word 4-6: Sender hardware address (SHA):  MAC address of sender
+           // Word 7-8: Sender protocol address (SPA):  IPv4 address of sender (0 for ARP Probe)
+           // Word 9-11: Target hardware address (THA):  MAC address of target (ignored in request)
+           // Word 12-13: Target protocol address (TPA): IPv4 address of target
+         begin
+            cmdReq <= 1;
+            state <= ST_WAIT_ACK;
+            count[3:0] <= count[3:0]+4'd1;
+            if (count[3:0] == 4'd13) begin
+               // Normal completion
+               state <= ST_RECEIVE_FLUSH_START;
             end
          end
 
