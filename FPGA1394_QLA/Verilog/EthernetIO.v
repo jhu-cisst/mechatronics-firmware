@@ -12,8 +12,6 @@
  *     12/21/15    Peter Kazanzides    Initial Revision
  *     11/28/16    Zihan Chen          Added Disable/Enable in RECEIVE
  * 
- * Todo
- *   - Replace address with constants
  */
 
 // global constant e.g. register & device address
@@ -173,10 +171,10 @@ localparam [6:0]
     ST_RECEIVE_DMA_STATUS_WRITE = 7'd31,
     ST_RECEIVE_DMA_SKIP = 7'd32,
     ST_RECEIVE_DMA_FRAME_HEADER = 7'd33,
-    ST_RECEIVE_DMA_IPV4_HEADER = 7'd34,
-    ST_RECEIVE_DMA_UDP_HEADER = 7'd35,
-    ST_RECEIVE_DMA_FIREWIRE_PACKET = 7'd36,
-    ST_RECEIVE_DMA_ARP = 7'd37,
+    ST_RECEIVE_DMA_ARP = 7'd34,
+    ST_RECEIVE_DMA_IPV4_HEADER = 7'd35,
+    ST_RECEIVE_DMA_UDP_HEADER = 7'd36,
+    ST_RECEIVE_DMA_FIREWIRE_PACKET = 7'd37,
     ST_RECEIVE_FLUSH_START = 7'd38,
     ST_RECEIVE_FLUSH_EXECUTE = 7'd39,
     ST_RECEIVE_FLUSH_WAIT_START = 7'd40,
@@ -190,21 +188,24 @@ localparam [6:0]
     ST_SEND_DMA_DESTADDR = 7'd48,
     ST_SEND_DMA_SRCADDR = 7'd49,
     ST_SEND_DMA_LENGTH = 7'd50,
-    ST_SEND_DMA_PACKETDATA_HEADER = 7'd51,
-    ST_SEND_DMA_PACKETDATA_QUAD = 7'd52,
-    ST_SEND_DMA_PACKETDATA_BLOCK_START = 7'd53,
-    ST_SEND_DMA_PACKETDATA_BLOCK_MAIN = 7'd54,
-    ST_SEND_DMA_PACKETDATA_BLOCK_CHANNEL = 7'd55,
-    ST_SEND_DMA_PACKETDATA_BLOCK_PROM = 7'd56,
-    ST_SEND_DMA_PACKETDATA_CHECKSUM = 7'd57,
-    ST_SEND_DMA_FWD = 7'd58,
-    ST_SEND_DMA_DUMMY_DWORD = 7'd59,
-    ST_SEND_DMA_STOP = 7'd60,
-    ST_SEND_TXQ_ENQUEUE_START = 7'd61,
-    ST_SEND_TXQ_ENQUEUE_END = 7'd62,
-    ST_SEND_TXQ_ENQUEUE_WAIT_START = 7'd63,
-    ST_SEND_TXQ_ENQUEUE_WAIT_CHECK = 7'd64,
-    ST_SEND_END = 7'd65;
+    ST_SEND_DMA_ARP = 7'd51,
+    ST_SEND_DMA_IPV4_HEADER = 7'd52,
+    ST_SEND_DMA_UDP_HEADER = 7'd53,
+    ST_SEND_DMA_PACKETDATA_HEADER = 7'd54,
+    ST_SEND_DMA_PACKETDATA_QUAD = 7'd55,
+    ST_SEND_DMA_PACKETDATA_BLOCK_START = 7'd56,
+    ST_SEND_DMA_PACKETDATA_BLOCK_MAIN = 7'd57,
+    ST_SEND_DMA_PACKETDATA_BLOCK_CHANNEL = 7'd58,
+    ST_SEND_DMA_PACKETDATA_BLOCK_PROM = 7'd59,
+    ST_SEND_DMA_PACKETDATA_CHECKSUM = 7'd60,
+    ST_SEND_DMA_FWD = 7'd61,
+    ST_SEND_DMA_DUMMY_DWORD = 7'd62,
+    ST_SEND_DMA_STOP = 7'd63,
+    ST_SEND_TXQ_ENQUEUE_START = 7'd64,
+    ST_SEND_TXQ_ENQUEUE_END = 7'd65,
+    ST_SEND_TXQ_ENQUEUE_WAIT_START = 7'd66,
+    ST_SEND_TXQ_ENQUEUE_WAIT_CHECK = 7'd67,
+    ST_SEND_END = 7'd68;
 
 
 // Debugging support
@@ -230,11 +231,14 @@ wire quadWrite;
 wire blockRead;
 wire blockWrite;
 
+reg isBroadcast;
 reg isMulticast;
 // reg[1:0] invalidCnt = 2'd0;
 reg isIPv4;  // debug
 reg isARP;
 reg isUDP;
+reg isARPGood;
+
 
 // VALID(1) 0(6) ERROR(1) PME(1) IRQ(1) State(4) Data(16)
 assign eth_status[31] = 1'b1;          // 31: 1 -> Ethernet is present
@@ -250,8 +254,10 @@ assign eth_status[26] = isLocal;       // 26: 1 -> command requested by higher l
 assign eth_status[25] = isRemote;      // 25: 1 -> command acknowledged by lower level
 assign eth_status[24] = quadRead;      // 24: quadRead (debugging)
 assign eth_status[23] = quadWrite;     // 23: quadWrite (debugging)
-assign eth_status[22] = blockRead;     // 22: blockRead (debugging)
-assign eth_status[21] = blockWrite;    // 21: blockWrite (debugging)
+//assign eth_status[22] = blockRead;     // 22: blockRead (debugging)
+assign eth_status[22] = isARPGood;     // 22: blockRead (debugging)
+//assign eth_status[21] = blockWrite;    // 21: blockWrite (debugging)
+assign eth_status[21] = isBroadcast;    // 21: broadcast received
 assign eth_status[20] = isMulticast;   // 20: multicast received
 assign eth_status[19] = ksz_isIdle;    // 19: KSZ8851 state machine is idle
 //assign eth_status[18] = eth_io_isIdle; // 18: Ethernet I/O state machine is idle
@@ -275,6 +281,12 @@ reg[15:0] destMac[0:2];  // Not currently used
 reg[15:0] srcMac[0:2];
 reg[15:0] LengthFW;        // fw packet length in bytes
 assign eth_fwpkt_len = LengthFW;
+
+reg[31:0] hostIP;       // IP address of host (PC)
+reg[31:0] fpgaIP;       // IP address of this board (FPGA)
+reg[15:0] hostPort;     // UDP port number for host (PC)
+reg[15:0] fpgaPort;     // UDP port number for this board (FPGA)
+
 
 // Firewire packet received from host
 //    - 16 bytes (4 quadlets) for quadlet read request
@@ -370,6 +382,7 @@ always @(posedge sysclk or negedge reset) begin
        ethIoError <= 0;
        ethPacketError <= 0;
        ethDestError <= 0;
+       isBroadcast <= 0;
        isMulticast <= 0;
        sendAck <= 0;
        srcMac[0] <= 16'd0;
@@ -388,6 +401,7 @@ always @(posedge sysclk or negedge reset) begin
        eth_send_fw_req <= 0;
        isIPv4 <= 0;
        isARP <= 0;
+       isARPGood <= 0;
        isUDP <= 0;
     end
     else begin
@@ -625,8 +639,8 @@ always @(posedge sysclk or negedge reset) begin
             RegAddr <= `ETH_ADDR_RXQCR;
             // B5: RXFCTE enable QMU frame count threshold (1)
             // B4: ADRFE  auto-dequeue
-            WriteData <= 16'h0030;
-            // WriteData <= 16'h0020;
+            // WriteData <= 16'h0030;
+            WriteData <= 16'h0020;
             state <= ST_WAIT_ACK;
             nextState <= ST_INIT_IRQ_CLEAR;
          end
@@ -689,6 +703,12 @@ always @(posedge sysclk or negedge reset) begin
          ST_INIT_DONE:
          begin
             initOK <= 1;
+            isIPv4 <= 0;
+            isARP <= 0;
+            isARPGood <= 0;
+            isUDP <= 0;
+            isBroadcast <= 0;
+            isMulticast <= 0;
             state <= ST_IDLE;
          end
 
@@ -795,6 +815,10 @@ always @(posedge sysclk or negedge reset) begin
                count[0] <= 1'd1;
             end
             else begin
+               isIPv4 <= 0;  // 3 TEMP
+               isARP <= 0;
+               isARPGood <= 0;
+               isUDP <= 0;
                FrameCount <= FrameCount-8'd1;
                count[0] <= 1'd0;
                // Check packet valid
@@ -804,6 +828,7 @@ always @(posedge sysclk or negedge reset) begin
                // B00: RXCE  receive CRC error
                if (ReadData[15] && ~ReadData[2] && ~ReadData[1] && ~ReadData[0]) begin
                   cmdReq <= 1;
+                  isBroadcast <= ReadData[7];
                   isMulticast <= ReadData[6];
                   isWrite <= 0;
                   RegAddr <= `ETH_ADDR_RXFHBCR;
@@ -811,6 +836,8 @@ always @(posedge sysclk or negedge reset) begin
                   nextState <= ST_RECEIVE_FRAME_LENGTH;
                end
                else begin
+                  isBroadcast <= 0;
+                  isMulticast <= 0;
                   state <= ST_RECEIVE_FLUSH_START;
                end
             end
@@ -879,11 +906,11 @@ always @(posedge sysclk or negedge reset) begin
               3'd3: srcMac[0] <= ReadData;
               3'd4: srcMac[1] <= ReadData;
               3'd5: srcMac[2] <= ReadData;
-              3'd6: LengthFW <= {ReadData[7:0],ReadData[15:8]}; 
             endcase
             if (count[2:0] == 3'd6) begin
                isIPv4 <= 0;
                isARP <= 0;
+               isARPGood <= 0;
                isUDP <= 0;
                // Maximum data length is currently 284 bytes (block write to PROM); as a sanity
                // check, we flush any packets greater than 512 bytes in length.
@@ -895,6 +922,7 @@ always @(posedge sysclk or negedge reset) begin
                   // Note that this can be larger than the current buffer size (142 words or 71 quadlets),
                   // but later on we have a check to prevent buffer overflow.
                   maxCount <= {ReadData[0],ReadData[15:9]}-8'd1;
+                  LengthFW <= {ReadData[7:0],ReadData[15:8]};
                end
                else if ({ReadData[7:0],ReadData[15:8]} ==  16'h0800) begin
                   // IPv4 Ethertype is 0x0800
@@ -962,9 +990,23 @@ always @(posedge sysclk or negedge reset) begin
                   nextState <= ST_RECEIVE_DMA_IPV4_HEADER;
                end
             end
-            // Word 5: Header checksum
-            // Word 6,7: Source IP address
-            // Word 8,9: Destination IP address
+            // Word 5: Header checksum (ignored, for now)
+            // Word 6,7: Source IP address (host)
+            // Word 8,9: Destination IP address (fpga)
+            // Keep the IP addresses byteswapped, since we will need
+            // to send them back to the PC.
+            else if (count[4:0] == 5'd6) begin
+               hostIP[31:16] <= ReadData;
+            end
+            else if (count[4:0] == 5'd7) begin
+               hostIP[15:0] <= ReadData;
+            end
+            else if (count[4:0] == 5'd8) begin
+               fpgaIP[31:16] <= ReadData;
+            end
+            else if (count[4:0] == 5'd9) begin
+               fpgaIP[15:0] <= ReadData;
+            end
             else if (count[4:0] == maxCount[4:0]) begin
                if (isUDP) begin
                   nextState <= ST_RECEIVE_DMA_UDP_HEADER;
@@ -989,7 +1031,12 @@ always @(posedge sysclk or negedge reset) begin
             cmdReq <= 1;
             state <= ST_WAIT_ACK;
             count[1:0] <= count[1:0] + 2'd1;
+            if (count[1:0] == 2'd0) begin
+               hostPort <= ReadData;
+            end
             if (count[1:0] == 2'd1) begin
+               fpgaPort <= ReadData;
+               // Make sure destination port is 0x1394
                if ({ReadData[7:0],ReadData[15:8]} != 16'd1394) begin
                   ethPacketError <= 1;
                   state <= ST_RECEIVE_FLUSH_START;
@@ -1123,10 +1170,24 @@ always @(posedge sysclk or negedge reset) begin
             cmdReq <= 1;
             state <= ST_WAIT_ACK;
             count[3:0] <= count[3:0]+4'd1;
-            if (count[3:0] == 4'd13) begin
-               // Normal completion
-               state <= ST_RECEIVE_FLUSH_START;
-            end
+            case (count[3:0])
+               4'd0: if (ReadData != 16'h0100) state <= ST_RECEIVE_FLUSH_START;
+               4'd1: if (ReadData != 16'h0008) state <= ST_RECEIVE_FLUSH_START;
+               4'd2: if (ReadData != 16'h0406) state <= ST_RECEIVE_FLUSH_START;
+               4'd3: if (ReadData != 16'h0100) state <= ST_RECEIVE_FLUSH_START;
+               4'd4: srcMac[0] <= ReadData;
+               4'd5: srcMac[1] <= ReadData;
+               4'd6: srcMac[2] <= ReadData;
+               4'd7: hostIP[31:16] <= ReadData;
+               4'd8: hostIP[15:0] <= ReadData;
+               4'd12: fpgaIP[31:16] <= ReadData;
+               4'd13: begin
+                      // Normal completion
+                      isARPGood <= 1;
+                      fpgaIP[15:0] <= ReadData;
+                      state <= ST_RECEIVE_FLUSH_START;
+                      end
+            endcase
          end
 
          ST_RECEIVE_FLUSH_START:
@@ -1172,7 +1233,7 @@ always @(posedge sysclk or negedge reset) begin
             //   - else go to idle state
             // TODO: check node id and forward via FireWire if necessary
             if (ReadData[0] == 1'b0) begin
-               if ((quadRead || blockRead) && isLocal) begin
+               if (((quadRead || blockRead) && isLocal) || isARP) begin
                   state <= ST_SEND_START;
                end
                else begin
@@ -1211,7 +1272,7 @@ always @(posedge sysclk or negedge reset) begin
             end
             // Reset pkt words count
             txPktWords <= 16'd0;
-         end // case: ST_SEND_START
+         end
 
          ST_SEND_TXMIR_READ:
          begin
@@ -1256,20 +1317,31 @@ always @(posedge sysclk or negedge reset) begin
          ST_SEND_DMA_BYTECOUNT:
          begin
             cmdReq <= 1;
+            if (isARP) begin
+               // ARP response: 14 + 28
+               WriteData <= 16'd42;
+            end
             if (~isForward) begin
                // Set byte count:
-               //   + 34 for quadlet read response (14+20)
-               //   + (14+24+block_data_length) for block read response
+               //   * 34 for quadlet read response (14+20)
+               //   * (14+24+block_data_length) for block read response
                //     (block_data_length must be a multiple of 4)
-               WriteData <= quadRead ? 16'd34 : (16'd38 + block_data_length);
+               //   + 28 for UDP: IPv4 header (20) + UDP header (8)
+               case ({isUDP, quadRead})
+                 2'b00: WriteData <= 16'd38 + block_data_length; // block read response
+                 2'b01: WriteData <= 16'd34;                     // quadlet read response
+                 2'b10: WriteData <= 16'd66 + block_data_length; // UDP, block read response
+                 2'b11: WriteData <= 16'd62;                     // UDP, quadlet read response
+               endcase
             end
             else begin
+               // Forwarding data from FireWire (TODO: add UDP support)
                WriteData <= 16'd14 + sendLen;
             end
             state <= ST_WAIT_ACK;
             nextState <= ST_SEND_DMA_DESTADDR;
             count <= 8'd0;
-         end // case: ST_SEND_DMA_BYTECOUNT
+         end
 
          ST_SEND_DMA_DESTADDR:
          begin
@@ -1308,28 +1380,74 @@ always @(posedge sysclk or negedge reset) begin
             end
          end
 
-         // EtherType: reuse not standard
+         // EtherType/Length
          ST_SEND_DMA_LENGTH:
          begin
             cmdReq <= 1;
             state <= ST_WAIT_ACK;
             count <= 8'd0;
 
-            if (~isForward) begin
+            if (isARP) begin
+               WriteData <= 16'h0608;  // 0x0806 (byteswapped)
+               nextState <= ST_SEND_DMA_ARP;
+            end
+            //else if (isUDP) begin
+            //   WriteData <= 16'h0008;  // 0x0800 (byteswapped)
+            //   nextState <= ST_SEND_DMA_IPV4_HEADER;
+            //end
+            else if (~isForward) begin
                // 20 bytes for quadlet read response
                // (24 + block_data_length) bytes for block read response
-               WriteData <= quadRead ? 16'd20 : (16'd24 + block_data_length);
+               {WriteData[7:0],WriteData[15:8]} <= quadRead ? 16'd20 : (16'd24 + block_data_length);
                nextState <= ST_SEND_DMA_PACKETDATA_HEADER;
             end
             else begin
-               WriteData <= sendLen;
+               {WriteData[7:0],WriteData[15:8]} <= sendLen;
                nextState <= ST_SEND_DMA_FWD;
                sendAddr <= 7'd0;
-               count <= 8'd0;
                maxCount <= sendLen[8:1] - 8'd1;
                isForward <= 1'd0;
             end
+         end
 
+         ST_SEND_DMA_ARP:
+         begin
+            // Word 3: Operation (OPER):  1 for request, 2 for reply
+            // Word 4-6: Sender hardware address (SHA):  MAC address of sender
+            // Word 7-8: Sender protocol address (SPA):  IPv4 address of sender (0 for ARP Probe)
+            // Word 9-11: Target hardware address (THA):  MAC address of target (ignored in request)
+            // Word 12-13: Target protocol address (TPA): IPv4 address of target
+            cmdReq <= 1;
+            state <= ST_WAIT_ACK;
+            nextState <= ST_SEND_DMA_ARP;
+            count[4:0] <= count[4:0]+5'd1;
+            case (count[4:0])
+               5'd0: WriteData <= 16'h0100;  // Hardware type (HTYPE): 1 for Ethernet
+               5'd1: WriteData <= 16'h0008;  // Protocol type (PTYPE): 0x0800 for IPv4
+               5'd2: WriteData <= 16'h0406;  // HLEN (6) and PLEN (4)
+               5'd3: WriteData <= 16'h0200;  // Operation (OPER): 2 for reply
+               5'd4: WriteData <= 16'h61FA;  // 0xFA61 (byte-swapped)
+               5'd5: WriteData <= 16'h130E;  // 0x0E13 (byte-swapped)
+               5'd6: WriteData <= {4'h0,board_id,8'h94}; // 0x940n (n = board id, byte-swapped)
+               5'd7: WriteData <= fpgaIP[31:16];
+               5'd8: WriteData <= fpgaIP[15:0];
+               5'd9: WriteData <= srcMac[0];
+               5'd10: WriteData <= srcMac[1];
+               5'd11: WriteData <= srcMac[2];
+               5'd12: WriteData <= hostIP[31:16];
+               5'd13: begin
+                      WriteData <= hostIP[15:0];
+                      nextState <= ST_SEND_DMA_STOP;
+                      end
+            endcase
+         end
+
+         ST_SEND_DMA_IPV4_HEADER:
+         begin
+         end
+
+         ST_SEND_DMA_UDP_HEADER:
+         begin
          end
 
          // Send first 5 quadlets, which are nearly identical between quadlet read response
