@@ -254,12 +254,13 @@ reg isUDP;
 reg isICMP;
 reg isEcho;
 
-reg [15:0] echo_id;
-reg [15:0] echo_seq;
-reg [31:0] echo_payload;
+reg[15:0] echo_id;
+reg[15:0] echo_seq;
+reg[31:0] echo_payload;
 
-wire [17:0] icmp_checksum;
+wire[17:0] icmp_checksum;
 assign icmp_checksum = {2'd0, echo_id} + {2'd0, echo_seq} + {2'd0, echo_payload[31:16]} + {2'd0, echo_payload[15:0]};
+
 
 // Ethernet status:
 //   Bit 31: 1 to indicate that Ethernet is present -- must be kept for backward compatibility
@@ -626,7 +627,6 @@ always @(posedge sysclk or negedge reset) begin
             // Bit 4 = 0, Bit 1 = 0, Bit 11 = 1, Bit 8 = 0 (hash perfect, default)
             WriteData <= 16'h7CE0;
             state <= ST_WAIT_ACK;
-            // nextState <= ST_INIT_MULTICAST;
             nextState <= ST_INIT_REG_RXCR2;
          end // case: ST_INIT_REG_RXCR1
 
@@ -911,13 +911,17 @@ always @(posedge sysclk or negedge reset) begin
 
          ST_RECEIVE_DMA_FRAME_HEADER:
          begin
+            cmdReq <= 1;
+            state <= ST_WAIT_ACK;
+            nextState <= ST_RECEIVE_DMA_FRAME_HEADER;
+            count[2:0] <= count[2:0]+3'd1;
             // Read dest MAC, source MAC, and length (7 words, byte-swapped).
             // Don't byte swap srcMAC because we need to send it back byte-swapped.
             // 
             case (count[2:0])
-              3'd0: destMac[0] <= {ReadData[7:0],ReadData[15:8]};
-              3'd1: destMac[1] <= {ReadData[7:0],ReadData[15:8]};
-              3'd2: destMac[2] <= {ReadData[7:0],ReadData[15:8]};
+              3'd0: destMac[0] <= `ReadDataSwapped;
+              3'd1: destMac[1] <= `ReadDataSwapped;
+              3'd2: destMac[2] <= `ReadDataSwapped;
               3'd3: srcMac[0] <= ReadData;
               3'd4: srcMac[1] <= ReadData;
               3'd5: srcMac[2] <= ReadData;
@@ -925,28 +929,22 @@ always @(posedge sysclk or negedge reset) begin
             if (count[2:0] == 3'd6) begin
                // Maximum data length is currently 284 bytes (block write to PROM); as a sanity
                // check, we flush any packets greater than 512 bytes in length.
-               if (ReadData[7:1] == 7'd0) begin
-                  cmdReq <= 1;
-                  state <= ST_WAIT_ACK;
+               if (`ReadDataSwapped[15:9] == 7'd0) begin
                   nextState <= ST_RECEIVE_DMA_FIREWIRE_PACKET;
                   // Set up maxCount based on number of words (numBytes/2-1).
                   // Note that this can be larger than the current buffer size (142 words or 71 quadlets),
                   // but later on we have a check to prevent buffer overflow.
-                  maxCount <= {ReadData[0],ReadData[15:9]}-8'd1;
-                  LengthFW <= {ReadData[7:0],ReadData[15:8]};
+                  maxCount <= `ReadDataSwapped[8:1]-8'd1;
+                  LengthFW <= `ReadDataSwapped;
                end
-               else if ({ReadData[7:0],ReadData[15:8]} ==  16'h0800) begin
+               else if (`ReadDataSwapped == 16'h0800) begin
                   // IPv4 Ethertype is 0x0800
-                  cmdReq <= 1;
-                  state <= ST_WAIT_ACK;
                   nextState <= ST_RECEIVE_DMA_IPV4_HEADER;
                   // Default value of maxCount (IPv4 header has at least 10 words)
                   maxCount[4:0] <= 5'd9;
                end
-               else if ({ReadData[7:0],ReadData[15:8]} ==  16'h0806) begin
+               else if (`ReadDataSwapped == 16'h0806) begin
                   // ARP Ethertype is 0x0806
-                  cmdReq <= 1;
-                  state <= ST_WAIT_ACK;
                   nextState <= ST_RECEIVE_DMA_ARP;
                end
                else begin
@@ -954,12 +952,6 @@ always @(posedge sysclk or negedge reset) begin
                   state <= ST_RECEIVE_FLUSH_START;
                end
                count <= 8'd0;
-            end
-            else begin
-               cmdReq <= 1;
-               state <= ST_WAIT_ACK;
-               nextState <= ST_RECEIVE_DMA_FRAME_HEADER;
-               count[2:0] <= count[2:0]+3'd1;
             end
          end
 
@@ -1020,7 +1012,7 @@ always @(posedge sysclk or negedge reset) begin
             else if (count[4:0] == 5'd9) begin
                fpgaIP[15:0] <= ReadData;
             end
-            else if (count[4:0] == maxCount[4:0]) begin
+            if (count[4:0] == maxCount[4:0]) begin
                if (isUDP) begin
                   nextState <= ST_RECEIVE_DMA_UDP_HEADER;
                   count[4:0] <= 5'd0;
@@ -1083,7 +1075,7 @@ always @(posedge sysclk or negedge reset) begin
                end
             end
             else if (count[1:0] == 2'd3) begin
-               nextState <= ST_RECEIVE_DMA_FRAME_HEADER;
+               nextState <= ST_RECEIVE_DMA_FIREWIRE_PACKET;
                count[1:0] <= 2'd0;
             end
          end
@@ -1383,8 +1375,10 @@ always @(posedge sysclk or negedge reset) begin
                endcase
             end
             else begin
-               // Forwarding data from FireWire (TODO: add UDP support)
-               WriteData <= 16'd14 + sendLen;
+               // Forwarding data from FireWire
+               //   + 14 for frame header
+               //   + 28 for UDP: IPv4 header (20) + UDP header (8)
+               WriteData <= (useUDP ? 16'd42 : 16'd14) + sendLen;
             end
             state <= ST_WAIT_ACK;
             nextState <= ST_SEND_DMA_DESTADDR;
