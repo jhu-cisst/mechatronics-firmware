@@ -261,6 +261,8 @@ reg[31:0] echo_payload;
 wire[17:0] icmp_checksum;
 assign icmp_checksum = {2'd0, echo_id} + {2'd0, echo_seq} + {2'd0, echo_payload[31:16]} + {2'd0, echo_payload[15:0]};
 
+reg ipv4_long;  // IP frame longer than default (ok)
+reg ipv4_short; // IP frame too short (error)
 
 // Ethernet status:
 //   Bit 31: 1 to indicate that Ethernet is present -- must be kept for backward compatibility
@@ -307,6 +309,7 @@ reg[31:0] hostIP;       // IP address of host (PC)
 reg[31:0] fpgaIP;       // IP address of this board (FPGA)
 reg[15:0] hostPort;     // UDP port number for host (PC)
 
+reg[15:0] ipv4_length;    // Length field of IPv4 header (not currently used)
 reg[18:0] ipv4_checksum;  // Checksum for IPv4 header
 
 
@@ -425,6 +428,8 @@ always @(posedge sysclk or negedge reset) begin
        isUDP <= 0;
        isICMP <= 0;
        isEcho <= 0;
+       ipv4_long <= 0;
+       ipv4_short <= 0;
     end
     else begin
 
@@ -729,6 +734,8 @@ always @(posedge sysclk or negedge reset) begin
             isICMP <= 0;
             isEcho <= 0;
             isMulticast <= 0;
+            ipv4_long <= 0;
+            ipv4_short <= 0;
             state <= ST_IDLE;
          end
 
@@ -837,8 +844,17 @@ always @(posedge sysclk or negedge reset) begin
             else begin
                FrameCount <= FrameCount-8'd1;
                count[0] <= 1'd0;
-               // Check packet valid
+               // Check packet valid. Currently, not checking everything.
                // B15: RXFV  receive frame valid
+               // B13: ICMP checksum invalid
+               // B12: IP checksum invalid
+               // B11: TCP checksum invalid
+               // B10: UDP checksum invalid
+               // B07: Received broadcast frame
+               // B06: Received multicast frame
+               // B05: Received unicastframe
+               // B04: Receive MII error
+               // B03: Indicates Ethernet-type frame (length > 1500 bytes)
                // B02: RXFTL receive frame too long
                // B01: RXRF  receive runt frame, damaged by collision
                // B00: RXCE  receive CRC error
@@ -960,59 +976,59 @@ always @(posedge sysclk or negedge reset) begin
             cmdReq <= 1;
             state <= ST_WAIT_ACK;
             count[4:0] <= count[4:0]+5'd1;
-            if (count[4:0] == 5'd0) begin
+            case (count[4:0])
                // Word 0:
                //   Byte 0: Version, should be 4; IHL (Internet Header Length), normally should be 5
                //   Byte 1: DSCP and ECN (ignore those)
-               if (ReadData[7:4] != 4'h4) begin
-                  ethPacketError <= 1;
-                  state <= ST_RECEIVE_FLUSH_START;
-               end
-               else begin
-                  // Set up maxCount based on number of words (2*IHL-1).
-                  // Could check that maxCount is at least 5.
-                  maxCount[4:0] <= {ReadData[3:0],1'd0}-5'd1;
-               end
-            end
-            else if (count[4:0] == 5'd1) begin
-               // Word 1: Total Length (TBD)
-               nextState <= ST_RECEIVE_DMA_IPV4_HEADER;
-            end
-            else if (count[4:0] == 5'd4) begin
+               5'd0: begin
+                     if (ReadData[7:4] != 4'h4) begin
+                        ethPacketError <= 1;
+                        state <= ST_RECEIVE_FLUSH_START;
+                     end
+                     else begin
+                        // Set up maxCount based on number of words (2*IHL-1).
+                        // Note that IHL is normally 5 (its minimum value), in which case maxCount
+                        // was already set to 9. The following conditional is an efficient alternative
+                        // to (ReadData[3:0] > 5).
+                        if ((ReadData[3] == 2'b1) || (ReadData[2:1] == 2'b11)) begin
+                           ipv4_long <= 1;   // This is ok, though not typical (IHL usually is 5)
+                           maxCount[4:0] <= {ReadData[3:0],1'd0}-5'd1;
+                        end
+                        else if (ReadData[3:0] != 4'd5)
+                           ipv4_short <= 1;  // This should not happen
+                     end
+                     end
+               // Word 1: Total Length (not currently used)
+               5'd1: ipv4_length <= `ReadDataSwapped;
+               // Word 2: Identification=0 (ignored)
+               // Word 3: Flags=0, Fragment Offset=0 (ignored)
                // Word 4:
                //   Byte 0: Time To Live (ignore)
                //   Byte 1: Protocol (UDP is 17, ICMP is 1)
-               if (ReadData[11:8] == 4'd17) begin
-                  isUDP <= 1;
-                  nextState <= ST_RECEIVE_DMA_IPV4_HEADER;
-               end
-               else if (ReadData[11:8] == 4'd1) begin
-                  isICMP <= 1;
-                  nextState <= ST_RECEIVE_DMA_IPV4_HEADER;
-               end
-               else begin
-                  ethPacketError <= 1;
-                  state <= ST_RECEIVE_FLUSH_START;
-               end
-            end
-            // Word 5: Header checksum (ignored, for now)
-            // Word 6,7: Source IP address (host)
-            // Word 8,9: Destination IP address (fpga)
-            // Keep the IP addresses byteswapped, since we will need
-            // to send them back to the PC.
-            else if (count[4:0] == 5'd6) begin
-               hostIP[31:16] <= ReadData;
-            end
-            else if (count[4:0] == 5'd7) begin
-               hostIP[15:0] <= ReadData;
-            end
-            else if (count[4:0] == 5'd8) begin
-               fpgaIP[31:16] <= ReadData;
-            end
-            else if (count[4:0] == 5'd9) begin
-               fpgaIP[15:0] <= ReadData;
-            end
+               5'd4: begin
+                     if (ReadData[11:8] == 4'd17) begin
+                        isUDP <= 1;
+                     end
+                     else if (ReadData[11:8] == 4'd1) begin
+                        isICMP <= 1;
+                     end
+                     else begin
+                        ethPacketError <= 1;
+                        state <= ST_RECEIVE_FLUSH_START;
+                     end
+                     end
+               // Word 5: Header checksum (ignored, for now)
+               // Word 6,7: Source IP address (host)
+               // Word 8,9: Destination IP address (fpga)
+               // Keep the IP addresses byteswapped, since we will need
+               // to send them back to the PC.
+               5'd6: hostIP[31:16] <= ReadData;
+               5'd7: hostIP[15:0] <= ReadData;
+               5'd8: fpgaIP[31:16] <= ReadData;
+               5'd9: fpgaIP[15:0] <= ReadData;
+            endcase
             if (count[4:0] == maxCount[4:0]) begin
+               // Reached end of IPv4 header
                if (isUDP) begin
                   nextState <= ST_RECEIVE_DMA_UDP_HEADER;
                   count[4:0] <= 5'd0;
@@ -1498,15 +1514,18 @@ always @(posedge sysclk or negedge reset) begin
                //     Quadlet read response: 20 (IPv4 header) + 8 (UDP header) + 20 (data)
                //     Block read response: 20 (IPv4 header) + 8 (UDP header) + 24 + block_data_length
                4'd1: `WriteDataSwapped <= quadRead ? 16'd48 : (16'd52 + block_data_length);
+               // Word 2: Identification
                4'd2: begin
-                     `WriteDataSwapped <= 0;
+                     `WriteDataSwapped <= 0;   // ID is supposed to be unique within packet lifetime
                      // Convenient time to compute checksum
                      // Sum of fixed fields = 0x4500 + 0x4011 = 0x8511
                      // WriteDataSwapped contains the Length value
                      // Since Length is small, we assume no more than 4 carries, so sum as an 18-bit number.
                      ipv4_checksum <= 18'h8511 + {2'd0,`WriteDataSwapped} + {2'd0,fpgaIP[31:16]} +
                                       {2'd0,fpgaIP[15:0]} + {2'd0,hostIP[31:16]} + {2'd0,hostIP[15:0]};
-                     end
+               end
+               // Word 3: Flags, Fragment Offset
+               4'd3: `WriteDataSwapped <= {3'b010, 13'd0};  // Set the DF (do not fragment) bit
                // Word 4: Time To Live=64 (recommended default), Protocol=17 (UDP)
                4'd4: `WriteDataSwapped <= {8'd64,8'd17};  // 0x4011
                // Word 5: Header Checksum: Ones complement of sum of all 16-bit words, with carry added.
@@ -1521,8 +1540,6 @@ always @(posedge sysclk or negedge reset) begin
                      count[3:0] <= 4'd0;
                      nextState <= isEcho ? ST_SEND_DMA_ICMP_HEADER : ST_SEND_DMA_UDP_HEADER;
                      end
-               // Word 2: Identification=0
-               // Word 3: Flags=0, Fragment Offset=0
                default: `WriteDataSwapped <= 16'd0;
             endcase
          end
