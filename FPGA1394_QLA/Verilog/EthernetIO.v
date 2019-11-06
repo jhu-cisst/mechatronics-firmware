@@ -11,6 +11,7 @@
  * Revision history
  *     12/21/15    Peter Kazanzides    Initial Revision
  *     11/28/16    Zihan Chen          Added Disable/Enable in RECEIVE
+ *     11/5/19     Peter Kazanzides    Added UDP support
  * 
  */
 
@@ -117,26 +118,27 @@ parameter num_channels = 4;
 
 // Error flags
 reg ethIoError;        // 1 -> Ethernet I/O error
-reg ethPacketError;    // 1 -> Packet too long
-reg ethDestError;      // 1 -> Incorrect destination
+reg ethPacketError;    // 1 -> Packet too long, unsupported packet type, IPv4 header error,
+                       //      unsupported IPv4 protocol, unexpected UDP port (not 1394)
+reg ethDestError;      // 1 -> Incorrect destination (FireWire destination does not begin with 0xFFC)
 
 // Current state and next state
 reg[6:0] state;
 reg[6:0] nextState;
 
+`ifdef USE_CHIPSCOPE
 assign dbg_state_eth = state;
 assign dbg_nextState_eth = nextState;
+`endif
 
-// Debug IER value
+// IER value
 // B15: LCIE link change interrupt enable
 // B14: TXIE transmit interrupt enable
 // B13: RXIE receive interrupt enable
 `ifdef USE_CHIPSCOPE
-// `define ETH_IER_VALUE 16'h2000
-wire[15:0] ETH_IER_VALUE;
-assign ETH_IER_VALUE = dbg_reg_debug[15:0];
+`define ETH_IER_VALUE dbg_reg_debug[15:0]
 `else
-reg[15:0] ETH_IER_VALUE = 16'h2000;
+`define ETH_IER_VALUE 16'h2000
 `endif
    
 // state machine states
@@ -227,7 +229,7 @@ localparam [1:0]
 
 reg[1:0] waitInfo;
 
-// Following flags are set based on the destination address. Note that a
+// Following flags are set based on the destination address. Note that
 // a FireWire broadcast packet will set both isLocal and isRemote.
 wire isLocal;       // 1 -> FireWire packet should be processed locally
 wire isRemote;      // 1 -> FireWire packet should be forwarded
@@ -238,7 +240,6 @@ wire blockRead;
 wire blockWrite;
 
 reg isMulticast;
-// reg[1:0] invalidCnt = 2'd0;
 
 
 // Whether to use UDP (1) or raw Ethernet frames (0).
@@ -254,6 +255,7 @@ reg isUDP;
 reg isICMP;
 reg isEcho;
 
+// Data received in ICMP Echo packet (ping)
 reg[15:0] echo_id;
 reg[15:0] echo_seq;
 reg[31:0] echo_payload;
@@ -266,8 +268,8 @@ reg ipv4_short; // IP frame too short (error)
 
 // Ethernet status:
 //   Bit 31: 1 to indicate that Ethernet is present -- must be kept for backward compatibility
-//   Bit 30: 1 to indicate that an error occurred -- must be kept for backward compatibility
-//   Other fields can be assigned as neededhttp://www.networksorcery.com/enp/protocol/icmp.htm#ICMP%20Header%20Checksum
+//   Bit 30: 1 to indicate that an error occurred in KSZ8851 -- must be kept for backward compatibility
+//   Other fields can be assigned as needed
 assign eth_status[31] = 1'b1;            // 31: 1 -> Ethernet is present
 assign eth_status[30] = eth_error;       // 30: 1 -> error occurred
 assign eth_status[29] = initOK;          // 29: 1 -> Initialization OK
@@ -685,7 +687,7 @@ always @(posedge sysclk or negedge reset) begin
          begin
             cmdReq <= 1;
             RegAddr <= `ETH_ADDR_IER;
-            WriteData <= ETH_IER_VALUE;   // Enable receive interrupts 
+            WriteData <= `ETH_IER_VALUE;   // Enable receive interrupts
             state <= ST_WAIT_ACK;
             nextState <= ST_INIT_TRANSMIT_ENABLE_READ;
          end
@@ -773,14 +775,14 @@ always @(posedge sysclk or negedge reset) begin
                isInIRQ <= 0;
                state <= ST_IRQ_ENABLE;
             end
-         end // case: ST_IRQ_DISPATCH
+         end
 
          ST_IRQ_ENABLE:
          begin
             cmdReq <= 1;
             RegAddr <= `ETH_ADDR_IER;
             isWrite <= 1;
-            WriteData <= ETH_IER_VALUE;   // Enable interrupts
+            WriteData <= `ETH_IER_VALUE;   // Enable interrupts
             state <= ST_WAIT_ACK;
             nextState <= ST_IDLE;
          end
@@ -964,6 +966,7 @@ always @(posedge sysclk or negedge reset) begin
                   nextState <= ST_RECEIVE_DMA_ARP;
                end
                else begin
+                  // Unsupported EtherType (or length greater than 512 bytes)
                   ethPacketError <= 1;
                   state <= ST_RECEIVE_FLUSH_START;
                end
@@ -1039,6 +1042,8 @@ always @(posedge sysclk or negedge reset) begin
                   isICMP <= 0;
                end
                else begin
+                  // Should never get here since 5'd4 case flushes packet
+                  // if not UDP or ICMP.
                   ethPacketError <= 1;
                   state <= ST_RECEIVE_FLUSH_START;
                end
