@@ -314,6 +314,39 @@ reg[15:0] hostPort;     // UDP port number for host (PC)
 reg[15:0] ipv4_length;    // Length field of IPv4 header (not currently used)
 reg[18:0] ipv4_checksum;  // Checksum for IPv4 header
 
+reg[15:0] numPacketValid;    // Number of valid Ethernet frames received
+reg[15:0] numPacketInvalid;  // Number of invalid Ethernet frames received
+reg[15:0] numIPv4;           // Number of IPv4 packets received
+reg[15:0] numUDP;            // Number of UDP packets received
+reg[15:0] numARP;            // Number of ARP packets received
+reg[15:0] numICMP;           // Number of ICMP packets received
+reg[15:0] numPacketError;    // Number of packet errors
+
+// ----------------------------------------
+// Forward forward packet
+// ----------------------------------------
+reg isForward;
+
+wire [31:0] DebugData[0:31];
+assign DebugData[0]  = "0GBD";  // DBG0 byte-swapped
+assign DebugData[1]  = timestamp;
+assign DebugData[2]  = {16'd0, eth_status};
+assign DebugData[3]  = { 1'd0, state, 1'd0, nextState, 8'h0,
+                         isForward, isInIRQ, isARP, isUDP, isICMP, isEcho, ipv4_long, ipv4_short};
+assign DebugData[4]  = { RegISR, FrameCount, count};
+assign DebugData[5]  = { destMac[1][7:0], destMac[1][15:8], destMac[0][7:0], destMac[0][15:8] };
+assign DebugData[6]  = { srcMac[0], destMac[2][7:0], destMac[2][15:8] };
+assign DebugData[7]  = { srcMac[2], srcMac[1] };
+assign DebugData[8]  = { 8'h11, maxCount, LengthFW };
+assign DebugData[9]  = { hostIP[15:0], hostIP[31:16] };
+assign DebugData[10] = { fpgaIP[15:0], fpgaIP[31:16] };
+assign DebugData[11] = { ipv4_length, txPktWords };
+assign DebugData[12] = { numPacketInvalid, numPacketValid };
+assign DebugData[13] = { numUDP, numIPv4 };
+assign DebugData[14] = { numICMP, numARP };
+assign DebugData[15] = { 16'h2233, numPacketError };
+assign DebugData[16] = timestamp;
+
 
 // Firewire packet received from host
 //    - 16 bytes (4 quadlets) for quadlet read request
@@ -332,9 +365,15 @@ reg[18:0] ipv4_checksum;  // Checksum for IPv4 header
 // reg[31:0] FireWirePacket[0:70];  // FireWire packet memory (max 71 quadlets)
 // Allocate pow(2,7) = 128 quadlets
 reg [31:0] FireWirePacket[0:127];
-assign reg_rdata = FireWirePacket[reg_raddr[6:0]];
 assign eth_fwpkt_rdata = FireWirePacket[eth_fwpkt_raddr[6:0]]; 
-  
+
+// Following data is accessible via block read from address `ADDR_ETH (0x4000)
+//    Maximum block read size is 64 quadlets (implementation choice)
+//    4000 - 4007f (128 quadlets) FireWire packet
+//    4080 - 4009f (32 quadlets) Debug data
+// Note that full address decoding is not done, so other addresses will work too
+// (for example, 40c0-40cf will also give Debug data, as will 4f80-4f9f)
+assign reg_rdata = (reg_raddr[7] == 0) ? FireWirePacket[reg_raddr[6:0]] : DebugData[reg_raddr[4:0]];
 
 wire[3:0] fw_tcode;            // FireWire transaction code
 wire[5:0] fw_tl;               // FireWire transaction label
@@ -370,11 +409,6 @@ assign addrHub = (FireWirePacket[2][15:12] == `ADDR_HUB) ? 1'd1 : 1'd0;
 assign addrPROM = (FireWirePacket[2][15:12] == `ADDR_PROM) ? 1'd1 : 1'd0;
 assign addrQLA  = (FireWirePacket[2][15:12] == `ADDR_PROM_QLA) ? 1'd1 : 1'd0;
 
-
-// ----------------------------------------
-// Forward forward packet
-// ----------------------------------------
-reg isForward = 0;
 
 // TEMP: Timestamp copied from Firewire.v -- should consolidate
 reg[31:0]  timestamp;          // timestamp counter register
@@ -430,8 +464,16 @@ always @(posedge sysclk or negedge reset) begin
        isUDP <= 0;
        isICMP <= 0;
        isEcho <= 0;
+       isForward <= 0;
        ipv4_long <= 0;
        ipv4_short <= 0;
+       numPacketValid <= 16'd0;
+       numPacketInvalid <= 16'd0;
+       numIPv4 <= 16'd0;
+       numUDP <= 16'd0;
+       numARP <= 16'd0;
+       numICMP <= 16'd0;
+       numPacketError <= 16'd0;
     end
     else begin
 
@@ -602,14 +644,25 @@ always @(posedge sysclk or negedge reset) begin
             nextState <= ST_INIT_REG_RXFDPR;
          end
 
-          // TODO: TRY with 4000 instead
-          // Bit 12, set Write Sample Time to 4 nS
          ST_INIT_REG_RXFDPR:
          begin
             cmdReq <= 1;
             RegAddr <= `ETH_ADDR_RXFDPR;
-            // Enable QMU receive frame data pointer auto increment and decrease write data
-            // valid sample time to 4 nS (max).
+            // B14: Enable QMU receive frame data pointer auto increment
+            // B12: Decrease write data valid sample time to 4 nS (max)
+            //      TODO: Try setting this bit to 0 to increase sample time to 8-16 ns
+            // B11: Set Little Endian (0) or Big Endian (1)-- currently, Little Endian.
+            // According to KSZ8851 Step-by-Step Programmer's Guide, in Little Endian mode,
+            // registers are:
+            //     ____________________________________
+            //     | Data 15-8 (MSB) | Data 7-0 (LSB) |
+            //     ------------------------------------
+            // The Verilog code has been written assuming a Little Endian convention (e.g.,
+            // reg[31:0] myVar), rather than Big Endian (e.g., reg[0:31] myVar), though this
+            // refers to the bit order, not just the byte order. Nevertheless, it is more
+            // convenient to keep the KSZ8851 in Little Endian mode.
+            // Note, however, that Ethernet and FireWire are both Big Endian, so some byte-swapping
+            // is needed.
             WriteData <= 16'h5000;
             state <= ST_WAIT_ACK;
             nextState <= ST_INIT_REG_RXFCTR;
@@ -738,6 +791,14 @@ always @(posedge sysclk or negedge reset) begin
             isMulticast <= 0;
             ipv4_long <= 0;
             ipv4_short <= 0;
+            isForward <= 0;
+            numPacketValid <= 16'd0;
+            numPacketInvalid <= 16'd0;
+            numIPv4 <= 16'd0;
+            numUDP <= 16'd0;
+            numARP <= 16'd0;
+            numICMP <= 16'd0;
+            numPacketError <= 16'd0;
             state <= ST_IDLE;
          end
 
@@ -868,9 +929,11 @@ always @(posedge sysclk or negedge reset) begin
                   RegAddr <= `ETH_ADDR_RXFHBCR;
                   state <= ST_WAIT_ACK;
                   nextState <= ST_RECEIVE_FRAME_LENGTH;
+                  numPacketValid <= numPacketValid + 16'd1;
                end
                else begin
                   isMulticast <= 0;
+                  numPacketInvalid <= numPacketInvalid + 16'd1;
                   state <= ST_RECEIVE_FLUSH_START;
                end
             end
@@ -958,16 +1021,19 @@ always @(posedge sysclk or negedge reset) begin
                else if (`ReadDataSwapped == 16'h0800) begin
                   // IPv4 Ethertype is 0x0800
                   nextState <= ST_RECEIVE_DMA_IPV4_HEADER;
+                  numIPv4 <= numIPv4 + 16'd1;
                   // Default value of maxCount (IPv4 header has at least 10 words)
                   maxCount[4:0] <= 5'd9;
                end
                else if (`ReadDataSwapped == 16'h0806) begin
                   // ARP Ethertype is 0x0806
+                  numARP <= numARP + 16'd1;
                   nextState <= ST_RECEIVE_DMA_ARP;
                end
                else begin
                   // Unsupported EtherType (or length greater than 512 bytes)
                   ethPacketError <= 1;
+                  numPacketError <= numPacketError + 16'd1;
                   state <= ST_RECEIVE_FLUSH_START;
                end
                count <= 8'd0;
@@ -986,6 +1052,7 @@ always @(posedge sysclk or negedge reset) begin
                5'd0: begin
                      if (ReadData[7:4] != 4'h4) begin
                         ethPacketError <= 1;
+                        numPacketError <= numPacketError + 16'd1;
                         state <= ST_RECEIVE_FLUSH_START;
                      end
                      else begin
@@ -1017,6 +1084,7 @@ always @(posedge sysclk or negedge reset) begin
                      end
                      else begin
                         ethPacketError <= 1;
+                        numPacketError <= numPacketError + 16'd1;
                         state <= ST_RECEIVE_FLUSH_START;
                      end
                      end
@@ -1033,10 +1101,12 @@ always @(posedge sysclk or negedge reset) begin
             if (count[4:0] == maxCount[4:0]) begin
                // Reached end of IPv4 header
                if (isUDP) begin
+                  numUDP <= numUDP + 16'd1;
                   nextState <= ST_RECEIVE_DMA_UDP_HEADER;
                   count[4:0] <= 5'd0;
                end
                else if (isICMP) begin
+                  numICMP <= numICMP + 16'd1;
                   nextState <= ST_RECEIVE_DMA_ICMP_HEADER;
                   count[4:0] <= 5'd0;
                   isICMP <= 0;
@@ -1045,6 +1115,7 @@ always @(posedge sysclk or negedge reset) begin
                   // Should never get here since 5'd4 case flushes packet
                   // if not UDP or ICMP.
                   ethPacketError <= 1;
+                  numPacketError <= numPacketError + 16'd1;
                   state <= ST_RECEIVE_FLUSH_START;
                end
             end
@@ -1092,6 +1163,7 @@ always @(posedge sysclk or negedge reset) begin
                if ({ReadData[7:0],ReadData[15:8]} != 16'd1394) begin
                   isUDP <= 0;
                   ethPacketError <= 1;
+                  numPacketError <= numPacketError + 16'd1;
                   state <= ST_RECEIVE_FLUSH_START;
                end
             end
@@ -1131,6 +1203,7 @@ always @(posedge sysclk or negedge reset) begin
                // packet too long; stop here to avoid buffer overflow
                isUDP <= 0;
                ethPacketError <= 1;
+               numPacketError <= numPacketError + 16'd1;
                state <= ST_RECEIVE_FLUSH_START;
             end
             else begin
