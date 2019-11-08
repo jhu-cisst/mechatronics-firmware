@@ -3,7 +3,7 @@
 
 /*******************************************************************************    
  *
- * Copyright(C) 2011-2018 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2011-2019 ERC CISST, Johns Hopkins University.
  *
  * This is the top level module for the FPGA1394-QLA motor controller interface.
  *
@@ -114,7 +114,7 @@ assign lreq_type = eth_lreq_trig ? eth_lreq_type : fw_lreq_type;
 
 // Mux routing read data based on read address
 //   See Constants.v for detail
-//     addr[15:12]  main | hub | prom | prom_qla | eth
+//     addr[15:12]  main | hub | prom | prom_qla | eth | firewire | dallas
 
 // route HubReg data to global reg_rdata
 wire [31:0] reg_rdata_hub;      // reg_rdata_hub is for hub memory
@@ -314,6 +314,10 @@ KSZ8851 EthernetChip(
 `endif
 );
 
+// address decode for IP address access
+wire   ip_reg_wen;
+assign ip_reg_wen = (reg_waddr == {`ADDR_MAIN, 8'h0, `REG_IPADDR}) ? reg_wen : 1'b0;
+wire[31:0] ip_address;
 
 EthernetIO EthernetTransfers(
     .sysclk(sysclk),          // in: global clock
@@ -332,6 +336,9 @@ EthernetIO EthernetTransfers(
 
     .reg_rdata(reg_rdata_eth),
     .reg_raddr(reg_raddr),
+    .reg_wdata(reg_wdata),             // Data to write to IP address register
+    .ip_reg_wen(ip_reg_wen),           // Enable write to IP address register
+    .ip_address(ip_address),           // IP address of this board
 
     .eth_reg_rdata(reg_rdata),         //  in: reg read data
     .eth_reg_raddr(eth_reg_raddr),     // out: reg read addr
@@ -685,6 +692,7 @@ BoardRegs chan0(
     .reg_wen(reg_wen),
     .prom_status(PROM_Status),
     .prom_result(PROM_Result),
+    .ip_address(ip_address),
     .eth_result(Eth_Result),
     .ds_status(ds_status),
     .safety_amp_disable(safety_amp_disable),

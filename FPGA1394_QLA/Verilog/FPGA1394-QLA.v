@@ -3,7 +3,7 @@
 
 /*******************************************************************************    
  *
- * Copyright(C) 2011-2018 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2011-2019 ERC CISST, Johns Hopkins University.
  *
  * This is the top level module for the FPGA1394-QLA motor controller interface.
  *
@@ -84,7 +84,7 @@ BUFG clksysclk(.I(clk1394), .O(sysclk));
 
 // Mux routing read data based on read address
 //   See Constants.v for detail
-//     addr[15:12]  main | hub | prom | prom_qla 
+//     addr[15:12]  main | hub | prom | prom_qla | eth | firewire | dallas
 assign reg_rdata = (reg_raddr[15:12]==`ADDR_HUB) ? (reg_rdata_hub) :
                   ((reg_raddr[15:12]==`ADDR_PROM) ? (reg_rdata_prom) :
                   ((reg_raddr[15:12]==`ADDR_PROM_QLA) ? (reg_rdata_prom_qla) : 
@@ -473,6 +473,7 @@ BoardRegs chan0(
     .reg_wen(reg_wen),
     .prom_status(PROM_Status),
     .prom_result(PROM_Result),
+    .ip_address(16'hffff),
     .eth_result(Eth_Result),
     .ds_status(ds_status),
     .safety_amp_disable(safety_amp_disable),

@@ -1,6 +1,9 @@
+/* -*- Mode: Verilog; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*-   */
+/* ex: set filetype=v softtabstop=4 shiftwidth=4 tabstop=4 cindent expandtab:      */
+
 /*******************************************************************************
  *
- * Copyright(C) 2008-2017 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2008-2019 ERC CISST, Johns Hopkins University.
  *
  * This module contains a register file dedicated to general board parameters.
  * Separate register files are maintained for each I/O channel (SpiCtrl).
@@ -62,6 +65,9 @@ module BoardRegs(
     // PROM feedback
     input  wire[31:0] prom_status,
     input  wire[31:0] prom_result,
+
+    // Ethernet IP address
+    input  wire[31:0] ip_address,
 
     // Ethernet feedback
     input  wire[31:0] eth_result,
@@ -173,6 +179,7 @@ always @(posedge(sysclk) or negedge(reset))
         `REG_TIMEOUT: wdog_period <= reg_wdata[15:0];
         // Write to DOUT is handled in CtrlDout.v
         // Write to PROM command register (8) is handled in M25P16.v
+        // Write to IP address is handled in EthernetIO.v
         `REG_DEBUG:   reg_debug <= reg_wdata[31:0];
         endcase
     end
@@ -204,6 +211,7 @@ always @(posedge(sysclk) or negedge(reset))
         `REG_PROMRES: reg_rdata <= prom_result;
         `REG_DSSTAT: reg_rdata <= ds_status;
         `REG_DIGIN: reg_rdata <= {v_fault, 3'd0, enc_a, enc_b, enc_i, dout, neg_limit, pos_limit, home};
+        `REG_IPADDR: reg_rdata <= ip_address;
         `REG_ETHRES: reg_rdata <= eth_result;
         `REG_DEBUG:  reg_rdata <= reg_debug;
 
