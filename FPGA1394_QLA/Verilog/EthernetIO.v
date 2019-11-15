@@ -177,55 +177,52 @@ localparam [6:0]
     ST_INIT_DONE = 7'd21,
     ST_IRQ_HANDLER = 7'd22,
     ST_IRQ_DISPATCH = 7'd23,
-    ST_IRQ_ENABLE = 7'd24,
-    ST_IRQ_CLEAR_OTHER = 7'd25,
-    ST_IRQ_CLEAR_LCIS = 7'd26,
-    ST_IRQ_CLEAR_RXIS = 7'd27,
-    ST_RECEIVE_FRAME_COUNT = 7'd28,
-    ST_RECEIVE_FRAME_STATUS = 7'd29,
-    ST_RECEIVE_FRAME_LENGTH = 7'd30,
-    ST_RECEIVE_DMA_STATUS_READ = 7'd31,
-    ST_RECEIVE_DMA_STATUS_WRITE = 7'd32,
-    ST_RECEIVE_DMA_SKIP = 7'd33,
-    ST_RECEIVE_DMA_FRAME_HEADER = 7'd34,
-    ST_RECEIVE_DMA_ARP = 7'd35,
-    ST_RECEIVE_DMA_IPV4_HEADER = 7'd36,
-    ST_RECEIVE_DMA_ICMP_HEADER = 7'd37,
-    ST_RECEIVE_DMA_UDP_HEADER = 7'd38,
-    ST_RECEIVE_DMA_FIREWIRE_PACKET = 7'd39,
-    ST_RECEIVE_DMA_FRAME_CRC = 7'd72,
-    ST_RECEIVE_FLUSH_START = 7'd40,
-    ST_RECEIVE_FLUSH_EXECUTE = 7'd41,
-    ST_RECEIVE_FLUSH_WAIT_START = 7'd42,
-    ST_RECEIVE_FLUSH_WAIT_CHECK = 7'd43,
-    ST_SEND_START = 7'd44,
-    ST_SEND_TXMIR_READ = 7'd45,
-    ST_SEND_DMA_STATUS_READ = 7'd46,
-    ST_SEND_DMA_STATUS_WRITE = 7'd47,
-    ST_SEND_DMA_CONTROLWORD = 7'd48,
-    ST_SEND_DMA_BYTECOUNT = 7'd49,
-    ST_SEND_DMA_DESTADDR = 7'd50,
-    ST_SEND_DMA_SRCADDR = 7'd51,
-    ST_SEND_DMA_LENGTH = 7'd52,
-    ST_SEND_DMA_ARP = 7'd53,
-    ST_SEND_DMA_IPV4_HEADER = 7'd54,
-    ST_SEND_DMA_ICMP_HEADER = 7'd55,
-    ST_SEND_DMA_UDP_HEADER = 7'd56,
-    ST_SEND_DMA_PACKETDATA_HEADER = 7'd57,
-    ST_SEND_DMA_PACKETDATA_QUAD = 7'd58,
-    ST_SEND_DMA_PACKETDATA_BLOCK_START = 7'd59,
-    ST_SEND_DMA_PACKETDATA_BLOCK_MAIN = 7'd60,
-    ST_SEND_DMA_PACKETDATA_BLOCK_CHANNEL = 7'd61,
-    ST_SEND_DMA_PACKETDATA_BLOCK_PROM = 7'd62,
-    ST_SEND_DMA_PACKETDATA_CHECKSUM = 7'd63,
-    ST_SEND_DMA_FWD = 7'd64,
-    ST_SEND_DMA_DUMMY_DWORD = 7'd65,
-    ST_SEND_DMA_STOP = 7'd66,
-    ST_SEND_TXQ_ENQUEUE_START = 7'd67,
-    ST_SEND_TXQ_ENQUEUE_END = 7'd68,
-    ST_SEND_TXQ_ENQUEUE_WAIT_START = 7'd69,
-    ST_SEND_TXQ_ENQUEUE_WAIT_CHECK = 7'd70,
-    ST_SEND_END = 7'd71;
+    ST_IRQ_CLEAR_OTHER = 7'd24,
+    ST_IRQ_CLEAR_LCIS = 7'd25,
+    ST_IRQ_CLEAR_RXIS = 7'd26,
+    ST_RECEIVE_FRAME_COUNT = 7'd27,
+    ST_RECEIVE_FRAME_STATUS = 7'd28,
+    ST_RECEIVE_FRAME_LENGTH = 7'd29,
+    ST_RECEIVE_DMA_START = 7'd30,
+    ST_RECEIVE_DMA_SKIP = 7'd31,
+    ST_RECEIVE_DMA_FRAME_HEADER = 7'd32,
+    ST_RECEIVE_DMA_ARP = 7'd33,
+    ST_RECEIVE_DMA_IPV4_HEADER = 7'd34,
+    ST_RECEIVE_DMA_ICMP_HEADER = 7'd35,
+    ST_RECEIVE_DMA_UDP_HEADER = 7'd36,
+    ST_RECEIVE_DMA_FIREWIRE_PACKET = 7'd37,
+    ST_RECEIVE_DMA_FRAME_CRC = 7'd38,
+    ST_RECEIVE_FLUSH_START = 7'd39,
+    ST_RECEIVE_FLUSH_EXECUTE = 7'd40,
+    ST_RECEIVE_FLUSH_WAIT_START = 7'd41,
+    ST_RECEIVE_FLUSH_WAIT_CHECK = 7'd42,
+    ST_SEND_START = 7'd43,
+    ST_SEND_TXMIR_READ = 7'd44,
+    ST_SEND_DMA_START = 7'd45,
+    ST_SEND_DMA_CONTROLWORD = 7'd46,
+    ST_SEND_DMA_BYTECOUNT = 7'd47,
+    ST_SEND_DMA_DESTADDR = 7'd48,
+    ST_SEND_DMA_SRCADDR = 7'd49,
+    ST_SEND_DMA_LENGTH = 7'd50,
+    ST_SEND_DMA_ARP = 7'd51,
+    ST_SEND_DMA_IPV4_HEADER = 7'd52,
+    ST_SEND_DMA_ICMP_HEADER = 7'd53,
+    ST_SEND_DMA_UDP_HEADER = 7'd54,
+    ST_SEND_DMA_PACKETDATA_HEADER = 7'd55,
+    ST_SEND_DMA_PACKETDATA_QUAD = 7'd56,
+    ST_SEND_DMA_PACKETDATA_BLOCK_START = 7'd57,
+    ST_SEND_DMA_PACKETDATA_BLOCK_MAIN = 7'd58,
+    ST_SEND_DMA_PACKETDATA_BLOCK_CHANNEL = 7'd59,
+    ST_SEND_DMA_PACKETDATA_BLOCK_PROM = 7'd60,
+    ST_SEND_DMA_PACKETDATA_CHECKSUM = 7'd61,
+    ST_SEND_DMA_FWD = 7'd62,
+    ST_SEND_DMA_DUMMY_DWORD = 7'd63,
+    ST_SEND_DMA_STOP = 7'd64,
+    ST_SEND_TXQ_ENQUEUE_START = 7'd65,
+    ST_SEND_TXQ_ENQUEUE_END = 7'd66,
+    ST_SEND_TXQ_ENQUEUE_WAIT_START = 7'd67,
+    ST_SEND_TXQ_ENQUEUE_WAIT_CHECK = 7'd68,
+    ST_SEND_END = 7'd69;
 
 
 // Debugging support
@@ -252,7 +249,7 @@ wire blockRead;
 wire blockWrite;
 
 reg isMulticast;
-
+reg isBroadcast;
 
 // Whether to use UDP (1) or raw Ethernet frames (0).
 // This mode is set each time a valid packet is received
@@ -357,7 +354,7 @@ wire [31:0] DebugData[0:31];
 assign DebugData[0]  = "0GBD";  // DBG0 byte-swapped
 assign DebugData[1]  = timestamp;
 assign DebugData[2]  = {16'd0, eth_status};
-assign DebugData[3]  = { 1'd0, state, 1'd0, nextState, 7'h0, ~ETH_IRQn,
+assign DebugData[3]  = { 1'd0, state, 1'd0, nextState, 5'h0, isBroadcast, isMulticast, ~ETH_IRQn,
                          isForward, isInIRQ, sendARP, isUDP, isICMP, isEcho, ipv4_long, ipv4_short};
 assign DebugData[4]  = { RegISR, RegISROther};
 assign DebugData[5]  = { 16'h2233, FrameCount, count};
@@ -422,10 +419,11 @@ assign dest_node_id = FireWirePacket[0][21:16];
 // assign isLocal = isMulticast || (dest_board == board_id) || (dest_board == 4'hf);
 // assign isRemote = (dest_board != board_id) && (~isMulticast);
 
-// Local write if Ethernet multicast, addresses this board, or FireWire broadcast
+// Local write if Ethernet broadcast or multicast, addresses this board, or FireWire broadcast
 // Note: maybe use 8'hff for FireWire broadcast
-assign isLocal = isMulticast || (dest_node_id == node_id) || (dest_node_id == 6'h3f);
-assign isRemote = (dest_node_id != node_id) && (~isMulticast);
+assign isLocal = isMulticast || isBroadcast || (dest_node_id == node_id) || (dest_node_id == 6'h3f);
+// TODO: Might be useful to forward some multicast or broadcast packets
+assign isRemote = (dest_node_id != node_id) && ~(isMulticast||isBroadcast);
 
 assign quadRead = (fw_tcode == `TC_QREAD) ? 1'd1 : 1'd0;
 assign quadWrite = (fw_tcode == `TC_QWRITE) ? 1'd1 : 1'd0;
@@ -472,6 +470,7 @@ always @(posedge sysclk or negedge reset) begin
        ethPacketError <= 0;
        ethDestError <= 0;
        isMulticast <= 0;
+       isBroadcast <= 0;
        sendAck <= 0;
        ip_address <= IP_UNASSIGNED;
        srcMac[0] <= 16'd0;
@@ -819,6 +818,7 @@ always @(posedge sysclk or negedge reset) begin
             isICMP <= 0;
             isEcho <= 0;
             isMulticast <= 0;
+            isBroadcast <= 0;
             ipv4_long <= 0;
             ipv4_short <= 0;
             RegISROther <= 16'd0;
@@ -850,23 +850,11 @@ always @(posedge sysclk or negedge reset) begin
             //    B3: Linkup detect
             //    B2: Energy detect
             RegISR <= ReadData;
-            if (ReadData[15] || ReadData[13]) begin
-               // These interrupts have handlers, so call dispatch
-               //cmdReq <= 1;
-               //isWrite <= 1;
-               isInIRQ <= 1;
-               //RegAddr <= `ETH_ADDR_IER;
-               //WriteData <= 16'h0000;    // Disable all interrupts
-               //state <= ST_WAIT_ACK;
-               //nextState <= ST_IRQ_DISPATCH;
-               state <= ST_IRQ_DISPATCH;
-            end
-            else begin
-               // Clear any other (unexpected) interrupts
+            state <= ST_IRQ_DISPATCH;
+            isInIRQ <= 1;
+            if (~(ReadData[15] || ReadData[13])) begin
+               // Record unexpected interrupt
                RegISROther <= ReadData;
-               //state <= ST_IRQ_CLEAR_OTHER;
-               state <= ST_IRQ_DISPATCH;
-               isInIRQ <= 0;
             end
          end
 
@@ -881,21 +869,12 @@ always @(posedge sysclk or negedge reset) begin
                 state <= ST_IRQ_CLEAR_RXIS;
             end
             else begin
-               // Done IRQ handle, clear flag & enable IRQ
+               // Done IRQ handle, clear flag
                isInIRQ <= 0;
-               //state <= ST_IRQ_ENABLE;
+               // ST_IRQ_CLEAR_OTHER will clear any other (unexpected) interrupts;
+               // if no pending interrupts, will go to ST_IDLE.
                state <= ST_IRQ_CLEAR_OTHER;
             end
-         end
-
-         ST_IRQ_ENABLE:
-         begin
-            cmdReq <= 1;
-            RegAddr <= `ETH_ADDR_IER;
-            isWrite <= 1;
-            WriteData <= `ETH_VALUE_IER;   // Enable interrupts
-            state <= ST_WAIT_ACK;
-            nextState <= ST_IDLE;
          end
 
          ST_IRQ_CLEAR_OTHER:
@@ -1003,13 +982,14 @@ always @(posedge sysclk or negedge reset) begin
                if (~ReadData[15] || (ReadData&16'b0011110000010111 != 16'h0)) begin
                   // Error detected, so flush frame
                   isMulticast <= 0;
+                  isBroadcast <= 0;
                   numPacketInvalid <= numPacketInvalid + 16'd1;
                   state <= ST_RECEIVE_FLUSH_START;
                end
                else begin
                   // Valid frame, so start processing
                   cmdReq <= 1;
-                  //isBroadcast <= ReadData[7];
+                  isBroadcast <= ReadData[7];
                   isMulticast <= ReadData[6];
                   isWrite <= 0;
                   RegAddr <= `ETH_ADDR_RXFHBCR;
@@ -1034,24 +1014,16 @@ always @(posedge sysclk or negedge reset) begin
                 RegAddr <= `ETH_ADDR_RXFDPR;
                 WriteData <= 16'h5000;
                 state <= ST_WAIT_ACK;
-                nextState <= ST_RECEIVE_DMA_STATUS_READ;
+                nextState <= ST_RECEIVE_DMA_START;
             end
          end
-         
-         ST_RECEIVE_DMA_STATUS_READ:   // can probably skip this read
-         begin
-            cmdReq <= 1;
-            isWrite <= 0;
-            RegAddr <= `ETH_ADDR_RXQCR;
-            state <= ST_WAIT_ACK;
-            nextState <= ST_RECEIVE_DMA_STATUS_WRITE;
-         end
 
-         ST_RECEIVE_DMA_STATUS_WRITE:
+         ST_RECEIVE_DMA_START:
          begin
             // Enable DMA transfers
             cmdReq <= 1;
             isWrite <= 1;
+            RegAddr <= `ETH_ADDR_RXQCR;
             WriteData <= {ETH_VALUE_RXQCR[15:4],1'b1,ETH_VALUE_RXQCR[2:0]};
             state <= ST_WAIT_ACK;
             nextState <= ST_RECEIVE_DMA_SKIP;
@@ -1562,23 +1534,15 @@ always @(posedge sysclk or negedge reset) begin
             isWrite <= 0;
             RegAddr <= `ETH_ADDR_TXMIR;
             state <= ST_WAIT_ACK;
-            nextState <= ST_SEND_DMA_STATUS_READ;
+            nextState <= ST_SEND_DMA_START;
          end
 
-         ST_SEND_DMA_STATUS_READ:  // same as ST_RECEIVE_DMA_STATUS_READ
-         begin
-            cmdReq <= 1;
-            isWrite <= 0;
-            RegAddr <= `ETH_ADDR_RXQCR;
-            state <= ST_WAIT_ACK;
-            nextState <= ST_SEND_DMA_STATUS_WRITE;
-         end
-
-         ST_SEND_DMA_STATUS_WRITE:  // same as ST_RECEIVE_DMA_STATUS_WRITE
+         ST_SEND_DMA_START:  // same as ST_RECEIVE_DMA_START
          begin
             // Enable DMA transfers
             cmdReq <= 1;
             isWrite <= 1;
+            RegAddr <= `ETH_ADDR_RXQCR;
             WriteData <= {ETH_VALUE_RXQCR[15:4],1'b1,ETH_VALUE_RXQCR[2:0]};
             state <= ST_WAIT_ACK;
             nextState <= ST_SEND_DMA_CONTROLWORD;
@@ -2144,7 +2108,6 @@ always @(posedge sysclk or negedge reset) begin
                end
             end
             else begin
-               //state <= ST_IRQ_ENABLE;
                state <= ST_IDLE;
             end
          end
