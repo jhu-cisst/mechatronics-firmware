@@ -147,6 +147,8 @@ assign dbg_nextState_eth = nextState;
 // RXQCR value
 // B5: RXFCTE enable QMU frame count threshold (1)
 // B4: ADRFE  auto-dequeue
+// Not enabling auto-dequeue because we flush packet
+// instead of reading to end.
 localparam[15:0] ETH_VALUE_RXQCR = 16'h0020;
    
 // state machine states
@@ -192,7 +194,6 @@ localparam [6:0]
     ST_RECEIVE_DMA_UDP_HEADER = 7'd38,
     ST_RECEIVE_DMA_FIREWIRE_PACKET = 7'd39,
     ST_RECEIVE_DMA_FRAME_CRC = 7'd72,
-    ST_RECEIVE_DMA_STOP = 7'd73,
     ST_RECEIVE_FLUSH_START = 7'd40,
     ST_RECEIVE_FLUSH_EXECUTE = 7'd41,
     ST_RECEIVE_FLUSH_WAIT_START = 7'd42,
@@ -1115,7 +1116,6 @@ always @(posedge sysclk or negedge reset) begin
                else if (`ReadDataSwapped == 16'h0806) begin
                   // ARP Ethertype is 0x0806
                   numARP <= numARP + 16'd1;
-                  sendARP <= 1;     // Set this flag now, might clear it later
                   nextState <= ST_RECEIVE_DMA_ARP;
                end
                else begin
@@ -1285,47 +1285,21 @@ always @(posedge sysclk or negedge reset) begin
 
          ST_RECEIVE_DMA_FIREWIRE_PACKET:
          begin
+            cmdReq <= 1;
+            state <= ST_WAIT_ACK;
+            nextState <= ST_RECEIVE_DMA_FIREWIRE_PACKET;
+            count <= count + 8'd1;
             rxPktWords <= rxPktWords-12'd1;
+
             // Read FireWire packet, byteswap to make it easier to work with;
             // might need to byteswap again if sending it out via FireWire.
             if (count[0] == 0)
-               FireWirePacket[count[4:1]][31:16] <= {ReadData[7:0],ReadData[15:8]};
+               FireWirePacket[count[7:1]][31:16] <= `ReadDataSwapped;
             else
-               FireWirePacket[count[4:1]][15:0] <= {ReadData[7:0],ReadData[15:8]};
+               FireWirePacket[count[7:1]][15:0] <= `ReadDataSwapped;
 
-            // Following handles state transitions and incrementing count
-            if ((count == 8'd2) && !valid_dest_id) begin
-               // invalid destination address, flush packet
-               isUDP <= 0;
-               ethDestError <= 1;
-               state <= ST_RECEIVE_FLUSH_START;
-            end
-            else if (count == maxCount) begin
-               // normal completion
-               useUDP <= isUDP;
-               isUDP <= 0;
-               count <= 8'd0;
-               state <= ST_RECEIVE_DMA_FRAME_CRC;
-               if (isRemote) begin
-                  // Request to forward pkt
-                  eth_send_fw_req <= 1;
-               end
-            end
-            else if (count == 8'd141) begin
-               // packet too long; stop here to avoid buffer overflow
-               isUDP <= 0;
-               ethPacketError <= 1;
-               numPacketError <= numPacketError + 16'd1;
-               state <= ST_RECEIVE_FLUSH_START;
-            end
-            else begin
-               cmdReq <= 1;
-               state <= ST_WAIT_ACK;
-               nextState <= ST_RECEIVE_DMA_FIREWIRE_PACKET;
-               count <= count + 8'd1;
-            end
-
-            // Handle local quadlet and block writes (no state transitions below).
+            // Following handles state transitions, incrementing count and local quadlet
+            // and block writes.
             // Note that isLocal, quadWrite, and blockWrite are not valid right away,
             // but will be valid for the counts that are used below.
             // Also, the counts are set so that the referenced FireWirePacket data is valid;
@@ -1334,9 +1308,17 @@ always @(posedge sysclk or negedge reset) begin
             // a CRC at the end, so we are sure to process the last data packet.
             // Note that we do not check the FireWire CRC because we assume that the Ethernet
             // checksum has already guaranteed that the data is valid.
-            if (isLocal) begin
-               if (quadWrite) begin
-                  if (count == 8'd8) begin
+
+            if ((count == 8'd2) && !valid_dest_id) begin
+               // invalid destination address, flush packet
+               isUDP <= 0;
+               ethDestError <= 1;
+               cmdReq <= 0;
+               state <= ST_RECEIVE_FLUSH_START;
+            end
+            else if (count == 8'd8) begin
+               if (isLocal) begin
+                  if (quadWrite) begin
                      eth_block_wen <= 1;
                      eth_reg_waddr <= FireWirePacket[2][15:0];
                      eth_reg_wdata <= FireWirePacket[3];
@@ -1347,51 +1329,85 @@ always @(posedge sysclk or negedge reset) begin
                         lreq_trig <= 1;
                      end
                   end
-                  else if (count == 8'd9) begin
-                     eth_reg_wen <= 1;
-                     lreq_trig <= 0;     // Clear lreq_trig in case it was set
+                  else if (blockWrite) begin
+                     // Set and clear eth_block_wstart before starting block write
+                     // (arbitrarily chose to set it at count==8).
+                     eth_block_wstart <= 1;
                   end
                end
-               else if (blockWrite) begin
-                  // Set and clear eth_block_wstart before starting block write
-                  // (arbitrarily chose to set it at count==8).
-                  if (count == 8'd8)
-                     eth_block_wstart <= 1;
-                  else if (count == 8'd11)
-                     eth_block_wstart <= 0;
-                  else if (count == 8'd12) begin
-                     eth_reg_waddr[15:12] <= FireWirePacket[2][15:12];
-                     if (addrMain) begin
-                        eth_reg_waddr[7:4] <= 4'd1;  // start with channel 1
-                        eth_reg_waddr[3:0] <= `OFF_DAC_CTRL;
-                        eth_reg_wdata[15:0] <= FireWirePacket[5][15:0];
-                     end
-                     else begin
-                        eth_reg_waddr[11:0] <= FireWirePacket[2][11:0];
-                        eth_reg_wdata <= FireWirePacket[5];
-                     end
-                     block_index <= 7'd5;
+            end
+            else if (count == 8'd11) begin
+               // Following only required if (isLocal && blockWrite)
+               eth_block_wstart <= 0;
+            end
+            else if (count == 8'd12) begin
+               if (isLocal && blockWrite) begin
+                  eth_reg_waddr[15:12] <= FireWirePacket[2][15:12];
+                  if (addrMain) begin
+                     eth_reg_waddr[7:4] <= 4'd1;  // start with channel 1
+                     eth_reg_waddr[3:0] <= `OFF_DAC_CTRL;
+                     //eth_reg_wdata[15:0] <= FireWirePacket[5][15:0];
+                     //PK: why just 15:0 above?
+                     eth_reg_wdata <= FireWirePacket[5];
                   end
-                  else if (block_index != 7'd0) begin  // count > 12
-                     if (count[0] == 0) begin      // (even)
-                        eth_reg_wen <= 0;
-                        if (addrMain) begin
-                           eth_reg_waddr[7:4] <= eth_reg_waddr[7:4] + 4'd1;
-                           eth_reg_wdata[15:0] <= FireWirePacket[block_index][15:0];
-                        end
-                        else begin
-                           eth_reg_waddr <= eth_reg_waddr + 16'd1;
-                           eth_reg_wdata <= FireWirePacket[block_index];
-                        end
-                     end
-                     else begin                    // (odd)
-                        // MSB is "valid" bit for DAC write (addrMain)
-                        eth_reg_wen <= addrMain ? FireWirePacket[block_index][31] : 1'b1;
-                        block_index <= block_index + 7'd1;
-                        if (count == maxCount)
-                            eth_block_wen <= 1;
-                     end
+                  else begin
+                     eth_reg_waddr[11:0] <= FireWirePacket[2][11:0];
+                     eth_reg_wdata <= FireWirePacket[5];
                   end
+                  block_index <= 7'd5;
+               end
+            end
+
+            if (count == maxCount) begin
+               // normal completion
+               useUDP <= isUDP;
+               isUDP <= 0;
+               // Allow reading of FireWire CRC
+               nextState <= ST_RECEIVE_DMA_FRAME_CRC;
+               if (isLocal) begin
+                  if (quadWrite) begin
+                      eth_reg_wen <= 1;
+                      lreq_trig <= 0;     // Clear lreq_trig in case it was set
+                  end
+                  else if (blockWrite) begin
+                      eth_block_wen <= 1;
+                  end
+               end
+               if (isRemote) begin
+                  // Request to forward pkt
+                  eth_send_fw_req <= 1;
+               end
+            end
+            else if (count[7:0] == 8'hff) begin
+               // packet too long; stop here to avoid buffer overflow
+               isUDP <= 0;
+               ethPacketError <= 1;
+               numPacketError <= numPacketError + 16'd1;
+               cmdReq <= 0;
+               state <= ST_RECEIVE_FLUSH_START;
+            end
+
+            // Remaining contents of block write (for count=13...maxCount)
+            // Note that block_index is only non-zero when (isLocal && blockWrite)
+            // so we do not need to check those.
+            if (block_index != 7'd0) begin   // count > 12
+               if (count[0] == 0) begin      // (even)
+                  eth_reg_wen <= 0;
+                  if (addrMain) begin
+                     eth_reg_waddr[7:4] <= eth_reg_waddr[7:4] + 4'd1;
+                     //eth_reg_wdata[15:0] <= FireWirePacket[block_index][15:0];
+                     //PK: why just 15:0 above?
+                     eth_reg_wdata <= FireWirePacket[block_index];
+                  end
+                  else begin
+                     eth_reg_waddr <= eth_reg_waddr + 16'd1;
+                     eth_reg_wdata <= FireWirePacket[block_index];
+                  end
+               end
+               else begin                    // (odd)
+                  // MSB is "valid" bit for DAC write (addrMain)
+                  eth_reg_wen <= addrMain ? FireWirePacket[block_index][31] : 1'b1;
+                  block_index <= block_index + 7'd1;
                end
             end
          end
@@ -1415,10 +1431,10 @@ always @(posedge sysclk or negedge reset) begin
             count[3:0] <= count[3:0]+4'd1;
             rxPktWords <= rxPktWords-12'd1;
             case (count[3:0])
-               4'd0: if (ReadData != 16'h0100) sendARP <= 0;
-               4'd1: if (ReadData != 16'h0008) sendARP <= 0;
-               4'd2: if (ReadData != 16'h0406) sendARP <= 0;
-               4'd3: if (ReadData != 16'h0100) sendARP <= 0;
+               4'd0: if (ReadData != 16'h0100) state <= ST_RECEIVE_FLUSH_START;
+               4'd1: if (ReadData != 16'h0008) state <= ST_RECEIVE_FLUSH_START;
+               4'd2: if (ReadData != 16'h0406) state <= ST_RECEIVE_FLUSH_START;
+               4'd3: if (ReadData != 16'h0100) state <= ST_RECEIVE_FLUSH_START;
                4'd4: srcMac[0] <= ReadData;
                4'd5: srcMac[1] <= ReadData;
                4'd6: srcMac[2] <= ReadData;
@@ -1429,12 +1445,13 @@ always @(posedge sysclk or negedge reset) begin
                       // Normal completion
                       fpgaIP[15:0] <= ReadData;
                       // If our IP address not yet set, update it
-                      if (sendARP && is_ip_unassigned) begin
+                      if (is_ip_unassigned) begin
                          ip_address[31:16] <= ReadData;
                          ip_address[15:0] <=  fpgaIP[31:16];
+                         sendARP <= 1;
                       end
-                      else if (!is_ip_equal) begin
-                         sendARP <= 0;     // only reply if IP address matches
+                      else if (is_ip_equal) begin
+                         sendARP <= 1;
                       end
                       count[3:0] <= 4'd0;
                       state <= ST_RECEIVE_DMA_FRAME_CRC;
@@ -1444,39 +1461,14 @@ always @(posedge sysclk or negedge reset) begin
 
          ST_RECEIVE_DMA_FRAME_CRC:
          begin
-            //cmdReq <= 1;
-            //count[0] <= 1'd1;
-            //rxPktWords <= rxPktWords-12'd1;
-            //state <= ST_WAIT_ACK;
-            //nextState <= (count[0] == 1'd1) ? ((rxPktWords == 12'd0) ? ST_RECEIVE_DMA_STOP : ST_RECEIVE_FLUSH_START)
-            //                                : ST_RECEIVE_DMA_FRAME_CRC;
+            // We could read two words to get the 4-byte CRC, but flushing the
+            // packet works better. We decrement rxPktWords by 2, but that
+            // variable is just for debugging. In most cases, rxPktWords should
+            // be 0 after this -- the exception is when the packet is smaller than
+            // the minimum Ethernet frame (64 bytes), in which case it is padded
+            // (this happens with raw Ethernet quadlet read/write commands).
             rxPktWords <= rxPktWords-12'd2;
             state <= ST_RECEIVE_FLUSH_START;
-         end
-
-         ST_RECEIVE_DMA_STOP:
-         begin
-            // Clean up from quadlet/block writes
-            eth_reg_wen <= 0;
-            eth_block_wen <= 0;
-            //
-            cmdReq <= 1;
-            isDMA <= 0;
-            isWrite <= 1;
-            RegAddr <= `ETH_ADDR_RXQCR;
-            WriteData <= {ETH_VALUE_RXQCR[15:4],1'b0,ETH_VALUE_RXQCR[2:0]};
-            state <= ST_WAIT_ACK;
-            if (((quadRead || blockRead) && isLocal) || sendARP || isEcho) begin
-               nextState <= ST_SEND_START;
-            end
-            else begin
-               if (FrameCount == 8'd0) begin
-                  nextState <= isInIRQ ? ST_IRQ_DISPATCH : ST_IDLE;
-               end
-               else begin
-                  nextState <= ST_RECEIVE_FRAME_STATUS;
-               end
-            end
          end
 
          ST_RECEIVE_FLUSH_START:
