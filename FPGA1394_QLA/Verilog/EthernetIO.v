@@ -139,10 +139,15 @@ assign dbg_nextState_eth = nextState;
 // B14: TXIE transmit interrupt enable
 // B13: RXIE receive interrupt enable
 `ifdef USE_CHIPSCOPE
-`define ETH_IER_VALUE dbg_reg_debug[15:0]
+`define ETH_VALUE_IER dbg_reg_debug[15:0]
 `else
-`define ETH_IER_VALUE 16'h2000
+`define ETH_VALUE_IER 16'h2000
 `endif
+
+// RXQCR value
+// B5: RXFCTE enable QMU frame count threshold (1)
+// B4: ADRFE  auto-dequeue
+localparam[15:0] ETH_VALUE_RXQCR = 16'h0020;
    
 // state machine states
 localparam [6:0]
@@ -186,6 +191,8 @@ localparam [6:0]
     ST_RECEIVE_DMA_ICMP_HEADER = 7'd37,
     ST_RECEIVE_DMA_UDP_HEADER = 7'd38,
     ST_RECEIVE_DMA_FIREWIRE_PACKET = 7'd39,
+    ST_RECEIVE_DMA_FRAME_CRC = 7'd72,
+    ST_RECEIVE_DMA_STOP = 7'd73,
     ST_RECEIVE_FLUSH_START = 7'd40,
     ST_RECEIVE_FLUSH_EXECUTE = 7'd41,
     ST_RECEIVE_FLUSH_WAIT_START = 7'd42,
@@ -254,7 +261,7 @@ reg useUDP;
 
 // Following flags have limited duration (set and cleared
 // during packet processing).
-reg isARP;
+reg sendARP;
 reg isUDP;
 reg isICMP;
 reg isEcho;
@@ -306,6 +313,7 @@ reg[7:0] maxCount;     // For reading FireWire packets
 reg[2:0] next_addr;    // Address of next device (for block read)
 reg[6:0] block_index;  // Index into data block (5-70)
 reg[15:0] txPktWords;  // Num of words sent
+reg[11:0] rxPktWords;  // Num of words received
 
 reg[15:0] destMac[0:2];  // Not currently used
 reg[15:0] srcMac[0:2];
@@ -326,6 +334,18 @@ reg[15:0] numUDP;            // Number of UDP packets received
 reg[15:0] numARP;            // Number of ARP packets received
 reg[15:0] numICMP;           // Number of ICMP packets received
 reg[15:0] numPacketError;    // Number of packet errors
+reg[15:0] numIPv4Mismatch;   // Number of IPv4 packets with different IP address
+
+localparam[31:0] IP_UNASSIGNED = 32'hffffffff;
+wire is_ip_unassigned;
+assign is_ip_unassigned = (ip_address == IP_UNASSIGNED) ? 1 : 0;
+
+// Following checks whether IP address received in packet (fpgaIP) is equal
+// to stored IP address (ip_address). Note that it is assumed that this check
+// will be performed when the LSW of the IP address is being read, which is
+// why ReadData is used below.
+wire is_ip_equal;
+assign is_ip_equal = (ip_address == {ReadData, fpgaIP[31:16]}) ? 1 : 0;
 
 // ----------------------------------------
 // Forward forward packet
@@ -337,21 +357,22 @@ assign DebugData[0]  = "0GBD";  // DBG0 byte-swapped
 assign DebugData[1]  = timestamp;
 assign DebugData[2]  = {16'd0, eth_status};
 assign DebugData[3]  = { 1'd0, state, 1'd0, nextState, 7'h0, ~ETH_IRQn,
-                         isForward, isInIRQ, isARP, isUDP, isICMP, isEcho, ipv4_long, ipv4_short};
+                         isForward, isInIRQ, sendARP, isUDP, isICMP, isEcho, ipv4_long, ipv4_short};
 assign DebugData[4]  = { RegISR, RegISROther};
-//assign DebugData[4]  = { RegISR, FrameCount, count};
-assign DebugData[5]  = { destMac[1][7:0], destMac[1][15:8], destMac[0][7:0], destMac[0][15:8] };
-assign DebugData[6]  = { srcMac[0], destMac[2][7:0], destMac[2][15:8] };
-assign DebugData[7]  = { srcMac[2], srcMac[1] };
-assign DebugData[8]  = { 8'h11, maxCount, LengthFW };
-assign DebugData[9]  = { hostIP[15:0], hostIP[31:16] };
-assign DebugData[10] = { fpgaIP[15:0], fpgaIP[31:16] };
-assign DebugData[11] = { ipv4_length, txPktWords };
-assign DebugData[12] = { numPacketInvalid, numPacketValid };
-assign DebugData[13] = { numUDP, numIPv4 };
-assign DebugData[14] = { numICMP, numARP };
-assign DebugData[15] = { 16'h2233, numPacketError };
-assign DebugData[16] = timestamp;
+assign DebugData[5]  = { 16'h2233, FrameCount, count};
+assign DebugData[6]  = { destMac[1][7:0], destMac[1][15:8], destMac[0][7:0], destMac[0][15:8] };
+assign DebugData[7]  = { srcMac[0], destMac[2][7:0], destMac[2][15:8] };
+assign DebugData[8]  = { srcMac[2], srcMac[1] };
+assign DebugData[9]  = { 8'h11, maxCount, LengthFW };
+assign DebugData[10]  = { hostIP[15:0], hostIP[31:16] };
+assign DebugData[11] = { fpgaIP[15:0], fpgaIP[31:16] };
+assign DebugData[12] = { ipv4_length, 4'h0, rxPktWords };
+assign DebugData[13] = { 16'h4455, txPktWords };
+assign DebugData[14] = { numPacketInvalid, numPacketValid };
+assign DebugData[15] = { numUDP, numIPv4 };
+assign DebugData[16] = { numICMP, numARP };
+assign DebugData[17] = { numIPv4Mismatch, numPacketError };
+assign DebugData[18] = timestamp;
 
 
 // Firewire packet received from host
@@ -451,7 +472,7 @@ always @(posedge sysclk or negedge reset) begin
        ethDestError <= 0;
        isMulticast <= 0;
        sendAck <= 0;
-       ip_address <= 32'hffffffff;
+       ip_address <= IP_UNASSIGNED;
        srcMac[0] <= 16'd0;
        srcMac[1] <= 16'd0;
        srcMac[2] <= 16'd0;
@@ -467,7 +488,7 @@ always @(posedge sysclk or negedge reset) begin
        block_index <= 0;
        eth_send_fw_req <= 0;
        useUDP <= 0;
-       isARP <= 0;
+       sendARP <= 0;
        isUDP <= 0;
        isICMP <= 0;
        isEcho <= 0;
@@ -481,6 +502,7 @@ always @(posedge sysclk or negedge reset) begin
        numUDP <= 16'd0;
        numARP <= 16'd0;
        numICMP <= 16'd0;
+       numIPv4Mismatch <= 16'd0;
        numPacketError <= 16'd0;
     end
     else begin
@@ -700,7 +722,7 @@ always @(posedge sysclk or negedge reset) begin
             WriteData <= 16'h7CE0;
             state <= ST_WAIT_ACK;
             nextState <= ST_INIT_REG_RXCR2;
-         end // case: ST_INIT_REG_RXCR1
+         end
 
          ST_INIT_REG_RXCR2:
          begin
@@ -725,15 +747,11 @@ always @(posedge sysclk or negedge reset) begin
             nextState <= ST_INIT_REG_RXQCR;
          end
 
-          // TODO: try auto-deque & read the whole packet instead of flush
          ST_INIT_REG_RXQCR:
          begin
             cmdReq <= 1;
             RegAddr <= `ETH_ADDR_RXQCR;
-            // B5: RXFCTE enable QMU frame count threshold (1)
-            // B4: ADRFE  auto-dequeue
-            // WriteData <= 16'h0030;
-            WriteData <= 16'h0020;
+            WriteData <= ETH_VALUE_RXQCR;
             state <= ST_WAIT_ACK;
             nextState <= ST_INIT_IRQ_CLEAR;
          end
@@ -751,7 +769,7 @@ always @(posedge sysclk or negedge reset) begin
          begin
             cmdReq <= 1;
             RegAddr <= `ETH_ADDR_IER;
-            WriteData <= `ETH_IER_VALUE;   // Enable receive interrupts
+            WriteData <= `ETH_VALUE_IER;   // Enable receive interrupts
             state <= ST_WAIT_ACK;
             nextState <= ST_INIT_TRANSMIT_ENABLE_READ;
          end
@@ -795,7 +813,7 @@ always @(posedge sysclk or negedge reset) begin
          ST_INIT_DONE:
          begin
             initOK <= 1;
-            isARP <= 0;
+            sendARP <= 0;
             isUDP <= 0;
             isICMP <= 0;
             isEcho <= 0;
@@ -810,6 +828,7 @@ always @(posedge sysclk or negedge reset) begin
             numUDP <= 16'd0;
             numARP <= 16'd0;
             numICMP <= 16'd0;
+            numIPv4Mismatch <= 16'd0;
             numPacketError <= 16'd0;
             state <= ST_IDLE;
          end
@@ -832,18 +851,20 @@ always @(posedge sysclk or negedge reset) begin
             RegISR <= ReadData;
             if (ReadData[15] || ReadData[13]) begin
                // These interrupts have handlers, so call dispatch
-               cmdReq <= 1;
-               isWrite <= 1;
+               //cmdReq <= 1;
+               //isWrite <= 1;
                isInIRQ <= 1;
-               RegAddr <= `ETH_ADDR_IER;
-               WriteData <= 16'h0000;    // Disable all interrupts
-               state <= ST_WAIT_ACK;
-               nextState <= ST_IRQ_DISPATCH;
+               //RegAddr <= `ETH_ADDR_IER;
+               //WriteData <= 16'h0000;    // Disable all interrupts
+               //state <= ST_WAIT_ACK;
+               //nextState <= ST_IRQ_DISPATCH;
+               state <= ST_IRQ_DISPATCH;
             end
             else begin
                // Clear any other (unexpected) interrupts
                RegISROther <= ReadData;
-               state <= ST_IRQ_CLEAR_OTHER;
+               //state <= ST_IRQ_CLEAR_OTHER;
+               state <= ST_IRQ_DISPATCH;
                isInIRQ <= 0;
             end
          end
@@ -861,7 +882,8 @@ always @(posedge sysclk or negedge reset) begin
             else begin
                // Done IRQ handle, clear flag & enable IRQ
                isInIRQ <= 0;
-               state <= ST_IRQ_ENABLE;
+               //state <= ST_IRQ_ENABLE;
+               state <= ST_IRQ_CLEAR_OTHER;
             end
          end
 
@@ -870,7 +892,7 @@ always @(posedge sysclk or negedge reset) begin
             cmdReq <= 1;
             RegAddr <= `ETH_ADDR_IER;
             isWrite <= 1;
-            WriteData <= `ETH_IER_VALUE;   // Enable interrupts
+            WriteData <= `ETH_VALUE_IER;   // Enable interrupts
             state <= ST_WAIT_ACK;
             nextState <= ST_IDLE;
          end
@@ -942,7 +964,7 @@ always @(posedge sysclk or negedge reset) begin
                FrameCount <= ReadData[15:8];
                count[0] <= 1'd0;
                if (ReadData[15:8] == 0) begin
-                  state <= ST_IRQ_DISPATCH;
+                  state <= isInIRQ ? ST_IRQ_DISPATCH : ST_IDLE;
                end
                else begin
                   state <= ST_RECEIVE_FRAME_STATUS;
@@ -972,12 +994,19 @@ always @(posedge sysclk or negedge reset) begin
                // B07: Received broadcast frame
                // B06: Received multicast frame
                // B05: Received unicastframe
-               // B04: Receive MII error
+               // B04: Received MII error
                // B03: Indicates Ethernet-type frame (length > 1500 bytes)
                // B02: RXFTL receive frame too long
                // B01: RXRF  receive runt frame, damaged by collision
                // B00: RXCE  receive CRC error
-               if (ReadData[15] && ~ReadData[2] && ~ReadData[1] && ~ReadData[0]) begin
+               if (~ReadData[15] || (ReadData&16'b0011110000010111 != 16'h0)) begin
+                  // Error detected, so flush frame
+                  isMulticast <= 0;
+                  numPacketInvalid <= numPacketInvalid + 16'd1;
+                  state <= ST_RECEIVE_FLUSH_START;
+               end
+               else begin
+                  // Valid frame, so start processing
                   cmdReq <= 1;
                   //isBroadcast <= ReadData[7];
                   isMulticast <= ReadData[6];
@@ -987,28 +1016,28 @@ always @(posedge sysclk or negedge reset) begin
                   nextState <= ST_RECEIVE_FRAME_LENGTH;
                   numPacketValid <= numPacketValid + 16'd1;
                end
-               else begin
-                  isMulticast <= 0;
-                  numPacketInvalid <= numPacketInvalid + 16'd1;
-                  state <= ST_RECEIVE_FLUSH_START;
-               end
             end
          end
 
          ST_RECEIVE_FRAME_LENGTH:
          begin
-            // Probably don't need the following
-            // PacketWords <= ((ReadData[11:0]+12'd3)>>1)&12'hffe;
-            // Set QMU RXQ frame pointer to 0
-            cmdReq <= 1;
-            isWrite <= 1;
-            RegAddr <= `ETH_ADDR_RXFDPR;
-            WriteData <= 16'h5000;
-            state <= ST_WAIT_ACK;
-            nextState <= ST_RECEIVE_DMA_STATUS_READ;
+            if (ReadData[11:0] == 12'd0) begin
+               numPacketInvalid <= numPacketInvalid + 16'd1;
+               state <= ST_RECEIVE_FLUSH_START;
+            end
+            else begin
+                rxPktWords <= ((ReadData[11:0]+12'd3)>>1)&12'hffe;
+                // Set QMU RXQ frame pointer to 0, also decrease write sample time
+                cmdReq <= 1;
+                isWrite <= 1;
+                RegAddr <= `ETH_ADDR_RXFDPR;
+                WriteData <= 16'h5000;
+                state <= ST_WAIT_ACK;
+                nextState <= ST_RECEIVE_DMA_STATUS_READ;
+            end
          end
          
-         ST_RECEIVE_DMA_STATUS_READ:
+         ST_RECEIVE_DMA_STATUS_READ:   // can probably skip this read
          begin
             cmdReq <= 1;
             isWrite <= 0;
@@ -1022,7 +1051,7 @@ always @(posedge sysclk or negedge reset) begin
             // Enable DMA transfers
             cmdReq <= 1;
             isWrite <= 1;
-            WriteData <= {ReadData[15:4],1'b1,ReadData[2:0]};
+            WriteData <= {ETH_VALUE_RXQCR[15:4],1'b1,ETH_VALUE_RXQCR[2:0]};
             state <= ST_WAIT_ACK;
             nextState <= ST_RECEIVE_DMA_SKIP;
             count <= 8'd0;
@@ -1039,6 +1068,7 @@ always @(posedge sysclk or negedge reset) begin
             if (count[1:0] == 2'd3) begin
                nextState <= ST_RECEIVE_DMA_FRAME_HEADER;
                count[1:0] <= 2'd0;
+               rxPktWords <= rxPktWords-12'd1;
             end
             else begin
                nextState <= ST_RECEIVE_DMA_SKIP;
@@ -1052,6 +1082,7 @@ always @(posedge sysclk or negedge reset) begin
             state <= ST_WAIT_ACK;
             nextState <= ST_RECEIVE_DMA_FRAME_HEADER;
             count[2:0] <= count[2:0]+3'd1;
+            rxPktWords <= rxPktWords-12'd1;
             // Read dest MAC, source MAC, and length (7 words, byte-swapped).
             // Don't byte swap srcMAC because we need to send it back byte-swapped.
             // 
@@ -1084,6 +1115,7 @@ always @(posedge sysclk or negedge reset) begin
                else if (`ReadDataSwapped == 16'h0806) begin
                   // ARP Ethertype is 0x0806
                   numARP <= numARP + 16'd1;
+                  sendARP <= 1;     // Set this flag now, might clear it later
                   nextState <= ST_RECEIVE_DMA_ARP;
                end
                else begin
@@ -1101,6 +1133,7 @@ always @(posedge sysclk or negedge reset) begin
             cmdReq <= 1;
             state <= ST_WAIT_ACK;
             count[4:0] <= count[4:0]+5'd1;
+            rxPktWords <= rxPktWords-12'd1;
             case (count[4:0])
                // Word 0:
                //   Byte 0: Version, should be 4; IHL (Internet Header Length), normally should be 5
@@ -1152,7 +1185,22 @@ always @(posedge sysclk or negedge reset) begin
                5'd6: hostIP[31:16] <= ReadData;
                5'd7: hostIP[15:0] <= ReadData;
                5'd8: fpgaIP[31:16] <= ReadData;
-               5'd9: fpgaIP[15:0] <= ReadData;
+               5'd9: begin
+                     fpgaIP[15:0] <= ReadData;
+                     if (is_ip_unassigned) begin
+                        // This case can occur when the host PC already has
+                        // an ARP cache entry for this board, in which case
+                        // we just assign the IP address.
+                        ip_address[31:16] <= ReadData;
+                        ip_address[15:0] <=  fpgaIP[31:16];
+                     end
+                     else if (!is_ip_equal) begin
+                        // If IP assigned, but not equal, we process the packet anyway,
+                        // but keep track of the number of times this occurred.
+                        // We could decide to update ip_address.
+                        numIPv4Mismatch <= numIPv4Mismatch + 16'd1;
+                     end
+                     end
             endcase
             if (count[4:0] == maxCount[4:0]) begin
                // Reached end of IPv4 header
@@ -1186,6 +1234,7 @@ always @(posedge sysclk or negedge reset) begin
             state <= ST_WAIT_ACK;
             nextState <= ST_RECEIVE_DMA_ICMP_HEADER;
             count[2:0] <= count[2:0] + 3'd1;
+            rxPktWords <= rxPktWords-12'd1;
             // Only handles echo (ping). Echo request has Type=8, Code=0
             case (count[2:0])
               3'd0: if (`ReadDataSwapped != 16'h0800) state <= ST_RECEIVE_FLUSH_START;
@@ -1211,6 +1260,7 @@ always @(posedge sysclk or negedge reset) begin
             state <= ST_WAIT_ACK;
             nextState <= ST_RECEIVE_DMA_UDP_HEADER;
             count[1:0] <= count[1:0] + 2'd1;
+            rxPktWords <= rxPktWords-12'd1;
             if (count[1:0] == 2'd0) begin
                hostPort <= ReadData;
             end
@@ -1223,6 +1273,10 @@ always @(posedge sysclk or negedge reset) begin
                   state <= ST_RECEIVE_FLUSH_START;
                end
             end
+            else if (count[1:0] == 2'd2) begin
+               maxCount <= `ReadDataSwapped[8:1]-8'd5;  // Subtract 4 words for UDP header
+               LengthFW <= `ReadDataSwapped-8'd8;       // Subtract 8 bytes for UDP header
+            end
             else if (count[1:0] == 2'd3) begin
                nextState <= ST_RECEIVE_DMA_FIREWIRE_PACKET;
                count[1:0] <= 2'd0;
@@ -1231,6 +1285,7 @@ always @(posedge sysclk or negedge reset) begin
 
          ST_RECEIVE_DMA_FIREWIRE_PACKET:
          begin
+            rxPktWords <= rxPktWords-12'd1;
             // Read FireWire packet, byteswap to make it easier to work with;
             // might need to byteswap again if sending it out via FireWire.
             if (count[0] == 0)
@@ -1249,7 +1304,8 @@ always @(posedge sysclk or negedge reset) begin
                // normal completion
                useUDP <= isUDP;
                isUDP <= 0;
-               state <= ST_RECEIVE_FLUSH_START;
+               count <= 8'd0;
+               state <= ST_RECEIVE_DMA_FRAME_CRC;
                if (isRemote) begin
                   // Request to forward pkt
                   eth_send_fw_req <= 1;
@@ -1294,7 +1350,6 @@ always @(posedge sysclk or negedge reset) begin
                   else if (count == 8'd9) begin
                      eth_reg_wen <= 1;
                      lreq_trig <= 0;     // Clear lreq_trig in case it was set
-                     state <= ST_RECEIVE_FLUSH_START;
                   end
                end
                else if (blockWrite) begin
@@ -1358,11 +1413,12 @@ always @(posedge sysclk or negedge reset) begin
             cmdReq <= 1;
             state <= ST_WAIT_ACK;
             count[3:0] <= count[3:0]+4'd1;
+            rxPktWords <= rxPktWords-12'd1;
             case (count[3:0])
-               4'd0: if (ReadData != 16'h0100) state <= ST_RECEIVE_FLUSH_START;
-               4'd1: if (ReadData != 16'h0008) state <= ST_RECEIVE_FLUSH_START;
-               4'd2: if (ReadData != 16'h0406) state <= ST_RECEIVE_FLUSH_START;
-               4'd3: if (ReadData != 16'h0100) state <= ST_RECEIVE_FLUSH_START;
+               4'd0: if (ReadData != 16'h0100) sendARP <= 0;
+               4'd1: if (ReadData != 16'h0008) sendARP <= 0;
+               4'd2: if (ReadData != 16'h0406) sendARP <= 0;
+               4'd3: if (ReadData != 16'h0100) sendARP <= 0;
                4'd4: srcMac[0] <= ReadData;
                4'd5: srcMac[1] <= ReadData;
                4'd6: srcMac[2] <= ReadData;
@@ -1371,11 +1427,56 @@ always @(posedge sysclk or negedge reset) begin
                4'd12: fpgaIP[31:16] <= ReadData;
                4'd13: begin
                       // Normal completion
-                      isARP <= 1;
                       fpgaIP[15:0] <= ReadData;
-                      state <= ST_RECEIVE_FLUSH_START;
+                      // If our IP address not yet set, update it
+                      if (sendARP && is_ip_unassigned) begin
+                         ip_address[31:16] <= ReadData;
+                         ip_address[15:0] <=  fpgaIP[31:16];
+                      end
+                      else if (!is_ip_equal) begin
+                         sendARP <= 0;     // only reply if IP address matches
+                      end
+                      count[3:0] <= 4'd0;
+                      state <= ST_RECEIVE_DMA_FRAME_CRC;
                       end
             endcase
+         end
+
+         ST_RECEIVE_DMA_FRAME_CRC:
+         begin
+            //cmdReq <= 1;
+            //count[0] <= 1'd1;
+            //rxPktWords <= rxPktWords-12'd1;
+            //state <= ST_WAIT_ACK;
+            //nextState <= (count[0] == 1'd1) ? ((rxPktWords == 12'd0) ? ST_RECEIVE_DMA_STOP : ST_RECEIVE_FLUSH_START)
+            //                                : ST_RECEIVE_DMA_FRAME_CRC;
+            rxPktWords <= rxPktWords-12'd2;
+            state <= ST_RECEIVE_FLUSH_START;
+         end
+
+         ST_RECEIVE_DMA_STOP:
+         begin
+            // Clean up from quadlet/block writes
+            eth_reg_wen <= 0;
+            eth_block_wen <= 0;
+            //
+            cmdReq <= 1;
+            isDMA <= 0;
+            isWrite <= 1;
+            RegAddr <= `ETH_ADDR_RXQCR;
+            WriteData <= {ETH_VALUE_RXQCR[15:4],1'b0,ETH_VALUE_RXQCR[2:0]};
+            state <= ST_WAIT_ACK;
+            if (((quadRead || blockRead) && isLocal) || sendARP || isEcho) begin
+               nextState <= ST_SEND_START;
+            end
+            else begin
+               if (FrameCount == 8'd0) begin
+                  nextState <= isInIRQ ? ST_IRQ_DISPATCH : ST_IDLE;
+               end
+               else begin
+                  nextState <= ST_RECEIVE_FRAME_STATUS;
+               end
+            end
          end
 
          ST_RECEIVE_FLUSH_START:
@@ -1387,7 +1488,7 @@ always @(posedge sysclk or negedge reset) begin
             cmdReq <= 1;
             isDMA <= 0;
             isWrite <= 0;
-            RegAddr <= `ETH_ADDR_RXQCR;
+            RegAddr <= `ETH_ADDR_RXQCR;  // Could probably eliminate this read
             state <= ST_WAIT_ACK;
             nextState <= ST_RECEIVE_FLUSH_EXECUTE;
          end
@@ -1397,7 +1498,7 @@ always @(posedge sysclk or negedge reset) begin
             // Flush the rest of the packet (also clears DMA bit)
             cmdReq <= 1;
             isWrite <= 1;
-            WriteData <= {ReadData[15:4],1'b0,ReadData[2:1],1'b1};
+            WriteData <= {ETH_VALUE_RXQCR[15:4],1'b0,ETH_VALUE_RXQCR[2:1],1'b1};
             state <= ST_WAIT_ACK;
             nextState <= ST_RECEIVE_FLUSH_WAIT_START;
          end
@@ -1421,12 +1522,12 @@ always @(posedge sysclk or negedge reset) begin
             //   - else go to idle state
             // TODO: check node id and forward via FireWire if necessary
             if (ReadData[0] == 1'b0) begin
-               if (((quadRead || blockRead) && isLocal) || isARP || isEcho) begin
+               if (((quadRead || blockRead) && isLocal) || sendARP || isEcho) begin
                   state <= ST_SEND_START;
                end
                else begin
                   if (FrameCount == 8'd0) begin
-                     state <= ST_IRQ_DISPATCH;
+                     state <= isInIRQ ? ST_IRQ_DISPATCH : ST_IDLE;
                   end
                   else begin
                      state <= ST_RECEIVE_FRAME_STATUS;
@@ -1448,12 +1549,13 @@ always @(posedge sysclk or negedge reset) begin
             // Disable IRQ if not IRQ handle mode
             if (isInIRQ == 1'b0) begin
                sendAck <= 0;  // TEMP
-               cmdReq <= 1;
-               isWrite <= 1;
-               RegAddr <= `ETH_ADDR_IER;
-               WriteData <= 16'h0000;    // Disable interrupt
-               state <= ST_WAIT_ACK;
-               nextState <= ST_SEND_TXMIR_READ;
+               //cmdReq <= 1;
+               //isWrite <= 1;
+               //RegAddr <= `ETH_ADDR_IER;
+               //WriteData <= 16'h0000;    // Disable interrupt
+               //state <= ST_WAIT_ACK;
+               //nextState <= ST_SEND_TXMIR_READ;
+               state <= ST_SEND_TXMIR_READ;
             end
             else begin
                state <= ST_SEND_TXMIR_READ;
@@ -1485,7 +1587,7 @@ always @(posedge sysclk or negedge reset) begin
             // Enable DMA transfers
             cmdReq <= 1;
             isWrite <= 1;
-            WriteData <= {ReadData[15:4],1'b1,ReadData[2:0]};
+            WriteData <= {ETH_VALUE_RXQCR[15:4],1'b1,ETH_VALUE_RXQCR[2:0]};
             state <= ST_WAIT_ACK;
             nextState <= ST_SEND_DMA_CONTROLWORD;
          end
@@ -1505,7 +1607,7 @@ always @(posedge sysclk or negedge reset) begin
          ST_SEND_DMA_BYTECOUNT:
          begin
             cmdReq <= 1;
-            if (isARP) begin
+            if (sendARP) begin
                // ARP response: 14 + 28
                WriteData <= 16'd42;
             end
@@ -1581,7 +1683,7 @@ always @(posedge sysclk or negedge reset) begin
             state <= ST_WAIT_ACK;
             count <= 8'd0;
 
-            if (isARP) begin
+            if (sendARP) begin
                `WriteDataSwapped <= 16'h0806;
                nextState <= ST_SEND_DMA_ARP;
             end
@@ -1623,19 +1725,16 @@ always @(posedge sysclk or negedge reset) begin
                5'd4: `WriteDataSwapped <= 16'hFA61;  // 0xFA61
                5'd5: `WriteDataSwapped <= 16'h0E13;  // 0x0E13
                5'd6: `WriteDataSwapped <= {8'h94,4'h0,board_id}; // 0x940n (n = board id)
-               5'd7: WriteData <= fpgaIP[31:16];
-               5'd8: WriteData <= fpgaIP[15:0];
+               5'd7: WriteData <= ip_address[15:0];
+               5'd8: WriteData <= ip_address[31:16];
                5'd9: WriteData <= srcMac[0];
                5'd10: WriteData <= srcMac[1];
                5'd11: WriteData <= srcMac[2];
                5'd12: WriteData <= hostIP[31:16];
                5'd13: begin
                       WriteData <= hostIP[15:0];
-                      // Now update ip_address
-                      ip_address[31:16] <= fpgaIP[15:0];
-                      ip_address[15:0] <=  fpgaIP[31:16];
                       nextState <= ST_SEND_DMA_STOP;
-                      isARP <= 0;
+                      sendARP <= 0;
                       end
             endcase
          end
@@ -1980,7 +2079,7 @@ always @(posedge sysclk or negedge reset) begin
 
          ST_SEND_DMA_STOP:
          begin
-            if (count[0] == 0) begin
+            if (count[0] == 0) begin  // could probably eliminate
                cmdReq <= 1;
                isWrite <= 0;
                isDMA <= 0;
@@ -1993,7 +2092,7 @@ always @(posedge sysclk or negedge reset) begin
                // Disable DMA transfers
                cmdReq <= 1;
                isWrite <= 1;
-               WriteData <= {ReadData[15:4],1'b0,ReadData[2:0]};
+               WriteData <= {ETH_VALUE_RXQCR[15:4],1'b0,ETH_VALUE_RXQCR[2:0]};
                state <= ST_WAIT_ACK;
                nextState <= ST_SEND_TXQ_ENQUEUE_START;
                count[0] <= 0;
@@ -2040,7 +2139,7 @@ always @(posedge sysclk or negedge reset) begin
                state <= ST_SEND_TXQ_ENQUEUE_WAIT_START;
                waitInfo <= WAIT_FLUSH;  // TEMP: use WAIT_FLUSH, but should be WAIT_TXQ_ENQUEUE
             end
-         end // case: ST_SEND_TXQ_ENQUEUE_WAIT_CHECK
+         end
 
          ST_SEND_END:
          begin
@@ -2053,7 +2152,8 @@ always @(posedge sysclk or negedge reset) begin
                end
             end
             else begin
-               state <= ST_IRQ_ENABLE;
+               //state <= ST_IRQ_ENABLE;
+               state <= ST_IDLE;
             end
          end
 
