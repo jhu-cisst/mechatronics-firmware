@@ -129,6 +129,8 @@ reg ethDestError;      // 1 -> Incorrect destination (FireWire destination does 
 reg[6:0] state;
 reg[6:0] nextState;
 
+reg[15:0] numStateInvalid;   // Number of invalid states (for debugging)
+
 `ifdef USE_CHIPSCOPE
 assign dbg_state_eth = state;
 assign dbg_nextState_eth = nextState;
@@ -262,7 +264,7 @@ reg useUDP;
 reg sendARP;
 reg isUDP;
 reg isICMP;
-reg isEcho;
+reg sendEcho;
 
 // Data received in ICMP Echo packet (ping)
 reg[15:0] echo_id;
@@ -353,9 +355,9 @@ reg isForward;
 wire [31:0] DebugData[0:31];
 assign DebugData[0]  = "0GBD";  // DBG0 byte-swapped
 assign DebugData[1]  = timestamp;
-assign DebugData[2]  = {16'd0, eth_status};
-assign DebugData[3]  = { 1'd0, state, 1'd0, nextState, 5'h0, isBroadcast, isMulticast, ~ETH_IRQn,
-                         isForward, isInIRQ, sendARP, isUDP, isICMP, isEcho, ipv4_long, ipv4_short};
+assign DebugData[2]  = {11'd0, node_id, eth_status};
+assign DebugData[3]  = { 1'd0, state, 1'd0, nextState, 4'h0, FireWirePacketFresh, isBroadcast, isMulticast, ~ETH_IRQn,
+                         isForward, isInIRQ, sendARP, isUDP, isICMP, sendEcho, ipv4_long, ipv4_short};
 assign DebugData[4]  = { RegISR, RegISROther};
 assign DebugData[5]  = { 16'h2233, FrameCount, count};
 assign DebugData[6]  = { destMac[1][7:0], destMac[1][15:8], destMac[0][7:0], destMac[0][15:8] };
@@ -370,7 +372,8 @@ assign DebugData[14] = { numPacketInvalid, numPacketValid };
 assign DebugData[15] = { numUDP, numIPv4 };
 assign DebugData[16] = { numICMP, numARP };
 assign DebugData[17] = { numIPv4Mismatch, numPacketError };
-assign DebugData[18] = timestamp;
+assign DebugData[18] = { 16'd0, numStateInvalid };
+assign DebugData[19] = timestamp;
 
 
 // Firewire packet received from host
@@ -391,6 +394,8 @@ assign DebugData[18] = timestamp;
 // Allocate pow(2,7) = 128 quadlets
 reg [31:0] FireWirePacket[0:127];
 assign eth_fwpkt_rdata = FireWirePacket[eth_fwpkt_raddr[6:0]]; 
+reg FireWirePacketFresh;   // 1 -> FireWirePacket data is valid (fresh)
+
 
 // Following data is accessible via block read from address `ADDR_ETH (0x4000)
 //    Maximum block read size is 64 quadlets (implementation choice)
@@ -491,7 +496,7 @@ always @(posedge sysclk or negedge reset) begin
        sendARP <= 0;
        isUDP <= 0;
        isICMP <= 0;
-       isEcho <= 0;
+       sendEcho <= 0;
        isForward <= 0;
        ipv4_long <= 0;
        ipv4_short <= 0;
@@ -504,6 +509,8 @@ always @(posedge sysclk or negedge reset) begin
        numICMP <= 16'd0;
        numIPv4Mismatch <= 16'd0;
        numPacketError <= 16'd0;
+       numStateInvalid <= 16'd0;
+       FireWirePacketFresh <= 0;
     end
     else begin
 
@@ -816,7 +823,7 @@ always @(posedge sysclk or negedge reset) begin
             sendARP <= 0;
             isUDP <= 0;
             isICMP <= 0;
-            isEcho <= 0;
+            sendEcho <= 0;
             isMulticast <= 0;
             isBroadcast <= 0;
             ipv4_long <= 0;
@@ -831,6 +838,8 @@ always @(posedge sysclk or negedge reset) begin
             numICMP <= 16'd0;
             numIPv4Mismatch <= 16'd0;
             numPacketError <= 16'd0;
+            numStateInvalid <= 16'd0;
+            FireWirePacketFresh <= 0;
             state <= ST_IDLE;
          end
 
@@ -965,7 +974,8 @@ always @(posedge sysclk or negedge reset) begin
             else begin
                FrameCount <= FrameCount-8'd1;
                count[0] <= 1'd0;
-               // Check packet valid. Currently, not checking everything.
+               FireWirePacketFresh <= 1'd0;
+               // Check if packet valid:
                // B15: RXFV  receive frame valid
                // B13: ICMP checksum invalid
                // B12: IP checksum invalid
@@ -1166,7 +1176,7 @@ always @(posedge sysclk or negedge reset) begin
                         ip_address[31:16] <= ReadData;
                         ip_address[15:0] <=  fpgaIP[31:16];
                      end
-                     else if (!is_ip_equal) begin
+                     else if (!(is_ip_equal || isBroadcast || isMulticast)) begin
                         // If IP assigned, but not equal, we process the packet anyway,
                         // but keep track of the number of times this occurred.
                         // We could decide to update ip_address.
@@ -1216,7 +1226,7 @@ always @(posedge sysclk or negedge reset) begin
               3'd5: begin
                     echo_payload[15:0] <= ReadData;
                     count[2:0] <= 3'd0;
-                    isEcho <= 1;
+                    sendEcho <= 1;
                     state <= ST_RECEIVE_FLUSH_START;
                     end
             endcase
@@ -1332,6 +1342,7 @@ always @(posedge sysclk or negedge reset) begin
 
             if (count == maxCount) begin
                // normal completion
+               FireWirePacketFresh <= 1;
                useUDP <= isUDP;
                isUDP <= 0;
                // Allow reading of FireWire CRC
@@ -1486,7 +1497,7 @@ always @(posedge sysclk or negedge reset) begin
             //   - else go to idle state
             // TODO: check node id and forward via FireWire if necessary
             if (ReadData[0] == 1'b0) begin
-               if (((quadRead || blockRead) && isLocal) || sendARP || isEcho) begin
+               if ((FireWirePacketFresh && (quadRead || blockRead) && isLocal) || sendARP || sendEcho) begin
                   state <= ST_SEND_START;
                end
                else begin
@@ -1504,26 +1515,16 @@ always @(posedge sysclk or negedge reset) begin
                waitInfo <= WAIT_FLUSH;
             end
          end
-         
+
          //*************** States for sending Ethernet packets ******************
          // First, should check if enough memory on QMU TXQ
 
          ST_SEND_START:
          begin
-            // Disable IRQ if not IRQ handle mode
             if (isInIRQ == 1'b0) begin
                sendAck <= 0;  // TEMP
-               //cmdReq <= 1;
-               //isWrite <= 1;
-               //RegAddr <= `ETH_ADDR_IER;
-               //WriteData <= 16'h0000;    // Disable interrupt
-               //state <= ST_WAIT_ACK;
-               //nextState <= ST_SEND_TXMIR_READ;
-               state <= ST_SEND_TXMIR_READ;
             end
-            else begin
-               state <= ST_SEND_TXMIR_READ;
-            end
+            state <= ST_SEND_TXMIR_READ;
             // Reset pkt words count
             txPktWords <= 16'd0;
          end
@@ -1567,7 +1568,7 @@ always @(posedge sysclk or negedge reset) begin
                // ARP response: 14 + 28
                WriteData <= 16'd42;
             end
-            else if (isEcho) begin
+            else if (sendEcho) begin
                // Echo (ICMP) response: 14 + 20 + 12
                WriteData <= 16'd46;
             end
@@ -1643,7 +1644,7 @@ always @(posedge sysclk or negedge reset) begin
                `WriteDataSwapped <= 16'h0806;
                nextState <= ST_SEND_DMA_ARP;
             end
-            else if (useUDP || isEcho) begin
+            else if (useUDP || sendEcho) begin
                `WriteDataSwapped <= 16'h0800;
                nextState <= ST_SEND_DMA_IPV4_HEADER;
             end
@@ -1732,7 +1733,7 @@ always @(posedge sysclk or negedge reset) begin
                4'd9: begin
                      WriteData <= hostIP[15:0];
                      count[3:0] <= 4'd0;
-                     nextState <= isEcho ? ST_SEND_DMA_ICMP_HEADER : ST_SEND_DMA_UDP_HEADER;
+                     nextState <= sendEcho ? ST_SEND_DMA_ICMP_HEADER : ST_SEND_DMA_UDP_HEADER;
                      end
                default: `WriteDataSwapped <= 16'd0;
             endcase
@@ -1754,7 +1755,7 @@ always @(posedge sysclk or negedge reset) begin
               3'd5: begin
                     WriteData <= echo_payload[15:0];
                     count[2:0] <= 3'd0;
-                    isEcho <= 0;
+                    sendEcho <= 0;
                     nextState <= ST_SEND_DMA_STOP;
                     end
             endcase
@@ -2110,6 +2111,12 @@ always @(posedge sysclk or negedge reset) begin
             else begin
                state <= ST_IDLE;
             end
+         end
+
+         default:
+         begin
+            numStateInvalid <= numStateInvalid + 16'd1;
+            state <= ST_IDLE;
          end
 
          endcase // case (state)
