@@ -442,6 +442,10 @@ wire[4:1] amp_enable_cmd;
 wire[31:0] Eth_Result;
 assign  Eth_Result = 32'b0;
 
+// used to check status of user defined watchdog period; used to control LED 
+wire[2:0] wdog_period_status;
+wire wdog_timeout_led;
+
 BoardRegs chan0(
     .sysclk(sysclk),
     .clkaux(clk40m),
@@ -477,8 +481,11 @@ BoardRegs chan0(
     .ds_status(ds_status),
     .safety_amp_disable(safety_amp_disable),
     .pwr_enable_cmd(pwr_enable_cmd),
-    .amp_enable_cmd(amp_enable_cmd)
+    .amp_enable_cmd(amp_enable_cmd),
+	 .wdog_period_status(wdog_period_status),
+	 .wdog_timeout_led(wdog_timeout_led)
 );
+
 
 // ----------------------------------------------------------------------------
 // safety check 
@@ -639,14 +646,16 @@ assign DEBUG = { clk_1mhz, clk_12hz, CountI[23], CountC[23] };
 
 //------------------------------------------------------------------------------
 // LEDs on QLA 
+
 CtrlLED qla_led(
     .sysclk(sysclk),
     .clk_12hz(clk_12hz),
     .reset(reset),
+	 .wdog_period_status(wdog_period_status),
+    .wdog_timeout_led(wdog_timeout_led),
     .led1_grn(IO2[1]),
     .led1_red(IO2[3]),
     .led2_grn(IO2[5]),
     .led2_red(IO2[7])
 );
-
 endmodule

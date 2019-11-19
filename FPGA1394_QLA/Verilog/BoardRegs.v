@@ -12,6 +12,7 @@
  *     05/08/13    Zihan Chen          Fix watchdog 
  *     05/19/13    Zihan Chen          Add mv_good 40 ms sleep
  *     09/23/15    Peter Kazanzides    Moved DOUT code to CtrlDout.v
+ *     10/15/19    Jintan Zhang        Implemented watchdog period led feedback 
  */
 
 
@@ -76,7 +77,10 @@ module BoardRegs(
     output wire pwr_enable_cmd,
     output wire[4:1] amp_enable_cmd,
 
-    output reg[31:0] reg_debug     // for debug purpose only
+    output reg[31:0] reg_debug,     // for debug purpose only
+	 
+	 output reg[2:0] wdog_period_status,
+	 output reg wdog_timeout_led
 );
 
     // -------------------------------------------------------------------------
@@ -93,14 +97,16 @@ module BoardRegs(
     reg  wdog_timeout;          // watchdog timeout status flag
     reg[15:0] wdog_period;      // watchdog period, user writable
     reg[15:0] wdog_count;       // watchdog timer counter
-    
+    reg[15:0] wdog_healthy_period; // wdog_healthy_period, user writable 
+	 
     // mv good timer                                                                                                                                       
-    reg[15:0] mv_good_counter;  // mv_good counter 
+	 reg[15:0] mv_good_counter;  // mv_good counter 
     reg[4:1] mv_amp_disable;    // mv good amp_disable
 
     // reset signal generation
     reg[6:0] reset_shift;       // counts number of clocks after reset
     reg reset_soft_trigger;     // trigger global reset when set
+	 
     initial begin
         reset_shift = 0;
         reset = 1;
@@ -148,7 +154,6 @@ always @(posedge(sysclk) or negedge(reset))
         reset_soft_trigger <= 1'b0;  // clear reset_soft_trigger
         eth1394 <= 1'b0;    // clear eth1394 mode (i.e. normal FireWire mode)
      end
-
     // set register values for writes
     else if (write_main) begin
         case (reg_waddr[3:0])
@@ -176,7 +181,6 @@ always @(posedge(sysclk) or negedge(reset))
         `REG_DEBUG:   reg_debug <= reg_wdata[31:0];
         endcase
     end
-
     // return register data for reads
     else begin
         case (reg_raddr[3:0])
@@ -223,25 +227,50 @@ end
 ClkDiv divWdog(sysclk, wdog_clk);
 defparam divWdog.width = `WIDTH_WATCHDOG;
 
+// assign phase states to wdog_period_status
+always @(wdog_period)                           // executes if wdog_period is updated
+begin
+	if (wdog_period == 16'h0) begin
+		 wdog_period_status <= `WDOG_DISABLE;      // watchdog period = 0ms
+	end
+	else if (wdog_period <= 16'h2580) begin
+		 wdog_period_status <= `WDOG_PHASE_ONE;    // watchdog period between 0ms and 50 ms
+	end
+	else if (wdog_period <= 16'h4B00) begin
+		 wdog_period_status <= `WDOG_PHASE_TWO;    // watchdog period between 50ms and 100 ms
+	end
+	else if (wdog_period <= 16'h7080) begin
+		 wdog_period_status <= `WDOG_PHASE_THREE;  // watchdog period between 100ms and 150 ms
+	end
+	else if (wdog_period <= 16'h9600) begin
+		 wdog_period_status <= `WDOG_PHASE_FOUR;   // watchdog period between 150ms and 200 ms
+	end
+   else begin
+		 wdog_period_status <= `WDOG_PHASE_FIVE;   // watchdog period larger than 200ms
+	end
+end
+
 // watchdog timer and flag, resets via any register write
 always @(posedge(wdog_clk) or negedge(reset) or posedge(reg_wen) or posedge(powerup_cmd))
 begin
     if (reset==0 || powerup_cmd) begin
         wdog_count <= 0;                        // reset the timer counter
-        wdog_timeout <= 0;                      // clear wdog_timeout
+        wdog_timeout <= 0;                      // clear wdog_timeout  
+		  wdog_timeout_led <= 1'b0;               // reset wgod_timeout_led
     end
     else if (reg_wen) begin
         // reset counter on any reg write
         wdog_count <= 0;                        // reset the timer counter
     end
     else if (wdog_period) begin
-        // watchdog only works when period is set
+        // watchdog only works when wdog_period and is set
         if (wdog_count < wdog_period) begin     // time between reg writes
             wdog_count <= wdog_count + 1'b1;    // increment timer counter
         end
-        else begin
-            wdog_timeout <= 1'b1;               // raise flag
-        end
+		  else begin
+				wdog_timeout <= 1'b1;               // raise flag
+				wdog_timeout_led <= 1'b1;           // set wgod_timeout_led
+		  end
     end
 end
 

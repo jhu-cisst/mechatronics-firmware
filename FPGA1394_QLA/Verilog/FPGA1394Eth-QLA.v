@@ -653,6 +653,10 @@ wire[4:1] amp_enable_cmd;
 // 'channel 0' is a special axis that contains various board I/Os
 wire[31:0] reg_rdata_chan0;
 
+// used to check status of user defined watchdog period; used to control LED 
+wire[2:0] wdog_period_status;
+wire wdog_timeout_led;
+
 // TO FIX: clkaux was 40m, now 25m
 BoardRegs chan0(
     .sysclk(sysclk),
@@ -689,11 +693,13 @@ BoardRegs chan0(
     .ds_status(ds_status),
     .safety_amp_disable(safety_amp_disable),
     .pwr_enable_cmd(pwr_enable_cmd),
-    .amp_enable_cmd(amp_enable_cmd)
+    .amp_enable_cmd(amp_enable_cmd),
 `ifdef USE_CHIPSCOPE
     ,
     .reg_debug(dbg_reg_debug)
 `endif
+	 .wdog_period_status(wdog_period_status),
+	 .wdog_timeout_led(wdog_timeout_led)
 );
 
 // ----------------------------------------------------------------------------
@@ -774,6 +780,8 @@ CtrlLED qla_led(
     .sysclk(sysclk),
     .clk_12hz(clk_12hz),
     .reset(reset),
+    .wdog_period_status(wdog_period_status),
+    .wdog_timeout_led(wdog_timeout_led),
     .led1_grn(IO2[1]),
     .led1_red(IO2[3]),
     .led2_grn(IO2[5]),
