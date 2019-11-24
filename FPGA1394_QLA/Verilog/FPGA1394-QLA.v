@@ -482,8 +482,8 @@ BoardRegs chan0(
     .safety_amp_disable(safety_amp_disable),
     .pwr_enable_cmd(pwr_enable_cmd),
     .amp_enable_cmd(amp_enable_cmd),
-	 .wdog_period_status(wdog_period_status),
-	 .wdog_timeout_led(wdog_timeout_led)
+    .wdog_period_status(wdog_period_status),
+    .wdog_timeout_led(wdog_timeout_led)
 );
 
 
@@ -651,7 +651,7 @@ CtrlLED qla_led(
     .sysclk(sysclk),
     .clk_12hz(clk_12hz),
     .reset(reset),
-	 .wdog_period_status(wdog_period_status),
+    .wdog_period_status(wdog_period_status),
     .wdog_timeout_led(wdog_timeout_led),
     .led1_grn(IO2[1]),
     .led1_red(IO2[3]),

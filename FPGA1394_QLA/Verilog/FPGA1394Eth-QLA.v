@@ -698,8 +698,8 @@ BoardRegs chan0(
     ,
     .reg_debug(dbg_reg_debug)
 `endif
-	 .wdog_period_status(wdog_period_status),
-	 .wdog_timeout_led(wdog_timeout_led)
+    .wdog_period_status(wdog_period_status),
+    .wdog_timeout_led(wdog_timeout_led)
 );
 
 // ----------------------------------------------------------------------------

@@ -25,7 +25,7 @@ module CtrlLED(
     input wire sysclk,
     input wire clk_12hz,
     input wire reset,
-	 input wire[2:0] wdog_period_status,
+    input wire[2:0] wdog_period_status,
     input wire wdog_timeout_led,
     output wire led1_grn,
     output wire led1_red,
@@ -56,14 +56,14 @@ begin
             led_2hz_signal <= 1'b1;
         end
         else begin
-				if  (led_2hz_reset_mode_counter < 5'd12) begin
-					  led_2hz_reset_mode_counter <= led_2hz_reset_mode_counter + 5'd1;  
-				     led_2hz_signal <= 1'b0;
-				end 
-				else begin 
-					  led_2hz_reset_mode_counter <= 5'd0;
-				end
-		  end
+            if  (led_2hz_reset_mode_counter < 5'd12) begin
+                 led_2hz_reset_mode_counter <= led_2hz_reset_mode_counter + 5'd1;  
+                 led_2hz_signal <= 1'b0;
+            end 
+            else begin 
+            led_2hz_reset_mode_counter <= 5'd0;
+            end
+        end
     end
 end
 
@@ -80,14 +80,14 @@ begin
             led_1hz_signal <= 1'b1;
         end
         else begin
-				if  (led_1hz_reset_mode_counter < 5'd24) begin
-					  led_1hz_reset_mode_counter <= led_1hz_reset_mode_counter + 5'd1;  
-				     led_1hz_signal <= 1'b0;
-				end 
-				else begin 
-					  led_1hz_reset_mode_counter <= 5'd0;
-				end
-		  end
+            if  (led_1hz_reset_mode_counter < 5'd24) begin
+                 led_1hz_reset_mode_counter <= led_1hz_reset_mode_counter + 5'd1;  
+                 led_1hz_signal <= 1'b0;
+            end 
+            else begin 
+                 led_1hz_reset_mode_counter <= 5'd0;
+            end
+        end
     end
 end
 
@@ -104,14 +104,14 @@ begin
             led_500mhz_signal <= 1'b1;
         end
         else begin
-				if  (led_500mhz_reset_mode_counter < 6'd48) begin
-					  led_500mhz_reset_mode_counter <= led_500mhz_reset_mode_counter + 6'd1;  
-				     led_500mhz_signal <= 1'b0;
-				end 
-				else begin 
-					  led_500mhz_reset_mode_counter <= 6'd0;
-				end
-		  end
+            if  (led_500mhz_reset_mode_counter < 6'd48) begin
+                 led_500mhz_reset_mode_counter <= led_500mhz_reset_mode_counter + 6'd1;  
+                 led_500mhz_signal <= 1'b0;
+            end 
+            else begin 
+                 led_500mhz_reset_mode_counter <= 6'd0;
+            end
+        end
     end
 end
 
