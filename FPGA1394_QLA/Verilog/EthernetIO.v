@@ -129,7 +129,7 @@ reg ethDestError;      // 1 -> Incorrect destination (FireWire destination does 
 reg[6:0] state;
 reg[6:0] nextState;
 
-reg[15:0] numStateInvalid;   // Number of invalid states (for debugging)
+reg[9:0] numStateInvalid;   // Number of invalid states (for debugging)
 
 `ifdef USE_CHIPSCOPE
 assign dbg_state_eth = state;
@@ -250,8 +250,8 @@ wire quadWrite;
 wire blockRead;
 wire blockWrite;
 
-reg isMulticast;
-reg isBroadcast;
+reg isEthMulticast;
+reg isEthBroadcast;
 
 // Whether to use UDP (1) or raw Ethernet frames (0).
 // This mode is set each time a valid packet is received
@@ -296,7 +296,7 @@ assign eth_status[24] = quadRead;        // 24: quadRead (debugging)
 assign eth_status[23] = quadWrite;       // 23: quadWrite (debugging)
 assign eth_status[22] = blockRead;       // 22: blockRead (debugging)
 assign eth_status[21] = blockWrite;      // 21: blockWrite (debugging)
-//assign eth_status[20] = isMulticast;   // 20: multicast received
+//assign eth_status[20] = isEthMulticast;   // 20: multicast received
 assign eth_status[20] = useUDP;          // 20: multicast received
 assign eth_status[19] = ksz_isIdle;      // 19: KSZ8851 state machine is idle
 assign eth_status[18] = eth_io_isIdle;   // 18: Ethernet I/O state machine is idle
@@ -328,13 +328,13 @@ reg[15:0] ipv4_length;    // Length field of IPv4 header (not currently used)
 reg[18:0] ipv4_checksum;  // Checksum for IPv4 header
 
 reg[15:0] numPacketValid;    // Number of valid Ethernet frames received
-reg[15:0] numPacketInvalid;  // Number of invalid Ethernet frames received
-reg[15:0] numIPv4;           // Number of IPv4 packets received
-reg[15:0] numUDP;            // Number of UDP packets received
-reg[15:0] numARP;            // Number of ARP packets received
-reg[15:0] numICMP;           // Number of ICMP packets received
-reg[15:0] numPacketError;    // Number of packet errors
-reg[15:0] numIPv4Mismatch;   // Number of IPv4 packets with different IP address
+reg[9:0 ] numPacketInvalid;  // Number of invalid Ethernet frames received
+reg[9:0] numIPv4;            // Number of IPv4 packets received
+reg[9:0] numUDP;             // Number of UDP packets received
+reg[9:0] numARP;             // Number of ARP packets received
+reg[9:0] numICMP;            // Number of ICMP packets received
+reg[9:0] numPacketError;     // Number of packet errors
+reg[9:0] numIPv4Mismatch;    // Number of IPv4 packets with different IP address
 
 localparam[31:0] IP_UNASSIGNED = 32'hffffffff;
 wire is_ip_unassigned;
@@ -348,7 +348,7 @@ wire is_ip_equal;
 assign is_ip_equal = (ip_address == {ReadData, fpgaIP[31:16]}) ? 1 : 0;
 
 // ----------------------------------------
-// Forward forward packet
+// Whether packet is being forwarded (to Ethernet) from FireWire receiver
 // ----------------------------------------
 reg isForward;
 
@@ -356,7 +356,8 @@ wire [31:0] DebugData[0:31];
 assign DebugData[0]  = "0GBD";  // DBG0 byte-swapped
 assign DebugData[1]  = timestamp;
 assign DebugData[2]  = {11'd0, node_id, eth_status};
-assign DebugData[3]  = { 1'd0, state, 1'd0, nextState, 4'h0, FireWirePacketFresh, isBroadcast, isMulticast, ~ETH_IRQn,
+assign DebugData[3]  = { 1'd0, state, 1'd0, nextState,
+                         2'h0, isLocal, isRemote, FireWirePacketFresh, isEthBroadcast, isEthMulticast, ~ETH_IRQn,
                          isForward, isInIRQ, sendARP, isUDP, isICMP, sendEcho, ipv4_long, ipv4_short};
 assign DebugData[4]  = { RegISR, RegISROther};
 assign DebugData[5]  = { 16'h2233, FrameCount, count};
@@ -368,11 +369,11 @@ assign DebugData[10]  = { hostIP[15:0], hostIP[31:16] };
 assign DebugData[11] = { fpgaIP[15:0], fpgaIP[31:16] };
 assign DebugData[12] = { ipv4_length, 4'h0, rxPktWords };
 assign DebugData[13] = { 16'h4455, txPktWords };
-assign DebugData[14] = { numPacketInvalid, numPacketValid };
-assign DebugData[15] = { numUDP, numIPv4 };
-assign DebugData[16] = { numICMP, numARP };
-assign DebugData[17] = { numIPv4Mismatch, numPacketError };
-assign DebugData[18] = { 16'd0, numStateInvalid };
+assign DebugData[14] = { 6'd0, numPacketInvalid, numPacketValid };
+assign DebugData[15] = { 6'd0, numUDP, 6'd0, numIPv4 };
+assign DebugData[16] = { 6'd0, numICMP, 6'd0, numARP };
+assign DebugData[17] = { 6'd0, numIPv4Mismatch, 6'd0, numPacketError };
+assign DebugData[18] = { 16'd0, 6'd0, numStateInvalid };
 assign DebugData[19] = timestamp;
 
 
@@ -407,28 +408,38 @@ assign reg_rdata = (reg_raddr[7] == 0) ? FireWirePacket[reg_raddr[6:0]] : DebugD
 
 wire[3:0] fw_tcode;            // FireWire transaction code
 wire[5:0] fw_tl;               // FireWire transaction label
+wire[3:0] fw_pri;              // FireWire priority field
 wire[15:0] block_data_length;  // Data length (in bytes) for block read/write requests
 
 assign fw_tl = FireWirePacket[0][15:10];
 assign fw_tcode = FireWirePacket[0][7:4];
+assign fw_pri = FireWirePacket[0][3:0];
 assign block_data_length = FireWirePacket[3][31:16];
 
-// Valid destination address
+// Valid destination address: check if first 10 bits are FFC (i.e., all 1)
 wire valid_dest_id;
-assign valid_dest_id = (FireWirePacket[0][31:20] == 12'hFFC) ? 1'd1 : 1'd0;
+assign valid_dest_id = (FireWirePacket[0][31:22] == 10'h3FF) ? 1'd1 : 1'd0;
 wire[5:0] dest_node_id;
 assign dest_node_id = FireWirePacket[0][21:16];
 
+wire isFwBroadcast = (dest_node_id == 6'h3f) ? 1'd1 : 1'd0;
+
 // wire[3:0] dest_board;
 // assign dest_board = FireWirePacket[0][19:16];
-// assign isLocal = isMulticast || (dest_board == board_id) || (dest_board == 4'hf);
-// assign isRemote = (dest_board != board_id) && (~isMulticast);
+// assign isLocal = isEthMulticast || (dest_board == board_id) || (dest_board == 4'hf);
+// assign isRemote = (dest_board != board_id) && (~isEthMulticast);
 
 // Local write if Ethernet broadcast or multicast, addresses this board, or FireWire broadcast
-// Note: maybe use 8'hff for FireWire broadcast
-assign isLocal = isMulticast || isBroadcast || (dest_node_id == node_id) || (dest_node_id == 6'h3f);
-// TODO: Might be useful to forward some multicast or broadcast packets
-assign isRemote = (dest_node_id != node_id) && ~(isMulticast||isBroadcast);
+// PK TODO: maybe not assume local if Ethernet broadcast/multicast, since the host PC now uses
+// the Firewire PRI field to indicate whether the packet should be forwarded.
+assign isLocal = isEthMulticast || isEthBroadcast || (dest_node_id == node_id) || isFwBroadcast;
+
+// assign isRemote = (dest_node_id != node_id) && ~(isEthMulticast||isEthBroadcast);
+// Remote write if not addressing this board (note that this check includes Firewire broadcast)
+// and if LSB of Firewire PRI field is set. This latter check is a non-standard use of the
+// Firewire PRI field, but is supported by the PC software interface (UDP and PCAP).
+// Also, note that some packets (e.g., Firewire broadcast) may set both isLocal and isRemote.
+assign isRemote = (dest_node_id != node_id) && (fw_pri[0] != 1'd1);
 
 assign quadRead = (fw_tcode == `TC_QREAD) ? 1'd1 : 1'd0;
 assign quadWrite = (fw_tcode == `TC_QWRITE) ? 1'd1 : 1'd0;
@@ -474,8 +485,8 @@ always @(posedge sysclk or negedge reset) begin
        ethIoError <= 0;
        ethPacketError <= 0;
        ethDestError <= 0;
-       isMulticast <= 0;
-       isBroadcast <= 0;
+       isEthMulticast <= 0;
+       isEthBroadcast <= 0;
        sendAck <= 0;
        ip_address <= IP_UNASSIGNED;
        srcMac[0] <= 16'd0;
@@ -502,14 +513,14 @@ always @(posedge sysclk or negedge reset) begin
        ipv4_short <= 0;
        RegISROther <= 16'd0;
        numPacketValid <= 16'd0;
-       numPacketInvalid <= 16'd0;
-       numIPv4 <= 16'd0;
-       numUDP <= 16'd0;
-       numARP <= 16'd0;
-       numICMP <= 16'd0;
-       numIPv4Mismatch <= 16'd0;
-       numPacketError <= 16'd0;
-       numStateInvalid <= 16'd0;
+       numPacketInvalid <= 10'd0;
+       numIPv4 <= 10'd0;
+       numUDP <= 10'd0;
+       numARP <= 10'd0;
+       numICMP <= 10'd0;
+       numIPv4Mismatch <= 10'd0;
+       numPacketError <= 10'd0;
+       numStateInvalid <= 10'd0;
        FireWirePacketFresh <= 0;
     end
     else begin
@@ -824,21 +835,21 @@ always @(posedge sysclk or negedge reset) begin
             isUDP <= 0;
             isICMP <= 0;
             sendEcho <= 0;
-            isMulticast <= 0;
-            isBroadcast <= 0;
+            isEthMulticast <= 0;
+            isEthBroadcast <= 0;
             ipv4_long <= 0;
             ipv4_short <= 0;
             RegISROther <= 16'd0;
             isForward <= 0;
             numPacketValid <= 16'd0;
-            numPacketInvalid <= 16'd0;
-            numIPv4 <= 16'd0;
-            numUDP <= 16'd0;
-            numARP <= 16'd0;
-            numICMP <= 16'd0;
-            numIPv4Mismatch <= 16'd0;
-            numPacketError <= 16'd0;
-            numStateInvalid <= 16'd0;
+            numPacketInvalid <= 10'd0;
+            numIPv4 <= 10'd0;
+            numUDP <= 10'd0;
+            numARP <= 10'd0;
+            numICMP <= 10'd0;
+            numIPv4Mismatch <= 10'd0;
+            numPacketError <= 10'd0;
+            numStateInvalid <= 10'd0;
             FireWirePacketFresh <= 0;
             state <= ST_IDLE;
          end
@@ -991,16 +1002,16 @@ always @(posedge sysclk or negedge reset) begin
                // B00: RXCE  receive CRC error
                if (~ReadData[15] || (ReadData&16'b0011110000010111 != 16'h0)) begin
                   // Error detected, so flush frame
-                  isMulticast <= 0;
-                  isBroadcast <= 0;
-                  numPacketInvalid <= numPacketInvalid + 16'd1;
+                  isEthMulticast <= 0;
+                  isEthBroadcast <= 0;
+                  numPacketInvalid <= numPacketInvalid + 10'd1;
                   state <= ST_RECEIVE_FLUSH_START;
                end
                else begin
                   // Valid frame, so start processing
                   cmdReq <= 1;
-                  isBroadcast <= ReadData[7];
-                  isMulticast <= ReadData[6];
+                  isEthBroadcast <= ReadData[7];
+                  isEthMulticast <= ReadData[6];
                   isWrite <= 0;
                   RegAddr <= `ETH_ADDR_RXFHBCR;
                   state <= ST_WAIT_ACK;
@@ -1013,7 +1024,7 @@ always @(posedge sysclk or negedge reset) begin
          ST_RECEIVE_FRAME_LENGTH:
          begin
             if (ReadData[11:0] == 12'd0) begin
-               numPacketInvalid <= numPacketInvalid + 16'd1;
+               numPacketInvalid <= numPacketInvalid + 10'd1;
                state <= ST_RECEIVE_FLUSH_START;
             end
             else begin
@@ -1091,19 +1102,19 @@ always @(posedge sysclk or negedge reset) begin
                else if (`ReadDataSwapped == 16'h0800) begin
                   // IPv4 Ethertype is 0x0800
                   nextState <= ST_RECEIVE_DMA_IPV4_HEADER;
-                  numIPv4 <= numIPv4 + 16'd1;
+                  numIPv4 <= numIPv4 + 10'd1;
                   // Default value of maxCount (IPv4 header has at least 10 words)
                   maxCount[4:0] <= 5'd9;
                end
                else if (`ReadDataSwapped == 16'h0806) begin
                   // ARP Ethertype is 0x0806
-                  numARP <= numARP + 16'd1;
+                  numARP <= numARP + 10'd1;
                   nextState <= ST_RECEIVE_DMA_ARP;
                end
                else begin
                   // Unsupported EtherType (or length greater than 512 bytes)
                   ethPacketError <= 1;
-                  numPacketError <= numPacketError + 16'd1;
+                  numPacketError <= numPacketError + 10'd1;
                   state <= ST_RECEIVE_FLUSH_START;
                end
                count <= 8'd0;
@@ -1123,7 +1134,7 @@ always @(posedge sysclk or negedge reset) begin
                5'd0: begin
                      if (ReadData[7:4] != 4'h4) begin
                         ethPacketError <= 1;
-                        numPacketError <= numPacketError + 16'd1;
+                        numPacketError <= numPacketError + 10'd1;
                         state <= ST_RECEIVE_FLUSH_START;
                      end
                      else begin
@@ -1155,7 +1166,7 @@ always @(posedge sysclk or negedge reset) begin
                      end
                      else begin
                         ethPacketError <= 1;
-                        numPacketError <= numPacketError + 16'd1;
+                        numPacketError <= numPacketError + 10'd1;
                         state <= ST_RECEIVE_FLUSH_START;
                      end
                      end
@@ -1169,30 +1180,31 @@ always @(posedge sysclk or negedge reset) begin
                5'd8: fpgaIP[31:16] <= ReadData;
                5'd9: begin
                      fpgaIP[15:0] <= ReadData;
-                     if (is_ip_unassigned) begin
-                        // This case can occur when the host PC already has
-                        // an ARP cache entry for this board, in which case
-                        // we just assign the IP address.
+                     if (is_ip_unassigned && (ReadData[15:8] != 8'hff)) begin
+                        // This case can occur when the host PC already has an ARP
+                        // cache entry for this board, in which case we just assign
+                        //  the IP address, as long as it is not a broadcast address
+                        //  (we only check whether the last byte is 255).
                         ip_address[31:16] <= ReadData;
                         ip_address[15:0] <=  fpgaIP[31:16];
                      end
-                     else if (!(is_ip_equal || isBroadcast || isMulticast)) begin
+                     else if (!(is_ip_equal || isEthBroadcast || isEthMulticast)) begin
                         // If IP assigned, but not equal, we process the packet anyway,
                         // but keep track of the number of times this occurred.
                         // We could decide to update ip_address.
-                        numIPv4Mismatch <= numIPv4Mismatch + 16'd1;
+                        numIPv4Mismatch <= numIPv4Mismatch + 10'd1;
                      end
                      end
             endcase
             if (count[4:0] == maxCount[4:0]) begin
                // Reached end of IPv4 header
                if (isUDP) begin
-                  numUDP <= numUDP + 16'd1;
+                  numUDP <= numUDP + 10'd1;
                   nextState <= ST_RECEIVE_DMA_UDP_HEADER;
                   count[4:0] <= 5'd0;
                end
                else if (isICMP) begin
-                  numICMP <= numICMP + 16'd1;
+                  numICMP <= numICMP + 10'd1;
                   nextState <= ST_RECEIVE_DMA_ICMP_HEADER;
                   count[4:0] <= 5'd0;
                   isICMP <= 0;
@@ -1201,7 +1213,7 @@ always @(posedge sysclk or negedge reset) begin
                   // Should never get here since 5'd4 case flushes packet
                   // if not UDP or ICMP.
                   ethPacketError <= 1;
-                  numPacketError <= numPacketError + 16'd1;
+                  numPacketError <= numPacketError + 10'd1;
                   state <= ST_RECEIVE_FLUSH_START;
                end
             end
@@ -1251,7 +1263,7 @@ always @(posedge sysclk or negedge reset) begin
                if ({ReadData[7:0],ReadData[15:8]} != 16'd1394) begin
                   isUDP <= 0;
                   ethPacketError <= 1;
-                  numPacketError <= numPacketError + 16'd1;
+                  numPacketError <= numPacketError + 10'd1;
                   state <= ST_RECEIVE_FLUSH_START;
                end
             end
@@ -1365,7 +1377,7 @@ always @(posedge sysclk or negedge reset) begin
                // packet too long; stop here to avoid buffer overflow
                isUDP <= 0;
                ethPacketError <= 1;
-               numPacketError <= numPacketError + 16'd1;
+               numPacketError <= numPacketError + 10'd1;
                cmdReq <= 0;
                state <= ST_RECEIVE_FLUSH_START;
             end
@@ -2115,7 +2127,7 @@ always @(posedge sysclk or negedge reset) begin
 
          default:
          begin
-            numStateInvalid <= numStateInvalid + 16'd1;
+            numStateInvalid <= numStateInvalid + 10'd1;
             state <= ST_IDLE;
          end
 
