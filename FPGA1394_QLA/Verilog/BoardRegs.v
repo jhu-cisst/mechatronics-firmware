@@ -15,6 +15,7 @@
  *     05/08/13    Zihan Chen          Fix watchdog 
  *     05/19/13    Zihan Chen          Add mv_good 40 ms sleep
  *     09/23/15    Peter Kazanzides    Moved DOUT code to CtrlDout.v
+ *     10/15/19    Jintan Zhang        Implemented watchdog period led feedback 
  *     07/03/20    Peter Kazanzides    Changing reset to reboot
  */
 
@@ -86,6 +87,11 @@ module BoardRegs(
     output wire[31:0] reg_status,  // Status register (for reading)
     output wire[31:0] reg_digin,   // Digital I/O register (for reading)
     output reg[31:0] reg_debug     // for debug purpose only
+`ifdef WDOG_LED
+    ,
+    output reg[2:0] wdog_period_status,
+    output reg wdog_timeout_led
+`endif
 );
 
     // -------------------------------------------------------------------------
@@ -104,6 +110,10 @@ module BoardRegs(
     reg[15:0] wdog_period;      // watchdog period, user writable
     initial wdog_period = 16'h1680;  // 0x1680 == 30 msec
     reg[15:0] wdog_count;       // watchdog timer counter
+
+`ifdef WDOG_LED
+    reg[15:0] wdog_healthy_period; // wdog_healthy_period, user writable 
+`endif
 
     // mv good timer
     reg[15:0] mv_good_counter;  // mv_good counter
@@ -227,6 +237,31 @@ end
 ClkDiv divWdog(sysclk, wdog_clk);
 defparam divWdog.width = `WIDTH_WATCHDOG;
 
+`ifdef WDOG_LED
+// assign phase states to wdog_period_status
+always @(wdog_period)                           // executes if wdog_period is updated
+begin
+    if (wdog_period == 16'h0) begin
+        wdog_period_status <= `WDOG_DISABLE;      // watchdog period = 0ms
+    end
+    else if (wdog_period <= 16'h2580) begin
+        wdog_period_status <= `WDOG_PHASE_ONE;    // watchdog period between 0ms and 50 ms
+    end
+    else if (wdog_period <= 16'h4B00) begin
+        wdog_period_status <= `WDOG_PHASE_TWO;    // watchdog period between 50ms and 100 ms
+    end
+    else if (wdog_period <= 16'h7080) begin
+        wdog_period_status <= `WDOG_PHASE_THREE;  // watchdog period between 100ms and 150 ms
+    end
+    else if (wdog_period <= 16'h9600) begin
+        wdog_period_status <= `WDOG_PHASE_FOUR;   // watchdog period between 150ms and 200 ms
+    end
+    else begin
+        wdog_period_status <= `WDOG_PHASE_FIVE;   // watchdog period larger than 200ms
+    end
+end
+`endif
+
 // watchdog timer and flag, cleared via any register write
 always @(posedge(wdog_clk) or posedge(reg_wen) or posedge(powerup_cmd))
 begin
@@ -245,6 +280,7 @@ begin
         end
         else begin
             wdog_timeout <= 1'b1;               // raise flag
+            wdog_timeout_led <= 1'b1;           // set wdog_timeout_led
         end
     end
 end
