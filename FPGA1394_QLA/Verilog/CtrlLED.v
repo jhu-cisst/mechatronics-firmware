@@ -119,7 +119,7 @@ end
 always @(wdog_period_status or wdog_timeout_led)
 begin
 	if(!wdog_timeout_led) begin
-		 led_mode <= wdog_period_status;
+       led_mode <= wdog_period_status;
 	end
 	else begin
 	    led_mode <= `WDOG_TIMEOUT;
