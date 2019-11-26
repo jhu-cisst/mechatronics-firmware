@@ -478,15 +478,11 @@ always @(posedge sysclk or negedge reset) begin
        isWrite <= 0;
        isWord <= 1;   // all transfers are word
        isInIRQ <= 0;
-       state <= ST_IDLE;
-       nextState <= ST_IDLE;
        initAck <= 0;
        initOK <= 0;
        ethIoError <= 0;
        ethPacketError <= 0;
        ethDestError <= 0;
-       isEthMulticast <= 0;
-       isEthBroadcast <= 0;
        sendAck <= 0;
        ip_address <= IP_UNASSIGNED;
        srcMac[0] <= 16'd0;
@@ -504,24 +500,9 @@ always @(posedge sysclk or negedge reset) begin
        block_index <= 0;
        eth_send_fw_req <= 0;
        useUDP <= 0;
-       sendARP <= 0;
-       isUDP <= 0;
-       isICMP <= 0;
-       sendEcho <= 0;
-       isForward <= 0;
-       ipv4_long <= 0;
-       ipv4_short <= 0;
-       RegISROther <= 16'd0;
-       numPacketValid <= 16'd0;
-       numPacketInvalid <= 10'd0;
-       numIPv4 <= 10'd0;
-       numUDP <= 10'd0;
-       numARP <= 10'd0;
-       numICMP <= 10'd0;
-       numIPv4Mismatch <= 10'd0;
-       numPacketError <= 10'd0;
-       numStateInvalid <= 10'd0;
-       FireWirePacketFresh <= 0;
+       // Rest of initialization in ST_INIT_DONE
+       state <= ST_INIT_DONE;
+       nextState <= ST_IDLE;
     end
     else begin
 
@@ -1728,8 +1709,8 @@ always @(posedge sysclk or negedge reset) begin
                      // Sum of fixed fields = 0x4500 + 0x4011 = 0x8511
                      // WriteDataSwapped contains the Length value
                      // Since Length is small, we assume no more than 4 carries, so sum as an 18-bit number.
-                     ipv4_checksum <= 18'h8511 + {2'd0,`WriteDataSwapped} + {2'd0,fpgaIP[31:16]} +
-                                      {2'd0,fpgaIP[15:0]} + {2'd0,hostIP[31:16]} + {2'd0,hostIP[15:0]};
+                     ipv4_checksum <= 18'h8511 + {2'd0,`WriteDataSwapped} + {2'd0,(is_ip_unassigned?fpgaIP[31:16]:ip_address[15:0])} +
+                                      {2'd0,(is_ip_unassigned?fpgaIP[15:0]:ip_address[31:16])} + {2'd0,hostIP[31:16]} + {2'd0,hostIP[15:0]};
                end
                // Word 3: Flags, Fragment Offset
                4'd3: `WriteDataSwapped <= {3'b010, 13'd0};  // Set the DF (do not fragment) bit
@@ -1738,8 +1719,8 @@ always @(posedge sysclk or negedge reset) begin
                // Word 5: Header Checksum: Ones complement of sum of all 16-bit words, with carry added.
                4'd5: `WriteDataSwapped <= ~(ipv4_checksum[15:0] + {14'd0,ipv4_checksum[17:16]});
                // Words 6,7: Source IP
-               4'd6: WriteData <= fpgaIP[31:16];
-               4'd7: WriteData <= fpgaIP[15:0];
+               4'd6: WriteData <= is_ip_unassigned ? fpgaIP[31:16] : ip_address[15:0];
+               4'd7: WriteData <= is_ip_unassigned ? fpgaIP[15:0] : ip_address[31:16];
                // Words 8,9: Destination IP
                4'd8: WriteData <= hostIP[31:16];
                4'd9: begin
@@ -1802,9 +1783,9 @@ always @(posedge sysclk or negedge reset) begin
             case (count[2:0])
                3'd0: WriteData <= FireWirePacket[1][31:16];   // quadlet 0: dest-id
                3'd1: WriteData <= {quadRead ? `TC_QRESP : `TC_BRESP, 4'd0, fw_tl, 2'd0}; // quadlet 0: tcode
-               3'd2: WriteData <= FireWirePacket[2][31:16];   // src-id
+               3'd2: WriteData <= {FireWirePacket[2][31:22], node_id};   // src-id
                3'd3: WriteData <= 16'h0;                      // rcode, reserved
-               3'd4: WriteData <= {FrameCount, 8'h2b};        // reserved, but use it for debugging
+               3'd4: WriteData <= 16'h0;                      // reserved
                3'd5:
                   begin
                      WriteData <= eth_status[31:16]; // normally reserved, but use it for debugging
