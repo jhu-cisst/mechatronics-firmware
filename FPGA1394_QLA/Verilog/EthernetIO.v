@@ -394,7 +394,7 @@ assign DebugData[19] = timestamp;
 // reg[31:0] FireWirePacket[0:70];  // FireWire packet memory (max 71 quadlets)
 // Allocate pow(2,7) = 128 quadlets
 reg [31:0] FireWirePacket[0:127];
-assign eth_fwpkt_rdata = FireWirePacket[eth_fwpkt_raddr[6:0]]; 
+assign eth_fwpkt_rdata = FireWirePacket[eth_fwpkt_raddr[6:0]];
 reg FireWirePacketFresh;   // 1 -> FireWirePacket data is valid (fresh)
 
 
@@ -424,15 +424,9 @@ assign dest_node_id = FireWirePacket[0][21:16];
 
 wire isFwBroadcast = (dest_node_id == 6'h3f) ? 1'd1 : 1'd0;
 
-// wire[3:0] dest_board;
-// assign dest_board = FireWirePacket[0][19:16];
-// assign isLocal = isEthMulticast || (dest_board == board_id) || (dest_board == 4'hf);
-// assign isRemote = (dest_board != board_id) && (~isEthMulticast);
-
-// Local write if Ethernet broadcast or multicast, addresses this board, or FireWire broadcast
-// PK TODO: maybe not assume local if Ethernet broadcast/multicast, since the host PC now uses
-// the Firewire PRI field to indicate whether the packet should be forwarded.
-assign isLocal = isEthMulticast || isEthBroadcast || (dest_node_id == node_id) || isFwBroadcast;
+// Local write if addresses this board or FireWire broadcast.
+// Note that the host PC uses the Firewire PRI field to indicate whether the packet should be forwarded.
+assign isLocal = (dest_node_id == node_id) || isFwBroadcast;
 
 // assign isRemote = (dest_node_id != node_id) && ~(isEthMulticast||isEthBroadcast);
 // Remote write if not addressing this board (note that this check includes Firewire broadcast)
@@ -1781,14 +1775,14 @@ always @(posedge sysclk or negedge reset) begin
          begin
             cmdReq <= 1;
             case (count[2:0])
-               3'd0: WriteData <= FireWirePacket[1][31:16];   // quadlet 0: dest-id
-               3'd1: WriteData <= {quadRead ? `TC_QRESP : `TC_BRESP, 4'd0, fw_tl, 2'd0}; // quadlet 0: tcode
-               3'd2: WriteData <= {FireWirePacket[2][31:22], node_id};   // src-id
+               3'd0: WriteData <= {FireWirePacket[1][23:16], FireWirePacket[1][31:24]};   // quadlet 0: dest-id
+               3'd1: WriteData <= {quadRead ? `TC_QRESP : `TC_BRESP, 4'd0, fw_tl, 2'd0};  // quadlet 0: tcode
+               3'd2: WriteData <= {FireWirePacket[0][23:22], node_id, FireWirePacket[0][31:24]};   // src-id
                3'd3: WriteData <= 16'h0;                      // rcode, reserved
                3'd4: WriteData <= 16'h0;                      // reserved
                3'd5:
                   begin
-                     WriteData <= eth_status[31:16]; // normally reserved, but use it for debugging
+                     WriteData <= 16'h0;
                      count[2:0] <= 3'd0;
                      eth_reg_raddr <= FireWirePacket[2][15:0];
                      if (quadRead) begin
