@@ -126,8 +126,8 @@ reg ethPacketError;    // 1 -> Packet too long, unsupported packet type, IPv4 he
 reg ethDestError;      // 1 -> Incorrect destination (FireWire destination does not begin with 0xFFC)
 
 // Current state and next state
-reg[6:0] state;
-reg[6:0] nextState;
+reg[5:0] state;
+reg[5:0] nextState;
 
 reg[9:0] numStateInvalid;   // Number of invalid states (for debugging)
 
@@ -154,77 +154,61 @@ assign dbg_nextState_eth = nextState;
 localparam[15:0] ETH_VALUE_RXQCR = 16'h0020;
    
 // state machine states
-localparam [6:0]
-    ST_IDLE = 7'd0,
-    ST_WAIT_ACK = 7'd1,
-    ST_WAIT_ACK_CLEAR = 7'd2,
-    ST_INIT_CHECK_CHIPID = 7'd3,      // Read chip ID
-    ST_INIT_WRITE_MAC_LOW = 7'd4,     // Write MAC address low
-    ST_INIT_WRITE_MAC_MID = 7'd5,     // Write MAC address middle
-    ST_INIT_WRITE_MAC_HIGH = 7'd6,    // Write MAC address high
-    ST_INIT_REG_TXFDPR = 7'd7,
-    ST_INIT_REG_TXCR = 7'd8,
-    ST_INIT_REG_RXFDPR = 7'd9,
-    ST_INIT_REG_RXFCTR = 7'd10,
-    ST_INIT_REG_RXCR1 = 7'd11,
-    ST_INIT_REG_RXCR2 = 7'd12,
-    ST_INIT_MULTICAST = 7'd13,
-    ST_INIT_REG_RXQCR = 7'd14,
-    ST_INIT_IRQ_CLEAR = 7'd15,
-    ST_INIT_IRQ_ENABLE = 7'd16,
-    ST_INIT_TRANSMIT_ENABLE_READ = 7'd17,
-    ST_INIT_TRANSMIT_ENABLE_WRITE = 7'd18,
-    ST_INIT_RECEIVE_ENABLE_READ = 7'd19,
-    ST_INIT_RECEIVE_ENABLE_WRITE = 7'd20,
-    ST_INIT_DONE = 7'd21,
-    ST_IRQ_HANDLER = 7'd22,
-    ST_IRQ_DISPATCH = 7'd23,
-    ST_IRQ_CLEAR_OTHER = 7'd24,
-    ST_IRQ_CLEAR_LCIS = 7'd25,
-    ST_IRQ_CLEAR_RXIS = 7'd26,
-    ST_RECEIVE_FRAME_COUNT = 7'd27,
-    ST_RECEIVE_FRAME_STATUS = 7'd28,
-    ST_RECEIVE_FRAME_LENGTH = 7'd29,
-    ST_RECEIVE_DMA_START = 7'd30,
-    ST_RECEIVE_DMA_SKIP = 7'd31,
-    ST_RECEIVE_DMA_FRAME_HEADER = 7'd32,
-    ST_RECEIVE_DMA_ARP = 7'd33,
-    ST_RECEIVE_DMA_IPV4_HEADER = 7'd34,
-    ST_RECEIVE_DMA_ICMP_HEADER = 7'd35,
-    ST_RECEIVE_DMA_UDP_HEADER = 7'd36,
-    ST_RECEIVE_DMA_FIREWIRE_PACKET = 7'd37,
-    ST_RECEIVE_DMA_FRAME_CRC = 7'd38,
-    ST_RECEIVE_FLUSH_START = 7'd39,
-    ST_RECEIVE_FLUSH_EXECUTE = 7'd40,
-    ST_RECEIVE_FLUSH_WAIT_START = 7'd41,
-    ST_RECEIVE_FLUSH_WAIT_CHECK = 7'd42,
-    ST_SEND_START = 7'd43,
-    ST_SEND_TXMIR_READ = 7'd44,
-    ST_SEND_DMA_START = 7'd45,
-    ST_SEND_DMA_CONTROLWORD = 7'd46,
-    ST_SEND_DMA_BYTECOUNT = 7'd47,
-    ST_SEND_DMA_DESTADDR = 7'd48,
-    ST_SEND_DMA_SRCADDR = 7'd49,
-    ST_SEND_DMA_LENGTH = 7'd50,
-    ST_SEND_DMA_ARP = 7'd51,
-    ST_SEND_DMA_IPV4_HEADER = 7'd52,
-    ST_SEND_DMA_ICMP_HEADER = 7'd53,
-    ST_SEND_DMA_UDP_HEADER = 7'd54,
-    ST_SEND_DMA_PACKETDATA_HEADER = 7'd55,
-    ST_SEND_DMA_PACKETDATA_QUAD = 7'd56,
-    ST_SEND_DMA_PACKETDATA_BLOCK_START = 7'd57,
-    ST_SEND_DMA_PACKETDATA_BLOCK_MAIN = 7'd58,
-    ST_SEND_DMA_PACKETDATA_BLOCK_CHANNEL = 7'd59,
-    ST_SEND_DMA_PACKETDATA_BLOCK_PROM = 7'd60,
-    ST_SEND_DMA_PACKETDATA_CHECKSUM = 7'd61,
-    ST_SEND_DMA_FWD = 7'd62,
-    ST_SEND_DMA_DUMMY_DWORD = 7'd63,
-    ST_SEND_DMA_STOP = 7'd64,
-    ST_SEND_TXQ_ENQUEUE_START = 7'd65,
-    ST_SEND_TXQ_ENQUEUE_END = 7'd66,
-    ST_SEND_TXQ_ENQUEUE_WAIT_START = 7'd67,
-    ST_SEND_TXQ_ENQUEUE_WAIT_CHECK = 7'd68,
-    ST_SEND_END = 7'd69;
+localparam [5:0]
+    ST_IDLE = 6'd0,
+    ST_WAIT_ACK = 6'd1,
+    ST_WAIT_ACK_CLEAR = 6'd2,
+    ST_INIT_CHECK_CHIPID = 6'd3,      // Read chip ID
+    ST_INIT_RUN_PROGRAM = 6'd4,
+    ST_INIT_DONE = 6'd5,
+    ST_IRQ_HANDLER = 6'd6,
+    ST_IRQ_DISPATCH = 6'd7,
+    ST_IRQ_CLEAR_OTHER = 6'd8,
+    ST_IRQ_CLEAR_LCIS = 6'd9,
+    ST_IRQ_CLEAR_RXIS = 6'd10,
+    ST_RECEIVE_FRAME_COUNT = 6'd11,
+    ST_RECEIVE_FRAME_STATUS = 6'd12,
+    ST_RECEIVE_FRAME_LENGTH = 6'd13,
+    ST_RECEIVE_DMA_START = 6'd14,
+    ST_RECEIVE_DMA_SKIP = 6'd15,
+    ST_RECEIVE_DMA_FRAME_HEADER = 6'd16,
+    ST_RECEIVE_DMA_ARP = 6'd17,
+    ST_RECEIVE_DMA_IPV4_HEADER = 6'd18,
+    ST_RECEIVE_DMA_ICMP_HEADER = 6'd19,
+    ST_RECEIVE_DMA_UDP_HEADER = 6'd20,
+    ST_RECEIVE_DMA_FIREWIRE_PACKET = 6'd21,
+    ST_RECEIVE_DMA_FRAME_CRC = 6'd22,
+    ST_RECEIVE_FLUSH_START = 6'd23,
+    ST_RECEIVE_FLUSH_EXECUTE = 6'd24,
+    ST_RECEIVE_FLUSH_WAIT_START = 6'd25,
+    ST_RECEIVE_FLUSH_WAIT_CHECK = 6'd26,
+    ST_SEND_START = 6'd27,
+    ST_SEND_TXMIR_READ = 6'd28,
+    ST_SEND_DMA_START = 6'd29,
+    ST_SEND_DMA_CONTROLWORD = 6'd30,
+    ST_SEND_DMA_BYTECOUNT = 6'd31,
+    ST_SEND_DMA_DESTADDR = 6'd32,
+    ST_SEND_DMA_SRCADDR = 6'd33,
+    ST_SEND_DMA_LENGTH = 6'd34,
+    ST_SEND_DMA_ARP = 6'd35,
+    ST_SEND_DMA_IPV4_HEADER = 6'd36,
+    ST_SEND_DMA_ICMP_HEADER = 6'd37,
+    ST_SEND_DMA_UDP_HEADER = 6'd38,
+    ST_SEND_DMA_PACKETDATA_HEADER = 6'd39,
+    ST_SEND_DMA_PACKETDATA_QUAD = 6'd40,
+    ST_SEND_DMA_PACKETDATA_BLOCK_START = 6'd41,
+    ST_SEND_DMA_PACKETDATA_BLOCK_MAIN = 6'd42,
+    ST_SEND_DMA_PACKETDATA_BLOCK_CHANNEL = 6'd43,
+    ST_SEND_DMA_PACKETDATA_BLOCK_PROM = 6'd44,
+    ST_SEND_DMA_PACKETDATA_CHECKSUM = 6'd45,
+    ST_SEND_DMA_FWD = 6'd46,
+    ST_SEND_DMA_DUMMY_DWORD = 6'd47,
+    ST_SEND_DMA_STOP = 6'd48,
+    ST_SEND_TXQ_ENQUEUE_START = 6'd49,
+    ST_SEND_TXQ_ENQUEUE_END = 6'd50,
+    ST_SEND_TXQ_ENQUEUE_WAIT_START = 6'd51,
+    ST_SEND_TXQ_ENQUEUE_WAIT_CHECK = 6'd52,
+    ST_SEND_END = 6'd53;
 
 
 // Debugging support
@@ -356,7 +340,7 @@ wire [31:0] DebugData[0:31];
 assign DebugData[0]  = "0GBD";  // DBG0 byte-swapped
 assign DebugData[1]  = timestamp;
 assign DebugData[2]  = {11'd0, node_id, eth_status};
-assign DebugData[3]  = { 1'd0, state, 1'd0, nextState,
+assign DebugData[3]  = { 2'd0, state, 2'd0, nextState,
                          2'h0, isLocal, isRemote, FireWirePacketFresh, isEthBroadcast, isEthMulticast, ~ETH_IRQn,
                          isForward, isInIRQ, sendARP, isUDP, isICMP, sendEcho, ipv4_long, ipv4_short};
 assign DebugData[4]  = { RegISR, RegISROther};
@@ -397,6 +381,75 @@ reg [31:0] FireWirePacket[0:127];
 assign eth_fwpkt_rdata = FireWirePacket[eth_fwpkt_raddr[6:0]];
 reg FireWirePacketFresh;   // 1 -> FireWirePacket data is valid (fresh)
 
+// Write  Or   Addr    Data
+//  25    24  23:16    15:0
+localparam CMD_WRITE = 1'd1,
+           CMD_READ = 1'd0,
+           CMD_OR   = 1'd1;
+
+`define WRITE_BIT 25
+`define OR_BIT 24
+`define ADDR_BITS 23:16
+`define DATA_BITS 15:0
+
+reg[25:0] InitProgram[0:16];
+
+initial begin
+    // Set MAC address (4 LSB below should be set to board_id)
+    InitProgram[0] = {CMD_WRITE, ~CMD_OR, `ETH_ADDR_MARL, 12'h940, 4'd0};
+    InitProgram[1] = {CMD_WRITE, ~CMD_OR, `ETH_ADDR_MARM, 16'h0E13};
+    InitProgram[2] = {CMD_WRITE, ~CMD_OR, `ETH_ADDR_MARH, 16'hFA61};
+    // Enable QMU transmit frame data pointer auto increment
+    InitProgram[3] = {CMD_WRITE, ~CMD_OR, `ETH_ADDR_TXFDPR, 16'h4000};
+    // Enable QMU transmit flow control, CRC, and padding
+    InitProgram[4] = {CMD_WRITE, ~CMD_OR, `ETH_ADDR_TXCR, 16'h00EE};
+    // B14: Enable QMU receive frame data pointer auto increment
+    // B12: Decrease write data valid sample time to 4 nS (max)
+    // B11: Set Little Endian (0) or Big Endian (1)-- currently, Little Endian.
+    // According to KSZ8851 Step-by-Step Programmer's Guide, in Little Endian mode,
+    // registers are:
+    //     ____________________________________
+    //     | Data 15-8 (MSB) | Data 7-0 (LSB) |
+    //     ------------------------------------
+    // The Verilog code has been written assuming a Little Endian convention (e.g.,
+    // reg[31:0] myVar), rather than Big Endian (e.g., reg[0:31] myVar), though this
+    // refers to the bit order, not just the byte order. Nevertheless, it is more
+    // convenient to keep the KSZ8851 in Little Endian mode.
+    // Note, however, that Ethernet and FireWire are both Big Endian, so some byte-swapping
+    // is needed.
+    InitProgram[5] = {CMD_WRITE, ~CMD_OR, `ETH_ADDR_RXFDPR, 16'h5000};
+    // Configure receive frame threshold for 1 frame
+    InitProgram[6] = {CMD_WRITE, ~CMD_OR, `ETH_ADDR_RXFCTR, 16'h0001};
+    // 7: enable UDP, TCP, and IP checksums
+    // C: enable MAC address filtering, enable flow control (for receive in full duplex mode)
+    // E: enable broadcast, multicast, and unicast
+    // Bit 4 = 0, Bit 1 = 0, Bit 11 = 1, Bit 8 = 0 (hash perfect, default)
+    InitProgram[7] = {CMD_WRITE, ~CMD_OR, `ETH_ADDR_RXCR1, 16'h7CE0};
+    // Enable UDP checksums; pass packets with 0 checksum
+    InitProgram[8] = {CMD_WRITE, ~CMD_OR, `ETH_ADDR_RXCR2, 16'h001C};
+    // Following are hard-coded values for which hash register to use and which bit to set
+    // for multicast address FB:61:0E:13:19:FF. This is obtained by computing the CRC for
+    // this MAC address and then using the first two (most significant) bits to determine
+    // the register and the next four bits to determine which bit to set.
+    // See code in mainEth1394.cpp.
+    InitProgram[9] = {CMD_WRITE, ~CMD_OR, `ETH_ADDR_MAHTR1, 16'h0008};
+    // RXQCR value
+    // B5: RXFCTE enable QMU frame count threshold (1)
+    // B4: ADRFE  auto-dequeue
+    // Not enabling auto-dequeue because we flush packet
+    // instead of reading to end.
+    InitProgram[10] = {CMD_WRITE, ~CMD_OR, `ETH_ADDR_RXQCR, ETH_VALUE_RXQCR};
+    // Clear all pending interrupts
+    InitProgram[11] = {CMD_WRITE, ~CMD_OR, `ETH_ADDR_ISR, 16'hFFFF};
+    // Enable receive interrupts
+    InitProgram[12] = {CMD_WRITE, ~CMD_OR, `ETH_ADDR_IER, `ETH_VALUE_IER};
+    // Enable transmit
+    InitProgram[13] = {CMD_READ, ~CMD_OR, `ETH_ADDR_TXCR, 16'd0};
+    InitProgram[14] = {CMD_WRITE, CMD_OR, `ETH_ADDR_TXCR, 15'd0, 1'd1};
+    // Enable receive
+    InitProgram[15] = {CMD_READ, ~CMD_OR, `ETH_ADDR_RXCR1, 16'd0};
+    InitProgram[16] = {CMD_WRITE, CMD_OR, `ETH_ADDR_RXCR1, 15'd0, 1'd1};
+end
 
 // Following data is accessible via block read from address `ADDR_ETH (0x4000)
 //    Maximum block read size is 64 quadlets (implementation choice)
@@ -404,7 +457,9 @@ reg FireWirePacketFresh;   // 1 -> FireWirePacket data is valid (fresh)
 //    4080 - 4009f (32 quadlets) Debug data
 // Note that full address decoding is not done, so other addresses will work too
 // (for example, 40c0-40cf will also give Debug data, as will 4f80-4f9f)
-assign reg_rdata = (reg_raddr[7] == 0) ? FireWirePacket[reg_raddr[6:0]] : DebugData[reg_raddr[4:0]];
+assign reg_rdata = (reg_raddr[7] == 0) ? FireWirePacket[reg_raddr[6:0]] :
+                   (reg_raddr[6] == 0) ? DebugData[reg_raddr[4:0]] : {6'd0, InitProgram[reg_raddr[4:0]]};
+
 
 wire[3:0] fw_tcode;            // FireWire transaction code
 wire[5:0] fw_tl;               // FireWire transaction label
@@ -616,191 +671,26 @@ always @(posedge sysclk or negedge reset) begin
             initAck <= 0;   // By now, it is fine to finish acknowledgement of init request
             if (ReadData[15:4] == 12'h887) begin
                // Chip ID is ok, go to next state
-               // (could have started next state here, but code would be less readable)
-               state <= ST_INIT_WRITE_MAC_LOW;
+               count[4:0] <= 5'd0;
+               InitProgram[0][3:0] <= board_id;
+               state <= ST_INIT_RUN_PROGRAM;
             end
             else begin
                initOK <= 0;
                state <= ST_IDLE;
             end
          end
-         
-         ST_INIT_WRITE_MAC_LOW:
-         begin
-            cmdReq <= 1;
-            isWrite <= 1;
-            RegAddr <= `ETH_ADDR_MARL;        // MAC address low
-            WriteData <= {12'h940,board_id};  //   0x940n (n = board id)
-            state <= ST_WAIT_ACK;
-            nextState <= ST_INIT_WRITE_MAC_MID;
-         end
 
-         ST_INIT_WRITE_MAC_MID:
+         ST_INIT_RUN_PROGRAM:
          begin
             cmdReq <= 1;
-            RegAddr <= `ETH_ADDR_MARM;        // MAC address mid
-            WriteData <= 16'h0E13;  //   0x0E13
+            isWrite <= InitProgram[count[4:0]][`WRITE_BIT];
+            RegAddr <= InitProgram[count[4:0]][`ADDR_BITS];
+            WriteData <= InitProgram[count[4:0]][`OR_BIT] ? (ReadData|InitProgram[count[4:0]][`DATA_BITS])
+                                                          : InitProgram[count[4:0]][`DATA_BITS];
+            count[4:0] <= count[4:0] + 5'd1;
             state <= ST_WAIT_ACK;
-            nextState <= ST_INIT_WRITE_MAC_HIGH;
-         end
-         
-         ST_INIT_WRITE_MAC_HIGH:
-         begin
-            cmdReq <= 1;
-            RegAddr <= `ETH_ADDR_MARH;       // MAC address high
-            WriteData <= 16'hFA61;  //   0xFA61
-            state <= ST_WAIT_ACK;
-            nextState <= ST_INIT_REG_TXFDPR;
-         end
-              
-         ST_INIT_REG_TXFDPR:
-         begin
-            cmdReq <= 1;
-            RegAddr <= `ETH_ADDR_TXFDPR;
-            WriteData <= 16'h4000;   // Enable QMU transmit frame data pointer auto increment
-            state <= ST_WAIT_ACK;
-            nextState <= ST_INIT_REG_TXCR;
-         end
-
-         ST_INIT_REG_TXCR:
-         begin
-            cmdReq <= 1;
-            RegAddr <= `ETH_ADDR_TXCR;
-            WriteData <= 16'h00EE;   // Enable QMU transmit flow control, CRC, and padding
-            state <= ST_WAIT_ACK;
-            nextState <= ST_INIT_REG_RXFDPR;
-         end
-
-         ST_INIT_REG_RXFDPR:
-         begin
-            cmdReq <= 1;
-            RegAddr <= `ETH_ADDR_RXFDPR;
-            // B14: Enable QMU receive frame data pointer auto increment
-            // B12: Decrease write data valid sample time to 4 nS (max)
-            //      TODO: Try setting this bit to 0 to increase sample time to 8-16 ns
-            // B11: Set Little Endian (0) or Big Endian (1)-- currently, Little Endian.
-            // According to KSZ8851 Step-by-Step Programmer's Guide, in Little Endian mode,
-            // registers are:
-            //     ____________________________________
-            //     | Data 15-8 (MSB) | Data 7-0 (LSB) |
-            //     ------------------------------------
-            // The Verilog code has been written assuming a Little Endian convention (e.g.,
-            // reg[31:0] myVar), rather than Big Endian (e.g., reg[0:31] myVar), though this
-            // refers to the bit order, not just the byte order. Nevertheless, it is more
-            // convenient to keep the KSZ8851 in Little Endian mode.
-            // Note, however, that Ethernet and FireWire are both Big Endian, so some byte-swapping
-            // is needed.
-            WriteData <= 16'h5000;
-            state <= ST_WAIT_ACK;
-            nextState <= ST_INIT_REG_RXFCTR;
-         end
-
-         ST_INIT_REG_RXFCTR:
-         begin
-            cmdReq <= 1;
-            RegAddr <= `ETH_ADDR_RXFCTR;
-            WriteData <= 16'h0001;   // Configure receive frame threshold for 1 frame
-            state <= ST_WAIT_ACK;
-            nextState <= ST_INIT_REG_RXCR1;
-         end
-
-         ST_INIT_REG_RXCR1:
-         begin
-            cmdReq <= 1;
-            RegAddr <= `ETH_ADDR_RXCR1;
-            // 7: enable UDP, TCP, and IP checksums
-            // C: enable MAC address filtering, enable flow control (for receive in full duplex mode)
-            // E: enable broadcast, multicast, and unicast
-            // Bit 4 = 0, Bit 1 = 0, Bit 11 = 1, Bit 8 = 0 (hash perfect, default)
-            WriteData <= 16'h7CE0;
-            state <= ST_WAIT_ACK;
-            nextState <= ST_INIT_REG_RXCR2;
-         end
-
-         ST_INIT_REG_RXCR2:
-         begin
-            cmdReq <= 1;
-            RegAddr <= `ETH_ADDR_RXCR2;
-            WriteData <= 16'h001C;  // Enable UDP checksums; pass packets with 0 checksum
-            state <= ST_WAIT_ACK;
-            nextState <= ST_INIT_MULTICAST;
-         end
-
-         ST_INIT_MULTICAST:
-         begin
-            cmdReq <= 1;
-            // Following are hard-coded values for which hash register to use and which bit to set
-            // for multicast address FB:61:0E:13:19:FF. This is obtained by computing the CRC for
-            // this MAC address and then using the first two (most significant) bits to determine
-            // the register and the next four bits to determine which bit to set.
-            // See code in mainEth1394.cpp.
-            RegAddr <= `ETH_ADDR_MAHTR1;   // MAHTR1
-            WriteData <= 16'h0008;
-            state <= ST_WAIT_ACK;
-            nextState <= ST_INIT_REG_RXQCR;
-         end
-
-         ST_INIT_REG_RXQCR:
-         begin
-            cmdReq <= 1;
-            RegAddr <= `ETH_ADDR_RXQCR;
-            WriteData <= ETH_VALUE_RXQCR;
-            state <= ST_WAIT_ACK;
-            nextState <= ST_INIT_IRQ_CLEAR;
-         end
-
-         ST_INIT_IRQ_CLEAR:
-         begin
-            cmdReq <= 1;
-            RegAddr <= `ETH_ADDR_ISR;
-            WriteData <= 16'hFFFF;   // Clear all pending interrupts
-            state <= ST_WAIT_ACK;
-            nextState <= ST_INIT_IRQ_ENABLE;
-         end
-
-         ST_INIT_IRQ_ENABLE:
-         begin
-            cmdReq <= 1;
-            RegAddr <= `ETH_ADDR_IER;
-            WriteData <= `ETH_VALUE_IER;   // Enable receive interrupts
-            state <= ST_WAIT_ACK;
-            nextState <= ST_INIT_TRANSMIT_ENABLE_READ;
-         end
-
-         ST_INIT_TRANSMIT_ENABLE_READ:
-         begin
-            cmdReq <= 1;
-            isWrite <= 0;
-            RegAddr <= `ETH_ADDR_TXCR;
-            state <= ST_WAIT_ACK;
-            nextState <= ST_INIT_TRANSMIT_ENABLE_WRITE;
-         end
-
-         ST_INIT_TRANSMIT_ENABLE_WRITE:
-         begin
-            cmdReq <= 1;
-            isWrite <= 1;
-            WriteData <= {ReadData[15:1],1'b1};
-            state <= ST_WAIT_ACK;
-            nextState <= ST_INIT_RECEIVE_ENABLE_READ;
-         end
-
-         ST_INIT_RECEIVE_ENABLE_READ:
-         begin
-            cmdReq <= 1;
-            isWrite <= 0;
-            RegAddr <= `ETH_ADDR_RXCR1;
-            state <= ST_WAIT_ACK;
-            nextState <= ST_INIT_RECEIVE_ENABLE_WRITE;
-         end
-
-         ST_INIT_RECEIVE_ENABLE_WRITE:
-         begin
-            cmdReq <= 1;
-            isWrite <= 1;
-            WriteData <= {ReadData[15:1],1'b1};
-            state <= ST_WAIT_ACK;
-            nextState <= ST_INIT_DONE;
+            nextState <= (count[4:0] == 5'd16) ? ST_INIT_DONE : ST_INIT_RUN_PROGRAM;
          end
 
          ST_INIT_DONE:

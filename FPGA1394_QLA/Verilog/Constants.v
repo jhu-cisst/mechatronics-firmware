@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2013-2018 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2013-2019 ERC CISST, Johns Hopkins University.
  *
  * Purpose: Global constants e.g. device address
  * 
@@ -19,8 +19,8 @@
   **/
 
 
-`ifndef _fpgaqla_constanst_v_
-`define _fpgaqla_constanst_v_
+`ifndef _fpgaqla_constants_v_
+`define _fpgaqla_constants_v_
 
 // uncomment for simulation mode
 //`define USE_SIMULATION 
@@ -87,4 +87,4 @@
 `define LREQ_ACCEL 3'd6           // async arbitration acceleration
 `define LREQ_RES 3'd7             // reserved, presumably do nothing
 
-`endif  // _fpgaqla_constanst_v_
+`endif  // _fpgaqla_constants_v_
