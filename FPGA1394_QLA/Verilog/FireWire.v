@@ -1146,8 +1146,8 @@ begin
                 56: buffer <= { 16'hff00, `ADDR_HUB, 3'd0, board_id[3:0], 5'd0 }; 
 
                 //-------- Start broadcast back with sequence -------------
-                // datalen = 4 x (1 + 4 + 4 + 4 + 4) = 68 bytes
-                88: buffer <= { 16'd68, 16'd0 };
+                // datalen = 4 x (1 + 4 + 4 + 4 + 4 + 4) = 84 bytes
+                88: buffer <= { 16'd84, 16'd0 };
                 
                 // latch header crc, reset crc in preparation for data crc
                 128: begin
@@ -1248,8 +1248,8 @@ begin
                             reg_raddr[7:4] <= reg_raddr[7:4] + 1'b1;
                     end
                     else if (reg_raddr[15:12] == `ADDR_HUB) begin
-                        // 1 boards = 17 quadlets
-                        if (reg_raddr[4:0] == 5'd16) begin
+                        // 1 board = 21 quadlets (1 seq + 20 data)
+                        if (reg_raddr[4:0] == 5'd20) begin
                             reg_raddr[8:5] <= reg_raddr[8:5] + 1'b1;
                             reg_raddr[4:0] <= 5'd0;
                         end
