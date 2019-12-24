@@ -315,15 +315,40 @@ assign Eth_srcMac[2] = EthFrameHeader[5];
 wire[15:0] Eth_EtherType;
 assign Eth_EtherType = EthFrameHeader[6];
 
-reg[15:0] ARP_srcMac[0:2];
-
 reg[15:0] LengthFW;        // fw packet length in bytes
 assign eth_fwpkt_len = LengthFW;
 
-reg[31:0] hostIP;       // IP address of host (PC)
-reg[31:0] fpgaIP;       // tentative IP address of FPGA (will compare to ip_address)
+//********************************* ARP Packet ***********************************
+reg[15:0] ARP_srcMac[0:2];
 
-reg[15:0] ipv4_length;    // Length field of IPv4 header (not currently used)
+reg[31:0] ARP_hostIP;       // IP address of host (PC)
+reg[31:0] ARP_fpgaIP;       // tentative IP address of FPGA (will compare to ip_address)
+
+//******************************** IPv4 HEADER *************************************
+reg[15:0] IPv4_Header[0:9];
+// Word 0:
+//   Byte 0: Version, should be 4; IHL (Internet Header Length), normally should be 5
+//   Byte 1: DSCP and ECN (ignore those)
+// Word 1: Total Length (not currently used)
+// Word 2: Identification=0 (ignored)
+// Word 3: Flags=0, Fragment Offset=0 (ignored)
+// Word 4:
+//   Byte 0: Time To Live (ignore)
+//   Byte 1: Protocol (UDP is 17, ICMP is 1)
+// Word 5: Header checksum (ignored, for now)
+// Word 6,7: Source IP address (host)
+// Word 8,9: Destination IP address (fpga)
+wire isIPv4Valid;
+assign isIPv4Valid = (IPv4_Header[0][15:11] == 4'h4);   // Version should be 4
+wire[15:0] IPv4_Length;
+assign IPv4_Length = IPv4_Header[1];
+wire[7:0] IPv4_Protocol;
+assign IPv4_Protocol = IPv4_Header[4][7:0];
+wire[31:0] IPv4_hostIP;
+assign IPv4_hostIP = { IPv4_Header[6], IPv4_Header[7] };
+wire[31:0] IPv4_fpgaIP;
+assign IPv4_fpgaIP = { IPv4_Header[8], IPv4_Header[9] };
+
 reg[18:0] ipv4_checksum;  // Checksum for IPv4 header
 
 //********************************* UDP Header ****************************************
@@ -381,8 +406,9 @@ assign is_ip_unassigned = (ip_address == IP_UNASSIGNED) ? 1 : 0;
 // to stored IP address (ip_address). Note that it is assumed that this check
 // will be performed when the LSW of the IP address is being read, which is
 // why ReadData is used below.
-wire is_ip_equal;
-assign is_ip_equal = (ip_address == {ReadData, fpgaIP[31:16]}) ? 1 : 0;
+assign is_arp_ip_equal = (ip_address == {ReadData, ARP_fpgaIP[23:16], ARP_fpgaIP[31:24]}) ? 1 : 0;
+wire is_ipv4_ip_equal;
+assign is_ipv4_ip_equal = (ip_address == {ReadData, IPv4_fpgaIP[23:16], IPv4_fpgaIP[31:24]}) ? 1 : 0;
 
 // ----------------------------------------
 // Whether packet is being forwarded (to Ethernet) from FireWire receiver
@@ -402,15 +428,15 @@ assign DebugData[6]  = { Eth_destMac[1][7:0], Eth_destMac[1][15:8], Eth_destMac[
 assign DebugData[7]  = { Eth_srcMac[0][7:0], Eth_srcMac[0][15:8], Eth_destMac[2][7:0], Eth_destMac[2][15:8] };
 assign DebugData[8]  = { Eth_srcMac[2][7:0], Eth_srcMac[2][15:8], Eth_srcMac[1][7:0], Eth_srcMac[1][15:8] };
 assign DebugData[9]  = { 8'h11, maxCount, LengthFW };
-assign DebugData[10] = { hostIP[7:0], hostIP[15:8], hostIP[23:16], hostIP[31:24] };
-assign DebugData[11] = { fpgaIP[15:0], fpgaIP[31:16] };
-assign DebugData[12] = { ipv4_length, 4'h0, rxPktWords };
+assign DebugData[10] = { IPv4_hostIP[7:0], IPv4_hostIP[15:8], IPv4_hostIP[23:16], IPv4_hostIP[31:24] };
+assign DebugData[11] = { IPv4_fpgaIP[7:0], IPv4_fpgaIP[15:8], IPv4_fpgaIP[23:16], IPv4_fpgaIP[31:24] };
+assign DebugData[12] = { IPv4_Length, 4'h0, rxPktWords };
 assign DebugData[13] = { 16'h4455, txPktWords };
 assign DebugData[14] = { 6'd0, numPacketInvalid, numPacketValid };
 assign DebugData[15] = { 6'd0, numUDP, 6'd0, numIPv4 };
 assign DebugData[16] = { 6'd0, numICMP, 6'd0, numARP };
 assign DebugData[17] = { 6'd0, numIPv4Mismatch, 6'd0, numPacketError };
-assign DebugData[18] = { 16'd0, 6'd0, numStateInvalid };
+assign DebugData[18] = { UDP_Length, 6'd0, numStateInvalid };
 assign DebugData[19] = { UDP_hostPort, UDP_destPort };
 assign DebugData[20] = timestamp;
 
@@ -1040,75 +1066,62 @@ always @(posedge sysclk or negedge reset) begin
             state <= ST_WAIT_ACK;
             count[4:0] <= count[4:0]+5'd1;
             rxPktWords <= rxPktWords-12'd1;
-            case (count[4:0])
-               // Word 0:
-               //   Byte 0: Version, should be 4; IHL (Internet Header Length), normally should be 5
-               //   Byte 1: DSCP and ECN (ignore those)
-               5'd0: begin
-                     if (ReadData[7:4] != 4'h4) begin
-                        ethPacketError <= 1;
-                        numPacketError <= numPacketError + 10'd1;
-                        state <= ST_RECEIVE_FLUSH_START;
-                     end
-                     else begin
-                        // Set up maxCount based on number of words (2*IHL-1).
-                        // Note that IHL is normally 5 (its minimum value), in which case maxCount
-                        // was already set to 9. The following conditional is an efficient alternative
-                        // to (ReadData[3:0] > 5).
-                        if ((ReadData[3] == 2'b1) || (ReadData[2:1] == 2'b11)) begin
-                           ipv4_long <= 1;   // This is ok, though not typical (IHL usually is 5)
-                           maxCount[4:0] <= {ReadData[3:0],1'd0}-5'd1;
-                        end
-                        else if (ReadData[3:0] != 4'd5)
-                           ipv4_short <= 1;  // This should not happen
-                     end
-                     end
-               // Word 1: Total Length (not currently used)
-               5'd1: ipv4_length <= `ReadDataSwapped;
-               // Word 2: Identification=0 (ignored)
-               // Word 3: Flags=0, Fragment Offset=0 (ignored)
-               // Word 4:
+            // PK TODO: Following does not handle IHL>5
+            IPv4_Header[count[4:0]] <= `ReadDataSwapped;
+            // Word 0:
+            //   Byte 0: Version, should be 4; IHL (Internet Header Length), normally should be 5
+            //   Byte 1: DSCP and ECN (ignore those)
+            if (count[4:0] == 5'd0) begin
+               if (ReadData[7:4] != 4'h4) begin
+                  ethIPv4Error <= 1;
+                  numPacketError <= numPacketError + 10'd1;
+                  state <= ST_RECEIVE_FLUSH_START;
+               end
+               else begin
+                  // Set up maxCount based on number of words (2*IHL-1).
+                  // Note that IHL is normally 5 (its minimum value), in which case maxCount
+                  // was already set to 9. The following conditional is an efficient alternative
+                  // to (ReadData[3:0] > 5).
+                  if ((ReadData[3] == 2'b1) || (ReadData[2:1] == 2'b11)) begin
+                     ipv4_long <= 1;   // This is ok, though not typical (IHL usually is 5)
+                     maxCount[4:0] <= {ReadData[3:0],1'd0}-5'd1;
+                  end
+                  else if (ReadData[3:0] != 4'd5)
+                     ipv4_short <= 1;  // This should not happen
+               end // else: !if(ReadData[7:4] != 4'h4)
+            end
+            else if (count[4:0] == 5'd4) begin
                //   Byte 0: Time To Live (ignore)
                //   Byte 1: Protocol (UDP is 17, ICMP is 1)
-               5'd4: begin
-                     if (ReadData[11:8] == 4'd17) begin
-                        isUDP <= 1;
-                     end
-                     else if (ReadData[11:8] == 4'd1) begin
-                        isICMP <= 1;
-                     end
-                     else begin
-                        ethPacketError <= 1;
-                        numPacketError <= numPacketError + 10'd1;
-                        state <= ST_RECEIVE_FLUSH_START;
-                     end
-                     end
-               // Word 5: Header checksum (ignored, for now)
-               // Word 6,7: Source IP address (host)
-               // Word 8,9: Destination IP address (fpga)
-               // Keep the IP addresses byteswapped, since we will need
-               // to send them back to the PC.
-               5'd6: hostIP[31:16] <= `ReadDataSwapped;
-               5'd7: hostIP[15:0] <= `ReadDataSwapped;
-               5'd8: fpgaIP[31:16] <= ReadData;
-               5'd9: begin
-                     fpgaIP[15:0] <= ReadData;
-                     if (is_ip_unassigned && (ReadData[15:8] != 8'hff)) begin
-                        // This case can occur when the host PC already has an ARP
-                        // cache entry for this board, in which case we just assign
-                        //  the IP address, as long as it is not a broadcast address
-                        //  (we only check whether the last byte is 255).
-                        ip_address[31:16] <= ReadData;
-                        ip_address[15:0] <=  fpgaIP[31:16];
-                     end
-                     else if (!(is_ip_equal || isEthBroadcast || isEthMulticast)) begin
-                        // If IP assigned, but not equal, we process the packet anyway,
-                        // but keep track of the number of times this occurred.
-                        // We could decide to update ip_address.
-                        numIPv4Mismatch <= numIPv4Mismatch + 10'd1;
-                     end
-                     end
-            endcase
+               if (ReadData[15:8] == 8'd17) begin
+                  isUDP <= 1;
+               end
+               else if (ReadData[15:8] == 8'd1) begin
+                  isICMP <= 1;
+               end
+               else begin
+                  ethIPv4Unsupported <= 1;
+                  numPacketError <= numPacketError + 10'd1;
+                  state <= ST_RECEIVE_FLUSH_START;
+               end
+            end
+            else if (count[4:0] == 5'd9) begin
+               if (is_ip_unassigned && (ReadData[15:8] != 8'hff)) begin
+                  // This case can occur when the host PC already has an ARP
+                  // cache entry for this board, in which case we just assign
+                  //  the IP address, as long as it is not a broadcast address
+                  //  (we only check whether the last byte is 255).
+                  ip_address[31:16] <= ReadData;
+                  ip_address[15:0] <= {IPv4_fpgaIP[23:16], IPv4_fpgaIP[31:24] };
+               end
+               // PK TODO: check following condition
+               else if (!(is_ipv4_ip_equal || isEthBroadcast || isEthMulticast)) begin
+                  // If IP assigned, but not equal, we process the packet anyway,
+                  // but keep track of the number of times this occurred.
+                  // We could decide to update ip_address.
+                  numIPv4Mismatch <= numIPv4Mismatch + 10'd1;
+               end
+            end
             if (count[4:0] == maxCount[4:0]) begin
                // Reached end of IPv4 header
                if (isUDP) begin
@@ -1125,7 +1138,7 @@ always @(posedge sysclk or negedge reset) begin
                else begin
                   // Should never get here since 5'd4 case flushes packet
                   // if not UDP or ICMP.
-                  ethPacketError <= 1;
+                  ethIPv4Unsupported <= 1;
                   numPacketError <= numPacketError + 10'd1;
                   state <= ST_RECEIVE_FLUSH_START;
                end
@@ -1342,19 +1355,19 @@ always @(posedge sysclk or negedge reset) begin
                4'd4: ARP_srcMac[0] <= `ReadDataSwapped;
                4'd5: ARP_srcMac[1] <= `ReadDataSwapped;
                4'd6: ARP_srcMac[2] <= `ReadDataSwapped;
-               4'd7: hostIP[31:16] <= `ReadDataSwapped;
-               4'd8: hostIP[15:0] <= `ReadDataSwapped;
-               4'd12: fpgaIP[31:16] <= ReadData;
+               4'd7: ARP_hostIP[31:16] <= `ReadDataSwapped;
+               4'd8: ARP_hostIP[15:0] <= `ReadDataSwapped;
+               4'd12: ARP_fpgaIP[31:16] <= `ReadDataSwapped;
                4'd13: begin
                       // Normal completion
-                      fpgaIP[15:0] <= ReadData;
+                      ARP_fpgaIP[15:0] <= `ReadDataSwapped;
                       // If our IP address not yet set, update it
                       if (is_ip_unassigned) begin
                          ip_address[31:16] <= ReadData;
-                         ip_address[15:0] <=  fpgaIP[31:16];
+                         ip_address[15:0] <= {ARP_fpgaIP[23:16], ARP_fpgaIP[31:24] };
                          sendARP <= 1;
                       end
-                      else if (is_ip_equal) begin
+                      else if (is_arp_ip_equal) begin
                          sendARP <= 1;
                       end
                       count[3:0] <= 4'd0;
@@ -1608,9 +1621,9 @@ always @(posedge sysclk or negedge reset) begin
                5'd9: `WriteDataSwapped <= ARP_srcMac[0];
                5'd10: `WriteDataSwapped <= ARP_srcMac[1];
                5'd11: `WriteDataSwapped <= ARP_srcMac[2];
-               5'd12: `WriteDataSwapped <= hostIP[31:16];
+               5'd12: `WriteDataSwapped <= ARP_hostIP[31:16];
                5'd13: begin
-                      `WriteDataSwapped <= hostIP[15:0];
+                      `WriteDataSwapped <= ARP_hostIP[15:0];
                       nextState <= ST_SEND_DMA_STOP;
                       sendARP <= 0;
                       end
@@ -1637,8 +1650,9 @@ always @(posedge sysclk or negedge reset) begin
                      // Sum of fixed fields = 0x4500 + 0x4011 = 0x8511
                      // WriteDataSwapped contains the Length value
                      // Since Length is small, we assume no more than 4 carries, so sum as an 18-bit number.
-                     ipv4_checksum <= 18'h8511 + {2'd0,`WriteDataSwapped} + {2'd0,(is_ip_unassigned?fpgaIP[31:16]:ip_address[15:0])} +
-                                      {2'd0,(is_ip_unassigned?fpgaIP[15:0]:ip_address[31:16])} + {2'd0,hostIP[23:16],hostIP[31:24]} + {2'd0,hostIP[7:0],hostIP[15:8]};
+                     ipv4_checksum <= 18'h8511 + {2'd0,`WriteDataSwapped} + {2'd0,(is_ip_unassigned?{IPv4_fpgaIP[23:16],IPv4_fpgaIP[31:24]}:ip_address[15:0])} +
+                                      {2'd0,(is_ip_unassigned?{IPv4_fpgaIP[7:0],IPv4_fpgaIP[15:8]}:ip_address[31:16])} +
+                                      {2'd0,IPv4_hostIP[23:16],IPv4_hostIP[31:24]} + {2'd0,IPv4_hostIP[7:0],IPv4_hostIP[15:8]};
                end
                // Word 3: Flags, Fragment Offset
                4'd3: `WriteDataSwapped <= {3'b010, 13'd0};  // Set the DF (do not fragment) bit
@@ -1647,12 +1661,12 @@ always @(posedge sysclk or negedge reset) begin
                // Word 5: Header Checksum: Ones complement of sum of all 16-bit words, with carry added.
                4'd5: `WriteDataSwapped <= ~(ipv4_checksum[15:0] + {14'd0,ipv4_checksum[17:16]});
                // Words 6,7: Source IP
-               4'd6: WriteData <= is_ip_unassigned ? fpgaIP[31:16] : ip_address[15:0];
-               4'd7: WriteData <= is_ip_unassigned ? fpgaIP[15:0] : ip_address[31:16];
+               4'd6: WriteData <= is_ip_unassigned ? { IPv4_fpgaIP[23:16], IPv4_fpgaIP[31:24] } : ip_address[15:0];
+               4'd7: WriteData <= is_ip_unassigned ? { IPv4_fpgaIP[7:0], IPv4_fpgaIP[15:8] } : ip_address[31:16];
                // Words 8,9: Destination IP
-               4'd8: `WriteDataSwapped <= hostIP[31:16];
+               4'd8: `WriteDataSwapped <= IPv4_hostIP[31:16];
                4'd9: begin
-                     `WriteDataSwapped <= hostIP[15:0];
+                     `WriteDataSwapped <= IPv4_hostIP[15:0];
                      count[3:0] <= 4'd0;
                      nextState <= sendEcho ? ST_SEND_DMA_ICMP_HEADER : ST_SEND_DMA_UDP_HEADER;
                      end
