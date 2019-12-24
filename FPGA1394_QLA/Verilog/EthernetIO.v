@@ -406,6 +406,7 @@ assign is_ip_unassigned = (ip_address == IP_UNASSIGNED) ? 1 : 0;
 // to stored IP address (ip_address). Note that it is assumed that this check
 // will be performed when the LSW of the IP address is being read, which is
 // why ReadData is used below.
+wire is_arp_ip_equal;
 assign is_arp_ip_equal = (ip_address == {ReadData, ARP_fpgaIP[23:16], ARP_fpgaIP[31:24]}) ? 1 : 0;
 wire is_ipv4_ip_equal;
 assign is_ipv4_ip_equal = (ip_address == {ReadData, IPv4_fpgaIP[23:16], IPv4_fpgaIP[31:24]}) ? 1 : 0;
@@ -418,7 +419,7 @@ reg isForward;
 wire [31:0] DebugData[0:31];
 assign DebugData[0]  = "0GBD";  // DBG0 byte-swapped
 assign DebugData[1]  = timestamp;
-assign DebugData[2]  = {11'd0, node_id, eth_status};
+assign DebugData[2]  = {5'd0, ethUDPError, ethIPv4Unsupported, ethIPv4Error, 2'd0, node_id, eth_status};
 assign DebugData[3]  = { 2'd0, state, 2'd0, nextState,
                          2'h0, isLocal, isRemote, FireWirePacketFresh, isEthBroadcast, isEthMulticast, ~ETH_IRQn,
                          isForward, isInIRQ, sendARP, isUDP, isICMP, sendEcho, ipv4_long, ipv4_short};
@@ -431,7 +432,7 @@ assign DebugData[9]  = { 8'h11, maxCount, LengthFW };
 assign DebugData[10] = { IPv4_hostIP[7:0], IPv4_hostIP[15:8], IPv4_hostIP[23:16], IPv4_hostIP[31:24] };
 assign DebugData[11] = { IPv4_fpgaIP[7:0], IPv4_fpgaIP[15:8], IPv4_fpgaIP[23:16], IPv4_fpgaIP[31:24] };
 assign DebugData[12] = { IPv4_Length, 4'h0, rxPktWords };
-assign DebugData[13] = { 16'h4455, txPktWords };
+assign DebugData[13] = { 16'h5566, txPktWords };
 assign DebugData[14] = { 6'd0, numPacketInvalid, numPacketValid };
 assign DebugData[15] = { 6'd0, numUDP, 6'd0, numIPv4 };
 assign DebugData[16] = { 6'd0, numICMP, 6'd0, numARP };
@@ -1186,7 +1187,7 @@ always @(posedge sysclk or negedge reset) begin
                // Make sure destination port is 1394
                if (!isPortValid) begin
                   isUDP <= 0;
-                  ethPacketError <= 1;
+                  ethUDPError <= 1;
                   numPacketError <= numPacketError + 10'd1;
                   state <= ST_RECEIVE_FLUSH_START;
                end
