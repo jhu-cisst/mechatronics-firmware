@@ -322,10 +322,45 @@ assign eth_fwpkt_len = LengthFW;
 
 reg[31:0] hostIP;       // IP address of host (PC)
 reg[31:0] fpgaIP;       // tentative IP address of FPGA (will compare to ip_address)
-reg[15:0] hostPort;     // UDP port number for host (PC)
 
 reg[15:0] ipv4_length;    // Length field of IPv4 header (not currently used)
 reg[18:0] ipv4_checksum;  // Checksum for IPv4 header
+
+//********************************* UDP Header ****************************************
+reg[15:0] UDP_Header[0:3];
+// Word 0:  Source port
+// Word 1:  Destination port
+// Word 2:  Length
+// Word 3:  Checksum
+wire[15:0] UDP_hostPort;
+assign UDP_hostPort = UDP_Header[0];
+wire[15:0] UDP_destPort;
+assign UDP_destPort = UDP_Header[1];
+wire[15:0] UDP_Length;
+assign UDP_Length = UDP_Header[2];
+
+wire isPortValid;
+assign isPortValid = (UDP_destPort == 16'd1394) ? 1 : 0;
+
+//****************************** UDP Reply Header *************************************
+wire[15:0] UDP_Header_Reply[0:3];
+assign UDP_Header_Reply[0] = 16'd1394;       // Source Port = 1394
+assign UDP_Header_Reply[1] = UDP_hostPort;   // Destination Port
+// Word 2: Length (header and data)
+//     Quadlet read response: 8 (UDP header) + 20 (data)
+//     Block read response: 8 (UDP header) + 24 + block_data_length
+assign UDP_Header_Reply[2] = quadRead ? 16'd28 : (16'd32 + block_data_length);
+assign UDP_Header_Reply[3] = 16'd0;   // Checksum (optional, 0 if not used)
+
+//**************************** Firewire Reply Header ***********************************
+
+wire[15:0] Firewire_Header_Reply[0:5];
+assign Firewire_Header_Reply[0] = {FireWirePacket[1][23:16], FireWirePacket[1][31:24]};   // quadlet 0: dest-id
+assign Firewire_Header_Reply[1] = {quadRead ? `TC_QRESP : `TC_BRESP, 4'd0, fw_tl, 2'd0};  // quadlet 0: tcode
+assign Firewire_Header_Reply[2] = {FireWirePacket[0][23:22], node_id, FireWirePacket[0][31:24]};   // src-id
+assign Firewire_Header_Reply[3] = 16'd0;   // rcode, reserved
+assign Firewire_Header_Reply[4] = 16'd0;   // reserved
+assign Firewire_Header_Reply[5] = 16'd0;
 
 //******************************** Debug Counters *************************************
 
@@ -376,7 +411,7 @@ assign DebugData[15] = { 6'd0, numUDP, 6'd0, numIPv4 };
 assign DebugData[16] = { 6'd0, numICMP, 6'd0, numARP };
 assign DebugData[17] = { 6'd0, numIPv4Mismatch, 6'd0, numPacketError };
 assign DebugData[18] = { 16'd0, 6'd0, numStateInvalid };
-assign DebugData[19] = { hostPort, 16'd0 };
+assign DebugData[19] = { UDP_hostPort, UDP_destPort };
 assign DebugData[20] = timestamp;
 
 
@@ -1133,25 +1168,21 @@ always @(posedge sysclk or negedge reset) begin
             nextState <= ST_RECEIVE_DMA_UDP_HEADER;
             count[1:0] <= count[1:0] + 2'd1;
             rxPktWords <= rxPktWords-12'd1;
-            if (count[1:0] == 2'd0) begin
-               hostPort <= `ReadDataSwapped;
-            end
-            else if (count[1:0] == 2'd1) begin
+            UDP_Header[count[1:0]] <= `ReadDataSwapped;
+            if (count[1:0] == 2'd3) begin
                // Make sure destination port is 1394
-               if ({ReadData[7:0],ReadData[15:8]} != 16'd1394) begin
+               if (!isPortValid) begin
                   isUDP <= 0;
                   ethPacketError <= 1;
                   numPacketError <= numPacketError + 10'd1;
                   state <= ST_RECEIVE_FLUSH_START;
                end
-            end
-            else if (count[1:0] == 2'd2) begin
-               maxCount <= `ReadDataSwapped[8:1]-8'd5;  // Subtract 4 words for UDP header
-               LengthFW <= `ReadDataSwapped-8'd8;       // Subtract 8 bytes for UDP header
-            end
-            else if (count[1:0] == 2'd3) begin
-               nextState <= ST_RECEIVE_DMA_FIREWIRE_PACKET;
-               count[1:0] <= 2'd0;
+               else begin
+                  maxCount <= UDP_Length[8:1]-8'd5;  // Subtract 4 words for UDP header
+                  LengthFW <= UDP_Length-8'd8;       // Subtract 8 bytes for UDP header
+                  nextState <= ST_RECEIVE_DMA_FIREWIRE_PACKET;
+                  count[1:0] <= 2'd0;
+               end
             end
          end
 
@@ -1655,51 +1686,36 @@ always @(posedge sysclk or negedge reset) begin
          begin
             cmdReq <= 1;
             state <= ST_WAIT_ACK;
-            nextState <= ST_SEND_DMA_UDP_HEADER;
-            count[1:0] <= count[1:0]+2'd1;
-            case (count[1:0])
-               2'd0: `WriteDataSwapped <= 16'd1394;        // Source Port=1394
-               2'd1: `WriteDataSwapped <= hostPort;        // Destination Port
-               // Word 2: Length (header and data)
-               //     Quadlet read response: 8 (UDP header) + 20 (data)
-               //     Block read response: 8 (UDP header) + 24 + block_data_length
-               2'd2: `WriteDataSwapped <= quadRead ? 16'd28 : (16'd32 + block_data_length);
-               2'd3: begin
-                     `WriteDataSwapped <= 16'd0;     // Checksum (optional, 0 if not used)
-                     count[1:0] <= 2'd0;
-                     nextState <= ST_SEND_DMA_PACKETDATA_HEADER;
-                     end
-            endcase
+            `WriteDataSwapped <= UDP_Header_Reply[count[1:0]];
+            if (count[1:0] == 2'd3) begin
+               count[1:0] <= 2'd0;
+               nextState <= ST_SEND_DMA_PACKETDATA_HEADER;
+            end
+            else begin
+               count[1:0] <= count[1:0]+2'd1;
+               nextState <= ST_SEND_DMA_UDP_HEADER;
+            end
          end
 
-         // Send first 5 quadlets, which are nearly identical between quadlet read response
+         // Send first 6 words (3 quadlets), which are nearly identical between quadlet read response
          // and block read response (only difference is tcode).
          ST_SEND_DMA_PACKETDATA_HEADER:
          begin
             cmdReq <= 1;
-            case (count[2:0])
-               3'd0: WriteData <= {FireWirePacket[1][23:16], FireWirePacket[1][31:24]};   // quadlet 0: dest-id
-               3'd1: WriteData <= {quadRead ? `TC_QRESP : `TC_BRESP, 4'd0, fw_tl, 2'd0};  // quadlet 0: tcode
-               3'd2: WriteData <= {FireWirePacket[0][23:22], node_id, FireWirePacket[0][31:24]};   // src-id
-               3'd3: WriteData <= 16'h0;                      // rcode, reserved
-               3'd4: WriteData <= 16'h0;                      // reserved
-               3'd5:
-                  begin
-                     WriteData <= 16'h0;
-                     count[2:0] <= 3'd0;
-                     eth_reg_raddr <= FireWirePacket[2][15:0];
-                     if (quadRead) begin
-                        // Get ready to read data from the board.
-                        eth_read_en <= 1;
-                        nextState <= ST_SEND_DMA_PACKETDATA_QUAD;
-                     end
-                     else  // blockRead
-                        nextState <= ST_SEND_DMA_PACKETDATA_BLOCK_START;
-                  end
-               default: WriteData <= 16'h0;
-            endcase
             state <= ST_WAIT_ACK;
-            if (count[2:0] != 3'd5) begin
+            WriteData <= Firewire_Header_Reply[count[2:0]];
+            if (count[2:0] == 3'd5) begin
+               count[2:0] <= 3'd0;
+               eth_reg_raddr <= FireWirePacket[2][15:0];
+               if (quadRead) begin
+                  // Get ready to read data from the board.
+                  eth_read_en <= 1;
+                  nextState <= ST_SEND_DMA_PACKETDATA_QUAD;
+               end
+               else  // blockRead
+                  nextState <= ST_SEND_DMA_PACKETDATA_BLOCK_START;
+            end
+            else begin
                nextState <= ST_SEND_DMA_PACKETDATA_HEADER;
                count[2:0] <= count[2:0]+3'd1;
             end
