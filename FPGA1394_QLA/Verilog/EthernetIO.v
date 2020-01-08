@@ -301,19 +301,34 @@ reg[6:0] block_index;  // Index into data block (5-70)
 reg[15:0] txPktWords;  // Num of words sent
 reg[11:0] rxPktWords;  // Num of words received
 
+
+//************************ Large buffer to hold various packets **************************
+// Note that it is fine for some buffers to overlap. For example, an ARP packet does not
+// use an IPv4 header.
+reg[15:0] PacketBuffer[0:21];
+
+localparam[4:0]
+   Frame_Header_Begin = 5'd0,    // Offset to FrameHeader (words) [length=7]
+   Frame_Header_End   = 5'd6,
+   ARP_Packet_Begin   = 5'd7,    // Offset to ARP Packet (words)  [length=14]
+   ARP_Packet_End     = 5'd20,
+   IPv4_Header_Begin  = 5'd7,    // Offset to IPv4 Header (words) [length=10]
+   IPv4_Header_End    = 5'd16,
+   UDP_Header_Begin   = 5'd17,   // Offset to UDP Header (words)  [length=4]
+   UDP_Header_End     = 5'd20;
+
 //************************** Ethernet Frame Header ********************************
-reg[15:0] EthFrameHeader[0:6];
 // Dest MAC (3 words), Src MAC (3 words), Ethertype/Length (1 word)
 wire[15:0] Eth_destMac[0:2];
-assign Eth_destMac[0] = EthFrameHeader[0];
-assign Eth_destMac[1] = EthFrameHeader[1];
-assign Eth_destMac[2] = EthFrameHeader[2];
+assign Eth_destMac[0] = PacketBuffer[Frame_Header_Begin+5'd0];
+assign Eth_destMac[1] = PacketBuffer[Frame_Header_Begin+5'd1];
+assign Eth_destMac[2] = PacketBuffer[Frame_Header_Begin+5'd2];
 wire[15:0] Eth_srcMac[0:2];
-assign Eth_srcMac[0] = EthFrameHeader[3];
-assign Eth_srcMac[1] = EthFrameHeader[4];
-assign Eth_srcMac[2] = EthFrameHeader[5];
+assign Eth_srcMac[0] = PacketBuffer[Frame_Header_Begin+5'd3];
+assign Eth_srcMac[1] = PacketBuffer[Frame_Header_Begin+5'd4];
+assign Eth_srcMac[2] = PacketBuffer[Frame_Header_Begin+5'd5];
 wire[15:0] Eth_EtherType;
-assign Eth_EtherType = EthFrameHeader[6];
+assign Eth_EtherType = PacketBuffer[Frame_Header_End];
 
 reg[15:0] LengthFW;        // fw packet length in bytes
 assign eth_fwpkt_len = LengthFW;
@@ -325,7 +340,6 @@ reg[31:0] ARP_hostIP;       // IP address of host (PC)
 reg[31:0] ARP_fpgaIP;       // tentative IP address of FPGA (will compare to ip_address)
 
 //******************************** IPv4 HEADER *************************************
-reg[15:0] IPv4_Header[0:9];
 // Word 0:
 //   Byte 0: Version, should be 4; IHL (Internet Header Length), normally should be 5
 //   Byte 1: DSCP and ECN (ignore those)
@@ -339,30 +353,29 @@ reg[15:0] IPv4_Header[0:9];
 // Word 6,7: Source IP address (host)
 // Word 8,9: Destination IP address (fpga)
 wire isIPv4Valid;
-assign isIPv4Valid = (IPv4_Header[0][15:11] == 4'h4);   // Version should be 4
+assign isIPv4Valid = (PacketBuffer[IPv4_Header_Begin+5'd0][15:11] == 4'h4);   // Version should be 4
 wire[15:0] IPv4_Length;
-assign IPv4_Length = IPv4_Header[1];
+assign IPv4_Length = PacketBuffer[IPv4_Header_Begin+5'd1];
 wire[7:0] IPv4_Protocol;
-assign IPv4_Protocol = IPv4_Header[4][7:0];
+assign IPv4_Protocol = PacketBuffer[IPv4_Header_Begin+5'd4][7:0];
 wire[31:0] IPv4_hostIP;
-assign IPv4_hostIP = { IPv4_Header[6], IPv4_Header[7] };
+assign IPv4_hostIP = { PacketBuffer[IPv4_Header_Begin+5'd6], PacketBuffer[IPv4_Header_Begin+5'd7] };
 wire[31:0] IPv4_fpgaIP;
-assign IPv4_fpgaIP = { IPv4_Header[8], IPv4_Header[9] };
+assign IPv4_fpgaIP = { PacketBuffer[IPv4_Header_Begin+5'd8], PacketBuffer[IPv4_Header_Begin+5'd9] };
 
 reg[18:0] ipv4_checksum;  // Checksum for IPv4 header
 
 //********************************* UDP Header ****************************************
-reg[15:0] UDP_Header[0:3];
 // Word 0:  Source port
 // Word 1:  Destination port
 // Word 2:  Length
 // Word 3:  Checksum
 wire[15:0] UDP_hostPort;
-assign UDP_hostPort = UDP_Header[0];
+assign UDP_hostPort = PacketBuffer[UDP_Header_Begin+5'd0];
 wire[15:0] UDP_destPort;
-assign UDP_destPort = UDP_Header[1];
+assign UDP_destPort = PacketBuffer[UDP_Header_Begin+5'd1];
 wire[15:0] UDP_Length;
-assign UDP_Length = UDP_Header[2];
+assign UDP_Length = PacketBuffer[UDP_Header_Begin+5'd2];
 
 wire isPortValid;
 assign isPortValid = (UDP_destPort == 16'd1394) ? 1 : 0;
@@ -432,7 +445,7 @@ assign DebugData[9]  = { 8'h11, maxCount, LengthFW };
 assign DebugData[10] = { IPv4_hostIP[7:0], IPv4_hostIP[15:8], IPv4_hostIP[23:16], IPv4_hostIP[31:24] };
 assign DebugData[11] = { IPv4_fpgaIP[7:0], IPv4_fpgaIP[15:8], IPv4_fpgaIP[23:16], IPv4_fpgaIP[31:24] };
 assign DebugData[12] = { IPv4_Length, 4'h0, rxPktWords };
-assign DebugData[13] = { 16'h5566, txPktWords };
+assign DebugData[13] = { 16'h6677, txPktWords };
 assign DebugData[14] = { 6'd0, numPacketInvalid, numPacketValid };
 assign DebugData[15] = { 6'd0, numUDP, 6'd0, numIPv4 };
 assign DebugData[16] = { 6'd0, numICMP, 6'd0, numARP };
@@ -1010,7 +1023,7 @@ always @(posedge sysclk or negedge reset) begin
             state <= ST_WAIT_ACK;
             if (count[1:0] == 2'd3) begin
                nextState <= ST_RECEIVE_DMA_FRAME_HEADER;
-               count[1:0] <= 2'd0;
+               count[4:0] <= Frame_Header_Begin;
                rxPktWords <= rxPktWords-12'd1;
             end
             else begin
@@ -1024,15 +1037,16 @@ always @(posedge sysclk or negedge reset) begin
             cmdReq <= 1;
             state <= ST_WAIT_ACK;
             nextState <= ST_RECEIVE_DMA_FRAME_HEADER;
-            count[2:0] <= count[2:0]+3'd1;
+            count[4:0] <= count[4:0]+5'd1;
             rxPktWords <= rxPktWords-12'd1;
             // Read dest MAC, source MAC, and length (7 words, byte-swapped).
-            EthFrameHeader[count[2:0]] <= `ReadDataSwapped;
-            if (count[2:0] == 3'd6) begin
+            PacketBuffer[count[4:0]] <= `ReadDataSwapped;
+            if (count[4:0] == Frame_Header_End) begin
                // Maximum data length is currently 284 bytes (block write to PROM); as a sanity
                // check, we flush any packets greater than 512 bytes in length.
                if (`ReadDataSwapped[15:9] == 7'd0) begin
                   nextState <= ST_RECEIVE_DMA_FIREWIRE_PACKET;
+                  count[4:0] <= 5'd0;
                   // Set up maxCount based on number of words (numBytes/2-1).
                   // Note that this can be larger than the current buffer size (142 words or 71 quadlets),
                   // but later on we have a check to prevent buffer overflow.
@@ -1043,11 +1057,13 @@ always @(posedge sysclk or negedge reset) begin
                   // IPv4 Ethertype is 0x0800
                   nextState <= ST_RECEIVE_DMA_IPV4_HEADER;
                   numIPv4 <= numIPv4 + 10'd1;
+                  count[4:0] <= IPv4_Header_Begin;
                   // Default value of maxCount (IPv4 header has at least 10 words)
-                  maxCount[4:0] <= 5'd9;
+                  maxCount[4:0] <= IPv4_Header_End;
                end
                else if (`ReadDataSwapped == 16'h0806) begin
                   // ARP Ethertype is 0x0806
+                  count[4:0] <= 5'd0;
                   numARP <= numARP + 10'd1;
                   nextState <= ST_RECEIVE_DMA_ARP;
                end
@@ -1057,7 +1073,6 @@ always @(posedge sysclk or negedge reset) begin
                   numPacketError <= numPacketError + 10'd1;
                   state <= ST_RECEIVE_FLUSH_START;
                end
-               count <= 8'd0;
             end
          end
 
@@ -1067,12 +1082,12 @@ always @(posedge sysclk or negedge reset) begin
             state <= ST_WAIT_ACK;
             count[4:0] <= count[4:0]+5'd1;
             rxPktWords <= rxPktWords-12'd1;
-            // PK TODO: Following does not handle IHL>5
-            IPv4_Header[count[4:0]] <= `ReadDataSwapped;
+            // PK TODO: Following does not correctly handle IHL>5
+            PacketBuffer[count[4:0]] <= `ReadDataSwapped;
             // Word 0:
             //   Byte 0: Version, should be 4; IHL (Internet Header Length), normally should be 5
             //   Byte 1: DSCP and ECN (ignore those)
-            if (count[4:0] == 5'd0) begin
+            if (count[4:0] == IPv4_Header_Begin) begin
                if (ReadData[7:4] != 4'h4) begin
                   ethIPv4Error <= 1;
                   numPacketError <= numPacketError + 10'd1;
@@ -1085,13 +1100,13 @@ always @(posedge sysclk or negedge reset) begin
                   // to (ReadData[3:0] > 5).
                   if ((ReadData[3] == 2'b1) || (ReadData[2:1] == 2'b11)) begin
                      ipv4_long <= 1;   // This is ok, though not typical (IHL usually is 5)
-                     maxCount[4:0] <= {ReadData[3:0],1'd0}-5'd1;
+                     maxCount[4:0] <= IPv4_Header_Begin + {ReadData[3:0],1'd0}-5'd1;
                   end
                   else if (ReadData[3:0] != 4'd5)
                      ipv4_short <= 1;  // This should not happen
                end // else: !if(ReadData[7:4] != 4'h4)
             end
-            else if (count[4:0] == 5'd4) begin
+            else if (count[4:0] == IPv4_Header_Begin+5'd4) begin
                //   Byte 0: Time To Live (ignore)
                //   Byte 1: Protocol (UDP is 17, ICMP is 1)
                if (ReadData[15:8] == 8'd17) begin
@@ -1106,7 +1121,7 @@ always @(posedge sysclk or negedge reset) begin
                   state <= ST_RECEIVE_FLUSH_START;
                end
             end
-            else if (count[4:0] == 5'd9) begin
+            else if (count[4:0] == IPv4_Header_Begin+5'd9) begin
                if (is_ip_unassigned && (ReadData[15:8] != 8'hff)) begin
                   // This case can occur when the host PC already has an ARP
                   // cache entry for this board, in which case we just assign
@@ -1128,7 +1143,7 @@ always @(posedge sysclk or negedge reset) begin
                if (isUDP) begin
                   numUDP <= numUDP + 10'd1;
                   nextState <= ST_RECEIVE_DMA_UDP_HEADER;
-                  count[4:0] <= 5'd0;
+                  count[4:0] <= UDP_Header_Begin;
                end
                else if (isICMP) begin
                   numICMP <= numICMP + 10'd1;
@@ -1180,10 +1195,10 @@ always @(posedge sysclk or negedge reset) begin
             cmdReq <= 1;
             state <= ST_WAIT_ACK;
             nextState <= ST_RECEIVE_DMA_UDP_HEADER;
-            count[1:0] <= count[1:0] + 2'd1;
+            count[4:0] <= count[4:0] + 5'd1;
             rxPktWords <= rxPktWords-12'd1;
-            UDP_Header[count[1:0]] <= `ReadDataSwapped;
-            if (count[1:0] == 2'd3) begin
+            PacketBuffer[count[4:0]] <= `ReadDataSwapped;
+            if (count[4:0] == UDP_Header_End) begin
                // Make sure destination port is 1394
                if (!isPortValid) begin
                   isUDP <= 0;
@@ -1195,7 +1210,7 @@ always @(posedge sysclk or negedge reset) begin
                   maxCount <= UDP_Length[8:1]-8'd5;  // Subtract 4 words for UDP header
                   LengthFW <= UDP_Length-8'd8;       // Subtract 8 bytes for UDP header
                   nextState <= ST_RECEIVE_DMA_FIREWIRE_PACKET;
-                  count[1:0] <= 2'd0;
+                  count[4:0] <= 5'd0;
                end
             end
          end
