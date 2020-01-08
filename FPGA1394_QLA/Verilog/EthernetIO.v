@@ -189,9 +189,8 @@ localparam [5:0]
     ST_SEND_DMA_START = 6'd29,
     ST_SEND_DMA_CONTROLWORD = 6'd30,
     ST_SEND_DMA_BYTECOUNT = 6'd31,
-    ST_SEND_DMA_DESTADDR = 6'd32,
-    ST_SEND_DMA_SRCADDR = 6'd33,
-    ST_SEND_DMA_LENGTH = 6'd34,
+    ST_SEND_DMA_FRAME_HEADER = 6'd32,
+    ST_SEND_DMA_FRAME_LENGTH = 6'd34,
     ST_SEND_DMA_ARP = 6'd35,
     ST_SEND_DMA_IPV4_HEADER = 6'd36,
     ST_SEND_DMA_ICMP_HEADER = 6'd37,
@@ -379,6 +378,17 @@ assign UDP_Length = PacketBuffer[UDP_Header_Begin+5'd2];
 
 wire isPortValid;
 assign isPortValid = (UDP_destPort == 16'd1394) ? 1 : 0;
+
+//************************* Ethernet Frame Reply Header *********************************
+wire[15:0] Frame_Header_Reply[0:5];
+assign Frame_Header_Reply[0] = Eth_srcMac[0];
+assign Frame_Header_Reply[1] = Eth_srcMac[1];
+assign Frame_Header_Reply[2] = Eth_srcMac[2];
+assign Frame_Header_Reply[3] = 16'hFA61;
+assign Frame_Header_Reply[4] = 16'h0E13;
+// Rather than using destAddr from last received packet, use our own MAC addr.
+assign Frame_Header_Reply[5] = {8'h94, 4'h0, board_id};  // 0x940n (n = board id)
+// Note Ethertype/Length field is handled separately
 
 //****************************** UDP Reply Header *************************************
 wire[15:0] UDP_Header_Reply[0:3];
@@ -1542,49 +1552,27 @@ always @(posedge sysclk or negedge reset) begin
                WriteData <= (useUDP ? 16'd42 : 16'd14) + sendLen;
             end
             state <= ST_WAIT_ACK;
-            nextState <= ST_SEND_DMA_DESTADDR;
+            nextState <= ST_SEND_DMA_FRAME_HEADER;
             count <= 8'd0;
          end
 
-         ST_SEND_DMA_DESTADDR:
+         ST_SEND_DMA_FRAME_HEADER:
          begin
             cmdReq <= 1;
-            `WriteDataSwapped <= Eth_srcMac[count[1:0]];
+            `WriteDataSwapped <= Frame_Header_Reply[count[2:0]];
             state <= ST_WAIT_ACK;
-            if (count[1:0] == 2'd2) begin
-               nextState <= ST_SEND_DMA_SRCADDR;
-               count[1:0] <= 2'd0;
+            if (count[2:0] == 3'd5) begin
+               count[2:0] <= 3'd0;
+               nextState <= ST_SEND_DMA_FRAME_LENGTH;
             end
             else begin
-               nextState <= ST_SEND_DMA_DESTADDR;
-               count[1:0] <= count[1:0]+2'd1;
-            end
-         end
-
-         ST_SEND_DMA_SRCADDR:
-           begin
-            // Rather than using destAddr from last received packet,
-            // use our own MAC addr.
-            cmdReq <= 1;
-            state <= ST_WAIT_ACK;
-            if (count[1:0] == 2'd0) begin
-               `WriteDataSwapped <= 16'hFA61;
-               nextState <= ST_SEND_DMA_SRCADDR;
-               count[1:0] <= 2'd1;
-            end
-            else if (count[1:0] == 2'd1) begin
-               `WriteDataSwapped <= 16'h0E13;
-               nextState <= ST_SEND_DMA_SRCADDR;
-               count[1:0] <= 2'd2;
-            end
-            else if (count[1:0] == 2'd2) begin
-               `WriteDataSwapped <= {8'h94, 4'h0, board_id};  // 0x940n (n = board id)
-               nextState <= ST_SEND_DMA_LENGTH;
+               count[2:0] <= count[2:0] + 3'd1;
+               nextState <= ST_SEND_DMA_FRAME_HEADER;
             end
          end
 
          // EtherType/Length
-         ST_SEND_DMA_LENGTH:
+         ST_SEND_DMA_FRAME_LENGTH:
          begin
             cmdReq <= 1;
             state <= ST_WAIT_ACK;
