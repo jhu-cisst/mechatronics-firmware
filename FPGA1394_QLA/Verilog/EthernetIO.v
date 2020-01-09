@@ -446,6 +446,29 @@ assign Firewire_Header_Reply[3] = 16'd0;   // rcode, reserved
 assign Firewire_Header_Reply[4] = 16'd0;   // reserved
 assign Firewire_Header_Reply[5] = 16'd0;
 
+//********************************** ARP Reply *****************************************
+
+wire[15:0] ARP_Packet_Reply[0:13];
+
+assign ARP_Packet_Reply[0] = 16'h0001;  // Hardware type (HTYPE): 1 for Ethernet
+assign ARP_Packet_Reply[1] = 16'h0800;  // Protocol type (PTYPE): 0x0800 for IPv4
+assign ARP_Packet_Reply[2] = 16'h0604;  // HLEN (6) and PLEN (4)
+assign ARP_Packet_Reply[3] = 16'h0002;  // Operation (OPER): 2 for reply
+// Word 4-6: Sender hardware address (SHA):  MAC address of sender
+assign ARP_Packet_Reply[4] = 16'hFA61;  // 0xFA61
+assign ARP_Packet_Reply[5] = 16'h0E13;  // 0x0E13
+assign ARP_Packet_Reply[6] = {8'h94,4'h0,board_id}; // 0x940n (n = board id)
+// Word 7-8: Sender protocol address (SPA):  IPv4 address of sender (0 for ARP Probe)
+assign ARP_Packet_Reply[7] = {ip_address[7:0], ip_address[15:8]};
+assign ARP_Packet_Reply[8] = {ip_address[23:16], ip_address[31:24]};
+// Word 9-11: Target hardware address (THA):  MAC address of target (ignored in request)
+assign ARP_Packet_Reply[9] = ARP_srcMac[0];
+assign ARP_Packet_Reply[10] = ARP_srcMac[1];
+assign ARP_Packet_Reply[11] = ARP_srcMac[2];
+// Word 12-13: Target protocol address (TPA): IPv4 address of target
+assign ARP_Packet_Reply[12] = ARP_hostIP[31:16];
+assign ARP_Packet_Reply[13] = ARP_hostIP[15:0];
+
 //******************************** Debug Counters *************************************
 
 reg[15:0] numPacketValid;    // Number of valid Ethernet frames received
@@ -491,7 +514,7 @@ assign DebugData[9]  = { 8'h11, maxCount, LengthFW };
 assign DebugData[10] = { IPv4_hostIP[7:0], IPv4_hostIP[15:8], IPv4_hostIP[23:16], IPv4_hostIP[31:24] };
 assign DebugData[11] = { IPv4_fpgaIP[7:0], IPv4_fpgaIP[15:8], IPv4_fpgaIP[23:16], IPv4_fpgaIP[31:24] };
 assign DebugData[12] = { IPv4_Length, 4'h0, rxPktWords };
-assign DebugData[13] = { 16'h6677, txPktWords };
+assign DebugData[13] = { 16'h5577, txPktWords };
 assign DebugData[14] = { 6'd0, numPacketInvalid, numPacketValid };
 assign DebugData[15] = { 6'd0, numUDP, 6'd0, numIPv4 };
 assign DebugData[16] = { 6'd0, numICMP, 6'd0, numARP };
@@ -1639,35 +1662,18 @@ always @(posedge sysclk or negedge reset) begin
 
          ST_SEND_DMA_ARP:
          begin
-            // Word 3: Operation (OPER):  1 for request, 2 for reply
-            // Word 4-6: Sender hardware address (SHA):  MAC address of sender
-            // Word 7-8: Sender protocol address (SPA):  IPv4 address of sender (0 for ARP Probe)
-            // Word 9-11: Target hardware address (THA):  MAC address of target (ignored in request)
-            // Word 12-13: Target protocol address (TPA): IPv4 address of target
             cmdReq <= 1;
             state <= ST_WAIT_ACK;
-            nextState <= ST_SEND_DMA_ARP;
-            count[4:0] <= count[4:0]+5'd1;
-            case (count[4:0])
-               5'd0: `WriteDataSwapped <= 16'h0001;  // Hardware type (HTYPE): 1 for Ethernet
-               5'd1: `WriteDataSwapped <= 16'h0800;  // Protocol type (PTYPE): 0x0800 for IPv4
-               5'd2: `WriteDataSwapped <= 16'h0604;  // HLEN (6) and PLEN (4)
-               5'd3: `WriteDataSwapped <= 16'h0002;  // Operation (OPER): 2 for reply
-               5'd4: `WriteDataSwapped <= 16'hFA61;  // 0xFA61
-               5'd5: `WriteDataSwapped <= 16'h0E13;  // 0x0E13
-               5'd6: `WriteDataSwapped <= {8'h94,4'h0,board_id}; // 0x940n (n = board id)
-               5'd7: WriteData <= ip_address[15:0];
-               5'd8: WriteData <= ip_address[31:16];
-               5'd9: `WriteDataSwapped <= ARP_srcMac[0];
-               5'd10: `WriteDataSwapped <= ARP_srcMac[1];
-               5'd11: `WriteDataSwapped <= ARP_srcMac[2];
-               5'd12: `WriteDataSwapped <= ARP_hostIP[31:16];
-               5'd13: begin
-                      `WriteDataSwapped <= ARP_hostIP[15:0];
-                      nextState <= ST_SEND_DMA_STOP;
-                      sendARP <= 0;
-                      end
-            endcase
+            `WriteDataSwapped <= ARP_Packet_Reply[count[4:0]];
+            if (count[4:0] == 5'd13) begin
+               count[4:0] <= 5'd0;
+               nextState <= ST_SEND_DMA_STOP;
+               sendARP <= 0;
+            end
+            else begin
+               count[4:0] <= count[4:0]+5'd1;
+               nextState <= ST_SEND_DMA_ARP;
+            end
          end
 
          ST_SEND_DMA_IPV4_HEADER:
