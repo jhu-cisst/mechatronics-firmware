@@ -181,33 +181,31 @@ localparam [5:0]
     ST_RECEIVE_DMA_FIREWIRE_PACKET = 6'd21,
     ST_RECEIVE_DMA_FRAME_CRC = 6'd22,
     ST_RECEIVE_FLUSH_START = 6'd23,
-    ST_RECEIVE_FLUSH_EXECUTE = 6'd24,
-    ST_RECEIVE_FLUSH_WAIT_START = 6'd25,
-    ST_RECEIVE_FLUSH_WAIT_CHECK = 6'd26,
-    ST_SEND_START = 6'd27,
-    ST_SEND_TXMIR_READ = 6'd28,
-    ST_SEND_DMA_START = 6'd29,
-    ST_SEND_DMA_CONTROLWORD = 6'd30,
-    ST_SEND_DMA_BYTECOUNT = 6'd31,
-    ST_SEND_DMA_FRAME_HEADER = 6'd32,
-    ST_SEND_DMA_FRAME_LENGTH = 6'd34,
-    ST_SEND_DMA_ARP = 6'd35,
-    ST_SEND_DMA_IPV4_HEADER = 6'd36,
-    ST_SEND_DMA_ICMP_HEADER = 6'd37,
-    ST_SEND_DMA_UDP_HEADER = 6'd38,
-    ST_SEND_DMA_PACKETDATA_HEADER = 6'd39,
-    ST_SEND_DMA_PACKETDATA_QUAD = 6'd40,
-    ST_SEND_DMA_PACKETDATA_BLOCK_START = 6'd41,
-    ST_SEND_DMA_PACKETDATA_BLOCK_MAIN = 6'd42,
-    ST_SEND_DMA_PACKETDATA_BLOCK_CHANNEL = 6'd43,
-    ST_SEND_DMA_PACKETDATA_BLOCK_PROM = 6'd44,
-    ST_SEND_DMA_PACKETDATA_CHECKSUM = 6'd45,
-    ST_SEND_DMA_FWD = 6'd46,
-    ST_SEND_DMA_DUMMY_DWORD = 6'd47,
-    ST_SEND_DMA_STOP = 6'd48,
-    ST_SEND_TXQ_ENQUEUE = 6'd49,
-    ST_SEND_TXQ_ENQUEUE_WAIT = 6'd51,
-    ST_SEND_END = 6'd53;
+    ST_RECEIVE_FLUSH_WAIT = 6'd24,
+    ST_SEND_START = 6'd25,
+    ST_SEND_TXMIR_READ = 6'd26,
+    ST_SEND_DMA_START = 6'd27,
+    ST_SEND_DMA_CONTROLWORD = 6'd28,
+    ST_SEND_DMA_BYTECOUNT = 6'd29,
+    ST_SEND_DMA_FRAME_HEADER = 6'd30,
+    ST_SEND_DMA_FRAME_LENGTH = 6'd31,
+    ST_SEND_DMA_ARP = 6'd32,
+    ST_SEND_DMA_IPV4_HEADER = 6'd33,
+    ST_SEND_DMA_ICMP_HEADER = 6'd34,
+    ST_SEND_DMA_UDP_HEADER = 6'd35,
+    ST_SEND_DMA_PACKETDATA_HEADER = 6'd36,
+    ST_SEND_DMA_PACKETDATA_QUAD = 6'd37,
+    ST_SEND_DMA_PACKETDATA_BLOCK_START = 6'd38,
+    ST_SEND_DMA_PACKETDATA_BLOCK_MAIN = 6'd39,
+    ST_SEND_DMA_PACKETDATA_BLOCK_CHANNEL = 6'd40,
+    ST_SEND_DMA_PACKETDATA_BLOCK_PROM = 6'd41,
+    ST_SEND_DMA_PACKETDATA_CHECKSUM = 6'd42,
+    ST_SEND_DMA_FWD = 6'd43,
+    ST_SEND_DMA_DUMMY_DWORD = 6'd44,
+    ST_SEND_DMA_STOP = 6'd45,
+    ST_SEND_TXQ_ENQUEUE = 6'd46,
+    ST_SEND_TXQ_ENQUEUE_WAIT = 6'd47,
+    ST_SEND_END = 6'd48;
 
 
 // Debugging support
@@ -1485,35 +1483,20 @@ always @(posedge sysclk or negedge reset) begin
             // Clean up from quadlet/block writes
             eth_reg_wen <= 0;
             eth_block_wen <= 0;
-            // Move on to the next state
+            // Flush the rest of the packet in two steps:
+            //    1. Clear DMA bit (bit 3)
+            //    2. Set flush bit (bit 0)
+            // Note: this may work in just one step
             cmdReq <= 1;
             isDMA <= 0;
-            isWrite <= 0;
-            RegAddr <= `ETH_ADDR_RXQCR;  // Could probably eliminate this read
-            state <= ST_WAIT_ACK;
-            nextState <= ST_RECEIVE_FLUSH_EXECUTE;
-         end
-
-         ST_RECEIVE_FLUSH_EXECUTE:
-         begin
-            // Flush the rest of the packet (also clears DMA bit)
-            cmdReq <= 1;
             isWrite <= 1;
-            WriteData <= {ETH_VALUE_RXQCR[15:4],1'b0,ETH_VALUE_RXQCR[2:1],1'b1};
+            RegAddr <= `ETH_ADDR_RXQCR;
+            WriteData <= {ETH_VALUE_RXQCR[15:4],1'b0,ETH_VALUE_RXQCR[2:1],(isDMA ? 1'b0 : 1'b1)};
             state <= ST_WAIT_ACK;
-            nextState <= ST_RECEIVE_FLUSH_WAIT_START;
+            nextState <= isDMA ? ST_RECEIVE_FLUSH_START : ST_RECEIVE_FLUSH_WAIT;
          end
 
-         ST_RECEIVE_FLUSH_WAIT_START:
-         begin
-            cmdReq <= 1;
-            isWrite <= 0;
-            // RegAddr is already set to RXQCR
-            state <= ST_WAIT_ACK;
-            nextState <= ST_RECEIVE_FLUSH_WAIT_CHECK;
-         end
-
-         ST_RECEIVE_FLUSH_WAIT_CHECK:
+         ST_RECEIVE_FLUSH_WAIT:
          begin
             // Wait for bit 0 in Register RXQCR to be cleared;
             // Then enable interrupt
@@ -1521,8 +1504,9 @@ always @(posedge sysclk or negedge reset) begin
             //     (check FrameCount after send complete)
             //   - else if more frames available, receive status of next frame
             //   - else go to idle state
-            // TODO: check node id and forward via FireWire if necessary
-            if (ReadData[0] == 1'b0) begin
+            // Note: assumes isWrite==1 when state is entered
+            isWrite <= 0;
+            if (~isWrite && (ReadData[0] == 1'b0)) begin
                if ((FireWirePacketFresh && (quadRead || blockRead) && isLocal) || sendARP || sendEcho) begin
                   state <= ST_SEND_START;
                end
@@ -1537,7 +1521,10 @@ always @(posedge sysclk or negedge reset) begin
                waitInfo <= WAIT_NONE;
             end
             else begin
-               state <= ST_RECEIVE_FLUSH_WAIT_START;
+               cmdReq <= 1;
+               // RegAddr is already set to RXQCR
+               state <= ST_WAIT_ACK;
+               nextState <= ST_RECEIVE_FLUSH_WAIT;
                waitInfo <= WAIT_FLUSH;
             end
          end
