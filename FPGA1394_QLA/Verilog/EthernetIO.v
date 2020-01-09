@@ -662,6 +662,15 @@ assign addrPROM = (FireWirePacket[2][15:12] == `ADDR_PROM) ? 1'd1 : 1'd0;
 assign addrQLA  = (FireWirePacket[2][15:12] == `ADDR_PROM_QLA) ? 1'd1 : 1'd0;
 
 
+// Registers in block read
+reg[7:0] BlockRegAddr[0:3];
+initial begin
+   BlockRegAddr[0] = {4'd0, `REG_STATUS};
+   BlockRegAddr[1] = {4'd0, `REG_DIGIN};
+   BlockRegAddr[2] = {4'd0, `REG_TEMPSNS};
+   BlockRegAddr[3] = {4'd1, 4'd0 };   // Channel 1 start
+end
+
 // TEMP: Timestamp copied from Firewire.v -- should consolidate
 reg[31:0]  timestamp;          // timestamp counter register
 reg ts_reset;                 // timestamp counter reset signal
@@ -1816,59 +1825,24 @@ always @(posedge sysclk or negedge reset) begin
             end
          end
 
+
          ST_SEND_DMA_PACKETDATA_BLOCK_MAIN:
          begin
             cmdReq <= 1;
-            case (count[2:0])
-              3'd0: WriteData <= {timestamp[23:16], timestamp[31:24]};
-              3'd1:
-                 begin
-                    WriteData <= {timestamp[7:0], timestamp[15:8]};
-                    // Reset timestamp
-                    ts_reset <= 1;
-                    // Get ready to read data from the board.
-                    eth_read_en <= 1;
-                    eth_reg_raddr <= {12'd0, `REG_STATUS};   // address of status register
-                 end
-              3'd2:
-                 begin
-                    WriteData <= {eth_reg_rdata[23:16], eth_reg_rdata[31:24]};  // status
-                    ts_reset <= 0;
-                 end
-              3'd3:
-                 begin
-                    WriteData <= {eth_reg_rdata[7:0], eth_reg_rdata[15:8]};     // status
-                    eth_reg_raddr <= {12'd0, `REG_DIGIN};   // address of digital I/O register
-                 end
-              3'd4:
-                 begin
-                    WriteData <= {eth_reg_rdata[23:16], eth_reg_rdata[31:24]};  // digital I/O
-                 end
-              3'd5:
-                 begin
-                    WriteData <= {eth_reg_rdata[7:0], eth_reg_rdata[15:8]};     // digital I/O
-                    eth_reg_raddr <= {12'd0, `REG_TEMPSNS};  // address of temperature sensors
-                 end
-              3'd6:
-                 begin
-                    WriteData <= {eth_reg_rdata[23:16], eth_reg_rdata[31:24]};  // temperature sensors
-                 end
-              3'd7:
-                 begin
-                    WriteData <= {eth_reg_rdata[7:0], eth_reg_rdata[15:8]};     // temperature sensors
-                    eth_reg_raddr[7:4] <= 4'h1;        // start from channel 1
-                    // NOTE: Following is hard-coded to first read from channel 0,
-                    //       and then from 5,6,7. This is correct, but less flexible
-                    //       than the implementation in Firewire.v, which uses dev_addr[].
-                    eth_reg_raddr[3:0] <= 4'd0;        // 1st device address
-                    next_addr <= 3'd5;             // set next device address
-                 end
-              default: WriteData <= 16'h0;
-            endcase
+            eth_reg_raddr <= (count[0] == 1) ? {8'd0, BlockRegAddr[count[2:1]]} : eth_reg_raddr;
+            `WriteDataSwapped <= (count[2:1] == 2'b00) ?
+                                 ((count[0] == 1'b0) ? timestamp[31:16] : timestamp[15:0]) :
+                                 ((count[0] == 1'b0) ? eth_reg_rdata[31:16] : eth_reg_rdata[15:0]);
+            // count==1: Reset timestamp and get ready to read from board
+            {ts_reset, eth_read_en} <= (count[2:0] == 3'd1) ? 2'b11 : {1'b0, eth_read_en};
             state <= ST_WAIT_ACK;
             if (count[2:0] == 3'd7) begin
-                nextState <= ST_SEND_DMA_PACKETDATA_BLOCK_CHANNEL;
-                count[2:0] <= 3'd0;
+               nextState <= ST_SEND_DMA_PACKETDATA_BLOCK_CHANNEL;
+               // NOTE: Following is hard-coded to first read from channel 0,
+               //       and then from 5,6,7. This is correct, but less flexible
+               //       than the implementation in Firewire.v, which uses dev_addr[].
+               next_addr <= 3'd5;             // set next device address
+               count[2:0] <= 3'd0;
             end
             else begin
                 nextState <= ST_SEND_DMA_PACKETDATA_BLOCK_MAIN;
