@@ -205,10 +205,8 @@ localparam [5:0]
     ST_SEND_DMA_FWD = 6'd46,
     ST_SEND_DMA_DUMMY_DWORD = 6'd47,
     ST_SEND_DMA_STOP = 6'd48,
-    ST_SEND_TXQ_ENQUEUE_START = 6'd49,
-    ST_SEND_TXQ_ENQUEUE_END = 6'd50,
-    ST_SEND_TXQ_ENQUEUE_WAIT_START = 6'd51,
-    ST_SEND_TXQ_ENQUEUE_WAIT_CHECK = 6'd52,
+    ST_SEND_TXQ_ENQUEUE = 6'd49,
+    ST_SEND_TXQ_ENQUEUE_WAIT = 6'd51,
     ST_SEND_END = 6'd53;
 
 
@@ -1973,66 +1971,37 @@ always @(posedge sysclk or negedge reset) begin
 
          ST_SEND_DMA_STOP:
          begin
-            if (count[0] == 0) begin  // could probably eliminate
-               cmdReq <= 1;
-               isWrite <= 0;
-               isDMA <= 0;
-               RegAddr <= `ETH_ADDR_RXQCR;
-               state <= ST_WAIT_ACK;
-               nextState <= ST_SEND_DMA_STOP;
-               count[0] <= 1;
-            end
-            else begin
-               // Disable DMA transfers
-               cmdReq <= 1;
-               isWrite <= 1;
-               WriteData <= {ETH_VALUE_RXQCR[15:4],1'b0,ETH_VALUE_RXQCR[2:0]};
-               state <= ST_WAIT_ACK;
-               nextState <= ST_SEND_TXQ_ENQUEUE_START;
-               count[0] <= 0;
-            end
-         end
-
-         ST_SEND_TXQ_ENQUEUE_START:
-         begin
+            // Disable DMA transfers
             cmdReq <= 1;
-            isWrite <= 0;
-            RegAddr <= `ETH_ADDR_TXQCR;
+            isWrite <= 1;
+            isDMA <= 0;
+            RegAddr <= `ETH_ADDR_RXQCR;
             state <= ST_WAIT_ACK;
-            nextState <= ST_SEND_TXQ_ENQUEUE_END;
+            WriteData <= {ETH_VALUE_RXQCR[15:4],1'b0,ETH_VALUE_RXQCR[2:0]};
+            nextState <= ST_SEND_TXQ_ENQUEUE;
          end
 
-         ST_SEND_TXQ_ENQUEUE_END:
+         ST_SEND_TXQ_ENQUEUE:
          begin
             cmdReq <= 1;
             isWrite <= 1;
-            WriteData <= {ReadData[15:1],1'b1};
+            RegAddr <= `ETH_ADDR_TXQCR;
+            WriteData <= 16'h0001;
             state <= ST_WAIT_ACK;
             // For now, wait for the frame to be transmitted. According to the datasheet,
             // "the software should wait for the bit to be cleared before setting up another
             // new TX frame," so this check could be moved elsewhere for efficiency.
-            nextState <= ST_SEND_TXQ_ENQUEUE_WAIT_START;
+            nextState <= ST_SEND_TXQ_ENQUEUE_WAIT;
          end
 
-         ST_SEND_TXQ_ENQUEUE_WAIT_START:
+         ST_SEND_TXQ_ENQUEUE_WAIT:
          begin
             cmdReq <= 1;
             isWrite <= 0;
             // RegAddr is already set to TXQCR
             state <= ST_WAIT_ACK;
-            nextState <= ST_SEND_TXQ_ENQUEUE_WAIT_CHECK;
-         end
-
-         ST_SEND_TXQ_ENQUEUE_WAIT_CHECK:
-         begin
-            // Wait for bit 0 in Register 0x80 to be cleared
-            if (ReadData[0] == 1'b0) begin
-                state <= ST_SEND_END;
-            end
-            else begin
-               state <= ST_SEND_TXQ_ENQUEUE_WAIT_START;
-               waitInfo <= WAIT_FLUSH;  // TEMP: use WAIT_FLUSH, but should be WAIT_TXQ_ENQUEUE
-            end
+            // Wait for bit 0 in Register TXQCR (0x80) to be cleared
+            nextState <= (~isWrite && ReadData[0] == 1'b0) ? ST_SEND_END : ST_SEND_TXQ_ENQUEUE_WAIT;
          end
 
          ST_SEND_END:
