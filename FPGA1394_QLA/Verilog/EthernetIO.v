@@ -329,10 +329,31 @@ reg[15:0] LengthFW;        // fw packet length in bytes
 assign eth_fwpkt_len = LengthFW;
 
 //********************************* ARP Packet ***********************************
-reg[15:0] ARP_srcMac[0:2];
-
-reg[31:0] ARP_hostIP;       // IP address of host (PC)
-reg[31:0] ARP_fpgaIP;       // tentative IP address of FPGA (will compare to ip_address)
+// Word 0: Hardware type (HTYPE):  1 for Ethernet
+// Word 1: Protocol type (PTYPE):  0x0800 for IPv4
+// Word 2:
+//   MSB: Hardware address length (HLEN):  6
+//   LSB: Protocol address length (PLEN):  4
+// Word 3: Operation (OPER):  1 for ARP request,   2 for ARP reply
+//                            3 for RARP request,  4 for RARP reply
+//                            8 for InARP request, 9 for InARP reply
+// Word 4-6: Sender hardware address (SHA):  MAC address of sender
+// Word 7-8: Sender protocol address (SPA):  IPv4 address of sender (0 for ARP Probe)
+// Word 9-11: Target hardware address (THA):  MAC address of target (ignored in request)
+// Word 12-13: Target protocol address (TPA): IPv4 address of target
+wire[15:0] ARP_srcMac[0:2];
+assign ARP_srcMac[0] = PacketBuffer[ARP_Packet_Begin+5'd4];
+assign ARP_srcMac[1] = PacketBuffer[ARP_Packet_Begin+5'd5];
+assign ARP_srcMac[2] = PacketBuffer[ARP_Packet_Begin+5'd6];
+wire[31:0] ARP_hostIP;
+assign ARP_hostIP = { PacketBuffer[ARP_Packet_Begin+5'd7], PacketBuffer[ARP_Packet_Begin+5'd8] };
+wire[31:0] ARP_fpgaIP;
+assign ARP_fpgaIP = { PacketBuffer[ARP_Packet_Begin+5'd12], PacketBuffer[ARP_Packet_Begin+5'd13] };
+wire isARPValid;  // Whether ARP request is valid
+assign isARPValid = (PacketBuffer[ARP_Packet_Begin+5'd0] == 16'h0001) &&
+                    (PacketBuffer[ARP_Packet_Begin+5'd1] == 16'h0800) &&
+                    (PacketBuffer[ARP_Packet_Begin+5'd2] == 16'h0604) &&
+                    (PacketBuffer[ARP_Packet_Begin+5'd3] == 16'h0001);
 
 //******************************** IPv4 HEADER *************************************
 // Word 0:
@@ -479,15 +500,6 @@ reg[9:0] numIPv4Mismatch;    // Number of IPv4 packets with different IP address
 localparam[31:0] IP_UNASSIGNED = 32'hffffffff;
 wire is_ip_unassigned;
 assign is_ip_unassigned = (ip_address == IP_UNASSIGNED) ? 1 : 0;
-
-// Following checks whether IP address received in packet (fpgaIP) is equal
-// to stored IP address (ip_address). Note that it is assumed that this check
-// will be performed when the LSW of the IP address is being read, which is
-// why ReadData is used below.
-wire is_arp_ip_equal;
-assign is_arp_ip_equal = (ip_address == {ReadData, ARP_fpgaIP[23:16], ARP_fpgaIP[31:24]}) ? 1 : 0;
-wire is_ipv4_ip_equal;
-assign is_ipv4_ip_equal = (ip_address == {ReadData, IPv4_fpgaIP[23:16], IPv4_fpgaIP[31:24]}) ? 1 : 0;
 
 // ----------------------------------------
 // Whether packet is being forwarded (to Ethernet) from FireWire receiver
@@ -1137,7 +1149,7 @@ always @(posedge sysclk or negedge reset) begin
                end
                else if (`ReadDataSwapped == 16'h0806) begin
                   // ARP Ethertype is 0x0806
-                  count[4:0] <= 5'd0;
+                  count[4:0] <= ARP_Packet_Begin;
                   numARP <= numARP + 10'd1;
                   nextState <= ST_RECEIVE_DMA_ARP;
                end
@@ -1145,6 +1157,7 @@ always @(posedge sysclk or negedge reset) begin
                   // Unsupported EtherType (or length greater than 512 bytes)
                   ethPacketError <= 1;
                   numPacketError <= numPacketError + 10'd1;
+                  cmdReq <= 0;
                   state <= ST_RECEIVE_FLUSH_START;
                end
             end
@@ -1165,6 +1178,7 @@ always @(posedge sysclk or negedge reset) begin
                if (ReadData[7:4] != 4'h4) begin
                   ethIPv4Error <= 1;
                   numPacketError <= numPacketError + 10'd1;
+                  cmdReq <= 0;
                   state <= ST_RECEIVE_FLUSH_START;
                end
                else begin
@@ -1192,6 +1206,7 @@ always @(posedge sysclk or negedge reset) begin
                else begin
                   ethIPv4Unsupported <= 1;
                   numPacketError <= numPacketError + 10'd1;
+                  cmdReq <= 0;
                   state <= ST_RECEIVE_FLUSH_START;
                end
             end
@@ -1205,7 +1220,8 @@ always @(posedge sysclk or negedge reset) begin
                   ip_address[15:0] <= {IPv4_fpgaIP[23:16], IPv4_fpgaIP[31:24] };
                end
                // PK TODO: check following condition
-               else if (!(is_ipv4_ip_equal || isEthBroadcast || isEthMulticast)) begin
+               else if ((ip_address != {ReadData, IPv4_fpgaIP[23:16], IPv4_fpgaIP[31:24]})
+                        && !isEthBroadcast && !isEthMulticast) begin
                   // If IP assigned, but not equal, we process the packet anyway,
                   // but keep track of the number of times this occurred.
                   // We could decide to update ip_address.
@@ -1255,6 +1271,7 @@ always @(posedge sysclk or negedge reset) begin
                     echo_payload[15:0] <= ReadData;
                     count[2:0] <= 3'd0;
                     sendEcho <= 1;
+                    cmdReq <= 0;
                     state <= ST_RECEIVE_FLUSH_START;
                     end
             endcase
@@ -1278,6 +1295,7 @@ always @(posedge sysclk or negedge reset) begin
                   isUDP <= 0;
                   ethUDPError <= 1;
                   numPacketError <= numPacketError + 10'd1;
+                  cmdReq <= 0;
                   state <= ST_RECEIVE_FLUSH_START;
                end
                else begin
@@ -1420,50 +1438,35 @@ always @(posedge sysclk or negedge reset) begin
          end
 
          ST_RECEIVE_DMA_ARP:
-           // Word 0: Hardware type (HTYPE):  1 for Ethernet
-           // Word 1: Protocol type (PTYPE):  0x0800 for IPv4
-           // Word 2:
-           //   MSB: Hardware address length (HLEN):  6
-           //   LSB: Protocol address length (PLEN):  4
-           // Word 3: Operation (OPER):  1 for ARP request,   2 for ARP reply
-           //                            3 for RARP request,  4 for RARP reply
-           //                            8 for InARP request, 9 for InARP reply
-           // Word 4-6: Sender hardware address (SHA):  MAC address of sender
-           // Word 7-8: Sender protocol address (SPA):  IPv4 address of sender (0 for ARP Probe)
-           // Word 9-11: Target hardware address (THA):  MAC address of target (ignored in request)
-           // Word 12-13: Target protocol address (TPA): IPv4 address of target
          begin
-            cmdReq <= 1;
-            state <= ST_WAIT_ACK;
-            count[3:0] <= count[3:0]+4'd1;
             rxPktWords <= rxPktWords-12'd1;
-            case (count[3:0])
-               4'd0: if (ReadData != 16'h0100) state <= ST_RECEIVE_FLUSH_START;
-               4'd1: if (ReadData != 16'h0008) state <= ST_RECEIVE_FLUSH_START;
-               4'd2: if (ReadData != 16'h0406) state <= ST_RECEIVE_FLUSH_START;
-               4'd3: if (ReadData != 16'h0100) state <= ST_RECEIVE_FLUSH_START;
-               4'd4: ARP_srcMac[0] <= `ReadDataSwapped;
-               4'd5: ARP_srcMac[1] <= `ReadDataSwapped;
-               4'd6: ARP_srcMac[2] <= `ReadDataSwapped;
-               4'd7: ARP_hostIP[31:16] <= `ReadDataSwapped;
-               4'd8: ARP_hostIP[15:0] <= `ReadDataSwapped;
-               4'd12: ARP_fpgaIP[31:16] <= `ReadDataSwapped;
-               4'd13: begin
-                      // Normal completion
-                      ARP_fpgaIP[15:0] <= `ReadDataSwapped;
-                      // If our IP address not yet set, update it
-                      if (is_ip_unassigned) begin
-                         ip_address[31:16] <= ReadData;
-                         ip_address[15:0] <= {ARP_fpgaIP[23:16], ARP_fpgaIP[31:24] };
-                         sendARP <= 1;
-                      end
-                      else if (is_arp_ip_equal) begin
-                         sendARP <= 1;
-                      end
-                      count[3:0] <= 4'd0;
-                      state <= ST_RECEIVE_DMA_FRAME_CRC;
-                      end
-            endcase
+            PacketBuffer[count[4:0]] <= `ReadDataSwapped;
+            if ((count[4:0] == ARP_Packet_Begin+5'd4) && !isARPValid) begin
+               // If not a valid ARP request, flush it
+               state <= ST_RECEIVE_FLUSH_START;
+            end
+            else if (count[4:0] == ARP_Packet_End) begin
+               // Normal completion
+               if (is_ip_unassigned) begin
+                  // If our IP address not yet set, update it and send a reply
+                  ip_address[31:16] <= ReadData;
+                  ip_address[15:0] <= {ARP_fpgaIP[23:16], ARP_fpgaIP[31:24] };
+                  sendARP <= 1;
+               end
+               else if (ip_address == {ReadData, ARP_fpgaIP[23:16], ARP_fpgaIP[31:24]}) begin
+                  // Else, if we have an assigned IP address and it matches, send a reply
+                  sendARP <= 1;
+               end
+               count[4:0] <= 5'd0;
+               state <= ST_RECEIVE_DMA_FRAME_CRC;
+            end
+            else begin
+               cmdReq <= 1;
+               state <= ST_WAIT_ACK;
+               nextState <= ST_RECEIVE_DMA_ARP;
+               count[4:0] <= count[4:0]+5'd1;
+            end
+
          end
 
          ST_RECEIVE_DMA_FRAME_CRC:
