@@ -1658,8 +1658,8 @@ always @(posedge sysclk or negedge reset) begin
             count[2:0] <= count[2:0] + 3'd1;
             // Only handles echo (ping).
             case (count[2:0])
-              3'd0: WriteData <= 16'd0;  // Echo Reply: Type=0, Code=0
-              3'd1: WriteData <= ~(icmp_checksum[15:0] + {14'd0, icmp_checksum[17:16]});
+              3'd0: `WriteDataSwapped <= 16'd0;  // Echo Reply: Type=0, Code=0
+              3'd1: `WriteDataSwapped <= ~(icmp_checksum[15:0] + {14'd0, icmp_checksum[17:16]});
               3'd2: `WriteDataSwapped <= Echo_id;
               3'd3: `WriteDataSwapped <= Echo_seq;
               3'd4: `WriteDataSwapped <= Echo_payload[31:16];
