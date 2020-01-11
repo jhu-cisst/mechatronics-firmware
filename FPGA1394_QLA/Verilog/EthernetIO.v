@@ -182,8 +182,6 @@ localparam [5:0]
     ST_RECEIVE_DMA_FRAME_CRC = 6'd22,
     ST_RECEIVE_FLUSH_START = 6'd23,
     ST_RECEIVE_FLUSH_WAIT = 6'd24,
-    ST_SEND_START = 6'd25,
-    ST_SEND_TXMIR_READ = 6'd26,
     ST_SEND_DMA_START = 6'd27,
     ST_SEND_DMA_CONTROLWORD = 6'd28,
     ST_SEND_DMA_BYTECOUNT = 6'd29,
@@ -275,8 +273,8 @@ reg[3:0] readCount;    // Wait for read valid
 reg[7:0] maxCount;     // For reading FireWire packets
 reg[2:0] next_addr;    // Address of next device (for block read)
 reg[6:0] block_index;  // Index into data block (5-70)
-reg[15:0] txPktWords;  // Num of words sent
-reg[11:0] rxPktWords;  // Num of words received
+reg[11:0] txPktWords;  // Num of words sent
+reg[11:0] rxPktWords;  // Num of words in receive queue
 
 //************************ Large buffer to hold various packets **************************
 // Note that it is fine for some buffers to overlap. For example, an ARP packet does not
@@ -359,7 +357,7 @@ assign sendARP = isARP & isARPValid & isARP_ip_equal;
 // Word 0:
 //   Byte 0: Version, should be 4; IHL (Internet Header Length), normally should be 5
 //   Byte 1: DSCP and ECN (ignore those)
-// Word 1: Total Length (not currently used)
+// Word 1: Total Length
 // Word 2: Identification=0 (ignored)
 // Word 3: Flags=0, Fragment Offset=0 (ignored)
 // Word 4:
@@ -436,9 +434,11 @@ wire[15:0] IPv4_Header_Reply[0:9];
 // Word 0: Version=4, Internet Header Length (IHL)=5, DSCP=0, ECN=0
 assign IPv4_Header_Reply[0] = {4'd4, 4'd5, 6'd0, 2'd0};  // 0x4500
 // Word 1: Total length (header and data)
+//     ICMP reply (echo): same size as request (for now, just the 20+12 byte headers, but need to add data)
 //     Quadlet read response: 20 (IPv4 header) + 8 (UDP header) + 20 (data)
 //     Block read response: 20 (IPv4 header) + 8 (UDP header) + 24 + block_data_length
-assign IPv4_Header_Reply[1] = quadRead ? 16'd48 : (16'd52 + block_data_length);
+assign IPv4_Header_Reply[1] = isEcho ? 16'd32 :  // IPv4_Length :
+                              (quadRead ? 16'd48 : (16'd52 + block_data_length));
 // Word 2: Identification (supposed to be unique within packet lifetime)
 assign IPv4_Header_Reply[2] = 16'd0;
 // Word 3: Flags, Fragment Offset
@@ -547,7 +547,7 @@ assign DebugData[9]  = { 8'h11, maxCount, LengthFW };
 assign DebugData[10] = { IPv4_hostIP[7:0], IPv4_hostIP[15:8], IPv4_hostIP[23:16], IPv4_hostIP[31:24] };
 assign DebugData[11] = { IPv4_fpgaIP[7:0], IPv4_fpgaIP[15:8], IPv4_fpgaIP[23:16], IPv4_fpgaIP[31:24] };
 assign DebugData[12] = { IPv4_Length, 4'h0, rxPktWords };
-assign DebugData[13] = { 16'h5577, txPktWords };
+assign DebugData[13] = { 16'h8877, 4'd0, txPktWords };
 assign DebugData[14] = { 6'd0, numPacketInvalid, numPacketValid };
 assign DebugData[15] = { 6'd0, numUDP, 6'd0, numIPv4 };
 assign DebugData[16] = { 6'd0, numICMP, 6'd0, numARP };
@@ -809,7 +809,7 @@ always @(posedge sysclk or negedge reset) begin
             end
             else if (sendReq) begin
                // forward packet from FireWire
-               state <= ST_SEND_START;
+               state <= ST_SEND_DMA_START;
                isForward <= 1;
                sendAck <= 1;
             end
@@ -824,16 +824,16 @@ always @(posedge sysclk or negedge reset) begin
             //    state <= ST_WAIT_ACK_CLEAR;
             //    readCount <= 4'd0;
             //    if (isWrite && isDMA) begin
-            //       txPktWords <= txPktWords + 16'd1;
+            //       txPktWords <= txPktWords + 12'd1;
             //    end
             // end
             else if (cmdAck) begin
                cmdReq <= 0;
                state <= ST_WAIT_ACK_CLEAR;
                readCount <= 4'd0;
-               if (isWrite && isDMA) begin
-                  txPktWords <= txPktWords + 16'd1;
-               end
+               // Increment or decrement txPktWords or rxPktWords if appropriate
+               txPktWords <= txPktWords + {11'd0, isWrite&isDMA};
+               rxPktWords <= rxPktWords - {11'd0, (~isWrite)&isDMA};
             end
             else if (!cmdReq) begin
                state <= ST_WAIT_ACK_CLEAR;
@@ -1131,7 +1131,6 @@ always @(posedge sysclk or negedge reset) begin
             if (count[1:0] == 2'd3) begin
                nextState <= ST_RECEIVE_DMA_FRAME_HEADER;
                count[4:0] <= Frame_Header_Begin;
-               rxPktWords <= rxPktWords-12'd1;
             end
             else begin
                nextState <= ST_RECEIVE_DMA_SKIP;
@@ -1145,7 +1144,6 @@ always @(posedge sysclk or negedge reset) begin
             state <= ST_WAIT_ACK;
             nextState <= ST_RECEIVE_DMA_FRAME_HEADER;
             count[4:0] <= count[4:0]+5'd1;
-            rxPktWords <= rxPktWords-12'd1;
             // Read dest MAC, source MAC, and length (7 words, byte-swapped).
             PacketBuffer[count[4:0]] <= `ReadDataSwapped;
             if (count[4:0] == Frame_Header_End) begin
@@ -1189,7 +1187,6 @@ always @(posedge sysclk or negedge reset) begin
             cmdReq <= 1;
             state <= ST_WAIT_ACK;
             count[4:0] <= count[4:0]+5'd1;
-            rxPktWords <= rxPktWords-12'd1;
             // PK TODO: Following does not correctly handle IHL>5
             PacketBuffer[count[4:0]] <= `ReadDataSwapped;
             // Word 0:
@@ -1258,17 +1255,11 @@ always @(posedge sysclk or negedge reset) begin
 
          ST_RECEIVE_DMA_ICMP_HEADER:
          begin
-            rxPktWords <= rxPktWords-12'd1;
+            cmdReq <= 1;
+            state <= ST_WAIT_ACK;
             PacketBuffer[count[4:0]] <= `ReadDataSwapped;
-            if (count[4:0] == ICMP_Header_End) begin
-               state <= ST_RECEIVE_FLUSH_START;
-            end
-            else begin
-               cmdReq <= 1;
-               state <= ST_WAIT_ACK;
-               nextState <= ST_RECEIVE_DMA_ICMP_HEADER;
-               count[4:0] <= count[4:0]+5'd1;
-            end
+            count[4:0] <= count[4:0]+5'd1;
+            nextState <= (count[4:0] == ICMP_Header_End) ? ST_RECEIVE_DMA_FRAME_CRC : ST_RECEIVE_DMA_ICMP_HEADER;
          end
 
          ST_RECEIVE_DMA_UDP_HEADER:
@@ -1281,7 +1272,6 @@ always @(posedge sysclk or negedge reset) begin
             state <= ST_WAIT_ACK;
             nextState <= ST_RECEIVE_DMA_UDP_HEADER;
             count[4:0] <= count[4:0] + 5'd1;
-            rxPktWords <= rxPktWords-12'd1;
             PacketBuffer[count[4:0]] <= `ReadDataSwapped;
             if (count[4:0] == UDP_Header_End) begin
                // Make sure destination port is 1394
@@ -1292,7 +1282,7 @@ always @(posedge sysclk or negedge reset) begin
                   state <= ST_RECEIVE_FLUSH_START;
                end
                else begin
-                  maxCount <= UDP_Length[8:1]-8'd5;  // Subtract 4 words for UDP header
+                  maxCount <= UDP_Length[8:1]-8'd5;  // Subtract 4 words for UDP header (nBytes/2-4-1)
                   LengthFW <= UDP_Length-8'd8;       // Subtract 8 bytes for UDP header
                   nextState <= ST_RECEIVE_DMA_FIREWIRE_PACKET;
                   count[4:0] <= 5'd0;
@@ -1306,7 +1296,6 @@ always @(posedge sysclk or negedge reset) begin
             state <= ST_WAIT_ACK;
             nextState <= ST_RECEIVE_DMA_FIREWIRE_PACKET;
             count <= count + 8'd1;
-            rxPktWords <= rxPktWords-12'd1;
 
             // Read FireWire packet, byteswap to make it easier to work with;
             // might need to byteswap again if sending it out via FireWire.
@@ -1429,7 +1418,6 @@ always @(posedge sysclk or negedge reset) begin
 
          ST_RECEIVE_DMA_ARP:
          begin
-            rxPktWords <= rxPktWords-12'd1;
             PacketBuffer[count[4:0]] <= `ReadDataSwapped;
             if ((count[4:0] == ARP_Packet_Begin+5'd4) && !isARPValid) begin
                // If not a valid ARP request, flush it
@@ -1442,8 +1430,10 @@ always @(posedge sysclk or negedge reset) begin
                   ip_address[31:16] <= ReadData;
                   ip_address[15:0] <= {ARP_fpgaIP[23:16], ARP_fpgaIP[31:24] };
                end
-               count[4:0] <= 5'd0;
+               cmdReq <= 1;
+               state <= ST_WAIT_ACK;
                state <= ST_RECEIVE_DMA_FRAME_CRC;
+               count[4:0] <= 5'd0;
             end
             else begin
                cmdReq <= 1;
@@ -1456,13 +1446,14 @@ always @(posedge sysclk or negedge reset) begin
 
          ST_RECEIVE_DMA_FRAME_CRC:
          begin
-            // We could read two words to get the 4-byte CRC, but flushing the
-            // packet works better. We decrement rxPktWords by 2, but that
+            // The first word is already available in ReadData.
+            // We read the second word to get the 4-byte CRC, but flushing the
+            // packet works better. We decrement rxPktWords by 1, but that
             // variable is just for debugging. In most cases, rxPktWords should
             // be 0 after this -- the exception is when the packet is smaller than
             // the minimum Ethernet frame (64 bytes), in which case it is padded
             // (this happens with raw Ethernet quadlet read/write commands).
-            rxPktWords <= rxPktWords-12'd2;
+            rxPktWords <= rxPktWords-12'd1;
             state <= ST_RECEIVE_FLUSH_START;
          end
 
@@ -1496,7 +1487,7 @@ always @(posedge sysclk or negedge reset) begin
             isWrite <= 0;
             if (~isWrite && (ReadData[0] == 1'b0)) begin
                if ((FireWirePacketFresh && (quadRead || blockRead) && isLocal) || sendARP || isEcho) begin
-                  state <= ST_SEND_START;
+                  state <= ST_SEND_DMA_START;
                end
                else begin
                   if (FrameCount == 8'd0) begin
@@ -1520,27 +1511,11 @@ always @(posedge sysclk or negedge reset) begin
          //*************** States for sending Ethernet packets ******************
          // First, should check if enough memory on QMU TXQ
 
-         ST_SEND_START:
+         ST_SEND_DMA_START:  // same as ST_RECEIVE_DMA_START
          begin
             if (isInIRQ == 1'b0) begin
                sendAck <= 0;  // TEMP
             end
-            state <= ST_SEND_TXMIR_READ;
-            // Reset pkt words count
-            txPktWords <= 16'd0;
-         end
-
-         ST_SEND_TXMIR_READ:
-         begin
-            cmdReq <= 1;
-            isWrite <= 0;
-            RegAddr <= `ETH_ADDR_TXMIR;
-            state <= ST_WAIT_ACK;
-            nextState <= ST_SEND_DMA_START;
-         end
-
-         ST_SEND_DMA_START:  // same as ST_RECEIVE_DMA_START
-         begin
             // Enable DMA transfers
             cmdReq <= 1;
             isWrite <= 1;
@@ -1552,6 +1527,8 @@ always @(posedge sysclk or negedge reset) begin
 
          ST_SEND_DMA_CONTROLWORD:
          begin
+            // Reset pkt words count
+            txPktWords <= 12'd0;
             cmdReq <= 1;
             isDMA <= 1;
             // TX Control word
@@ -1577,6 +1554,7 @@ always @(posedge sysclk or negedge reset) begin
             end
             else if (isEcho) begin
                // Echo (ICMP) response: 14 + 20 + 12
+               // PK TODO: Needs to also include data beyond the header
                WriteData <= 16'd46;
             end
             else begin
@@ -1682,11 +1660,11 @@ always @(posedge sysclk or negedge reset) begin
             case (count[2:0])
               3'd0: WriteData <= 16'd0;  // Echo Reply: Type=0, Code=0
               3'd1: WriteData <= ~(icmp_checksum[15:0] + {14'd0, icmp_checksum[17:16]});
-              3'd2: WriteData <= Echo_id;
-              3'd3: WriteData <= Echo_seq;
-              3'd4: WriteData <= Echo_payload[31:16];
+              3'd2: `WriteDataSwapped <= Echo_id;
+              3'd3: `WriteDataSwapped <= Echo_seq;
+              3'd4: `WriteDataSwapped <= Echo_payload[31:16];
               3'd5: begin
-                    WriteData <= Echo_payload[15:0];
+                    `WriteDataSwapped <= Echo_payload[15:0];
                     count[2:0] <= 3'd0;
                     nextState <= ST_SEND_DMA_STOP;
                     end
