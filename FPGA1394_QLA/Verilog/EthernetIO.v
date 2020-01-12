@@ -173,11 +173,7 @@ localparam [5:0]
     ST_RECEIVE_FRAME_LENGTH = 6'd13,
     ST_RECEIVE_DMA_START = 6'd14,
     ST_RECEIVE_DMA_SKIP = 6'd15,
-    ST_RECEIVE_DMA_FRAME_HEADER = 6'd16,
-    ST_RECEIVE_DMA_ARP = 6'd17,
-    ST_RECEIVE_DMA_IPV4_HEADER = 6'd18,
-    ST_RECEIVE_DMA_ICMP_HEADER = 6'd19,
-    ST_RECEIVE_DMA_UDP_HEADER = 6'd20,
+    ST_RECEIVE_DMA_ETHERNET_HEADERS = 6'd16,
     ST_RECEIVE_DMA_FIREWIRE_PACKET = 6'd21,
     ST_RECEIVE_DMA_FRAME_CRC = 6'd22,
     ST_RECEIVE_FLUSH_START = 6'd23,
@@ -314,6 +310,13 @@ wire isARP;
 // ARP Ethertype is 0x0806
 assign isARP = (Eth_EtherType == 16'h0806) ? 1'd1 : 1'd0;
 
+wire isRaw;
+// The frame is considered raw if it has a length, rather than an EtherType.
+// The Ethernet standard allows lengths up to 1500 bytes, but we limit to
+// 512 bytes, which is enough for the largest Firewire packet. Thus, we check
+// if the upper 7 bits are 0 (i.e., if length is no more than 9 bits).
+assign isRaw = (Eth_EtherType[15:9] == 7'd0) ? 1'd1 : 1'd0;
+
 reg[15:0] LengthFW;        // fw packet length in bytes
 assign eth_fwpkt_len = LengthFW;
 
@@ -366,8 +369,10 @@ assign sendARP = isARP & isARPValid & isARP_ip_equal;
 // Word 5: Header checksum (ignored, for now)
 // Word 6,7: Source IP address (host)
 // Word 8,9: Destination IP address (fpga)
-wire isIPv4Valid;
-assign isIPv4Valid = (PacketBuffer[IPv4_Header_Begin+5'd0][15:11] == 4'h4);   // Version should be 4
+wire[3:0] IPv4_Version;
+assign IPv4_Version = PacketBuffer[IPv4_Header_Begin+5'd0][15:12];
+wire [3:0] IPv4_IHL;
+assign IPv4_IHL = PacketBuffer[IPv4_Header_Begin+5'd0][11:8];
 wire[15:0] IPv4_Length;
 assign IPv4_Length = PacketBuffer[IPv4_Header_Begin+5'd1];
 wire[7:0] IPv4_Protocol;
@@ -376,6 +381,14 @@ wire[31:0] IPv4_hostIP;
 assign IPv4_hostIP = { PacketBuffer[IPv4_Header_Begin+5'd6], PacketBuffer[IPv4_Header_Begin+5'd7] };
 wire[31:0] IPv4_fpgaIP;
 assign IPv4_fpgaIP = { PacketBuffer[IPv4_Header_Begin+5'd8], PacketBuffer[IPv4_Header_Begin+5'd9] };
+
+wire is_IPv4_Long;
+// The following conditional is an efficient alternative to (IPv4_IHL > 5).
+assign is_IPv4_Long = ((IPv4_IHL[3] == 2'b1) || (IPv4_IHL[2:1] == 2'b11)) ? 1'd1 : 1'd0;
+
+wire is_IPv4_Short;
+// IHL should never be less than 5, so this should not happen
+assign is_IPv4_Short = (!is_IPv4_Long && (IPv4_IHL != 4'd5)) ? 1'd1 : 1'd0;
 
 wire isUDP;
 assign isUDP = (isIPv4 && (IPv4_Protocol == 8'd17)) ? 1'd1 : 1'd0;
@@ -414,8 +427,22 @@ assign isEcho = (isICMP && (PacketBuffer[ICMP_Header_Begin] == 16'h0800)) ? 1'd1
 wire[17:0] icmp_checksum;
 assign icmp_checksum = {2'd0, Echo_id} + {2'd0, Echo_seq} + {2'd0, Echo_payload[31:16]} + {2'd0, Echo_payload[15:0]};
 
-reg ipv4_long;  // IP frame longer than default (ok)
-reg ipv4_short; // IP frame too short (error)
+//**************************** Final Processing Steps **********************************
+
+wire Frame_Done;
+assign Frame_Done = (count == Frame_Header_End) ? 1'd1 : 1'd0;
+
+wire ARP_Done;
+assign ARP_Done = (isARP && (count == ARP_Packet_End)) ? 1'd1 : 1'd0;
+
+wire IPv4_Done;
+assign IPv4_Done = (isIPv4 && (count == IPv4_Header_End)) ? 1'd1 : 1'd0;
+
+wire UDP_Done;
+assign UDP_Done = (isUDP && (count == UDP_Header_End)) ? 1'd1 : 1'd0;
+
+wire ICMP_Done;
+assign ICMP_Done = (isICMP && (count == ICMP_Header_End)) ? 1'd1 : 1'd0;
 
 //************************* Ethernet Frame Reply Header *********************************
 wire[15:0] Frame_Header_Reply[0:5];
@@ -537,7 +564,7 @@ assign DebugData[1]  = timestamp;
 assign DebugData[2]  = {5'd0, ethUDPError, ethIPv4Unsupported, ethIPv4Error, 2'd0, node_id, eth_status};
 assign DebugData[3]  = { 2'd0, state, 2'd0, nextState,
                          2'h0, isLocal, isRemote, FireWirePacketFresh, isEthBroadcast, isEthMulticast, ~ETH_IRQn,
-                         isForward, isInIRQ, sendARP, isUDP, isICMP, isEcho, ipv4_long, ipv4_short};
+                         isForward, isInIRQ, sendARP, isUDP, isICMP, isEcho, is_IPv4_Long, is_IPv4_Short};
 assign DebugData[4]  = { RegISR, RegISROther};
 assign DebugData[5]  = { 16'h2233, FrameCount, count};
 assign DebugData[6]  = { Eth_destMac[1][7:0], Eth_destMac[1][15:8], Eth_destMac[0][7:0], Eth_destMac[0][15:8] };
@@ -906,8 +933,6 @@ always @(posedge sysclk or negedge reset) begin
             initOK <= 1;
             isEthMulticast <= 0;
             isEthBroadcast <= 0;
-            ipv4_long <= 0;
-            ipv4_short <= 0;
             RegISROther <= 16'd0;
             isForward <= 0;
             numPacketValid <= 16'd0;
@@ -1129,7 +1154,7 @@ always @(posedge sysclk or negedge reset) begin
             isWrite <= 0;
             state <= ST_WAIT_ACK;
             if (count[1:0] == 2'd3) begin
-               nextState <= ST_RECEIVE_DMA_FRAME_HEADER;
+               nextState <= ST_RECEIVE_DMA_ETHERNET_HEADERS;
                count[4:0] <= Frame_Header_Begin;
             end
             else begin
@@ -1138,91 +1163,60 @@ always @(posedge sysclk or negedge reset) begin
             end
          end
 
-         ST_RECEIVE_DMA_FRAME_HEADER:
+         ST_RECEIVE_DMA_ETHERNET_HEADERS:
          begin
             cmdReq <= 1;
             state <= ST_WAIT_ACK;
-            nextState <= ST_RECEIVE_DMA_FRAME_HEADER;
+            nextState <= (ICMP_Done || ARP_Done) ? ST_RECEIVE_DMA_FRAME_CRC :
+                         ((UDP_Done || (Frame_Done && (`ReadDataSwapped[15:9] == 7'd0))) ? ST_RECEIVE_DMA_FIREWIRE_PACKET :
+                         ST_RECEIVE_DMA_ETHERNET_HEADERS);
             count[4:0] <= count[4:0]+5'd1;
-            // Read dest MAC, source MAC, and length (7 words, byte-swapped).
             PacketBuffer[count[4:0]] <= `ReadDataSwapped;
-            if (count[4:0] == Frame_Header_End) begin
+            if (Frame_Done) begin
                // Maximum data length is currently 284 bytes (block write to PROM); as a sanity
-               // check, we flush any packets greater than 512 bytes in length.
-               if (`ReadDataSwapped[15:9] == 7'd0) begin
-                  nextState <= ST_RECEIVE_DMA_FIREWIRE_PACKET;
+               // check, we flush any packets greater than 512 bytes in length, which currently
+               // is the length of the FirewirePacket buffer (128 quadlets = 256 words = 512 bytes).
+               if (`ReadDataSwapped[15:9] == 7'd0) begin   // if (isRaw)
                   count[4:0] <= 5'd0;
                   // Set up maxCount based on number of words (numBytes/2-1).
-                  // Note that this can be larger than the current buffer size (142 words or 71 quadlets),
-                  // but later on we have a check to prevent buffer overflow.
                   maxCount <= `ReadDataSwapped[8:1]-8'd1;
                   LengthFW <= `ReadDataSwapped;
                end
-               else if (`ReadDataSwapped == 16'h0800) begin
-                  // IPv4 Ethertype is 0x0800
-                  nextState <= ST_RECEIVE_DMA_IPV4_HEADER;
-                  numIPv4 <= numIPv4 + 10'd1;
-                  count[4:0] <= IPv4_Header_Begin;
-                  // Default value of maxCount (IPv4 header has at least 10 words)
-                  maxCount[4:0] <= IPv4_Header_End;
-               end
-               else if (`ReadDataSwapped == 16'h0806) begin
-                  // ARP Ethertype is 0x0806
-                  count[4:0] <= ARP_Packet_Begin;
-                  numARP <= numARP + 10'd1;
-                  nextState <= ST_RECEIVE_DMA_ARP;
-               end
-               else begin
-                  // Unsupported EtherType (or length greater than 512 bytes)
+               else if ((`ReadDataSwapped != 16'h0800) && (`ReadDataSwapped != 16'h0806)) begin
+                  // else if Ethertype is not 0x0800 (IPv4) or 0x0806 (ARP)
+                  // then unsupported EtherType (or length greater than 512 bytes)
                   ethPacketError <= 1;
                   numPacketError <= numPacketError + 10'd1;
                   cmdReq <= 0;
                   state <= ST_RECEIVE_FLUSH_START;
                end
             end
-         end
-
-         ST_RECEIVE_DMA_IPV4_HEADER:
-         begin
-            cmdReq <= 1;
-            state <= ST_WAIT_ACK;
-            count[4:0] <= count[4:0]+5'd1;
-            // PK TODO: Following does not correctly handle IHL>5
-            PacketBuffer[count[4:0]] <= `ReadDataSwapped;
-            // Word 0:
-            //   Byte 0: Version, should be 4; IHL (Internet Header Length), normally should be 5
-            //   Byte 1: DSCP and ECN (ignore those)
-            if (count[4:0] == IPv4_Header_Begin) begin
-               if (ReadData[7:4] != 4'h4) begin
+            else if (IPv4_Done) begin
+               numIPv4 <= numIPv4 + 10'd1;
+               // Some of these could have been done earlier
+               if (IPv4_Version != 4'h4) begin
                   ethIPv4Error <= 1;
                   numPacketError <= numPacketError + 10'd1;
                   cmdReq <= 0;
                   state <= ST_RECEIVE_FLUSH_START;
                end
-               else begin
-                  // Set up maxCount based on number of words (2*IHL-1).
-                  // Note that IHL is normally 5 (its minimum value), in which case maxCount
-                  // was already set to 9. The following conditional is an efficient alternative
-                  // to (ReadData[3:0] > 5).
-                  if ((ReadData[3] == 2'b1) || (ReadData[2:1] == 2'b11)) begin
-                     ipv4_long <= 1;   // This is ok, though not typical (IHL usually is 5)
-                     maxCount[4:0] <= IPv4_Header_Begin + {ReadData[3:0],1'd0}-5'd1;
-                  end
-                  else if (ReadData[3:0] != 4'd5)
-                     ipv4_short <= 1;  // This should not happen
-               end // else: !if(ReadData[7:4] != 4'h4)
-            end
-            else if (count[4:0] == IPv4_Header_Begin+5'd9) begin
-               if (is_ip_unassigned && (ReadData[15:8] != 8'hff)) begin
+               else if (!isUDP && !isICMP) begin
+                  ethIPv4Unsupported <= 1;
+                  numPacketError <= numPacketError + 10'd1;
+                  cmdReq <= 0;
+                  state <= ST_RECEIVE_FLUSH_START;
+               end
+               // Can check for IHL > 5
+               // maxCount[4:0] <= IPv4_Header_Begin + {ReadData[3:0],1'd0}-5'd1;
+               else if (is_ip_unassigned && (IPv4_fpgaIP[7:0] != 8'hff)) begin
                   // This case can occur when the host PC already has an ARP
                   // cache entry for this board, in which case we just assign
                   //  the IP address, as long as it is not a broadcast address
                   //  (we only check whether the last byte is 255).
-                  ip_address[31:16] <= ReadData;
+                  ip_address[31:16] <= {IPv4_fpgaIP[7:0], IPv4_fpgaIP[15:8] };
                   ip_address[15:0] <= {IPv4_fpgaIP[23:16], IPv4_fpgaIP[31:24] };
                end
-               // PK TODO: check following condition
-               else if ((ip_address != {ReadData, IPv4_fpgaIP[23:16], IPv4_fpgaIP[31:24]})
+               else if ((ip_address != {IPv4_fpgaIP[7:0], IPv4_fpgaIP[15:8], IPv4_fpgaIP[23:16], IPv4_fpgaIP[31:24]})
                         && !isEthBroadcast && !isEthMulticast) begin
                   // If IP assigned, but not equal, we process the packet anyway,
                   // but keep track of the number of times this occurred.
@@ -1230,51 +1224,8 @@ always @(posedge sysclk or negedge reset) begin
                   numIPv4Mismatch <= numIPv4Mismatch + 10'd1;
                end
             end
-            if (count[4:0] == maxCount[4:0]) begin
-               // Reached end of IPv4 header; isUDP and isICMP are valid by now
-               if (isUDP) begin
-                  numUDP <= numUDP + 10'd1;
-                  nextState <= ST_RECEIVE_DMA_UDP_HEADER;
-                  count[4:0] <= UDP_Header_Begin;
-               end
-               else if (isICMP) begin
-                  numICMP <= numICMP + 10'd1;
-                  nextState <= ST_RECEIVE_DMA_ICMP_HEADER;
-                  count[4:0] <= ICMP_Header_Begin;
-               end
-               else begin
-                  ethIPv4Unsupported <= 1;
-                  numPacketError <= numPacketError + 10'd1;
-                  state <= ST_RECEIVE_FLUSH_START;
-               end
-            end
-            else begin
-               nextState <= ST_RECEIVE_DMA_IPV4_HEADER;
-            end
-         end
-
-         ST_RECEIVE_DMA_ICMP_HEADER:
-         begin
-            cmdReq <= 1;
-            state <= ST_WAIT_ACK;
-            PacketBuffer[count[4:0]] <= `ReadDataSwapped;
-            count[4:0] <= count[4:0]+5'd1;
-            nextState <= (count[4:0] == ICMP_Header_End) ? ST_RECEIVE_DMA_FRAME_CRC : ST_RECEIVE_DMA_ICMP_HEADER;
-         end
-
-         ST_RECEIVE_DMA_UDP_HEADER:
-         // Word 0:  Source port
-         // Word 1:  Destination port
-         // Word 2:  Length
-         // Word 3:  Checksum
-         begin
-            cmdReq <= 1;
-            state <= ST_WAIT_ACK;
-            nextState <= ST_RECEIVE_DMA_UDP_HEADER;
-            count[4:0] <= count[4:0] + 5'd1;
-            PacketBuffer[count[4:0]] <= `ReadDataSwapped;
-            if (count[4:0] == UDP_Header_End) begin
-               // Make sure destination port is 1394
+            else if (UDP_Done) begin
+               numUDP <= numUDP + 10'd1;
                if (!isPortValid) begin
                   ethUDPError <= 1;
                   numPacketError <= numPacketError + 10'd1;
@@ -1284,8 +1235,21 @@ always @(posedge sysclk or negedge reset) begin
                else begin
                   maxCount <= UDP_Length[8:1]-8'd5;  // Subtract 4 words for UDP header (nBytes/2-4-1)
                   LengthFW <= UDP_Length-8'd8;       // Subtract 8 bytes for UDP header
-                  nextState <= ST_RECEIVE_DMA_FIREWIRE_PACKET;
                   count[4:0] <= 5'd0;
+               end
+            end
+            else if (ARP_Done) begin
+               numARP <= numARP + 10'd1;
+               // If not a valid ARP request, flush it (this check could have been done sooner)
+               if (!isARPValid) begin
+                  cmdReq <= 0;
+                  state <= ST_RECEIVE_FLUSH_START;
+               end
+               // Normal completion
+               else if (is_ip_unassigned) begin
+                  // If our IP address not yet set, update it
+                  ip_address[31:16] <= ReadData;
+                  ip_address[15:0] <= {ARP_fpgaIP[23:16], ARP_fpgaIP[31:24] };
                end
             end
          end
@@ -1414,34 +1378,6 @@ always @(posedge sysclk or negedge reset) begin
                   block_index <= block_index + 7'd1;
                end
             end
-         end
-
-         ST_RECEIVE_DMA_ARP:
-         begin
-            PacketBuffer[count[4:0]] <= `ReadDataSwapped;
-            if ((count[4:0] == ARP_Packet_Begin+5'd4) && !isARPValid) begin
-               // If not a valid ARP request, flush it
-               state <= ST_RECEIVE_FLUSH_START;
-            end
-            else if (count[4:0] == ARP_Packet_End) begin
-               // Normal completion
-               if (is_ip_unassigned) begin
-                  // If our IP address not yet set, update it
-                  ip_address[31:16] <= ReadData;
-                  ip_address[15:0] <= {ARP_fpgaIP[23:16], ARP_fpgaIP[31:24] };
-               end
-               cmdReq <= 1;
-               state <= ST_WAIT_ACK;
-               state <= ST_RECEIVE_DMA_FRAME_CRC;
-               count[4:0] <= 5'd0;
-            end
-            else begin
-               cmdReq <= 1;
-               state <= ST_WAIT_ACK;
-               nextState <= ST_RECEIVE_DMA_ARP;
-               count[4:0] <= count[4:0]+5'd1;
-            end
-
          end
 
          ST_RECEIVE_DMA_FRAME_CRC:
