@@ -121,10 +121,9 @@ parameter num_channels = 4;
 
 // Error flags
 reg ethIoError;        // 1 -> Ethernet I/O error
-reg ethPacketError;    // 1 -> Packet too long, unsupported packet type, unexpected UDP port (not 1394)
-reg ethIPv4Error;      // 1 -> IPv4 header error
-reg ethIPv4Unsupported;   // 1 -> Unsupported IPv4 protocol
-reg ethUDPError;       // 1 -> Wrong UDP port
+reg ethFrameError;     // 1 -> Frame too long (currently, if more than 512 bytes)
+reg ethIPv4Error;      // 1 -> IPv4 header error (protocol not UDP or ICMP; header version != 4)
+reg ethUDPError;       // 1 -> Wrong UDP port (not 1394)
 reg ethDestError;      // 1 -> Incorrect destination (FireWire destination does not begin with 0xFFC)
 
 // Current state and next state
@@ -174,32 +173,32 @@ localparam [5:0]
     ST_RECEIVE_DMA_START = 6'd14,
     ST_RECEIVE_DMA_SKIP = 6'd15,
     ST_RECEIVE_DMA_ETHERNET_HEADERS = 6'd16,
-    ST_RECEIVE_DMA_FIREWIRE_PACKET = 6'd21,
-    ST_RECEIVE_DMA_FRAME_CRC = 6'd22,
-    ST_RECEIVE_FLUSH_START = 6'd23,
-    ST_RECEIVE_FLUSH_WAIT = 6'd24,
-    ST_SEND_DMA_START = 6'd27,
-    ST_SEND_DMA_CONTROLWORD = 6'd28,
-    ST_SEND_DMA_BYTECOUNT = 6'd29,
-    ST_SEND_DMA_FRAME_HEADER = 6'd30,
-    ST_SEND_DMA_FRAME_LENGTH = 6'd31,
-    ST_SEND_DMA_ARP = 6'd32,
-    ST_SEND_DMA_IPV4_HEADER = 6'd33,
-    ST_SEND_DMA_ICMP_HEADER = 6'd34,
-    ST_SEND_DMA_UDP_HEADER = 6'd35,
-    ST_SEND_DMA_PACKETDATA_HEADER = 6'd36,
-    ST_SEND_DMA_PACKETDATA_QUAD = 6'd37,
-    ST_SEND_DMA_PACKETDATA_BLOCK_START = 6'd38,
-    ST_SEND_DMA_PACKETDATA_BLOCK_MAIN = 6'd39,
-    ST_SEND_DMA_PACKETDATA_BLOCK_CHANNEL = 6'd40,
-    ST_SEND_DMA_PACKETDATA_BLOCK_PROM = 6'd41,
-    ST_SEND_DMA_PACKETDATA_CHECKSUM = 6'd42,
-    ST_SEND_DMA_FWD = 6'd43,
-    ST_SEND_DMA_DUMMY_DWORD = 6'd44,
-    ST_SEND_DMA_STOP = 6'd45,
-    ST_SEND_TXQ_ENQUEUE = 6'd46,
-    ST_SEND_TXQ_ENQUEUE_WAIT = 6'd47,
-    ST_SEND_END = 6'd48;
+    ST_RECEIVE_DMA_FIREWIRE_PACKET = 6'd17,
+    ST_RECEIVE_DMA_FRAME_CRC = 6'd18,
+    ST_RECEIVE_FLUSH_START = 6'd19,
+    ST_RECEIVE_FLUSH_WAIT = 6'd20,
+    ST_SEND_DMA_START = 6'd21,
+    ST_SEND_DMA_CONTROLWORD = 6'd22,
+    ST_SEND_DMA_BYTECOUNT = 6'd23,
+    ST_SEND_DMA_FRAME_HEADER = 6'd24,
+    ST_SEND_DMA_FRAME_LENGTH = 6'd25,
+    ST_SEND_DMA_ARP = 6'd26,
+    ST_SEND_DMA_IPV4_HEADER = 6'd27,
+    ST_SEND_DMA_ICMP_HEADER = 6'd28,
+    ST_SEND_DMA_UDP_HEADER = 6'd29,
+    ST_SEND_DMA_PACKETDATA_HEADER = 6'd30,
+    ST_SEND_DMA_PACKETDATA_QUAD = 6'd31,
+    ST_SEND_DMA_PACKETDATA_BLOCK_START = 6'd32,
+    ST_SEND_DMA_PACKETDATA_BLOCK_MAIN = 6'd33,
+    ST_SEND_DMA_PACKETDATA_BLOCK_CHANNEL = 6'd34,
+    ST_SEND_DMA_PACKETDATA_BLOCK_PROM = 6'd35,
+    ST_SEND_DMA_PACKETDATA_CHECKSUM = 6'd36,
+    ST_SEND_DMA_FWD = 6'd37,
+    ST_SEND_DMA_DUMMY_DWORD = 6'd38,
+    ST_SEND_DMA_STOP = 6'd39,
+    ST_SEND_TXQ_ENQUEUE = 6'd40,
+    ST_SEND_TXQ_ENQUEUE_WAIT = 6'd41,
+    ST_SEND_END = 6'd42;
 
 
 // Debugging support
@@ -225,6 +224,7 @@ wire quadWrite;
 wire blockRead;
 wire blockWrite;
 
+reg FrameValid;
 reg isEthMulticast;
 reg isEthBroadcast;
 
@@ -243,7 +243,7 @@ assign eth_status[30] = eth_error;       // 30: 1 -> error occurred
 assign eth_status[29] = initOK;          // 29: 1 -> Initialization OK
 assign eth_status[28] = initReq;         // 28: 1 -> Reset executed, init requested
 assign eth_status[27] = ethIoError;      // 27: 1 -> ethernet I/O error (higher layer)
-assign eth_status[26] = ethPacketError;  // 26: 1 -> ethernet packet too long (higher layer)
+assign eth_status[26] = ethFrameError;   // 26: 1 -> ethernet packet too long (higher layer)
 assign eth_status[25] = ethDestError;    // 25: 1 -> ethernet destination error (higher layer)
 //assign eth_status[26] = cmdReq;          // 26: 1 -> command requested by higher level
 //assign eth_status[25] = cmdAck;          // 25: 1 -> command acknowledged by lower level
@@ -266,11 +266,20 @@ reg[15:0] RegISROther; // Unexpected ISR value (for debugging)
 reg[7:0] FrameCount;   // Number of received frames
 reg[7:0] count;        // General use counter
 reg[3:0] readCount;    // Wait for read valid
-reg[7:0] maxCount;     // For reading FireWire packets
 reg[2:0] next_addr;    // Address of next device (for block read)
 reg[6:0] block_index;  // Index into data block (5-70)
 reg[11:0] txPktWords;  // Num of words sent
 reg[11:0] rxPktWords;  // Num of words in receive queue
+
+wire[7:0] maxCountFW;  // Maximum count (of words) when reading FireWire packets
+// Subtract 4 words for UDP header (nBytes/2-4-1); otherwise, just subtract 1 word
+assign maxCountFW = isUDP ? (UDP_Length[8:1]-8'd5) : (Eth_EtherType[8:1]-8'd1);
+
+wire[15:0] LengthFW;   // Firewire packet length in bytes
+// Subtract 8 bytes for UDP header
+assign LengthFW = isUDP ? UDP_Length-8'd8 : Eth_EtherType;
+
+assign eth_fwpkt_len = LengthFW;
 
 //************************ Large buffer to hold various packets **************************
 // Note that it is fine for some buffers to overlap. For example, an ARP packet does not
@@ -289,6 +298,8 @@ localparam[4:0]
    ICMP_Header_Begin  = 5'd17,   // Offset to ICMP Header (words) [length=6]
    ICMP_Header_End    = 5'd22;
 
+reg[15:0] FrameCRC_High;  // High word of Frame CRC (TEMP)
+
 //************************** Ethernet Frame Header ********************************
 // Dest MAC (3 words), Src MAC (3 words), Ethertype/Length (1 word)
 wire[15:0] Eth_destMac[0:2];
@@ -304,11 +315,11 @@ assign Eth_EtherType = PacketBuffer[Frame_Header_End];
 
 wire isIPv4;
 // IPv4 Ethertype is 0x0800
-assign isIPv4 = (Eth_EtherType == 16'h0800) ? 1'd1 : 1'd0;
+assign isIPv4 = (FrameValid && (Eth_EtherType == 16'h0800)) ? 1'd1 : 1'd0;
 
 wire isARP;
 // ARP Ethertype is 0x0806
-assign isARP = (Eth_EtherType == 16'h0806) ? 1'd1 : 1'd0;
+assign isARP = (FrameValid && (Eth_EtherType == 16'h0806)) ? 1'd1 : 1'd0;
 
 wire isRaw;
 // The frame is considered raw if it has a length, rather than an EtherType.
@@ -316,9 +327,6 @@ wire isRaw;
 // 512 bytes, which is enough for the largest Firewire packet. Thus, we check
 // if the upper 7 bits are 0 (i.e., if length is no more than 9 bits).
 assign isRaw = (Eth_EtherType[15:9] == 7'd0) ? 1'd1 : 1'd0;
-
-reg[15:0] LengthFW;        // fw packet length in bytes
-assign eth_fwpkt_len = LengthFW;
 
 //********************************* ARP Packet ***********************************
 // Word 0: Hardware type (HTYPE):  1 for Ethernet
@@ -428,9 +436,15 @@ wire[17:0] icmp_checksum;
 assign icmp_checksum = {2'd0, Echo_id} + {2'd0, Echo_seq} + {2'd0, Echo_payload[31:16]} + {2'd0, Echo_payload[15:0]};
 
 //**************************** Final Processing Steps **********************************
+// These signals should only be used in ST_RECEIVE_DMA_ETHERNET_HEADERS
 
 wire Frame_Done;
 assign Frame_Done = (count == Frame_Header_End) ? 1'd1 : 1'd0;
+
+// Following duplicates logic in isRaw, except using `ReadDataSwapped instead of Eth_EtherType
+// because Eth_EtherType is not yet valid when Frame_Done is true.
+wire Frame_Raw;
+assign Frame_Raw = (Frame_Done && (`ReadDataSwapped[15:9] == 7'd0)) ? 1'd1 : 1'd0;
 
 wire ARP_Done;
 assign ARP_Done = (isARP && (count == ARP_Packet_End)) ? 1'd1 : 1'd0;
@@ -443,6 +457,18 @@ assign UDP_Done = (isUDP && (count == UDP_Header_End)) ? 1'd1 : 1'd0;
 
 wire ICMP_Done;
 assign ICMP_Done = (isICMP && (count == ICMP_Header_End)) ? 1'd1 : 1'd0;
+
+// A few convenient combinations for error checking
+wire Frame_Error;
+assign Frame_Error = (Frame_Done && (`ReadDataSwapped[15:9] != 7'd0) && (`ReadDataSwapped != 16'h0800) && (`ReadDataSwapped != 16'h0806)) ? 1'd1 : 1'd0;
+wire IPv4_Error;
+assign IPv4_Error = (IPv4_Done && (IPv4_Version != 4'h4) && !isUDP && !isICMP) ? 1'd1 : 1'd0;
+wire UDP_Error;
+assign UDP_Error = (UDP_Done && !isPortValid) ? 1'd1 : 1'd0;
+wire ARP_Error;
+assign ARP_Error = (ARP_Done && !isARPValid) ? 1'd1 : 1'd0;
+wire Any_Error;
+assign Any_Error = IPv4_Error|UDP_Error|ARP_Error|Frame_Error;
 
 //************************* Ethernet Frame Reply Header *********************************
 wire[15:0] Frame_Header_Reply[0:5];
@@ -546,7 +572,8 @@ reg[9:0] numIPv4;            // Number of IPv4 packets received
 reg[9:0] numUDP;             // Number of UDP packets received
 reg[9:0] numARP;             // Number of ARP packets received
 reg[9:0] numICMP;            // Number of ICMP packets received
-reg[9:0] numPacketError;     // Number of packet errors
+
+reg[9:0] numPacketError;     // Number of packet errors (Frame, IPv4 or UDP error)
 reg[9:0] numIPv4Mismatch;    // Number of IPv4 packets with different IP address
 
 localparam[31:0] IP_UNASSIGNED = 32'hffffffff;
@@ -561,16 +588,16 @@ reg isForward;
 wire [31:0] DebugData[0:31];
 assign DebugData[0]  = "0GBD";  // DBG0 byte-swapped
 assign DebugData[1]  = timestamp;
-assign DebugData[2]  = {5'd0, ethUDPError, ethIPv4Unsupported, ethIPv4Error, 2'd0, node_id, eth_status};
+assign DebugData[2]  = {5'd0, ethUDPError, 1'd0, ethIPv4Error, 2'd0, node_id, eth_status};
 assign DebugData[3]  = { 2'd0, state, 2'd0, nextState,
                          2'h0, isLocal, isRemote, FireWirePacketFresh, isEthBroadcast, isEthMulticast, ~ETH_IRQn,
                          isForward, isInIRQ, sendARP, isUDP, isICMP, isEcho, is_IPv4_Long, is_IPv4_Short};
 assign DebugData[4]  = { RegISR, RegISROther};
-assign DebugData[5]  = { 16'h2233, FrameCount, count};
+assign DebugData[5]  = { FrameCRC_High, FrameCount, count};
 assign DebugData[6]  = { Eth_destMac[1][7:0], Eth_destMac[1][15:8], Eth_destMac[0][7:0], Eth_destMac[0][15:8] };
 assign DebugData[7]  = { Eth_srcMac[0][7:0], Eth_srcMac[0][15:8], Eth_destMac[2][7:0], Eth_destMac[2][15:8] };
 assign DebugData[8]  = { Eth_srcMac[2][7:0], Eth_srcMac[2][15:8], Eth_srcMac[1][7:0], Eth_srcMac[1][15:8] };
-assign DebugData[9]  = { 8'h11, maxCount, LengthFW };
+assign DebugData[9]  = { 8'h11, maxCountFW, LengthFW };
 assign DebugData[10] = { IPv4_hostIP[7:0], IPv4_hostIP[15:8], IPv4_hostIP[23:16], IPv4_hostIP[31:24] };
 assign DebugData[11] = { IPv4_fpgaIP[7:0], IPv4_fpgaIP[15:8], IPv4_fpgaIP[23:16], IPv4_fpgaIP[31:24] };
 assign DebugData[12] = { IPv4_Length, 4'h0, rxPktWords };
@@ -762,14 +789,12 @@ always @(posedge sysclk or negedge reset) begin
        initAck <= 0;
        initOK <= 0;
        ethIoError <= 0;
-       ethPacketError <= 0;
+       ethFrameError <= 0;
        ethIPv4Error <= 0;
-       ethIPv4Unsupported <= 0;
        ethUDPError <= 0;
        ethDestError <= 0;
        sendAck <= 0;
        ip_address <= IP_UNASSIGNED;
-       LengthFW <= 16'd0;
        eth_read_en <= 0;
        eth_reg_wen <= 0;
        eth_block_wen <= 0;
@@ -821,9 +846,8 @@ always @(posedge sysclk or negedge reset) begin
                initAck <= 1;
                initOK <= 0;
                ethIoError <= 0;
-               ethPacketError <= 0;
+               ethFrameError <= 0;
                ethIPv4Error <= 0;
-               ethIPv4Unsupported <= 0;
                ethUDPError <= 0;
                ethDestError <= 0;
             end
@@ -931,6 +955,7 @@ always @(posedge sysclk or negedge reset) begin
          ST_INIT_DONE:
          begin
             initOK <= 1;
+            FrameValid <= 0;
             isEthMulticast <= 0;
             isEthBroadcast <= 0;
             RegISROther <= 16'd0;
@@ -1096,6 +1121,7 @@ always @(posedge sysclk or negedge reset) begin
                // B00: RXCE  receive CRC error
                if (~ReadData[15] || (ReadData&16'b0011110000010111 != 16'h0)) begin
                   // Error detected, so flush frame
+                  FrameValid <= 0;
                   isEthMulticast <= 0;
                   isEthBroadcast <= 0;
                   numPacketInvalid <= numPacketInvalid + 10'd1;
@@ -1104,6 +1130,7 @@ always @(posedge sysclk or negedge reset) begin
                else begin
                   // Valid frame, so start processing
                   cmdReq <= 1;
+                  FrameValid <= 1;
                   isEthBroadcast <= ReadData[7];
                   isEthMulticast <= ReadData[6];
                   isWrite <= 0;
@@ -1162,53 +1189,23 @@ always @(posedge sysclk or negedge reset) begin
                count[1:0] <= count[1:0]+2'd1;
             end
          end
-
          ST_RECEIVE_DMA_ETHERNET_HEADERS:
          begin
-            cmdReq <= 1;
-            state <= ST_WAIT_ACK;
+            cmdReq <= Any_Error ? 0 : 1;
+            state  <= Any_Error ? ST_RECEIVE_FLUSH_START : ST_WAIT_ACK;
             nextState <= (ICMP_Done || ARP_Done) ? ST_RECEIVE_DMA_FRAME_CRC :
-                         ((UDP_Done || (Frame_Done && (`ReadDataSwapped[15:9] == 7'd0))) ? ST_RECEIVE_DMA_FIREWIRE_PACKET :
+                         ((UDP_Done || Frame_Raw) ? ST_RECEIVE_DMA_FIREWIRE_PACKET :
                          ST_RECEIVE_DMA_ETHERNET_HEADERS);
-            count[4:0] <= count[4:0]+5'd1;
+            count[4:0] <= (ICMP_Done || ARP_Done || UDP_Done || Frame_Raw) ? 5'd0 : count[4:0]+5'd1;
             PacketBuffer[count[4:0]] <= `ReadDataSwapped;
-            if (Frame_Done) begin
-               // Maximum data length is currently 284 bytes (block write to PROM); as a sanity
-               // check, we flush any packets greater than 512 bytes in length, which currently
-               // is the length of the FirewirePacket buffer (128 quadlets = 256 words = 512 bytes).
-               if (`ReadDataSwapped[15:9] == 7'd0) begin   // if (isRaw)
-                  count[4:0] <= 5'd0;
-                  // Set up maxCount based on number of words (numBytes/2-1).
-                  maxCount <= `ReadDataSwapped[8:1]-8'd1;
-                  LengthFW <= `ReadDataSwapped;
-               end
-               else if ((`ReadDataSwapped != 16'h0800) && (`ReadDataSwapped != 16'h0806)) begin
-                  // else if Ethertype is not 0x0800 (IPv4) or 0x0806 (ARP)
-                  // then unsupported EtherType (or length greater than 512 bytes)
-                  ethPacketError <= 1;
-                  numPacketError <= numPacketError + 10'd1;
-                  cmdReq <= 0;
-                  state <= ST_RECEIVE_FLUSH_START;
-               end
-            end
-            else if (IPv4_Done) begin
-               numIPv4 <= numIPv4 + 10'd1;
-               // Some of these could have been done earlier
-               if (IPv4_Version != 4'h4) begin
-                  ethIPv4Error <= 1;
-                  numPacketError <= numPacketError + 10'd1;
-                  cmdReq <= 0;
-                  state <= ST_RECEIVE_FLUSH_START;
-               end
-               else if (!isUDP && !isICMP) begin
-                  ethIPv4Unsupported <= 1;
-                  numPacketError <= numPacketError + 10'd1;
-                  cmdReq <= 0;
-                  state <= ST_RECEIVE_FLUSH_START;
-               end
+            numPacketError <= numPacketError + {9'd0, Frame_Error|IPv4_Error|UDP_Error};
+            ethFrameError <= Frame_Error ? 1'd1 : ethFrameError;
+            ethIPv4Error <= IPv4_Error ? 1'd1 : ethIPv4Error;
+            ethUDPError <= UDP_Error ? 1'd1 : ethUDPError;
+            if (IPv4_Done && !IPv4_Error) begin
                // Can check for IHL > 5
-               // maxCount[4:0] <= IPv4_Header_Begin + {ReadData[3:0],1'd0}-5'd1;
-               else if (is_ip_unassigned && (IPv4_fpgaIP[7:0] != 8'hff)) begin
+               // maxCount <= IPv4_Header_Begin + {ReadData[3:0],1'd0}-5'd1;
+               if (is_ip_unassigned && (IPv4_fpgaIP[7:0] != 8'hff)) begin
                   // This case can occur when the host PC already has an ARP
                   // cache entry for this board, in which case we just assign
                   //  the IP address, as long as it is not a broadcast address
@@ -1224,33 +1221,10 @@ always @(posedge sysclk or negedge reset) begin
                   numIPv4Mismatch <= numIPv4Mismatch + 10'd1;
                end
             end
-            else if (UDP_Done) begin
-               numUDP <= numUDP + 10'd1;
-               if (!isPortValid) begin
-                  ethUDPError <= 1;
-                  numPacketError <= numPacketError + 10'd1;
-                  cmdReq <= 0;
-                  state <= ST_RECEIVE_FLUSH_START;
-               end
-               else begin
-                  maxCount <= UDP_Length[8:1]-8'd5;  // Subtract 4 words for UDP header (nBytes/2-4-1)
-                  LengthFW <= UDP_Length-8'd8;       // Subtract 8 bytes for UDP header
-                  count[4:0] <= 5'd0;
-               end
-            end
-            else if (ARP_Done) begin
-               numARP <= numARP + 10'd1;
-               // If not a valid ARP request, flush it (this check could have been done sooner)
-               if (!isARPValid) begin
-                  cmdReq <= 0;
-                  state <= ST_RECEIVE_FLUSH_START;
-               end
-               // Normal completion
-               else if (is_ip_unassigned) begin
-                  // If our IP address not yet set, update it
-                  ip_address[31:16] <= ReadData;
-                  ip_address[15:0] <= {ARP_fpgaIP[23:16], ARP_fpgaIP[31:24] };
-               end
+            else if (ARP_Done && isARPValid && is_ip_unassigned) begin
+               // If our IP address not yet set, update it
+               ip_address[31:16] <= ReadData;
+               ip_address[15:0] <= {ARP_fpgaIP[23:16], ARP_fpgaIP[31:24] };
             end
          end
 
@@ -1327,7 +1301,7 @@ always @(posedge sysclk or negedge reset) begin
                end
             end
 
-            if (count == maxCount) begin
+            if (count == maxCountFW) begin
                // normal completion
                FireWirePacketFresh <= 1;
                useUDP <= isUDP;
@@ -1347,15 +1321,8 @@ always @(posedge sysclk or negedge reset) begin
                   eth_send_fw_req <= 1;
                end
             end
-            else if (count == 8'hff) begin
-               // packet too long; stop here to avoid buffer overflow
-               ethPacketError <= 1;
-               numPacketError <= numPacketError + 10'd1;
-               cmdReq <= 0;
-               state <= ST_RECEIVE_FLUSH_START;
-            end
 
-            // Remaining contents of block write (for count=13...maxCount)
+            // Remaining contents of block write (for count=13...maxCountFW)
             // Note that block_index is only non-zero when (isLocal && blockWrite)
             // so we do not need to check those.
             if (block_index != 7'd0) begin   // count > 12
@@ -1382,8 +1349,8 @@ always @(posedge sysclk or negedge reset) begin
 
          ST_RECEIVE_DMA_FRAME_CRC:
          begin
-            // The first word is already available in ReadData.
-            // We read the second word to get the 4-byte CRC, but flushing the
+            FrameCRC_High <= `ReadDataSwapped;
+            // We can read the second word to get the 4-byte CRC, but flushing the
             // packet works better. We decrement rxPktWords by 1, but that
             // variable is just for debugging. In most cases, rxPktWords should
             // be 0 after this -- the exception is when the packet is smaller than
@@ -1395,20 +1362,24 @@ always @(posedge sysclk or negedge reset) begin
 
          ST_RECEIVE_FLUSH_START:
          begin
+            // Increment counters
+            numIPv4 <= numIPv4 + {9'd0, isIPv4};
+            numARP <= numARP + {9'd0, isARP};
+            numICMP <= numICMP + {9'd0, isICMP};
+            numUDP <= numUDP + {9'd0, isUDP};
             // Clean up from quadlet/block writes
             eth_reg_wen <= 0;
             eth_block_wen <= 0;
-            // Flush the rest of the packet in two steps:
+            // Flush the rest of the packet:
             //    1. Clear DMA bit (bit 3)
             //    2. Set flush bit (bit 0)
-            // Note: this may work in just one step
             cmdReq <= 1;
             isDMA <= 0;
             isWrite <= 1;
             RegAddr <= `ETH_ADDR_RXQCR;
-            WriteData <= {ETH_VALUE_RXQCR[15:4],1'b0,ETH_VALUE_RXQCR[2:1],(isDMA ? 1'b0 : 1'b1)};
+            WriteData <= {ETH_VALUE_RXQCR[15:4],1'b0,ETH_VALUE_RXQCR[2:1],1'b1};
             state <= ST_WAIT_ACK;
-            nextState <= isDMA ? ST_RECEIVE_FLUSH_START : ST_RECEIVE_FLUSH_WAIT;
+            nextState <= ST_RECEIVE_FLUSH_WAIT;
          end
 
          ST_RECEIVE_FLUSH_WAIT:
@@ -1537,7 +1508,6 @@ always @(posedge sysclk or negedge reset) begin
                `WriteDataSwapped <= sendLen;
                nextState <= ST_SEND_DMA_FWD;
                sendAddr <= 7'd0;
-               maxCount <= sendLen[8:1] - 8'd1;
                isForward <= 1'd0;
             end
             else if (sendARP) begin
@@ -1812,7 +1782,7 @@ always @(posedge sysclk or negedge reset) begin
             WriteData <= (count[0] == 0) ? {sendData[23:16], sendData[31:24]} : {sendData[7:0], sendData[15:8]};
             if (count[0] == 1) sendAddr <= sendAddr + 7'd1;
             state <= ST_WAIT_ACK;
-            nextState <= (count == maxCount) ? ST_SEND_DMA_DUMMY_DWORD : ST_SEND_DMA_FWD;
+            nextState <= (count == (sendLen[8:1]-8'd1)) ? ST_SEND_DMA_DUMMY_DWORD : ST_SEND_DMA_FWD;
          end
 
          ST_SEND_DMA_DUMMY_DWORD:
