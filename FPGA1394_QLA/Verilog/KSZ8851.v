@@ -3,7 +3,7 @@
 
 /*******************************************************************************    
  *
- * Copyright(C) 2014-2016 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2014-2020 ERC CISST, Johns Hopkins University.
  *
  * This module is the interface to the KSZ8851-16mll Ethernet MAC/PHY chip.
  * Note that 0.05s is needed to warm up the device before any IO operation.
@@ -11,6 +11,7 @@
  * Revision history
  *     08/14/14    Long Qian (as Initialization.v and RegIO.v)
  *     11/06/15    Peter Kazanzides
+ *      1/12/20    Peter Kazanzides - changed from state machine to shift registers
  */
 
 `include "Constants.v"
@@ -59,9 +60,9 @@ module KSZ8851(
 
     // Interface to KSZ8851
     output reg ETH_RSTn,  // chip reset (active low)
-    output reg ETH_CMD,   // 0 for data, 1 for address
-    output reg ETH_RDn,   // read strobe (active low)
-    output reg ETH_WRn,   // write strobe (active low)
+    output wire ETH_CMD,  // 0 for data, 1 for address
+    output wire ETH_RDn,  // read strobe (active low)
+    output wire ETH_WRn,  // write strobe (active low)
     inout[15:0] SD,       // address/data bus
 
     // Interface to/from higher level (EthernetIO.v)
@@ -129,28 +130,46 @@ getAddr newAddrFW
    .Addr(Addr16FW)
 );
 
-reg[3:0] state;
+reg[1:0] state;
 reg[20:0] count;
 
 assign dbg_state = state;
 
 // state machine states
-parameter[3:0]
-    ST_IDLE = 4'd0,
-    ST_RESET_ASSERT = 4'd1,    // assert reset (low) -- 10 msec
-    ST_RESET_WAIT = 4'd2,      // wait after bringing reset high -- 50 msec
-    ST_ADDR_START = 4'd3,
-    ST_ADDR_HOLD = 4'd4,
-    ST_ADDR_END = 4'd5,
-    ST_READ_START = 4'd6,
-    ST_READ_DMA_START = 4'd7,
-    ST_READ_HOLD = 4'd8,
-    ST_READ_END = 4'd9,
-    ST_WRITE_START = 4'd10,
-    ST_WRITE_HOLD = 4'd11,
-    ST_WRITE_END = 4'd12;
+parameter[1:0]
+    ST_IDLE = 2'd0,
+    ST_RESET_ASSERT = 2'd1,     // assert reset (low) -- 10 msec
+    ST_RESET_WAIT = 2'd2,       // wait after bringing reset high -- 50 msec
+    ST_WAVEFORM_OUTPUT = 2'd3;  // generate read/write waveforms
 
 assign ksz_isIdle = (state == ST_IDLE) ? 1'b1 : 1'b0;
+
+// Following are for generating waveforms for WRn, RDn and CMD
+localparam[9:0]
+   Init_WRn      = 10'b1111111111,
+   Init_RDn      = 10'b1111111111,
+   Init_CMD      = 10'b0000000000,
+   Read_WRn      = 10'b1001111111,    // all 10 bits
+   Read_RDn      = 10'b1111100001,
+   Read_CMD      = 10'b1111000000,
+   Write_WRn     = 10'b1001100111,    // first 8 bits
+   Write_RDn     = 10'b1111111111,
+   Write_CMD     = 10'b1111000000,
+   DMA_Read_WRn  = 10'b1111111111,    // first 5 bits
+   DMA_Read_RDn  = 10'b0000111111,
+   DMA_Read_CMD  = 10'b0000000000,
+   DMA_Write_WRn = 10'b1001111111,    // first 4 bits
+   DMA_Write_RDn = 10'b1111111111,
+   DMA_Write_CMD = 10'b0000000000;
+
+reg[9:0] Cur_WRn;
+reg[9:0] Cur_RDn;
+reg[9:0] Cur_CMD;
+reg[3:0] ShiftCnt;
+
+assign ETH_WRn = Cur_WRn[9];
+assign ETH_RDn = Cur_RDn[9];
+assign ETH_CMD = Cur_CMD[9];
 
 // KSZ8851 timing:
 //    RDn, WRn pulses must be kept low for 40 ns (min)
@@ -163,6 +182,10 @@ always @(posedge sysclk or negedge reset) begin
         cmdAck <= 0;
         dataValid <= 0;
         eth_error <= 0;
+        Cur_WRn <= Init_WRn;
+        Cur_RDn <= Init_RDn;
+        Cur_CMD <= Init_CMD;
+        ShiftCnt <= 4'd0;
     end
     else begin
 
@@ -190,23 +213,25 @@ always @(posedge sysclk or negedge reset) begin
                eth_data <= reg_wdata[15:0];
                eth_error <= 0;
 
-               // If DMA bit is set, next state is either ST_WRITE_START or ST_READ_START;
-               // otherwise, starting state is ST_ADDR_START
-               if (reg_wdata[27] && reg_wdata[25]) begin
-                  state <= ST_WRITE_START;
-                  SDReg <= reg_wdata[15:0];
-               end
-               else if (reg_wdata[27] && !reg_wdata[25]) begin
-                  state <= ST_READ_DMA_START;
-                  ETH_RDn <= 0;
+               if (reg_wdata[27]) begin   // reg_wdata[27] --> isDMA
+                  // reg_wdata[25] --> isWrite
+                  ShiftCnt <= reg_wdata[25] ? 4'd3 : 4'd4;
+                  Cur_WRn <= reg_wdata[25] ? DMA_Write_WRn : DMA_Read_WRn;
+                  Cur_RDn <= reg_wdata[25] ? DMA_Write_RDn : DMA_Read_RDn;
+                  Cur_CMD <= reg_wdata[25] ? DMA_Write_CMD : DMA_Read_CMD;
+                  if (reg_wdata[25]) SDReg <= reg_wdata[15:0];
                end
                else begin
-                  state <= ST_ADDR_START;
+                  // reg_wdata[25] --> isWrite
+                  ShiftCnt <= reg_wdata[25] ? 4'd7 : 4'd9;
+                  Cur_WRn <= reg_wdata[25] ? Write_WRn : Read_WRn;
+                  Cur_RDn <= reg_wdata[25] ? Write_RDn : Read_RDn;
+                  Cur_CMD <= reg_wdata[25] ? Write_CMD : Read_CMD;
                   SDReg <= Addr16FW;
                end
 
-               ETH_CMD <= reg_wdata[27] ? 1'd0 : 1'd1;
                count <= 21'd0;
+               state <= ST_WAVEFORM_OUTPUT;
             end
             else begin
                 eth_error <= 1;
@@ -231,23 +256,47 @@ always @(posedge sysclk or negedge reset) begin
                 eth_isWord <= isWord;
                 eth_addr <= RegAddr;
                 eth_data <= DataIn;
-                if (isDMA && isWrite) begin
-                   state <= ST_WRITE_START;
-                   SDReg <= DataIn;
+                if (isDMA) begin
+                   ShiftCnt <= isWrite ? 4'd3 : 4'd4;
+                   Cur_WRn <= isWrite ? DMA_Write_WRn : DMA_Read_WRn;
+                   Cur_RDn <= isWrite ? DMA_Write_RDn : DMA_Read_RDn;
+                   Cur_CMD <= isWrite ? DMA_Write_CMD : DMA_Read_CMD;
+                   if (isWrite) SDReg <= DataIn;
                 end 
-                else if (isDMA && !isWrite) begin
-                   state <= ST_READ_DMA_START;
-                   ETH_RDn <= 0;
-                end
                 else begin
-                   state <= ST_ADDR_START;
+                   ShiftCnt <= isWrite ? 4'd7 : 4'd9;
+                   Cur_WRn <= isWrite ? Write_WRn : Read_WRn;
+                   Cur_RDn <= isWrite ? Write_RDn : Read_RDn;
+                   Cur_CMD <= isWrite ? Write_CMD : Read_CMD;
                    SDReg <= Addr16;
                 end
-               
-                ETH_CMD <= isDMA ? 1'd0 : 1'd1;
                 cmdAck <= 1;
                 count <= 21'd0;
+                state <= ST_WAVEFORM_OUTPUT;
             end
+        end
+
+        ST_WAVEFORM_OUTPUT:
+        begin
+            if (ShiftCnt != 4'd0) begin
+               Cur_WRn <= Cur_WRn << 1;
+               Cur_RDn <= Cur_RDn << 1;
+               Cur_CMD <= Cur_CMD << 1;
+               ShiftCnt <= ShiftCnt - 4'd1;
+               // If writing and CMD is going to transition low on
+               // this cycle, then write to data bus
+               if (isWrite && (Cur_CMD[9:8] == 2'b10)) begin
+                  SDReg <= eth_data;
+               end
+               // If reading and RDn is going to transition high on
+               // next cycle, then read from data bus
+               else if (~isWrite && (Cur_RDn[8:7] == 2'b01)) begin
+                  eth_data <= SD;
+                  DataOut <= SD;
+                  dataValid <= !isWrite;
+               end
+            end
+            state <= (ShiftCnt == 4'd0) ? ST_IDLE : ST_WAVEFORM_OUTPUT;
         end
 
         // Assert the reset and wait 10 ms before removing it.
@@ -260,8 +309,8 @@ always @(posedge sysclk or negedge reset) begin
             end
             else begin
                 ETH_RSTn <= 0;
-                ETH_WRn <= 1;
-                ETH_RDn <= 1;
+                Cur_WRn <= Init_WRn;
+                Cur_RDn <= Init_RDn;
                 count <= count + 21'd1;
             end
         end
@@ -276,94 +325,6 @@ always @(posedge sysclk or negedge reset) begin
             end
         else
             count <= count + 21'd1;
-        end
-
-        ST_ADDR_START:
-        begin
-           ETH_WRn <= 0;
-           state <= ST_ADDR_HOLD;
-           count[0] <= 1'd0;
-        end
-
-        ST_ADDR_HOLD:
-        begin
-           state <= ST_ADDR_END;
-        end
-
-        ST_ADDR_END:
-        begin
-            if (count[0] == 1'd0) begin
-                ETH_WRn <= 1;
-                count[0] <= 1'd1;
-            end
-            else begin
-               ETH_CMD <= 0;
-               state <= eth_isWrite ? ST_WRITE_START : ST_READ_START;
-               if (eth_isWrite) begin
-                  SDReg <= eth_data;
-               end
-               count[0] <= 1'd0;
-            end
-        end
-
-        ST_WRITE_START:
-        begin
-           ETH_WRn <= 0;
-           state <= ST_WRITE_HOLD;
-        end
-
-        ST_WRITE_HOLD:
-        begin
-           state <= ST_WRITE_END;
-        end
-
-        ST_WRITE_END:
-        begin
-            ETH_WRn <= 1;
-            state <= ST_IDLE;
-        end
-
-        ST_READ_START:
-        begin
-           if (count[0] == 1'b0) begin
-              ETH_CMD <= 0;
-              ETH_RDn <= 0;
-              count[0] <= 1'd1;
-           end
-           else begin
-              state <= ST_READ_HOLD;
-           end
-        end
-
-        ST_READ_DMA_START:
-        begin
-           state <= ST_READ_HOLD;
-        end
-
-        ST_READ_HOLD:
-        begin
-           state <= ST_READ_END;
-           count[0] <= 1'd0;
-        end
-
-        ST_READ_END:
-        begin
-            if (count[0] == 1'd0) begin
-               eth_data <= SD;
-               DataOut <= SD;
-               count[0] <= 1'd1;
-               // Set the dataValid signal here. The higher-level
-               // should wait one cycle to be sure that the data
-               // has propagated through the latch.
-               // An alternate design would be to set dataValid
-               // in the else clause below.
-               dataValid <= 1;
-            end
-            else begin
-               ETH_RDn <= 1;
-               state <= ST_IDLE;
-               count[0] <= 1'd0;
-            end
         end
 
         endcase
