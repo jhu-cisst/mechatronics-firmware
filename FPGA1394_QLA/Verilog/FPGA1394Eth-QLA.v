@@ -3,7 +3,7 @@
 
 /*******************************************************************************    
  *
- * Copyright(C) 2011-2019 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2011-2020 ERC CISST, Johns Hopkins University.
  *
  * This is the top level module for the FPGA1394-QLA motor controller interface.
  *
@@ -13,6 +13,7 @@
  *     02/29/12    Zihan Chen
  *     11/01/15    Peter Kazanzides    Modified for FPGA Rev 2 (Ethernet)
  *     08/29/18    Peter Kazanzides    Added DS2505 module
+ *     01/13/20    Peter Kazanzides    Removed KSZ8851 module (now in EthernetIO)
  */
 
 `timescale 1ns / 1ps
@@ -143,35 +144,6 @@ assign ETH_CSn = 0;         // Always select
 // By default, R45 is not populated, so driving this pin has no effect.
 assign ETH_8n = 1;          // 16-bit bus
 
-`ifdef USE_CHIPSCOPE
-// --------------------------------------------------------------------------
-// Chipscope debug
-// --------------------------------------------------------------------------
-wire [35:0] control_ksz;
-wire [35:0] control_fw;
-//wire[35:0] control_eth;
-//wire[35:0] control_brd_reg;
-
-icon_ethernet icon_e(
-    .CONTROL0(control_ksz),
-    .CONTROL1(control_fw)
-);
-
-wire[7:0] eth_port_debug;
-wire[3:0] dbg_state;
-
-`ifdef USE_CHIPSCOPE
-    wire[31:0] dbg_reg_debug;
-`endif
-
-assign eth_port_debug = {1'd0, reg_wen, ETH_RSTn, ETH_CMD, ETH_RDn, 
-                         ETH_WRn, ETH_IRQn, ETH_PME};
-// assign eth_port_debug = {eth_cmd_req, reg_wen, ETH_RSTn,
-//                          ETH_CMD, ETH_RDn, ETH_WRn, ETH_IRQn, eth_cmd_ack};
-wire[6:0] dbg_state_eth;
-wire[6:0] dbg_nextState_eth;
-`endif
-
 // --------------------------------------------------------------------------
 // hub register module
 // --------------------------------------------------------------------------
@@ -228,6 +200,7 @@ PhyLinkInterface phy(
     .eth_fwpkt_rdata(eth_fwpkt_rdata), // in: eth fw packet data
     .eth_fwpkt_len(eth_fwpkt_len),     // out: eth fw packet length
 
+    // Request from Firewire to send Ethernet packet
     .eth_send_req(eth_send_req),
     .eth_send_ack(eth_send_ack),
     // .eth_send_addr(reg_raddr[6:0]),
@@ -238,11 +211,6 @@ PhyLinkInterface phy(
                      
     .lreq_trig(fw_lreq_trig),  // out: phy request trigger
     .lreq_type(fw_lreq_type)   // out: phy request type
-
-`ifdef USE_CHIPSCOPE
-    ,
-    .ila_control(control_fw)   // inout: ila control
-`endif
 );
 
 
@@ -260,59 +228,7 @@ PhyRequest phyreq(
 // Ethernet module
 // --------------------------------------------------------------------------
 
-wire eth_init_req;
-wire eth_init_ack;
-wire eth_cmd_req;
-wire eth_cmd_ack;
-wire eth_read_valid;
-wire eth_is_dma;
-wire eth_is_write;
-wire eth_is_word;
-wire[7:0] eth_reg_addr;
-wire[15:0] eth_to_chip;
-wire[15:0] eth_from_chip;
-wire eth_error;
-
-wire eth_recv_enabled;  // for debugging
-   
-wire ksz_isIdle;
 wire[31:0] Eth_Result;
-
-KSZ8851 EthernetChip(
-    .sysclk(sysclk),          // in: global clock
-    .reset(reset),            // in: FPGA reset
-
-    .ETH_RSTn(ETH_RSTn),      // out: reset to KSZ8851
-    .ETH_CMD(ETH_CMD),        // out: CMD to KSZ8851 (0=data, 1=addr)
-    .ETH_RDn(ETH_RDn),        // out: read strobe to KSZ8851
-    .ETH_WRn(ETH_WRn),        // out: write strobe to KSZ8851
-    .SD(SD),                  // inout: addr/data bus to KSZ8851
-
-    .initReq(eth_init_req),
-    .initAck(eth_init_ack),
-    .cmdReq(eth_cmd_req),
-    .cmdAck(eth_cmd_ack),
-    .dataValid(eth_read_valid),
-    .isDMA(eth_is_dma),
-    .isWrite(eth_is_write),
-    .isWord(eth_is_word),
-    .RegAddr(eth_reg_addr),
-    .DataIn(eth_to_chip),
-    .DataOut(eth_from_chip),
-    .eth_error(eth_error),              // error from lower layer (KSZ8851)
-
-    .ksz_isIdle(ksz_isIdle),
-
-    .reg_wen(fw_reg_wen),          // in: write enable from FireWire
-    .reg_waddr(fw_reg_waddr),      // in: write address from FireWire
-    .reg_wdata(fw_reg_wdata),      // in: data from FireWire
-    .eth_data(Eth_Result[15:0])    // out: Last register read
-
-`ifdef USE_CHIPSCOPE
-    ,
-    .dbg_state(dbg_state)
-`endif
-);
 
 // address decode for IP address access
 wire   ip_reg_wen;
@@ -322,61 +238,64 @@ wire[31:0] ip_address;
 EthernetIO EthernetTransfers(
     .sysclk(sysclk),          // in: global clock
     .reset(reset),            // in: FPGA reset
+
     .board_id(~wenid),        // in: board id (rotary switch)
     .node_id(node_id),        // in: phy node id
 
+    // Interface to KSZ8851
     .ETH_IRQn(ETH_IRQn),      // in: interrupt request from KSZ8851
-    .eth_status(Eth_Result[31:16]),
-    .sendReq(eth_send_req),
-    .sendAck(eth_send_ack),
-    .sendAddr(eth_send_addr),
-    .sendData(eth_send_data),
-    .sendLen(eth_send_len),
-    .ksz_isIdle(ksz_isIdle),
+    .ETH_RSTn(ETH_RSTn),      // out: reset to KSZ8851
+    .ETH_CMD(ETH_CMD),        // out: CMD to KSZ8851 (0=data, 1=addr)
+    .ETH_RDn(ETH_RDn),        // out: read strobe to KSZ8851
+    .ETH_WRn(ETH_WRn),        // out: write strobe to KSZ8851
+    .SD(SD),                  // inout: addr/data bus to KSZ8851
 
-    .reg_rdata(reg_rdata_eth),
-    .reg_raddr(reg_raddr),
+    // Firewire interface to KSZ8851 (for testing). Results are provided
+    // via eth_data and eth_status, which are combined in the 32-bit register
+    // Eth_Result, which is available via board register REG_ETHRES (12).
+    .fw_reg_wen(fw_reg_wen),           // in: write enable from FireWire
+    .fw_reg_waddr(fw_reg_waddr),       // in: write address from FireWire
+    .fw_reg_wdata(fw_reg_wdata),       // in: data from FireWire
+    .eth_data(Eth_Result[15:0]),       // out: Last register read
+    .eth_status(Eth_Result[31:16]),    // out: Ethernet status register
+
+    // Register interface to Ethernet memory space (ADDR_ETH=0x4000)
+    // and IP address register (REG_IPADDR=11).
+    .reg_rdata(reg_rdata_eth),         // Data from Ethernet memory space
+    .reg_raddr(reg_raddr),             // Read address for Ethernet memory
     .reg_wdata(reg_wdata),             // Data to write to IP address register
     .ip_reg_wen(ip_reg_wen),           // Enable write to IP address register
     .ip_address(ip_address),           // IP address of this board
 
+    // Interface to/from board registers. These enable the Ethernet module to drive
+    // the internal bus on the FPGA. In particular, they are used to read registers
+    // to respond to quadlet read and block read commands.
     .eth_reg_rdata(reg_rdata),         //  in: reg read data
     .eth_reg_raddr(eth_reg_raddr),     // out: reg read addr
     .eth_read_en(eth_read_en),         // out: reg read enable
     .eth_reg_wdata(eth_reg_wdata),     // out: reg write data
     .eth_reg_waddr(eth_reg_waddr),     // out: reg write addr
-    .eth_reg_wen(eth_reg_wen),         // out; reg write enable
+    .eth_reg_wen(eth_reg_wen),         // out: reg write enable
     .eth_block_wen(eth_blk_wen),       // out: blk write enable
     .eth_block_wstart(eth_blk_wstart), // out: blk write start
 
-    .initReq(eth_init_req),
-    .initAck(eth_init_ack),
-    .cmdReq(eth_cmd_req),
-    .cmdAck(eth_cmd_ack),
-    .readValid(eth_read_valid),
-    .isDMA(eth_is_dma),
-    .isWrite(eth_is_write),
-    .isWord(eth_is_word),
-    .RegAddr(eth_reg_addr),
-    .WriteData(eth_to_chip),
-    .ReadData(eth_from_chip),
-    .eth_error(eth_error),
-
-    .lreq_trig(eth_lreq_trig),  // out: phy request trigger
+    // Low-level Firewire PHY access
+    .lreq_trig(eth_lreq_trig),   // out: phy request trigger
     .lreq_type(eth_lreq_type),   // out: phy request type
 
+    // Interface to FireWire module (for sending packets via FireWire)
     .eth_send_fw_req(eth_send_fw_req), // out: req to send fw pkt
     .eth_send_fw_ack(eth_send_fw_ack), // in: ack from fw module
     .eth_fwpkt_raddr(eth_fwpkt_raddr), // out: eth fw packet addr
     .eth_fwpkt_rdata(eth_fwpkt_rdata), // in: eth fw packet data
-    .eth_fwpkt_len(eth_fwpkt_len)      // out: eth fw packet len
+    .eth_fwpkt_len(eth_fwpkt_len),     // out: eth fw packet len
 
-`ifdef USE_CHIPSCOPE
-    ,
-    .dbg_state_eth(dbg_state_eth),
-    .dbg_nextState_eth(dbg_nextState_eth),
-    .dbg_reg_debug(dbg_reg_debug)
-`endif
+    // Interface from Firewire (for sending packets via Ethernet)
+    .sendReq(eth_send_req),
+    .sendAck(eth_send_ack),
+    .sendAddr(eth_send_addr),
+    .sendData(eth_send_data),
+    .sendLen(eth_send_len)
 );
 
 
@@ -698,10 +617,6 @@ BoardRegs chan0(
     .safety_amp_disable(safety_amp_disable),
     .pwr_enable_cmd(pwr_enable_cmd),
     .amp_enable_cmd(amp_enable_cmd)
-`ifdef USE_CHIPSCOPE
-    ,
-    .reg_debug(dbg_reg_debug)
-`endif
 );
 
 // ----------------------------------------------------------------------------
@@ -787,33 +702,5 @@ CtrlLED qla_led(
     .led2_grn(IO2[5]),
     .led2_red(IO2[7])
 );
-
-
-`ifdef USE_CHIPSCOPE
-
-
-wire[31:0] dbg_eth_ksz;
-assign dbg_eth_ksz = {26'd0, eth_cmd_req, eth_cmd_ack, eth_read_valid, eth_is_dma, 
-                      eth_is_word, eth_error};
-
-// ----------------------------
-// Chipscope 
-// ----------------------------
-ila_eth_chip ila_ec(
-    .CONTROL(control_ksz),
-    .CLK(sysclk),
-    .TRIG0(eth_port_debug),    // 8-bit
-    .TRIG1(SD),                // 16-bit
-    .TRIG2(dbg_state),         // 4-bit
-    .TRIG3(reg_waddr),         // 16-bit
-    .TRIG4(reg_wdata),         // 32-bit
-    // .TRIG5(dbg_reg_debug),     // 32-bit
-    .TRIG5(dbg_eth_ksz),
-    .TRIG6(dbg_state_eth),     // 6-bit  --> 7-bit
-    .TRIG7(dbg_nextState_eth), // 6-bit  --> 7-bit
-    .TRIG8(eth_to_chip),       // 16-bit
-    .TRIG9(eth_from_chip)      // 16-bit
-);
-`endif
 
 endmodule

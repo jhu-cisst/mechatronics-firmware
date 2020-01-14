@@ -12,11 +12,49 @@
  *     12/21/15    Peter Kazanzides    Initial Revision
  *     11/28/16    Zihan Chen          Added Disable/Enable in RECEIVE
  *     11/5/19     Peter Kazanzides    Added UDP support
+ *     1/13/20     Peter Kazanzides    Incorporated low-level interface from KSZ8851.v
  * 
  */
 
 // global constant e.g. register & device address
 `include "Constants.v"
+
+// --------------------------------------------------------------------------
+// Register Address Translator: from 8-bit offset to 16-bit address required by KSZ8851.
+// The addressing is a bit unusual when the KSZ8851 is configured with a 16-bit bus;
+// specifically, it appears to split the I/O space into 32-bit chunks. The 4 ByteEnable
+// lines can select any one or two 8-bit registers from this 32-bit chunk. For an
+// 8-bit transfer, only one ByteEnable should be set. For a 16-bit transfer, the most
+// typical scenario would be to select the first two bytes (ByteEnable=4'b0011) or
+// the last two bytes (ByteEnable=4'b1100).
+// --------------------------------------------------------------------------
+module getAddr(
+    input wire[7:0] offset,     // register address (0x00-0xFF)
+    input wire length,          // length: 0-byte(8-bit), 1-word(16-bit)
+    output wire[15:0] Addr      // address recognized by ksz8851 (on SD lines)
+    );
+
+    // the rule of translation is available in the step-by-step guide of ksz8851-16mll
+    wire[1:0] offsetTail;
+    assign offsetTail = offset[1:0];
+
+    // SD[15:12]  are for BE[3:0] (BE = Byte Enable)
+    // The following code does not handle 16-bit transfers for odd addresses (i.e.,
+    // if offsetTail is 1 or 3).
+    //   BE[0]=1 if address is multiple of 4 (0x00, 0x04, 0x08, ...)
+    //   BE[1]=1 if 16-bit access and multiple of 4 OR 8-bit access and odd (0x01, 0x03, ...)
+    //   BE[2]=1 if address has 2 (0x02, 0x06, 0x0A, ...)
+    //   BE[3]=1 if 16-bit access and has 2 OR 8-bit access and has 3
+    assign Addr[12] = (offsetTail==0) ? 1'b1 : 1'b0;
+    assign Addr[13] = ((~length && offsetTail==1) || (length && offsetTail==0)) ? 1'b1 : 1'b0;
+    assign Addr[14] = (offsetTail==2) ? 1'b1 : 1'b0;
+    assign Addr[15] = ((~length && offsetTail==3) || (length && offsetTail==2)) ? 1'b1 : 1'b0;
+    assign Addr[7:2] = offset[7:2];
+
+    assign Addr[1:0] = offsetTail;  // not necessary, for better integrity
+    assign Addr[11:8] = 4'h0;       // not necessary, for better integrity
+
+endmodule
 
 // constants KSZ8851 chip
 `define ETH_ADDR_MARL    8'h10     // Host MAC Address Reg Low
@@ -48,27 +86,31 @@ module EthernetIO(
     input wire[3:0] board_id,
     input wire[5:0] node_id,
 
-    // KSZ8851 interrupt
-    input wire ETH_IRQn,          // interrupt request
+    // Interface to KSZ8851
+    output reg ETH_RSTn,  // chip reset (active low)
+    output wire ETH_CMD,  // 0 for data, 1 for address
+    output wire ETH_RDn,  // read strobe (active low)
+    output wire ETH_WRn,  // write strobe (active low)
+    inout[15:0] SD,       // address/data bus
+    input wire ETH_IRQn,  // interrupt request
 
-    // Debugging
+    // Firewire interface to KSZ8851 (for testing)
+    input  wire fw_reg_wen,          // write enable
+    input  wire[15:0] fw_reg_waddr,  // write address
+    input  wire[31:0] fw_reg_wdata,  // write data
+    output reg[15:0]  eth_data,      // Data to/from KSZ8851
     output wire[31:16] eth_status,
-    input wire sendReq,
-    output reg sendAck,
-    output reg[6:0] sendAddr,
-    input wire[31:0] sendData,
-    input wire[15:0] sendLen,
-    input wire ksz_isIdle,
 
-    // Register interface
+    // Register interface to Ethernet memory space and IP address register
     input  wire[15:0] reg_raddr,
     output wire[31:0] reg_rdata,
     input  wire[31:0] reg_wdata,
     input  wire ip_reg_wen,
     output reg[31:0] ip_address,
 
-    // Interface to/from board registers
-    // Ethernet module drives
+    // Interface to/from board registers. These enable the Ethernet module to drive
+    // the internal bus on the FPGA. In particular, they are used to read registers
+    // to respond to quadlet read and block read commands.
     input wire[31:0] eth_reg_rdata,
     output reg[15:0] eth_reg_raddr,
     output reg       eth_read_en,
@@ -78,49 +120,134 @@ module EthernetIO(
     output reg       eth_block_wen,
     output reg       eth_block_wstart,
 
-    // Interface to lower layer (KSZ8851)
-    input wire initReq,           // 1 -> Chip has been reset; initialization requested
-    output reg initAck,           // 1 -> Acknowledge (clear) initReq
-    output reg cmdReq,            // 1 -> higher-level requesting a command
-    input wire cmdAck,            // 1 -> command accepted (can request next command)
-    input wire readValid,         // 1 -> ReadData is valid
-    output reg isDMA,             // 1 -> DMA mode active
-    output reg isWrite,           // 0 -> Read, 1 -> Write
-    output reg isWord,            // 0 -> Byte, 1 -> Word
-    output reg[7:0] RegAddr,      // Register address (N/A for DMA mode)
-    output reg[15:0] WriteData,   // Data to be written to chip (N/A for read)
-    input wire[15:0] ReadData,    // Data read from chip (N/A for write)
-    output reg initOK,            // 1 -> Initialization successful
-    input wire eth_error,         // 1 -> I/O request received when not in idle state
-
+    // Low-level Firewire PHY access
     output reg lreq_trig,         // trigger signal for a FireWire phy request
     output reg[2:0] lreq_type,    // type of request to give to the FireWire phy
 
-    // Interface to/from FireWire module
-    output reg eth_send_fw_req,   // reqest to send firewire packet
+    // Interface to FireWire module (for sending packets via FireWire)
+    output reg eth_send_fw_req,   // request to send firewire packet
     input wire eth_send_fw_ack,   // ack from firewire module
     input  wire[6:0] eth_fwpkt_raddr,
     output wire[31:0] eth_fwpkt_rdata,
-    output wire[15:0] eth_fwpkt_len      // eth received fw pkt length
+    output wire[15:0] eth_fwpkt_len,     // eth received fw pkt length
 
-`ifdef USE_CHIPSCOPE
-    ,
-    // Interface to Chipscope icon
-    output wire[6:0] dbg_state_eth,
-    output wire[6:0] dbg_nextState_eth,
-
-    // Input debug
-    input wire[31:0] dbg_reg_debug
-`endif
+    // Interface from Firewire (for sending packets via Ethernet)
+    input wire sendReq,
+    output reg sendAck,
+    output reg[6:0] sendAddr,
+    input wire[31:0] sendData,
+    input wire[15:0] sendLen
 );
+
+reg initOK;            // 1 -> Initialization successful
+reg isWrite;           // 0 -> Read, 1 -> Write
+reg isWord;            // 0 -> Byte, 1 -> Word
+reg[7:0] RegAddr;      // Register address (N/A for DMA mode)
+reg[15:0] WriteData;   // Data to be written to chip (N/A for read)
+wire[15:0] ReadData;   // Data read from chip (N/A for write)
+reg eth_error;         // 1 -> I/O request received when not in idle state
+
+assign ReadData = eth_data;
 
 `define ReadDataSwapped {ReadData[7:0], ReadData[15:8]}
 `define WriteDataSwapped {WriteData[7:0], WriteData[15:8]}
 
 parameter num_channels = 4;
 
+//**************************** From KSZ8851.v ****************************************
+
+// Address translator
+wire[15:0] Addr16;
+getAddr newAddr(
+    .offset(RegAddr),
+    .length(isWord),
+    .Addr(Addr16)
+);
+
+// tri-state bus configuration
+// Drive bus except when ETH_RDn is active (low)
+reg[15:0] SDReg;
+assign SD = ETH_RDn ? SDReg : 16'hz;
+
+`define SDRegSwapped {SDReg[7:0], SDReg[15:8]}
+
+// address decode for KSZ8851 I/O access
+wire   ksz_reg_wen;
+assign ksz_reg_wen = (fw_reg_waddr == {`ADDR_MAIN, 8'h0, `REG_ETHRES}) ? fw_reg_wen : 1'b0;
+
+// Following registers hold address/data for requested register reads/writes
+// (note: eth_data is declared above, as parameter)
+//reg[7:0]  eth_addr;     // I/O register address (0-0xFF)
+
+// Following are for generating waveforms for WRn, RDn and CMD
+localparam[9:0]
+   Init_WRn      = 10'b1111111111,
+   Init_RDn      = 10'b1111111111,
+   Init_CMD      = 10'b0000000000,
+   Read_WRn      = 10'b1001111111,    // all 10 bits
+   Read_RDn      = 10'b1111100001,
+   Read_CMD      = 10'b1111000000,
+   Write_WRn     = 10'b1001100111,    // first 8 bits
+   Write_RDn     = 10'b1111111111,
+   Write_CMD     = 10'b1111000000,
+   DMA_Read_WRn  = 10'b1111111111,    // first 5 bits
+   DMA_Read_RDn  = 10'b0000111111,
+   DMA_Read_CMD  = 10'b0000000000,
+   DMA_Write_WRn = 10'b1001111111,    // first 4 bits
+   DMA_Write_RDn = 10'b1111111111,
+   DMA_Write_CMD = 10'b0000000000;
+
+reg[9:0] Cur_WRn;
+reg[9:0] Cur_RDn;
+reg[9:0] Cur_CMD;
+reg[3:0] ShiftCnt;
+
+assign ETH_WRn = Cur_WRn[9];
+assign ETH_RDn = Cur_RDn[9];
+assign ETH_CMD = Cur_CMD[9];
+
+`define KSZ_Read_Reg(addr)        \
+           isWrite <= 0;          \
+           ShiftCnt <= 4'd9;      \
+           Cur_WRn <=  Read_WRn;  \
+           Cur_RDn <=  Read_RDn;  \
+           Cur_CMD <=  Read_CMD;  \
+           RegAddr <= addr;       \
+           state <= ST_WAVEFORM_OUTPUT
+
+`define KSZ_Write_Reg(addr, data) \
+           isWrite <= 1;          \
+           ShiftCnt <= 4'd7;      \
+           Cur_WRn <=  Write_WRn; \
+           Cur_RDn <=  Write_RDn; \
+           Cur_CMD <=  Write_CMD; \
+           RegAddr <= addr;       \
+           WriteData <= data;     \
+           state <= ST_WAVEFORM_OUTPUT
+
+`define KSZ_Read_DMA                 \
+           isWrite <= 0;             \
+           ShiftCnt <= 4'd4;         \
+           Cur_WRn <= DMA_Read_WRn;  \
+           Cur_RDn <= DMA_Read_RDn;  \
+           Cur_CMD <= DMA_Read_CMD;  \
+           state <= ST_WAVEFORM_OUTPUT; \
+           rxPktWords <= rxPktWords - 12'd1
+
+`define KSZ_Write_DMA                \
+           isWrite <= 1;             \
+           ShiftCnt <= 4'd3;         \
+           Cur_WRn <= DMA_Write_WRn; \
+           Cur_RDn <= DMA_Write_RDn; \
+           Cur_CMD <= DMA_Write_CMD; \
+           state <= ST_WAVEFORM_OUTPUT; \
+           txPktWords <= txPktWords + 12'd1
+
+reg[20:0] initCount;
+
+//******************************* End from KSZ8851.v *****************************************
+
 // Error flags
-reg ethIoError;        // 1 -> Ethernet I/O error
 reg ethFrameError;     // 1 -> Frame too long (currently, if more than 512 bytes)
 reg ethIPv4Error;      // 1 -> IPv4 header error (protocol not UDP or ICMP; header version != 4)
 reg ethUDPError;       // 1 -> Wrong UDP port (not 1394)
@@ -132,20 +259,11 @@ reg[5:0] nextState;
 
 reg[9:0] numStateInvalid;   // Number of invalid states (for debugging)
 
-`ifdef USE_CHIPSCOPE
-assign dbg_state_eth = state;
-assign dbg_nextState_eth = nextState;
-`endif
-
 // IER value
 // B15: LCIE link change interrupt enable
 // B14: TXIE transmit interrupt enable
 // B13: RXIE receive interrupt enable
-`ifdef USE_CHIPSCOPE
-`define ETH_VALUE_IER dbg_reg_debug[15:0]
-`else
-`define ETH_VALUE_IER 16'h2000
-`endif
+localparam[15:0] ETH_VALUE_IER = 16'h2000;
 
 // RXQCR value
 // B5: RXFCTE enable QMU frame count threshold (1)
@@ -157,9 +275,9 @@ localparam[15:0] ETH_VALUE_RXQCR = 16'h0020;
 // state machine states
 localparam [5:0]
     ST_IDLE = 6'd0,
-    ST_WAIT_ACK = 6'd1,
-    ST_WAIT_ACK_CLEAR = 6'd2,
-    ST_INIT_CHECK_CHIPID = 6'd3,      // Read chip ID
+    ST_RESET_ASSERT = 6'd1,         // assert reset (low) -- 10 msec
+    ST_RESET_WAIT = 6'd2,           // wait after bringing reset high -- 50 msec
+    ST_INIT_CHECK_CHIPID = 6'd3,    // Read chip ID
     ST_INIT_RUN_PROGRAM = 6'd4,
     ST_INIT_DONE = 6'd5,
     ST_IRQ_HANDLER = 6'd6,
@@ -198,7 +316,8 @@ localparam [5:0]
     ST_SEND_DMA_STOP = 6'd39,
     ST_SEND_TXQ_ENQUEUE = 6'd40,
     ST_SEND_TXQ_ENQUEUE_WAIT = 6'd41,
-    ST_SEND_END = 6'd42;
+    ST_SEND_END = 6'd42,
+    ST_WAVEFORM_OUTPUT = 6'd43;  // generate read/write waveforms
 
 
 // Debugging support
@@ -207,10 +326,8 @@ assign eth_io_isIdle = (state == ST_IDLE) ? 1'b1 : 1'b0;
 // Keep track of areas where state machine may wait
 // for unknown amount of time (for debugging)
 localparam [1:0]
-    WAIT_NONE = 0,
-    WAIT_ACK = 1,
-    WAIT_ACK_CLEAR = 2,
-    WAIT_FLUSH = 3;
+    WAIT_NONE = 2'd0,
+    WAIT_FLUSH = 2'd3;
 
 reg[1:0] waitInfo;
 
@@ -239,14 +356,12 @@ reg useUDP;
 //   Bit 30: 1 to indicate that an error occurred in KSZ8851 -- must be kept for backward compatibility
 //   Other fields can be assigned as needed
 assign eth_status[31] = 1'b1;            // 31: 1 -> Ethernet is present
-assign eth_status[30] = eth_error;       // 30: 1 -> error occurred
+assign eth_status[30] = eth_error;       // 30: 1 -> Could not access KSZ registers via FireWire
 assign eth_status[29] = initOK;          // 29: 1 -> Initialization OK
-assign eth_status[28] = initReq;         // 28: 1 -> Reset executed, init requested
-assign eth_status[27] = ethIoError;      // 27: 1 -> ethernet I/O error (higher layer)
+assign eth_status[28] = 1'b0;            // 28:
+assign eth_status[27] = 1'b0;            // 27:
 assign eth_status[26] = ethFrameError;   // 26: 1 -> ethernet packet too long (higher layer)
 assign eth_status[25] = ethDestError;    // 25: 1 -> ethernet destination error (higher layer)
-//assign eth_status[26] = cmdReq;          // 26: 1 -> command requested by higher level
-//assign eth_status[25] = cmdAck;          // 25: 1 -> command acknowledged by lower level
 //assign eth_status[26] = isLocal;         // 26: 1 -> command requested by higher level
 //assign eth_status[25] = isRemote;        // 25: 1 -> command acknowledged by lower level
 assign eth_status[24] = quadRead;        // 24: quadRead (debugging)
@@ -254,8 +369,8 @@ assign eth_status[23] = quadWrite;       // 23: quadWrite (debugging)
 assign eth_status[22] = blockRead;       // 22: blockRead (debugging)
 assign eth_status[21] = blockWrite;      // 21: blockWrite (debugging)
 //assign eth_status[20] = isEthMulticast;   // 20: multicast received
-assign eth_status[20] = useUDP;          // 20: multicast received
-assign eth_status[19] = ksz_isIdle;      // 19: KSZ8851 state machine is idle
+assign eth_status[20] = useUDP;          // 20: UDP mode
+assign eth_status[19] = 1'b0;            // 19: 0
 assign eth_status[18] = eth_io_isIdle;   // 18: Ethernet I/O state machine is idle
 assign eth_status[17:16] = waitInfo;     // 17-16: Wait points in EthernetIO.v
 
@@ -265,7 +380,6 @@ reg[15:0] RegISR;      // 16-bit ISR register
 reg[15:0] RegISROther; // Unexpected ISR value (for debugging)
 reg[7:0] FrameCount;   // Number of received frames
 reg[7:0] count;        // General use counter
-reg[3:0] readCount;    // Wait for read valid
 reg[2:0] next_addr;    // Address of next device (for block read)
 reg[6:0] block_index;  // Index into data block (5-70)
 reg[11:0] txPktWords;  // Num of words sent
@@ -692,7 +806,7 @@ initial begin
     // Clear all pending interrupts
     InitProgram[11] = {CMD_WRITE, ~CMD_OR, `ETH_ADDR_ISR, 16'hFFFF};
     // Enable receive interrupts
-    InitProgram[12] = {CMD_WRITE, ~CMD_OR, `ETH_ADDR_IER, `ETH_VALUE_IER};
+    InitProgram[12] = {CMD_WRITE, ~CMD_OR, `ETH_ADDR_IER, ETH_VALUE_IER};
     // Enable transmit
     InitProgram[13] = {CMD_READ, ~CMD_OR, `ETH_ADDR_TXCR, 16'd0};
     InitProgram[14] = {CMD_WRITE, CMD_OR, `ETH_ADDR_TXCR, 15'd0, 1'd1};
@@ -781,14 +895,10 @@ end
 // -------------------------------------------------------
 always @(posedge sysclk or negedge reset) begin
     if (reset == 0) begin
-       cmdReq <= 0;
-       isDMA <= 0;
        isWrite <= 0;
        isWord <= 1;   // all transfers are word
        isInIRQ <= 0;
-       initAck <= 0;
        initOK <= 0;
-       ethIoError <= 0;
        ethFrameError <= 0;
        ethIPv4Error <= 0;
        ethUDPError <= 0;
@@ -806,9 +916,13 @@ always @(posedge sysclk or negedge reset) begin
        block_index <= 0;
        eth_send_fw_req <= 0;
        useUDP <= 0;
-       // Rest of initialization in ST_INIT_DONE
-       state <= ST_INIT_DONE;
-       nextState <= ST_IDLE;
+       initCount <= 21'd0;            // Clear init counter
+       eth_error <= 0;
+       Cur_WRn <= Init_WRn;
+       Cur_RDn <= Init_RDn;
+       Cur_CMD <= Init_CMD;
+       ShiftCnt <= 4'd0;
+       state <= ST_RESET_ASSERT;
     end
     else begin
 
@@ -817,18 +931,67 @@ always @(posedge sysclk or negedge reset) begin
           eth_send_fw_req <= 1'd0;
        end
 
+       // Clear sendAck (acknowledge request from Firewire)
        if (sendAck && !sendReq) begin
           sendAck <= 1'd0;
        end
 
+       // Write to IP address register
        if (ip_reg_wen) begin
           ip_address <= reg_wdata;
        end
 
+       if (ksz_reg_wen) begin
+          //****** Access to KSZ8851 registers via Firewire interface ******
+          // Format of 32-bit fw_reg_wdata:
+          // 0(4) DMA(1) Reset(1) R/W(1) W/B(1) Addr(8) Data(16)
+          // bit 27: DMA
+          // bit 26: reset
+          // bit 25: R/W Read (0) or Write (1)
+          // bit 24: W/B Word or Byte
+          // bit 23-16: 8-bit address
+          // bit 15-0 : 16-bit data
+          // The initialization request is processed any time, but other
+          // request are only processed if received in the IDLE state.
+          // If not in the IDLE state, then eth_error is set.
+          if (fw_reg_wdata[26]) begin   // if reset
+             initCount <= 21'd0;        // Clear counter
+             state <= ST_RESET_ASSERT;
+             eth_error <= 0;
+          end
+          else if (state == ST_IDLE) begin
+             isWrite <= fw_reg_wdata[25];
+             isWord <= fw_reg_wdata[24];
+             RegAddr <= fw_reg_wdata[23:16];
+             WriteData <= fw_reg_wdata[15:0];
+             eth_error <= 0;
+
+             if (fw_reg_wdata[27] && fw_reg_wdata[25]) begin        // if (isDMA && isWrite)
+                SDReg <= fw_reg_wdata[15:0];
+                `KSZ_Write_DMA;
+             end
+             else if (fw_reg_wdata[27] && !fw_reg_wdata[25]) begin  // else if (isDMA && isRead)
+                `KSZ_Read_DMA;
+             end
+             else if (!fw_reg_wdata[27] && fw_reg_wdata[25]) begin  // else if (!isDMA && isWrite)
+                `KSZ_Write_Reg(fw_reg_wdata[23:16], fw_reg_wdata[15:0]);
+             end
+             else begin                                       // else (!isDMA && isRead)
+                `KSZ_Read_Reg(fw_reg_wdata[23:16]);
+             end
+
+             count <= 8'd0;
+             nextState <= ST_IDLE;
+          end
+          else begin
+             eth_error <= 1;
+          end
+       end
+
+       //******************** State Machine ********************
        case (state)
          ST_IDLE:
          begin
-            isDMA <= 0;
             isWord <= 1;       // all transfers are word
             isInIRQ <= 0;
             eth_read_en <= 0;
@@ -837,25 +1000,8 @@ always @(posedge sysclk or negedge reset) begin
             eth_block_wstart <= 0;
             block_index <= 0;
             waitInfo <= WAIT_NONE;
-            if (initReq) begin
-               cmdReq <= 1;
-               isWrite <= 0;
-               RegAddr <= `ETH_ADDR_CIDER;  // Read Chip ID
-               state <= ST_WAIT_ACK;
-               nextState <= ST_INIT_CHECK_CHIPID;
-               initAck <= 1;
-               initOK <= 0;
-               ethIoError <= 0;
-               ethFrameError <= 0;
-               ethIPv4Error <= 0;
-               ethUDPError <= 0;
-               ethDestError <= 0;
-            end
-            else if (~ETH_IRQn) begin
-               cmdReq <= 1;
-               isWrite <= 0;
-               RegAddr <= `ETH_ADDR_ISR;
-               state <= ST_WAIT_ACK;
+            if (~ETH_IRQn) begin
+               `KSZ_Read_Reg(`ETH_ADDR_ISR);
                nextState <= ST_IRQ_HANDLER;
             end
             else if (sendReq) begin
@@ -866,68 +1012,43 @@ always @(posedge sysclk or negedge reset) begin
             end
          end
 
-         ST_WAIT_ACK:
+         // Assert the reset and wait 10 ms before removing it.
+         ST_RESET_ASSERT:
          begin
-            if (initReq && !initAck)
-               state <= ST_IDLE;
-            // else if (cmdAck && cmdReq) begin
-            //    cmdReq <= 0;
-            //    state <= ST_WAIT_ACK_CLEAR;
-            //    readCount <= 4'd0;
-            //    if (isWrite && isDMA) begin
-            //       txPktWords <= txPktWords + 12'd1;
-            //    end
-            // end
-            else if (cmdAck) begin
-               cmdReq <= 0;
-               state <= ST_WAIT_ACK_CLEAR;
-               readCount <= 4'd0;
-               // Increment or decrement txPktWords or rxPktWords if appropriate
-               txPktWords <= txPktWords + {11'd0, isWrite&isDMA};
-               rxPktWords <= rxPktWords - {11'd0, (~isWrite)&isDMA};
-            end
-            else if (!cmdReq) begin
-               state <= ST_WAIT_ACK_CLEAR;
-               readCount <= 4'd0;
+            if (initCount == 21'd491520) begin  // 10 ms (49.152 MHz sysclk)
+               ETH_RSTn <= 1;   // Remove the reset
+               initCount <= 21'd0;
+               state <= ST_RESET_WAIT;
             end
             else begin
-               waitInfo <= WAIT_ACK;
+               ETH_RSTn <= 0;
+               Cur_WRn <= Init_WRn;
+               Cur_RDn <= Init_RDn;
+               initCount <= initCount + 21'd1;
             end
          end
 
-         ST_WAIT_ACK_CLEAR:
+         // The reset has ended, wait 50 ms before initializing chip registers
+         ST_RESET_WAIT:
          begin
-            if (initReq && !initAck)
-               state <= ST_IDLE;
-            // else if (!cmdAck && !cmdReq) begin
-            else if (~cmdAck) begin
-               if (isWrite || readValid) begin
-                   state <= nextState;
-                   waitInfo <= WAIT_NONE;
-               end
-               else begin
-                  // Shouldn't take more than 12 cycles to read data.
-                  if (readCount == 4'hf) begin
-                     ethIoError <= 1;
-                     // Moving to IDLE state may not be the best action,
-                     // since there may be some cleanup needed, such as
-                     // getting out of DMA mode.
-                     state <= ST_IDLE;
-                     waitInfo <= WAIT_NONE;
-                  end
-                  readCount <= readCount + 4'd1;
-               end
+            if (initCount == 21'h1FFFFF) begin
+               initCount <= 21'd0;
+               `KSZ_Read_Reg(`ETH_ADDR_CIDER);   // Read Chip ID
+               nextState <= ST_INIT_CHECK_CHIPID;
+               initOK <= 0;
+               ethFrameError <= 0;
+               ethIPv4Error <= 0;
+               ethUDPError <= 0;
+               ethDestError <= 0;
             end
-            else begin
-               waitInfo <= WAIT_ACK_CLEAR;
-            end
+            else
+               initCount <= initCount + 21'd1;
          end
-         
+
          //*************** States for initializing Ethernet ******************
 
          ST_INIT_CHECK_CHIPID:
          begin
-            initAck <= 0;   // By now, it is fine to finish acknowledgement of init request
             if (ReadData[15:4] == 12'h887) begin
                // Chip ID is ok, go to next state
                count[4:0] <= 5'd0;
@@ -942,13 +1063,15 @@ always @(posedge sysclk or negedge reset) begin
 
          ST_INIT_RUN_PROGRAM:
          begin
-            cmdReq <= 1;
-            isWrite <= InitProgram[count[4:0]][`WRITE_BIT];
-            RegAddr <= InitProgram[count[4:0]][`ADDR_BITS];
-            WriteData <= InitProgram[count[4:0]][`OR_BIT] ? (ReadData|InitProgram[count[4:0]][`DATA_BITS])
-                                                          : InitProgram[count[4:0]][`DATA_BITS];
+            if (InitProgram[count[4:0]][`WRITE_BIT]) begin
+               `KSZ_Write_Reg(InitProgram[count[4:0]][`ADDR_BITS],
+                              InitProgram[count[4:0]][`OR_BIT] ? (ReadData|InitProgram[count[4:0]][`DATA_BITS])
+                              : InitProgram[count[4:0]][`DATA_BITS]);
+            end
+            else begin
+               `KSZ_Read_Reg(InitProgram[count[4:0]][`ADDR_BITS]);
+            end
             count[4:0] <= count[4:0] + 5'd1;
-            state <= ST_WAIT_ACK;
             nextState <= (count[4:0] == 5'd16) ? ST_INIT_DONE : ST_INIT_RUN_PROGRAM;
          end
 
@@ -1021,23 +1144,15 @@ always @(posedge sysclk or negedge reset) begin
             if (RegISR[14] || RegISR[11] || RegISR[9] || RegISR[8] || RegISR[6]) begin
                // These interrupts are not handled and are disabled, so clear them
                // if they somehow occurred.
-               cmdReq <= 1;
-               isWrite <= 1;
-               RegAddr <= `ETH_ADDR_ISR;
-               WriteData <= RegISR&16'b0100101101000000;    // Clear interrupts
-               RegISR    <= RegISR&16'b1011010010111111;    // Clear RegISR bits
-               state <= ST_WAIT_ACK;
+               `KSZ_Write_Reg(`ETH_ADDR_ISR, RegISR&16'b0100101101000000);
+               RegISR <= RegISR&16'b1011010010111111;    // Clear RegISR bits
                nextState <= ST_IRQ_CLEAR_OTHER;   // Return to this state in case other bits set
             end
             else if (RegISR[5] || RegISR[4] || RegISR[3] || RegISR[2]) begin
                // These interrupts are also not handled and are disabled, but are
                // cleared differently (by writing to PMECR)
-               cmdReq <= 1;
-               isWrite <= 1;
-               RegAddr <= `ETH_ADDR_PMECR;
-               WriteData <= RegISR&16'h003c;    // Clear interrupts
+               `KSZ_Write_Reg(`ETH_ADDR_PMECR, RegISR&16'h003c);
                RegISR    <= RegISR&16'hffc3;    // Clear RegISR bits
-               state <= ST_WAIT_ACK;
                nextState <= ST_IDLE;
             end
             else begin
@@ -1047,23 +1162,15 @@ always @(posedge sysclk or negedge reset) begin
 
          ST_IRQ_CLEAR_LCIS:
          begin
-            cmdReq <= 1;
-            isWrite <= 1;
-            RegAddr <= `ETH_ADDR_ISR;
-            WriteData <= 16'h8000;    // Clear interrupt
+            `KSZ_Write_Reg(`ETH_ADDR_ISR, 16'h8000);
             RegISR[15] <= 1'b0;       // Clear RegISR
-            state <= ST_WAIT_ACK;
             nextState <= ST_IRQ_DISPATCH;
          end
 
          //*************** States for receiving Ethernet packets ******************
          ST_IRQ_CLEAR_RXIS:
          begin
-            cmdReq <= 1;
-            isWrite <= 1;
-            RegAddr <= `ETH_ADDR_ISR;
-            WriteData <= 16'h2000;  // clear interrupt
-            state <= ST_WAIT_ACK;
+            `KSZ_Write_Reg(`ETH_ADDR_ISR, 16'h2000);
             nextState <= ST_RECEIVE_FRAME_COUNT;
             count <= 8'd0;
             RegISR[13] <= 1'b0;   // clear ISR receive IRQ bit
@@ -1072,10 +1179,7 @@ always @(posedge sysclk or negedge reset) begin
          ST_RECEIVE_FRAME_COUNT:
          begin
             if (count[0] == 1'b0) begin
-               cmdReq <= 1;
-               isWrite <= 0;
-               RegAddr <= `ETH_ADDR_RXFCTR;
-               state <= ST_WAIT_ACK;
+               `KSZ_Read_Reg(`ETH_ADDR_RXFCTR);
                nextState <= ST_RECEIVE_FRAME_COUNT;
                count[0] <= 1'd1;
             end
@@ -1094,10 +1198,7 @@ always @(posedge sysclk or negedge reset) begin
          ST_RECEIVE_FRAME_STATUS:
          begin
             if (count[0] == 1'b0) begin
-               cmdReq <= 1;
-               isWrite <= 0;
-               RegAddr <= `ETH_ADDR_RXFHSR;
-               state <= ST_WAIT_ACK;
+               `KSZ_Read_Reg(`ETH_ADDR_RXFHSR);
                nextState <= ST_RECEIVE_FRAME_STATUS;
                count[0] <= 1'd1;
             end
@@ -1129,13 +1230,10 @@ always @(posedge sysclk or negedge reset) begin
                end
                else begin
                   // Valid frame, so start processing
-                  cmdReq <= 1;
                   FrameValid <= 1;
                   isEthBroadcast <= ReadData[7];
                   isEthMulticast <= ReadData[6];
-                  isWrite <= 0;
-                  RegAddr <= `ETH_ADDR_RXFHBCR;
-                  state <= ST_WAIT_ACK;
+                  `KSZ_Read_Reg(`ETH_ADDR_RXFHBCR);
                   nextState <= ST_RECEIVE_FRAME_LENGTH;
                   numPacketValid <= numPacketValid + 16'd1;
                end
@@ -1151,11 +1249,7 @@ always @(posedge sysclk or negedge reset) begin
             else begin
                 rxPktWords <= ((ReadData[11:0]+12'd3)>>1)&12'hffe;
                 // Set QMU RXQ frame pointer to 0, also decrease write sample time
-                cmdReq <= 1;
-                isWrite <= 1;
-                RegAddr <= `ETH_ADDR_RXFDPR;
-                WriteData <= 16'h5000;
-                state <= ST_WAIT_ACK;
+                `KSZ_Write_Reg(`ETH_ADDR_RXFDPR, 16'h5000);
                 nextState <= ST_RECEIVE_DMA_START;
             end
          end
@@ -1163,11 +1257,7 @@ always @(posedge sysclk or negedge reset) begin
          ST_RECEIVE_DMA_START:
          begin
             // Enable DMA transfers
-            cmdReq <= 1;
-            isWrite <= 1;
-            RegAddr <= `ETH_ADDR_RXQCR;
-            WriteData <= {ETH_VALUE_RXQCR[15:4],1'b1,ETH_VALUE_RXQCR[2:0]};
-            state <= ST_WAIT_ACK;
+            `KSZ_Write_Reg(`ETH_ADDR_RXQCR, {ETH_VALUE_RXQCR[15:4],1'b1,ETH_VALUE_RXQCR[2:0]});
             nextState <= ST_RECEIVE_DMA_SKIP;
             count <= 8'd0;
          end
@@ -1176,10 +1266,7 @@ always @(posedge sysclk or negedge reset) begin
          begin
             // Skip first 3 words in the packet
             // ignore(1) + status(1) + byte-count(1)
-            cmdReq <= 1;
-            isDMA <= 1;
-            isWrite <= 0;
-            state <= ST_WAIT_ACK;
+            `KSZ_Read_DMA;
             if (count[1:0] == 2'd3) begin
                nextState <= ST_RECEIVE_DMA_ETHERNET_HEADERS;
                count[4:0] <= Frame_Header_Begin;
@@ -1191,12 +1278,17 @@ always @(posedge sysclk or negedge reset) begin
          end
          ST_RECEIVE_DMA_ETHERNET_HEADERS:
          begin
-            cmdReq <= Any_Error ? 0 : 1;
-            state  <= Any_Error ? ST_RECEIVE_FLUSH_START : ST_WAIT_ACK;
-            nextState <= (ICMP_Done || ARP_Done) ? ST_RECEIVE_DMA_FRAME_CRC :
-                         ((UDP_Done || Frame_Raw) ? ST_RECEIVE_DMA_FIREWIRE_PACKET :
-                         ST_RECEIVE_DMA_ETHERNET_HEADERS);
-            count[4:0] <= (ICMP_Done || ARP_Done || UDP_Done || Frame_Raw) ? 5'd0 : count[4:0]+5'd1;
+            if (Any_Error) begin
+               state  <= ST_RECEIVE_FLUSH_START;
+               count[4:0] <= 5'd0;
+            end
+            else begin
+               `KSZ_Read_DMA;
+               nextState <= (ICMP_Done || ARP_Done) ? ST_RECEIVE_DMA_FRAME_CRC :
+                            ((UDP_Done || Frame_Raw) ? ST_RECEIVE_DMA_FIREWIRE_PACKET :
+                            ST_RECEIVE_DMA_ETHERNET_HEADERS);
+               count[4:0] <= (ICMP_Done || ARP_Done || UDP_Done || Frame_Raw) ? 5'd0 : count[4:0]+5'd1;
+            end
             PacketBuffer[count[4:0]] <= `ReadDataSwapped;
             numPacketError <= numPacketError + {9'd0, Frame_Error|IPv4_Error|UDP_Error};
             ethFrameError <= Frame_Error ? 1'd1 : ethFrameError;
@@ -1230,8 +1322,7 @@ always @(posedge sysclk or negedge reset) begin
 
          ST_RECEIVE_DMA_FIREWIRE_PACKET:
          begin
-            cmdReq <= 1;
-            state <= ST_WAIT_ACK;
+            `KSZ_Read_DMA;
             nextState <= ST_RECEIVE_DMA_FIREWIRE_PACKET;
             count <= count + 8'd1;
 
@@ -1256,7 +1347,6 @@ always @(posedge sysclk or negedge reset) begin
             if ((count == 8'd2) && !valid_dest_id) begin
                // invalid destination address, flush packet
                ethDestError <= 1;
-               cmdReq <= 0;
                state <= ST_RECEIVE_FLUSH_START;
             end
             else if (count == 8'd8) begin
@@ -1373,13 +1463,9 @@ always @(posedge sysclk or negedge reset) begin
             // Flush the rest of the packet:
             //    1. Clear DMA bit (bit 3)
             //    2. Set flush bit (bit 0)
-            cmdReq <= 1;
-            isDMA <= 0;
-            isWrite <= 1;
-            RegAddr <= `ETH_ADDR_RXQCR;
-            WriteData <= {ETH_VALUE_RXQCR[15:4],1'b0,ETH_VALUE_RXQCR[2:1],1'b1};
-            state <= ST_WAIT_ACK;
+            `KSZ_Write_Reg(`ETH_ADDR_RXQCR, {ETH_VALUE_RXQCR[15:4],1'b0,ETH_VALUE_RXQCR[2:1],1'b1});
             nextState <= ST_RECEIVE_FLUSH_WAIT;
+            count[0] <= 1'd1;  // used as "first time" flag in next state
          end
 
          ST_RECEIVE_FLUSH_WAIT:
@@ -1390,9 +1476,8 @@ always @(posedge sysclk or negedge reset) begin
             //     (check FrameCount after send complete)
             //   - else if more frames available, receive status of next frame
             //   - else go to idle state
-            // Note: assumes isWrite==1 when state is entered
-            isWrite <= 0;
-            if (~isWrite && (ReadData[0] == 1'b0)) begin
+            count[0] <= 1'd0;
+            if ((count[0] == 0) && (ReadData[0] == 1'b0)) begin
                if ((FireWirePacketFresh && (quadRead || blockRead) && isLocal) || sendARP || isEcho) begin
                   state <= ST_SEND_DMA_START;
                end
@@ -1407,9 +1492,7 @@ always @(posedge sysclk or negedge reset) begin
                waitInfo <= WAIT_NONE;
             end
             else begin
-               cmdReq <= 1;
-               // RegAddr is already set to RXQCR
-               state <= ST_WAIT_ACK;
+               `KSZ_Read_Reg(`ETH_ADDR_RXQCR);
                nextState <= ST_RECEIVE_FLUSH_WAIT;
                waitInfo <= WAIT_FLUSH;
             end
@@ -1424,11 +1507,7 @@ always @(posedge sysclk or negedge reset) begin
                sendAck <= 0;  // TEMP
             end
             // Enable DMA transfers
-            cmdReq <= 1;
-            isWrite <= 1;
-            RegAddr <= `ETH_ADDR_RXQCR;
-            WriteData <= {ETH_VALUE_RXQCR[15:4],1'b1,ETH_VALUE_RXQCR[2:0]};
-            state <= ST_WAIT_ACK;
+            `KSZ_Write_Reg(`ETH_ADDR_RXQCR, {ETH_VALUE_RXQCR[15:4],1'b1,ETH_VALUE_RXQCR[2:0]});
             nextState <= ST_SEND_DMA_CONTROLWORD;
          end
 
@@ -1436,33 +1515,31 @@ always @(posedge sysclk or negedge reset) begin
          begin
             // Reset pkt words count
             txPktWords <= 12'd0;
-            cmdReq <= 1;
-            isDMA <= 1;
             // TX Control word
             // B15  : TXIC transmit interrupt on completion
             // B0-B5: TXFID transmit frame ID
-            WriteData <= 16'h0;  // Control word = 0
-            state <= ST_WAIT_ACK;
+            `KSZ_Write_DMA;
+            SDReg <= 16'h0;  // Control word = 0
             nextState <= ST_SEND_DMA_BYTECOUNT;
          end
 
          ST_SEND_DMA_BYTECOUNT:
          begin
-            cmdReq <= 1;
+            `KSZ_Write_DMA;
             if (isForward) begin
                // Forwarding data from FireWire
                //   + 14 for frame header
                //   + 28 for UDP: IPv4 header (20) + UDP header (8)
-               WriteData <= (useUDP ? 16'd42 : 16'd14) + sendLen;
+               SDReg <= (useUDP ? 16'd42 : 16'd14) + sendLen;
             end
             else if (sendARP) begin
                // ARP response: 14 + 28
-               WriteData <= 16'd42;
+               SDReg <= 16'd42;
             end
             else if (isEcho) begin
                // Echo (ICMP) response: 14 + 20 + 12
                // PK TODO: Needs to also include data beyond the header
-               WriteData <= 16'd46;
+               SDReg <= 16'd46;
             end
             else begin
                // Set byte count:
@@ -1471,22 +1548,20 @@ always @(posedge sysclk or negedge reset) begin
                //     (block_data_length must be a multiple of 4)
                //   + 28 for UDP: IPv4 header (20) + UDP header (8)
                case ({useUDP, quadRead})
-                 2'b00: WriteData <= 16'd38 + block_data_length; // block read response
-                 2'b01: WriteData <= 16'd34;                     // quadlet read response
-                 2'b10: WriteData <= 16'd66 + block_data_length; // UDP, block read response
-                 2'b11: WriteData <= 16'd62;                     // UDP, quadlet read response
+                 2'b00: SDReg <= 16'd38 + block_data_length; // block read response
+                 2'b01: SDReg <= 16'd34;                     // quadlet read response
+                 2'b10: SDReg <= 16'd66 + block_data_length; // UDP, block read response
+                 2'b11: SDReg <= 16'd62;                     // UDP, quadlet read response
                endcase
             end
-            state <= ST_WAIT_ACK;
             nextState <= ST_SEND_DMA_FRAME_HEADER;
             count <= 8'd0;
          end
 
          ST_SEND_DMA_FRAME_HEADER:
          begin
-            cmdReq <= 1;
-            `WriteDataSwapped <= Frame_Header_Reply[count[2:0]];
-            state <= ST_WAIT_ACK;
+            `KSZ_Write_DMA;
+            `SDRegSwapped <= Frame_Header_Reply[count[2:0]];
             if (count[2:0] == 3'd5) begin
                count[2:0] <= 3'd0;
                nextState <= ST_SEND_DMA_FRAME_LENGTH;
@@ -1500,37 +1575,35 @@ always @(posedge sysclk or negedge reset) begin
          // EtherType/Length
          ST_SEND_DMA_FRAME_LENGTH:
          begin
-            cmdReq <= 1;
-            state <= ST_WAIT_ACK;
+            `KSZ_Write_DMA;
             count <= 8'd0;
 
             if (isForward) begin
-               `WriteDataSwapped <= sendLen;
+               `SDRegSwapped <= sendLen;
                nextState <= ST_SEND_DMA_FWD;
                sendAddr <= 7'd0;
                isForward <= 1'd0;
             end
             else if (sendARP) begin
-               `WriteDataSwapped <= 16'h0806;
+               `SDRegSwapped <= 16'h0806;
                nextState <= ST_SEND_DMA_ARP;
             end
             else if (useUDP || isEcho) begin
-               `WriteDataSwapped <= 16'h0800;
+               `SDRegSwapped <= 16'h0800;
                nextState <= ST_SEND_DMA_IPV4_HEADER;
             end
             else begin
                // 20 bytes for quadlet read response
                // (24 + block_data_length) bytes for block read response
-               `WriteDataSwapped <= quadRead ? 16'd20 : (16'd24 + block_data_length);
+               `SDRegSwapped <= quadRead ? 16'd20 : (16'd24 + block_data_length);
                nextState <= ST_SEND_DMA_PACKETDATA_HEADER;
             end
          end
 
          ST_SEND_DMA_ARP:
          begin
-            cmdReq <= 1;
-            state <= ST_WAIT_ACK;
-            `WriteDataSwapped <= ARP_Packet_Reply[count[4:0]];
+            `KSZ_Write_DMA;
+            `SDRegSwapped <= ARP_Packet_Reply[count[4:0]];
             if (count[4:0] == 5'd13) begin
                count[4:0] <= 5'd0;
                nextState <= ST_SEND_DMA_STOP;
@@ -1543,9 +1616,8 @@ always @(posedge sysclk or negedge reset) begin
 
          ST_SEND_DMA_IPV4_HEADER:
          begin
-            cmdReq <= 1;
-            state <= ST_WAIT_ACK;
-            `WriteDataSwapped <= IPv4_Header_Reply[count[3:0]];
+            `KSZ_Write_DMA;
+            `SDRegSwapped <= IPv4_Header_Reply[count[3:0]];
             if (count[3:0] == 4'd9) begin
                count[3:0] <= 4'd0;
                nextState <= isEcho ? ST_SEND_DMA_ICMP_HEADER : ST_SEND_DMA_UDP_HEADER;
@@ -1558,19 +1630,18 @@ always @(posedge sysclk or negedge reset) begin
 
          ST_SEND_DMA_ICMP_HEADER:
          begin
-            cmdReq <= 1;
-            state <= ST_WAIT_ACK;
+            `KSZ_Write_DMA;
             nextState <= ST_SEND_DMA_ICMP_HEADER;
             count[2:0] <= count[2:0] + 3'd1;
             // Only handles echo (ping).
             case (count[2:0])
-              3'd0: `WriteDataSwapped <= 16'd0;  // Echo Reply: Type=0, Code=0
-              3'd1: `WriteDataSwapped <= ~(icmp_checksum[15:0] + {14'd0, icmp_checksum[17:16]});
-              3'd2: `WriteDataSwapped <= Echo_id;
-              3'd3: `WriteDataSwapped <= Echo_seq;
-              3'd4: `WriteDataSwapped <= Echo_payload[31:16];
+              3'd0: `SDRegSwapped <= 16'd0;  // Echo Reply: Type=0, Code=0
+              3'd1: `SDRegSwapped <= ~(icmp_checksum[15:0] + {14'd0, icmp_checksum[17:16]});
+              3'd2: `SDRegSwapped <= Echo_id;
+              3'd3: `SDRegSwapped <= Echo_seq;
+              3'd4: `SDRegSwapped <= Echo_payload[31:16];
               3'd5: begin
-                    `WriteDataSwapped <= Echo_payload[15:0];
+                    `SDRegSwapped <= Echo_payload[15:0];
                     count[2:0] <= 3'd0;
                     nextState <= ST_SEND_DMA_STOP;
                     end
@@ -1579,9 +1650,8 @@ always @(posedge sysclk or negedge reset) begin
 
          ST_SEND_DMA_UDP_HEADER:
          begin
-            cmdReq <= 1;
-            state <= ST_WAIT_ACK;
-            `WriteDataSwapped <= UDP_Header_Reply[count[1:0]];
+            `KSZ_Write_DMA;
+            `SDRegSwapped <= UDP_Header_Reply[count[1:0]];
             if (count[1:0] == 2'd3) begin
                count[1:0] <= 2'd0;
                nextState <= ST_SEND_DMA_PACKETDATA_HEADER;
@@ -1596,9 +1666,8 @@ always @(posedge sysclk or negedge reset) begin
          // and block read response (only difference is tcode).
          ST_SEND_DMA_PACKETDATA_HEADER:
          begin
-            cmdReq <= 1;
-            state <= ST_WAIT_ACK;
-            WriteData <= Firewire_Header_Reply[count[2:0]];
+            `KSZ_Write_DMA;
+            SDReg <= Firewire_Header_Reply[count[2:0]];
             if (count[2:0] == 3'd5) begin
                count[2:0] <= 3'd0;
                eth_reg_raddr <= FireWirePacket[2][15:0];
@@ -1618,15 +1687,14 @@ always @(posedge sysclk or negedge reset) begin
 
          ST_SEND_DMA_PACKETDATA_QUAD:
          begin
-            cmdReq <= 1;
-            state <= ST_WAIT_ACK;
+            `KSZ_Write_DMA;
             if (count[0] == 0) begin
-               WriteData <= {eth_reg_rdata[23:16], eth_reg_rdata[31:24]};
+               SDReg <= {eth_reg_rdata[23:16], eth_reg_rdata[31:24]};
                count[0] <= 1;
                nextState <= ST_SEND_DMA_PACKETDATA_QUAD;
             end
             else begin
-               WriteData <= {eth_reg_rdata[7:0], eth_reg_rdata[15:8]};
+               SDReg <= {eth_reg_rdata[7:0], eth_reg_rdata[15:8]};
                // Stop accessing FPGA registers
                eth_read_en <= 0;
                count[0] <= 0;
@@ -1637,16 +1705,15 @@ always @(posedge sysclk or negedge reset) begin
          // All block reads start with length, extended_tcode, and header_CRC
          ST_SEND_DMA_PACKETDATA_BLOCK_START:
          begin
-            cmdReq <= 1;
-            state <= ST_WAIT_ACK;
+            `KSZ_Write_DMA;
             if (count[1:0] == 2'd0) begin
-                WriteData <= {block_data_length[7:0], block_data_length[15:8]};    // data_length
+                SDReg <= {block_data_length[7:0], block_data_length[15:8]};    // data_length
             end
             else begin
                 //1:  WriteData <= 16'h0;     // extended_tcode (0)
                 //2:  WriteData <= 16'h0;     // header_CRC
                 //3:  WriteData <= 16'h0;     // header_CRC
-                WriteData <= 16'h0;
+                SDReg <= 16'h0;
             end
             if (count[1:0] == 2'd3) begin
                 count[1:0] <= 2'd0;
@@ -1685,14 +1752,13 @@ always @(posedge sysclk or negedge reset) begin
 
          ST_SEND_DMA_PACKETDATA_BLOCK_MAIN:
          begin
-            cmdReq <= 1;
+            `KSZ_Write_DMA;
             eth_reg_raddr <= (count[0] == 1) ? {8'd0, BlockRegAddr[count[2:1]]} : eth_reg_raddr;
-            `WriteDataSwapped <= (count[2:1] == 2'b00) ?
+            `SDRegSwapped <= (count[2:1] == 2'b00) ?
                                  ((count[0] == 1'b0) ? timestamp[31:16] : timestamp[15:0]) :
                                  ((count[0] == 1'b0) ? eth_reg_rdata[31:16] : eth_reg_rdata[15:0]);
             // count==1: Reset timestamp and get ready to read from board
             {ts_reset, eth_read_en} <= (count[2:0] == 3'd1) ? 2'b11 : {1'b0, eth_read_en};
-            state <= ST_WAIT_ACK;
             if (count[2:0] == 3'd7) begin
                nextState <= ST_SEND_DMA_PACKETDATA_BLOCK_CHANNEL;
                // NOTE: Following is hard-coded to first read from channel 0,
@@ -1708,48 +1774,46 @@ always @(posedge sysclk or negedge reset) begin
          end
 
          ST_SEND_DMA_PACKETDATA_BLOCK_CHANNEL:
-           begin
-              cmdReq <= 1;
-              state <= ST_WAIT_ACK;
-              if (count[0] == 0) begin
-                  count[0] <= 1;
-                  WriteData <= {eth_reg_rdata[23:16], eth_reg_rdata[31:24]};
-                  nextState <= ST_SEND_DMA_PACKETDATA_BLOCK_CHANNEL;
-              end
-              else begin
-                  count[0] <= 0;
-                  WriteData <= {eth_reg_rdata[7:0], eth_reg_rdata[15:8]};
-                  if (eth_reg_raddr[7:4] == num_channels) begin
-                      if (next_addr == 3'd7) begin
-                          eth_read_en <= 0;  // we are done
-                          nextState <= ST_SEND_DMA_PACKETDATA_CHECKSUM;
-                      end
-                      else begin
-                          eth_reg_raddr[7:4] <= 4'd1;
-                          eth_reg_raddr[2:0] <= next_addr;
-                          next_addr <= next_addr + 3'd1;
-                          nextState <= ST_SEND_DMA_PACKETDATA_BLOCK_CHANNEL;
-                      end
-                  end
-                  else begin
-                      eth_reg_raddr[7:4] <= eth_reg_raddr[7:4] + 4'd1;
-                      nextState <= ST_SEND_DMA_PACKETDATA_BLOCK_CHANNEL;
-                  end
-              end
-           end
+         begin
+            `KSZ_Write_DMA;
+            if (count[0] == 0) begin
+                count[0] <= 1;
+                SDReg <= {eth_reg_rdata[23:16], eth_reg_rdata[31:24]};
+                nextState <= ST_SEND_DMA_PACKETDATA_BLOCK_CHANNEL;
+            end
+            else begin
+                count[0] <= 0;
+                SDReg <= {eth_reg_rdata[7:0], eth_reg_rdata[15:8]};
+                if (eth_reg_raddr[7:4] == num_channels) begin
+                    if (next_addr == 3'd7) begin
+                        eth_read_en <= 0;  // we are done
+                        nextState <= ST_SEND_DMA_PACKETDATA_CHECKSUM;
+                    end
+                    else begin
+                        eth_reg_raddr[7:4] <= 4'd1;
+                        eth_reg_raddr[2:0] <= next_addr;
+                        next_addr <= next_addr + 3'd1;
+                        nextState <= ST_SEND_DMA_PACKETDATA_BLOCK_CHANNEL;
+                    end
+                end
+                else begin
+                    eth_reg_raddr[7:4] <= eth_reg_raddr[7:4] + 4'd1;
+                    nextState <= ST_SEND_DMA_PACKETDATA_BLOCK_CHANNEL;
+                end
+            end
+         end
 
          ST_SEND_DMA_PACKETDATA_BLOCK_PROM:
          begin
-            cmdReq <= 1;
-            state <= ST_WAIT_ACK;
+            `KSZ_Write_DMA;
             if (count[0] == 0) begin
                 count[0] <= 1;
-                WriteData <= {eth_reg_rdata[23:16], eth_reg_rdata[31:24]};
+                SDReg <= {eth_reg_rdata[23:16], eth_reg_rdata[31:24]};
                 nextState <= ST_SEND_DMA_PACKETDATA_BLOCK_PROM;
             end
             else begin
                 count[0] <= 0;
-                WriteData <= {eth_reg_rdata[7:0], eth_reg_rdata[15:8]};
+                SDReg <= {eth_reg_rdata[7:0], eth_reg_rdata[15:8]};
                 eth_reg_raddr[5:0] <= eth_reg_raddr[5:0] + 6'd1;
                 // eth_reg_raddr increments quadlets (32-bits), whereas block_data_length
                 // is in bytes (8-bits). Note that maximum PROM read is 256 bytes,
@@ -1767,21 +1831,18 @@ always @(posedge sysclk or negedge reset) begin
 
          ST_SEND_DMA_PACKETDATA_CHECKSUM:
          begin
-            cmdReq <= 1;
+            `KSZ_Write_DMA;
             count[0] <= 1;
-            WriteData <= 16'd0;    // Checksum currently not set
-            state <= ST_WAIT_ACK;
+            SDReg <= 16'd0;    // Checksum currently not set
             nextState <= (count[0] == 0) ? ST_SEND_DMA_PACKETDATA_CHECKSUM : ST_SEND_DMA_DUMMY_DWORD;
          end
 
          ST_SEND_DMA_FWD:
          begin
+            `KSZ_Write_DMA;
             count <= count + 8'd1;
-            cmdReq <= 1;
-            isWrite <= 1;
-            WriteData <= (count[0] == 0) ? {sendData[23:16], sendData[31:24]} : {sendData[7:0], sendData[15:8]};
+            SDReg <= (count[0] == 0) ? {sendData[23:16], sendData[31:24]} : {sendData[7:0], sendData[15:8]};
             if (count[0] == 1) sendAddr <= sendAddr + 7'd1;
-            state <= ST_WAIT_ACK;
             nextState <= (count == (sendLen[8:1]-8'd1)) ? ST_SEND_DMA_DUMMY_DWORD : ST_SEND_DMA_FWD;
          end
 
@@ -1789,10 +1850,8 @@ always @(posedge sysclk or negedge reset) begin
          begin
             count <= 8'd0;
             if (txPktWords[0]) begin
-               cmdReq <= 1;
-               isWrite <= 1;
-               WriteData <= 0;
-               state <= ST_WAIT_ACK;
+               `KSZ_Write_DMA;
+               SDReg <= 16'd0;
                nextState <= ST_SEND_DMA_STOP;
             end
             else begin
@@ -1803,36 +1862,26 @@ always @(posedge sysclk or negedge reset) begin
          ST_SEND_DMA_STOP:
          begin
             // Disable DMA transfers
-            cmdReq <= 1;
-            isWrite <= 1;
-            isDMA <= 0;
-            RegAddr <= `ETH_ADDR_RXQCR;
-            state <= ST_WAIT_ACK;
-            WriteData <= {ETH_VALUE_RXQCR[15:4],1'b0,ETH_VALUE_RXQCR[2:0]};
+            `KSZ_Write_Reg(`ETH_ADDR_RXQCR, {ETH_VALUE_RXQCR[15:4],1'b0,ETH_VALUE_RXQCR[2:0]});
             nextState <= ST_SEND_TXQ_ENQUEUE;
          end
 
          ST_SEND_TXQ_ENQUEUE:
          begin
-            cmdReq <= 1;
-            isWrite <= 1;
-            RegAddr <= `ETH_ADDR_TXQCR;
-            WriteData <= 16'h0001;
-            state <= ST_WAIT_ACK;
+            `KSZ_Write_Reg(`ETH_ADDR_TXQCR, 16'h0001);
             // For now, wait for the frame to be transmitted. According to the datasheet,
             // "the software should wait for the bit to be cleared before setting up another
             // new TX frame," so this check could be moved elsewhere for efficiency.
             nextState <= ST_SEND_TXQ_ENQUEUE_WAIT;
+            count[0] <= 1'd1;   // used as "first time" flag in next state
          end
 
          ST_SEND_TXQ_ENQUEUE_WAIT:
          begin
-            cmdReq <= 1;
-            isWrite <= 0;
-            // RegAddr is already set to TXQCR
-            state <= ST_WAIT_ACK;
+            `KSZ_Read_Reg(`ETH_ADDR_TXQCR);
+            count[0] <= 1'd0;
             // Wait for bit 0 in Register TXQCR (0x80) to be cleared
-            nextState <= (~isWrite && ReadData[0] == 1'b0) ? ST_SEND_END : ST_SEND_TXQ_ENQUEUE_WAIT;
+            nextState <= ((count[0] == 0) && ReadData[0] == 1'b0) ? ST_SEND_END : ST_SEND_TXQ_ENQUEUE_WAIT;
          end
 
          ST_SEND_END:
@@ -1854,6 +1903,33 @@ always @(posedge sysclk or negedge reset) begin
          begin
             numStateInvalid <= numStateInvalid + 10'd1;
             state <= ST_IDLE;
+         end
+
+         ST_WAVEFORM_OUTPUT:
+         begin
+             if (ShiftCnt != 4'd0) begin
+                Cur_WRn <= Cur_WRn << 1;
+                Cur_RDn <= Cur_RDn << 1;
+                Cur_CMD <= Cur_CMD << 1;
+                ShiftCnt <= ShiftCnt - 4'd1;
+                // If CMD high and WRn is going to transition high to low
+                // on this cycle, then write address to the bus
+                if ((Cur_CMD[9:8] == 2'b11) && (Cur_WRn[9:8] == 2'b10))
+                   SDReg <= Addr16;  // Addr16 is output of address translator
+                // If writing and CMD is going to transition low on
+                // this cycle, then write data to the bus
+                else if (isWrite && (Cur_CMD[9:8] == 2'b10))
+                   SDReg <= WriteData;
+                // If reading and RDn is going to transition high on
+                // next cycle, then read data from the bus
+                else if (~isWrite && (Cur_RDn[8:7] == 2'b01))
+                   eth_data <= SD;
+                state <= ST_WAVEFORM_OUTPUT;
+             end
+             else begin
+                // All done
+                state <= nextState;
+             end
          end
 
          endcase // case (state)
