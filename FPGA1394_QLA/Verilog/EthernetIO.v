@@ -261,7 +261,7 @@ localparam [5:0]
     ST_SEND_DMA_FRAME_HEADER = 6'd20,
     ST_SEND_DMA_FRAME_LENGTH = 6'd21,
     ST_SEND_DMA_ARP = 6'd22,
-    ST_SEND_DMA_IPV4_HEADER = 'd23,
+    ST_SEND_DMA_IPV4_HEADER = 6'd23,
     ST_SEND_DMA_ICMP_HEADER = 6'd24,
     ST_SEND_DMA_UDP_HEADER = 6'd25,
     ST_SEND_DMA_PACKETDATA_HEADER = 6'd26,
@@ -278,7 +278,9 @@ localparam [5:0]
     ST_SEND_TXQ_ENQUEUE_WAIT = 6'd37,
     ST_SEND_END = 6'd38,
     ST_WAVEFORM_OUTPUT = 6'd39,            // set up read/write waveforms
-    ST_WAVEFORM_OUTPUT_EXECUTE = 6'd40;    // generate read/write waveforms
+    ST_WAVEFORM_OUTPUT_EXECUTE = 6'd40,    // generate read/write waveforms
+    ST_RECEIVE_DMA_ICMP_DATA = 6'd41,
+    ST_SEND_DMA_ICMP_DATA = 6'd42;
 
 // Debugging support
 assign eth_io_isIdle = (state == ST_IDLE) ? 1'b1 : 1'b0;
@@ -318,19 +320,16 @@ reg useUDP;
 assign eth_status[31] = 1'b1;            // 31: 1 -> Ethernet is present
 assign eth_status[30] = eth_error;       // 30: 1 -> Could not access KSZ registers via FireWire
 assign eth_status[29] = initOK;          // 29: 1 -> Initialization OK
-assign eth_status[28] = 1'b0;            // 28:
-assign eth_status[27] = 1'b0;            // 27:
+assign eth_status[28] = isLocal;         // 28: 1 -> command requested by higher level
+assign eth_status[27] = isRemote;        // 27: 1 -> command acknowledged by lower level
 assign eth_status[26] = ethFrameError;   // 26: 1 -> ethernet packet too long (higher layer)
 assign eth_status[25] = ethDestError;    // 25: 1 -> ethernet destination error (higher layer)
-//assign eth_status[26] = isLocal;         // 26: 1 -> command requested by higher level
-//assign eth_status[25] = isRemote;        // 25: 1 -> command acknowledged by lower level
 assign eth_status[24] = quadRead;        // 24: quadRead (debugging)
 assign eth_status[23] = quadWrite;       // 23: quadWrite (debugging)
 assign eth_status[22] = blockRead;       // 22: blockRead (debugging)
 assign eth_status[21] = blockWrite;      // 21: blockWrite (debugging)
-//assign eth_status[20] = isEthMulticast;   // 20: multicast received
 assign eth_status[20] = useUDP;          // 20: UDP mode
-assign eth_status[19] = 1'b0;            // 19: 0
+assign eth_status[19] = isEthMulticast;  // 19: multicast received
 assign eth_status[18] = eth_io_isIdle;   // 18: Ethernet I/O state machine is idle
 assign eth_status[17:16] = waitInfo;     // 17-16: Wait points in EthernetIO.v
 
@@ -354,14 +353,6 @@ wire[15:0] LengthFW;   // Firewire packet length in bytes
 assign LengthFW = isUDP ? UDP_Length-8'd8 : Eth_EtherType;
 
 assign eth_fwpkt_len = LengthFW;
-
-// Buffer to use during DMA Read
-reg[1:0] DMA_Buffer;
-
-localparam[1:0]
-   BUF_NONE = 2'b00,    // None (data read into eth_data / ReadData)
-   BUF_ETH  = 2'b01,    // PacketBuffer (Ethernet headers)
-   BUF_FW   = 2'b10;    // FirewirePacket
 
 //************************ Large buffer to hold various packets **************************
 // Note that it is fine for some buffers to overlap. For example, an ARP packet does not
@@ -478,7 +469,7 @@ assign is_IPv4_Long = (isIPv4 && ((IPv4_IHL[3] == 2'b1) || (IPv4_IHL[2:1] == 2'b
 
 wire is_IPv4_Short;
 // IHL should never be less than 5, so this should not happen
-assign is_IPv4_Short = (!is_IPv4_Long && (IPv4_IHL != 4'd5)) ? 1'd1 : 1'd0;
+assign is_IPv4_Short = (isIPv4 && !is_IPv4_Long && (IPv4_IHL != 4'd5)) ? 1'd1 : 1'd0;
 
 wire isUDP;
 assign isUDP = (isIPv4 && (IPv4_Protocol == 8'd17)) ? 1'd1 : 1'd0;
@@ -503,6 +494,9 @@ assign isPortValid = (UDP_destPort == 16'd1394) ? 1 : 0;
 
 //********************************* ICMP Header ***************************************
 // Data received in ICMP Echo packet (ping)
+// ICMP packet usually has additional data, with length given by IPv4_Length-20-12
+// (i.e., IPv4_Length includes 20 bytes for IPv4 Header and 12 bytes for ICMP Header).
+// This data is received in ST_RECEIVE_DMA_ICMP_Data.
 wire[15:0] Echo_id;
 assign Echo_id = PacketBuffer[ICMP_Header_Begin+5'd2];
 wire[15:0] Echo_seq;
@@ -514,8 +508,9 @@ wire isEcho;
 // Echo request (ping) has Type=8, Code=0
 assign isEcho = (isICMP && (PacketBuffer[ICMP_Header_Begin] == 16'h0800)) ? 1'd1 : 1'd0;
 
-wire[17:0] icmp_checksum;
-assign icmp_checksum = {2'd0, Echo_id} + {2'd0, Echo_seq} + {2'd0, Echo_payload[31:16]} + {2'd0, Echo_payload[15:0]};
+wire[15:0] icmp_data_length;
+// Length of (optional) ICMP data field in bytes: subtract 20 (IPv4 header) and 12 (ICMP header)
+assign icmp_data_length = IPv4_Length-16'd32;
 
 //**************************** Final Processing Steps **********************************
 // These signals should only be used in ST_RECEIVE_DMA_ETHERNET_HEADERS
@@ -569,10 +564,10 @@ wire[15:0] IPv4_Header_Reply[0:9];
 // Word 0: Version=4, Internet Header Length (IHL)=5, DSCP=0, ECN=0
 assign IPv4_Header_Reply[0] = {4'd4, 4'd5, 6'd0, 2'd0};  // 0x4500
 // Word 1: Total length (header and data)
-//     ICMP reply (echo): same size as request (for now, just the 20+12 byte headers, but need to add data)
+//     ICMP reply (echo): same size as request
 //     Quadlet read response: 20 (IPv4 header) + 8 (UDP header) + 20 (data)
 //     Block read response: 20 (IPv4 header) + 8 (UDP header) + 24 + block_data_length
-assign IPv4_Header_Reply[1] = isEcho ? 16'd32 :  // IPv4_Length :
+assign IPv4_Header_Reply[1] = isEcho ? IPv4_Length :
                               (quadRead ? 16'd48 : (16'd52 + block_data_length));
 // Word 2: Identification (supposed to be unique within packet lifetime)
 assign IPv4_Header_Reply[2] = 16'd0;
@@ -733,8 +728,8 @@ initial begin
     InitProgram[2] = {CMD_WRITE, ~CMD_OR, `ETH_ADDR_MARH, 16'hFA61};
     // Enable QMU transmit frame data pointer auto increment
     InitProgram[3] = {CMD_WRITE, ~CMD_OR, `ETH_ADDR_TXFDPR, 16'h4000};
-    // Enable QMU UDP/TCP/IP checksum, transmit flow control, padding, and CRC
-    InitProgram[4] = {CMD_WRITE, ~CMD_OR, `ETH_ADDR_TXCR, 16'h00EE};
+    // Enable QMU ICMP/UDP/TCP/IP checksum, transmit flow control, padding, and CRC
+    InitProgram[4] = {CMD_WRITE, ~CMD_OR, `ETH_ADDR_TXCR, 16'h01EE};
     // B14: Enable QMU receive frame data pointer auto increment
     // B12: Decrease write data valid sample time to 4 nS (max)
     // B11: Set Little Endian (0) or Big Endian (1)-- currently, Little Endian.
@@ -866,7 +861,6 @@ always @(posedge sysclk or negedge reset) begin
        isDMA <= 0;
        isWrite <= 0;
        isWord <= 1;   // all transfers are word
-       DMA_Buffer <= BUF_NONE;
        isInIRQ <= 0;
        initOK <= 0;
        ethFrameError <= 0;
@@ -1253,9 +1247,10 @@ always @(posedge sysclk or negedge reset) begin
             end
             else begin
                state <= ST_WAVEFORM_OUTPUT;
-               nextState <= (ICMP_Done || ARP_Done) ? ST_RECEIVE_DMA_FRAME_CRC :
-                            ((UDP_Done || Frame_Raw) ? ST_RECEIVE_DMA_FIREWIRE_PACKET :
-                            ST_RECEIVE_DMA_ETHERNET_HEADERS);
+               nextState <= ICMP_Done ? ST_RECEIVE_DMA_ICMP_DATA :
+                            (ARP_Done ? ST_RECEIVE_DMA_FRAME_CRC :
+                             ((UDP_Done || Frame_Raw) ? ST_RECEIVE_DMA_FIREWIRE_PACKET :
+                             ST_RECEIVE_DMA_ETHERNET_HEADERS));
                count[4:0] <= (ICMP_Done || ARP_Done || UDP_Done || Frame_Raw) ? 5'd0 : count[4:0]+5'd1;
             end
             PacketBuffer[count[4:0]] <= `ReadDataSwapped;
@@ -1287,6 +1282,18 @@ always @(posedge sysclk or negedge reset) begin
                ip_address[31:16] <= ReadData;
                ip_address[15:0] <= {ARP_fpgaIP[23:16], ARP_fpgaIP[31:24] };
             end
+         end
+
+         ST_RECEIVE_DMA_ICMP_DATA:
+         begin
+            state <= ST_WAVEFORM_OUTPUT;
+            nextState <= (count == icmp_data_length[7:0]) ? ST_RECEIVE_DMA_FRAME_CRC : ST_RECEIVE_DMA_ICMP_DATA;
+            count <= count + 8'd1;
+            // For now, read ICMP data into FireWirePacket buffer
+            if (count[0] == 0)
+               FireWirePacket[count[7:1]][31:16] <= `ReadDataSwapped;
+            else
+               FireWirePacket[count[7:1]][15:0] <= `ReadDataSwapped;
          end
 
          ST_RECEIVE_DMA_FIREWIRE_PACKET:
@@ -1415,7 +1422,8 @@ always @(posedge sysclk or negedge reset) begin
             // be 0 after this -- the exception is when the packet is smaller than
             // the minimum Ethernet frame (64 bytes), in which case it is padded
             // (this happens with raw Ethernet quadlet read/write commands).
-            rxPktWords <= rxPktWords-12'd1;
+            // Note: rxPktWords does not seem to be predictable, so ignoring it for now.
+            //rxPktWords <= rxPktWords-12'd1;
             state <= ST_RECEIVE_FLUSH_START;
          end
 
@@ -1514,9 +1522,8 @@ always @(posedge sysclk or negedge reset) begin
                WriteData <= 16'd42;
             end
             else if (isEcho) begin
-               // Echo (ICMP) response: 14 + 20 + 12
-               // PK TODO: Needs to also include data beyond the header
-               WriteData <= 16'd46;
+               // Echo (ICMP) response: 14 + IPv4_Length
+               WriteData <= 16'd14 + IPv4_Length;
             end
             else begin
                // Set byte count:
@@ -1614,16 +1621,25 @@ always @(posedge sysclk or negedge reset) begin
             // Only handles echo (ping).
             case (count[2:0])
               3'd0: `WriteDataSwapped <= 16'd0;  // Echo Reply: Type=0, Code=0
-              3'd1: `WriteDataSwapped <= ~(icmp_checksum[15:0] + {14'd0, icmp_checksum[17:16]});
+              3'd1: `WriteDataSwapped <= 16'd0;  // ICMP Checksum will be generated by KSZ8851
               3'd2: `WriteDataSwapped <= Echo_id;
               3'd3: `WriteDataSwapped <= Echo_seq;
               3'd4: `WriteDataSwapped <= Echo_payload[31:16];
               3'd5: begin
                     `WriteDataSwapped <= Echo_payload[15:0];
                     count[2:0] <= 3'd0;
-                    nextState <= ST_SEND_DMA_STOP;
+                    nextState <= ST_SEND_DMA_ICMP_DATA;
                     end
             endcase
+         end
+
+         ST_SEND_DMA_ICMP_DATA:
+         begin
+            state <= ST_WAVEFORM_OUTPUT;
+            `WriteDataSwapped <= (count[0] == 0) ? FireWirePacket[count[7:1]][31:16]
+                                                 : FireWirePacket[count[7:1]][15:0];
+            count <= count + 8'd1;
+            nextState <= (count == icmp_data_length[7:0]) ? ST_SEND_DMA_STOP : ST_SEND_DMA_ICMP_DATA;
          end
 
          ST_SEND_DMA_UDP_HEADER:
@@ -1912,7 +1928,7 @@ always @(posedge sysclk or negedge reset) begin
                    Cur_WRn <= DMA_Read_WRn;
                    Cur_RDn <= DMA_Read_RDn;
                    Cur_CMD <= DMA_Read_CMD;
-                   rxPktWords <= rxPktWords - 12'd1;
+                   //rxPktWords <= rxPktWords - 12'd1;
                    end
             2'b11: begin   // DMA Write
                    ShiftCnt <= 4'd3;
