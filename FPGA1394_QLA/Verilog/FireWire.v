@@ -1,6 +1,6 @@
 /*******************************************************************************
  *
- * Copyright(C) 2008-2018 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2008-2020 ERC CISST, Johns Hopkins University.
  *
  * This module implements the FireWire link layer state machine, which defines
  * the operation of the phy-link interface.  The state machine is triggered on
@@ -792,11 +792,11 @@ begin
                             end
 
                             // trigger packet forward if packet is for pc
-                            if ((rx_dest[15:0] == 16'hffff) && (rx_tcode == `TC_QRESP)) begin
+                            if ((rx_dest[15:0] == 16'hffd0) && (rx_tcode == `TC_QRESP)) begin
                                eth_send_req <= 1;
                                eth_send_len <= 16'd20;
                             end
-                            else if ((rx_dest[15:0] == 16'hffff) && (rx_tcode == `TC_BRESP)) begin
+                            else if ((rx_dest[15:0] == 16'hffd0) && (rx_tcode == `TC_BRESP)) begin
                                eth_send_req <= 1;
                                eth_send_len <= 16'd24 + buffer[31:16];
                             end
