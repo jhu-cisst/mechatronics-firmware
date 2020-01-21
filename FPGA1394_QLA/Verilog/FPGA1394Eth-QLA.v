@@ -237,7 +237,6 @@ wire[31:0] ip_address;
 
 EthernetIO EthernetTransfers(
     .sysclk(sysclk),          // in: global clock
-    .reset(reset),            // in: FPGA reset
 
     .board_id(~wenid),        // in: board id (rotary switch)
     .node_id(node_id),        // in: phy node id

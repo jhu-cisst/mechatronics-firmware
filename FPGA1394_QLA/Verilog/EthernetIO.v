@@ -78,9 +78,8 @@ endmodule
 `define ETH_ADDR_PMECR   8'hD4     // Power management event control register
 
 module EthernetIO(
-    // global clock and reset
+    // global clock
     input wire sysclk,
-    input wire reset,
 
     // board id (rotary switch)
     input wire[3:0] board_id,
@@ -313,6 +312,17 @@ reg isEthBroadcast;
 // a valid raw Ethernet frame is received).
 reg useUDP;
 
+// Non-zero initial values
+initial begin
+   isWord = 1'd1;
+   ip_address = IP_UNASSIGNED;
+   Last_hostIP = IP_UNASSIGNED;
+   Cur_WRn = Init_WRn;
+   Cur_RDn = Init_RDn;
+   Cur_CMD = Init_CMD;
+   state = ST_RESET_ASSERT;
+end
+
 // Ethernet status:
 //   Bit 31: 1 to indicate that Ethernet is present -- must be kept for backward compatibility
 //   Bit 30: 1 to indicate that an error occurred in KSZ8851 -- must be kept for backward compatibility
@@ -477,6 +487,10 @@ assign isUDP = (isIPv4 && (IPv4_Protocol == 8'd17)) ? 1'd1 : 1'd0;
 wire isICMP;
 assign isICMP = (isIPv4 && (IPv4_Protocol == 8'd1)) ? 1'd1 : 1'd0;
 
+// Save last host IP address; important for isForward case because the Firewire module may
+// request to forward a packet when isIPv4 is false (e.g., if an ARP packet was just processed).
+reg [31:0] Last_hostIP;
+
 //********************************* UDP Header ****************************************
 // Word 0:  Source port
 // Word 1:  Destination port
@@ -490,7 +504,7 @@ wire[15:0] UDP_Length;
 assign UDP_Length = PacketBuffer[UDP_Header_Begin+5'd2];
 
 wire isPortValid;
-assign isPortValid = (UDP_destPort == 16'd1394) ? 1 : 0;
+assign isPortValid = (UDP_destPort == 16'd1394) ? 1'd1 : 1'd0;
 
 //********************************* ICMP Header ***************************************
 // Data received in ICMP Echo packet (ping)
@@ -566,9 +580,11 @@ assign IPv4_Header_Reply[0] = {4'd4, 4'd5, 6'd0, 2'd0};  // 0x4500
 // Word 1: Total length (header and data)
 //     ICMP reply (echo): same size as request
 //     Quadlet read response: 20 (IPv4 header) + 8 (UDP header) + 20 (data)
+//     FW forward: 20 (IPv4 header) + 8 (UDP header) + sendLen
 //     Block read response: 20 (IPv4 header) + 8 (UDP header) + 24 + block_data_length
 assign IPv4_Header_Reply[1] = isEcho ? IPv4_Length :
-                              (quadRead ? 16'd48 : (16'd52 + block_data_length));
+                              isForward ? 16'd28 + sendLen :
+                              quadRead ? 16'd48 : (16'd52 + block_data_length);
 // Word 2: Identification (supposed to be unique within packet lifetime)
 assign IPv4_Header_Reply[2] = 16'd0;
 // Word 3: Flags, Fragment Offset
@@ -582,8 +598,8 @@ assign IPv4_Header_Reply[5] = 16'd0;
 assign IPv4_Header_Reply[6] = is_ip_unassigned ? IPv4_fpgaIP[31:16] : {ip_address[7:0], ip_address[15:8] };
 assign IPv4_Header_Reply[7] = is_ip_unassigned ? IPv4_fpgaIP[15:0]  : {ip_address[23:16], ip_address[31:24] };
 // Words 8,9: Destination IP
-assign IPv4_Header_Reply[8] = IPv4_hostIP[31:16];
-assign IPv4_Header_Reply[9] = IPv4_hostIP[15:0];
+assign IPv4_Header_Reply[8] = Last_hostIP[31:16];
+assign IPv4_Header_Reply[9] = Last_hostIP[15:0];
 
 // The following code should compute the checksum (not tested, since KSZ8851 computes checksum)
 // Sum of fixed fields (words 0, 2, 3, 4) = 0x4500 + 0 + 0x4000 + 0x4011 = 0xC511 (or 0xC501 for ICMP)
@@ -655,7 +671,7 @@ reg[9:0] numIPv4Mismatch;    // Number of IPv4 packets with different IP address
 
 localparam[31:0] IP_UNASSIGNED = 32'hffffffff;
 wire is_ip_unassigned;
-assign is_ip_unassigned = (ip_address == IP_UNASSIGNED) ? 1 : 0;
+assign is_ip_unassigned = (ip_address == IP_UNASSIGNED) ? 1'd1 : 1'd0;
 
 // ----------------------------------------
 // Whether packet is being forwarded (to Ethernet) from FireWire receiver
@@ -844,9 +860,9 @@ reg ts_reset;                 // timestamp counter reset signal
 // Timestamp
 // -------------------------------------------------------
 // timestamp counts number of clocks between block reads
-always @(posedge(sysclk) or posedge(ts_reset) or negedge(reset))
+always @(posedge(sysclk) or posedge(ts_reset))
 begin
-    if (reset==0 || ts_reset)
+    if (ts_reset)
         timestamp <= 0;
     else
         timestamp <= timestamp + 1'b1;
@@ -856,39 +872,7 @@ end
 // -------------------------------------------------------
 // Ethernet state machine
 // -------------------------------------------------------
-always @(posedge sysclk or negedge reset) begin
-    if (reset == 0) begin
-       isDMA <= 0;
-       isWrite <= 0;
-       isWord <= 1;   // all transfers are word
-       isInIRQ <= 0;
-       initOK <= 0;
-       ethFrameError <= 0;
-       ethIPv4Error <= 0;
-       ethUDPError <= 0;
-       ethDestError <= 0;
-       sendAck <= 0;
-       ip_address <= IP_UNASSIGNED;
-       eth_read_en <= 0;
-       eth_reg_wen <= 0;
-       eth_block_wen <= 0;
-       eth_block_wstart <= 0;
-       ts_reset <= 0;
-       waitInfo <= WAIT_NONE;
-       lreq_trig <= 0;
-       lreq_type <= 0;
-       block_index <= 0;
-       eth_send_fw_req <= 0;
-       useUDP <= 0;
-       initCount <= 21'd0;            // Clear init counter
-       eth_error <= 0;
-       Cur_WRn <= Init_WRn;
-       Cur_RDn <= Init_RDn;
-       Cur_CMD <= Init_CMD;
-       ShiftCnt <= 4'd0;
-       state <= ST_RESET_ASSERT;
-    end
-    else begin
+always @(posedge sysclk) begin
 
        // Clear eth_send_fw_req flag
        if (eth_send_fw_req && eth_send_fw_ack) begin
@@ -1261,6 +1245,7 @@ always @(posedge sysclk or negedge reset) begin
             if (IPv4_Done && !IPv4_Error) begin
                // Can check for IHL > 5
                // maxCount <= IPv4_Header_Begin + {ReadData[3:0],1'd0}-5'd1;
+               Last_hostIP <= IPv4_hostIP;
                if (is_ip_unassigned && (IPv4_fpgaIP[7:0] != 8'hff)) begin
                   // This case can occur when the host PC already has an ARP
                   // cache entry for this board, in which case we just assign
@@ -1563,7 +1548,8 @@ always @(posedge sysclk or negedge reset) begin
             state <= ST_WAVEFORM_OUTPUT;
             count <= 8'd0;
 
-            if (isForward) begin
+            if (isForward && !useUDP) begin
+               // Forwarding raw packet from Firewire
                `WriteDataSwapped <= sendLen;
                nextState <= ST_SEND_DMA_FWD;
                sendAddr <= 7'd0;
@@ -1573,7 +1559,8 @@ always @(posedge sysclk or negedge reset) begin
                `WriteDataSwapped <= 16'h0806;
                nextState <= ST_SEND_DMA_ARP;
             end
-            else if (useUDP || isEcho) begin
+            else if (isUDP || isEcho || isForward) begin
+               // Note that (isForward && !useUDP) is handled above
                `WriteDataSwapped <= 16'h0800;
                nextState <= ST_SEND_DMA_IPV4_HEADER;
             end
@@ -1648,7 +1635,13 @@ always @(posedge sysclk or negedge reset) begin
             `WriteDataSwapped <= UDP_Header_Reply[count[1:0]];
             if (count[1:0] == 2'd3) begin
                count[1:0] <= 2'd0;
-               nextState <= ST_SEND_DMA_PACKETDATA_HEADER;
+               if (isForward) begin
+                  nextState <= ST_SEND_DMA_FWD;
+                  sendAddr <= 7'd0;
+                  isForward <= 1'd0;
+               end
+               else
+                  nextState <= ST_SEND_DMA_PACKETDATA_HEADER;
             end
             else begin
                count[1:0] <= count[1:0]+2'd1;
@@ -1710,7 +1703,7 @@ always @(posedge sysclk or negedge reset) begin
                 WriteData <= 16'h0;
             end
             if (count[1:0] == 2'd3) begin
-                count[1:0] <= 2'd0;
+               count[1:0] <= 2'd0;
 
                case (FireWirePacket[2][15:12])
                `ADDR_MAIN: 
@@ -1969,7 +1962,6 @@ always @(posedge sysclk or negedge reset) begin
         end
 
          endcase // case (state)
-    end
 end
 
 endmodule
