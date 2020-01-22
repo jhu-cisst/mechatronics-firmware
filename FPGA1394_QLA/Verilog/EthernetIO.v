@@ -1769,7 +1769,7 @@ always @(posedge sysclk) begin
             else begin
                 count[0] <= 0;
                 WriteData <= {eth_reg_rdata[7:0], eth_reg_rdata[15:8]};
-                if (eth_reg_raddr[7:4] == num_channels) begin
+                if (eth_reg_raddr[7:4] == `NUM_CHANNELS) begin
                     if (next_addr == 3'd7) begin
                         eth_read_en <= 0;  // we are done
                         nextState <= ST_SEND_DMA_PACKETDATA_CHECKSUM;

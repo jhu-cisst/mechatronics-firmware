@@ -60,12 +60,12 @@ module CtrlDac(
     wire[31:0] data_wru;           // shortcut for write/update command word
     wire[31:0] dac_word;           // command word going into dac module
 
-    reg[31:0] mem_data[0:num_channels-1]; // register file for dac bitstreams
-    reg[31:0] mem_copy[0:num_channels-1]; // for readback of most recent dac command
+    reg[31:0] mem_data[0:`NUM_CHANNELS-1]; // register file for dac bitstreams
+    reg[31:0] mem_copy[0:`NUM_CHANNELS-1]; // for readback of most recent dac command
 
     integer i;
     initial begin                  // for simulation, but synthesizes too
-        for (i=0; i<num_channels; i=i+1) mem_data[i] = 32'h00f08000;
+        for (i=0; i<`NUM_CHANNELS; i=i+1) mem_data[i] = 32'h00f08000;
     end
 
 //------------------------------------------------------------------------------

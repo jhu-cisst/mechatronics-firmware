@@ -607,9 +607,9 @@ begin
                             // main address: special case
                             if (reg_waddr[15:12]==`ADDR_MAIN) begin
                                 // Block write to dac data
-                                // channel address circularly increments from 1 to num_channels
+                                // channel address circularly increments from 1 to `NUM_CHANNELS
                                 // (chan addr and dev offset are previously set)
-                                if (reg_waddr[7:4] == num_channels)
+                                if (reg_waddr[7:4] == `NUM_CHANNELS)
                                     reg_waddr[7:4] <= 4'd1;
                                 else
                                     reg_waddr[7:4] <= reg_waddr[7:4] + 1'b1;
@@ -1210,8 +1210,8 @@ begin
                     buffer <= reg_rdata;
 
                     if (reg_raddr[15:12] == `ADDR_MAIN) begin
-                        // channel address circularly increments from 1 to num_channels
-                        if (reg_raddr[7:4] == num_channels) begin
+                        // channel address circularly increments from 1 to `NUM_CHANNELS
+                        if (reg_raddr[7:4] == `NUM_CHANNELS) begin
                             reg_raddr[7:4] <= 4'h1;
                             reg_raddr[3:0] <= dev_addr[dev_index];
                             dev_index <= (dev_index<3) ? (dev_index+1'b1) : 3'd0;
