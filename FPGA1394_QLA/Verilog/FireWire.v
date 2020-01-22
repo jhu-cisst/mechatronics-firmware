@@ -292,9 +292,6 @@ module PhyLinkInterface(
     reg ts_reset;                 // timestamp counter reset signal
     reg data_block;               // flag for block write data being received
     
-    // ----- hub -------    
-    parameter num_channels = 4;
-
     // state machine states
     parameter[3:0]
         ST_IDLE = 0,              // wait for phy event

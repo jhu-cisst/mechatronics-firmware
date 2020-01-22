@@ -39,7 +39,6 @@ module FPGA1394QLA
     output wire      TxD,
 
     // debug I/Os
-    input wire       clk29m,    // 29.4989 MHz
     input wire       clk40m,    // 40.0000 MHz 
     output wire [3:0] DEBUG,
 
@@ -95,6 +94,9 @@ assign reg_rdata = (reg_raddr[15:12]==`ADDR_HUB) ? (reg_rdata_hub) :
 
 // 1394 phy low reset, never reset
 assign reset_phy = 1'b1; 
+
+// IO1[8] is not used on QLA
+assign IO1[8] = 1'bz;
 
 // --------------------------------------------------------------------------
 // hub register module
@@ -460,7 +462,7 @@ BoardRegs chan0(
     .reg_wen(reg_wen),
     .prom_status(PROM_Status),
     .prom_result(PROM_Result),
-    .ip_address(16'hffff),
+    .ip_address(32'hffffffff),
     .eth_result(Eth_Result),
     .ds_status(ds_status),
     .safety_amp_disable(safety_amp_disable),

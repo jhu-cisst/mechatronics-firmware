@@ -96,7 +96,6 @@ reg[3:0]  RecvQuadCnt;     // Number of quadlets to read, minus 1
 reg[4:0]  WriteQuadCnt;    // Number of quadlets to write
 reg[31:0] prom_data;       // data to write to PROM (shift register)
 reg       blk_wrt;         // true if a block write is in progress (and hasn't been aborted due to an error)
-reg[15:0] prom_debug;
 
 // block read/write
 reg[31:0] data_block[15:0];  // up to 16 quadlets of data
@@ -111,9 +110,8 @@ assign prom_blk_wen = (reg_waddr[15:8] == {`ADDR_PROM_QLA, 4'd1}) ? reg_wen : 1'
 
 
 // prom_status
-wire[31:0] prom_status; 
+wire[15:0] prom_status;
 reg[31:0] prom_result; 
-assign prom_status[31:16] = prom_debug;
 assign prom_status[15:9] = 7'd0;
 assign prom_status[8] = io_disabled;
 assign prom_status[7] = prom_cs;
@@ -136,7 +134,7 @@ begin
     if (reg_raddr[11:8] == 4'h0) begin
         case (reg_raddr[11:0])
         `REG_PROM_RESULT: reg_rdata <= prom_result;
-        `REG_PROM_STATUS: reg_rdata <= prom_status;
+        `REG_PROM_STATUS: reg_rdata <= {16'd0, prom_status};
         // return 32'd0 by default
         default: reg_rdata <= 32'd0;
         endcase

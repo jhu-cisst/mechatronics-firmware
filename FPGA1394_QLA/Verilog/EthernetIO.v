@@ -153,8 +153,6 @@ assign ReadData = eth_data;
 `define ReadDataSwapped {ReadData[7:0], ReadData[15:8]}
 `define WriteDataSwapped {WriteData[7:0], WriteData[15:8]}
 
-parameter num_channels = 4;
-
 //**************************** From KSZ8851.v ****************************************
 
 // Address translator

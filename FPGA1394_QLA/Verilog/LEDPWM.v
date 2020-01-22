@@ -1,23 +1,14 @@
 `timescale 1ns / 1ps
-//////////////////////////////////////////////////////////////////////////////////
-// Company: Johns Hopkins University 
-// Engineer: Zihan Chen 
-// 
-// Create Date:    11:43:48 08/20/2013 
-// Design Name: 
-// Module Name:    LEDPWM
-// Project Name: FPGA1394-QLA
-// Target Devices: 
-// Tool versions: 13.4
-// Description: 
-//
-// Dependencies: ClkDiv
-//
-// Revision: 
-// Revision 0.01 - File Created
-// Additional Comments: 
-//
-//////////////////////////////////////////////////////////////////////////////////
+/*******************************************************************************
+ *
+ * Copyright(C) 2013-2020 ERC CISST, Johns Hopkins University.
+ *
+ * This module sets the blink pattern for the QLA LEDs.
+ *
+ * Revision history
+ *     08/20/13    Zihan Chen    Initial revision
+ */
+
 module LEDPWM(
     input wire sysclk,
     output reg led_drive
@@ -72,7 +63,7 @@ initial begin
     for (i=600; i<700; i=i+1) ROM_PWM[i] = ROM_PWM[i-1] + 20;
     for (i=700; i<800; i=i+1) ROM_PWM[i] = ROM_PWM[i-1] - 20;
     for (i=800; i<900; i=i+1) ROM_PWM[i] = 0;
-    for (i=900; i<1023; i=i+1) ROM_PWM[i] = 0;
+    for (i=900; i<=1023; i=i+1) ROM_PWM[i] = 0;
 
     // initialize period to start_phase
     period = start_phase;

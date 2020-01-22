@@ -26,6 +26,9 @@
 //`define USE_SIMULATION 
 //`define USE_CHIPSCOPE
 
+// Number of channels on QLA
+parameter num_channels = 4;
+
 // firmware constants
 `define VERSION 32'h514C4131       // hard-wired version number "QLA1" = 0x514C4131 
 `define FW_VERSION 32'h07          // firmware version = 7

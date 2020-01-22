@@ -145,6 +145,9 @@ assign ETH_CSn = 0;         // Always select
 // By default, R45 is not populated, so driving this pin has no effect.
 assign ETH_8n = 1;          // 16-bit bus
 
+// IO1[8] is not used on QLA
+assign IO1[8] = 1'bz;
+
 // --------------------------------------------------------------------------
 // hub register module
 // --------------------------------------------------------------------------

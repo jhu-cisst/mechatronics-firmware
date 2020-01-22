@@ -77,10 +77,11 @@ NET  "IO2[38]"    LOC = "AA2"     | IOSTANDARD = "LVCMOS33" | PULLUP;
 
 ################################################################################
 # Clock Inputs
+#   29.4989 MHz clock removed (not populated) starting in FPGA Rev 1.2
 ################################################################################
-NET  "clk29m"     LOC = "M3"      | IOSTANDARD = "LVCMOS33" | TNM_NET = "CLK_IN29x";
+# NET  "clk29m"     LOC = "M3"      | IOSTANDARD = "LVCMOS33" | TNM_NET = "CLK_IN29x";
+# TIMESPEC "TS_CLK_IN29x" = PERIOD "CLK_IN29x" 33.9080 ns HIGH 50% INPUT_JITTER 100.0ps;
 NET  "clk40m"     LOC = "AB12"    | IOSTANDARD = "LVCMOS33" | TNM_NET = "CLK_IN40x" | CLOCK_DEDICATED_ROUTE = FALSE;
-TIMESPEC "TS_CLK_IN29x" = PERIOD "CLK_IN29x" 33.9080 ns HIGH 50% INPUT_JITTER 100.0ps;
 TIMESPEC "TS_CLK_IN40x" = PERIOD "CLK_IN40x" 25.0000 ns HIGH 50% INPUT_JITTER 100.0ps;
 
 ################################################################################
