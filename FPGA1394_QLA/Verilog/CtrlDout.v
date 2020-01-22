@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2015-2017 Johns Hopkins University.
+ * Copyright(C) 2015-2020 Johns Hopkins University.
  *
  * This module controls access to the digital output bits. Each of the four digital
  * output bits can be set/cleared, put in PWM mode, or used as a 1-shot.
@@ -36,8 +36,7 @@
 `include "Constants.v" 
 
 module CtrlDout(
-    input  wire sysclk,           // global clock and reset signals
-    input  wire reset,            // global reset
+    input  wire sysclk,           // global clock
     input  wire[15:0] reg_raddr,  // register file read addr from outside 
     input  wire[15:0] reg_waddr,  // register file write addr from outside 
     output wire[31:0] reg_rdata,  // outgoing register file data
@@ -73,10 +72,10 @@ assign reg_rdata = (reg_raddr[3:0]==`OFF_DOUT_CTRL) ? reg_rd[reg_raddr[7:4]] : 3
 // Note: reading of digital output state is done in BoardRegs.v
 
 // Instantiate module for each digital output      
-DoutPWM DoutPWM1(sysclk, reset, reg_rd[1], dout_ctrl_en[1], reg_wdata, dout_set_en[1], reg_wdata[0], dout[1]);
-DoutPWM DoutPWM2(sysclk, reset, reg_rd[2], dout_ctrl_en[2], reg_wdata, dout_set_en[2], reg_wdata[1], dout[2]);
-DoutPWM DoutPWM3(sysclk, reset, reg_rd[3], dout_ctrl_en[3], reg_wdata, dout_set_en[3], reg_wdata[2], dout[3]);
-DoutPWM DoutPWM4(sysclk, reset, reg_rd[4], dout_ctrl_en[4], reg_wdata, dout_set_en[4], reg_wdata[3], dout[4]);
+DoutPWM DoutPWM1(sysclk, reg_rd[1], dout_ctrl_en[1], reg_wdata, dout_set_en[1], reg_wdata[0], dout[1]);
+DoutPWM DoutPWM2(sysclk, reg_rd[2], dout_ctrl_en[2], reg_wdata, dout_set_en[2], reg_wdata[1], dout[2]);
+DoutPWM DoutPWM3(sysclk, reg_rd[3], dout_ctrl_en[3], reg_wdata, dout_set_en[3], reg_wdata[2], dout[3]);
+DoutPWM DoutPWM4(sysclk, reg_rd[4], dout_ctrl_en[4], reg_wdata, dout_set_en[4], reg_wdata[3], dout[4]);
 
 // The following code is for a configuration check. QLA Version 1.4 has bidirectional transceivers instead of the
 // MOSFET drivers used in prior versions of the QLA. We can detect this by checking the state of the two
@@ -92,39 +91,29 @@ DoutPWM DoutPWM4(sysclk, reset, reg_rd[4], dout_ctrl_en[4], reg_wdata, dout_set_
 //
 // Note that QLA Rev 1.4+ allows the DOUT pins to be used as inputs, but this is not currently supported by the firmware.
 
-always @(posedge(sysclk) or negedge(reset))
+always @(posedge(sysclk))
 begin
-    if (reset == 0) begin
-       dir12_reg <= 1'b0;
-       dir34_reg <= 1'b0;
-       dout_cfg_valid <= 1'b0;     // DOUT configuration needs to be checked (not done)
-       dout_cfg_bidir <= 1'b0;     // Assume old QLA hardware (up to Rev 1.3)
-       // Clearing dout_cfg_valid causes FPGA to stop driving direction lines
-    end
-    else begin
-       if (!dout_cfg_valid) begin
-          if ((dir12_read == 1'b0) && (dir34_read == 1'b0)) begin
-             // If QLA Rev 1.4 detected, start driving outputs
-             dout_cfg_bidir <= 1'b1;
-             dir12_reg <= 1'b1;
-             dir34_reg <= 1'b1;
-             dout_cfg_valid <= 1'b1;
-          end
-          else if ((dir12_read == 1'b1) && (dir34_read == 1'b1)) begin
-             // Older version of QLA
-             // dout_cfg_bidir is already set to 0 during reset
-             dout_cfg_valid <= 1'b1;
-          end
-          // Else we keep checking...
-       end
-    end
+   if (!dout_cfg_valid) begin
+      if ((dir12_read == 1'b0) && (dir34_read == 1'b0)) begin
+         // If QLA Rev 1.4 detected, start driving outputs
+         dout_cfg_bidir <= 1'b1;
+         dir12_reg <= 1'b1;
+         dir34_reg <= 1'b1;
+         dout_cfg_valid <= 1'b1;
+      end
+      else if ((dir12_read == 1'b1) && (dir34_read == 1'b1)) begin
+         // Older version of QLA
+         // dout_cfg_bidir is already set to 0 during reset
+         dout_cfg_valid <= 1'b1;
+      end
+      // Else we keep checking...
+   end
 end
 
 endmodule
 
 module DoutPWM(
     input wire         sysclk,       // sysclk
-    input wire         reset,        // reset
     output wire [31:0] reg_rdata,    // outgoing register data (control register)
     input wire         ctrl_enable,  // write enable signal for control register
     input wire [31:0]  reg_wdata,    // incoming register data (for control register)
@@ -147,14 +136,9 @@ module DoutPWM(
     // Provide control register to outside world
     assign reg_rdata = HiLoTime;
     
-always @(posedge(sysclk) or negedge(reset))
+always @(posedge(sysclk))
 begin
-    if (reset == 0) begin
-       dout <= 1'd0;
-       HiLoTime <= 32'd0;
-       curTime <= 16'd0;
-    end
-    else if (dout_enable) begin                  // if writing a new value for dout
+    if (dout_enable) begin                       // if writing a new value for dout
        dout <= dout_set;                         //    set the value
        curTime <= 16'd0;                         //    set current time to 0
     end
@@ -171,4 +155,3 @@ begin
 end
 
 endmodule
-

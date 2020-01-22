@@ -1,6 +1,6 @@
 /*******************************************************************************
  *
- * Copyright(C) 2008-2012 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2008-2020 ERC CISST, Johns Hopkins University.
  *
  * This module decodes a pair of quadrature encoder inputs, a and b, analyzing
  * them via a state machine and outputting transition ticks and direction flag.
@@ -14,13 +14,12 @@
  */
 
 module EncQuad(
-    input wire clk,              // glocal clock
-    input wire reset,            // reset signals
+    input wire clk,              // global clock
     input wire a,                // quad encoder line a
     input wire b,                // quad encoder line b
     input wire set_enc,          // signal to preload the counter
     input wire[23:0] preload,    // encoder counter preload value
-    output wire[24:0] count,      // counts number of encoder transitions
+    output wire[24:0] count,     // counts number of encoder transitions
     output reg dir               // encodes the direction of encoder transition
 );
     // local registers
@@ -53,7 +52,7 @@ end
 // -----------------------------------------------------------------------------
 // count encoder transitions, using an up/down counter with asynchronous preset
 //
-always @(posedge(clk) or posedge(set_enc))
+always @(posedge(clk))
 begin
     if (set_enc)
         counter <= preload;
@@ -62,11 +61,11 @@ begin
 end
 
 // -----------------------------------------------------------------------------
-// overflow flag set by counter carryout, cleared by reset or encoder preload
+// overflow flag set by counter carryout, cleared by encoder preload
 //
-always @(posedge(counter[24]) or posedge(set_enc) or negedge(reset))
+always @(posedge(counter[24]))
 begin
-    if (reset==0 || set_enc)
+    if (set_enc)
         overflow <= 0;
     else
         overflow <= 1;

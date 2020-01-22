@@ -1,27 +1,16 @@
 `timescale 1ns / 1ps
-//////////////////////////////////////////////////////////////////////////////////
-// Company: 
-// Engineer: 
-// 
-// Create Date:    21:37:11 08/21/2013 
-// Design Name: 
-// Module Name:    CtrlLED 
-// Project Name: 
-// Target Devices: 
-// Tool versions: 
-// Description: 
-//
-// Dependencies: 
-//
-// Revision: 
-// Revision 0.01 - File Created
-// Additional Comments: 
-//
-//////////////////////////////////////////////////////////////////////////////////
+/*******************************************************************************
+ *
+ * Copyright(C) 2013-2020 ERC CISST, Johns Hopkins University.
+ *
+ * This module drives the QLA LEDs. Currently, it only generates a characteristic
+ * flashing pattern
+ *
+ */
+
 module CtrlLED(
     input wire sysclk,
     input wire clk_12hz,
-    input wire reset,
     output wire led1_grn,
     output wire led1_red,
     output wire led2_grn,
@@ -33,21 +22,15 @@ module CtrlLED(
 reg led_reset_mode;
 reg led_reset_signal;
 reg[4:0] led_reset_mode_counter;
-always @(negedge(reset) or posedge(clk_12hz))
+always @(posedge(clk_12hz))
 begin
-    if (reset == 0) begin
-        led_reset_mode_counter <= 5'd0;
-        led_reset_signal <= 1'b0;
+    if (led_reset_mode_counter < 5'd15) begin
+        led_reset_mode_counter <= led_reset_mode_counter + 1'b1;
+        led_reset_mode <= 1'b1;
+        led_reset_signal <= ~led_reset_signal;
     end
     else begin
-        if (led_reset_mode_counter < 5'd15) begin
-            led_reset_mode_counter <= led_reset_mode_counter + 1'b1;
-            led_reset_mode <= 1'b1;
-            led_reset_signal <= ~led_reset_signal;
-        end
-        else begin
-            led_reset_mode <= 1'b0;
-        end
+        led_reset_mode <= 1'b0;
     end
 end
 

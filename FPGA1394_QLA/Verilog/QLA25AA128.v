@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2012-2013 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2012-2020 ERC CISST, Johns Hopkins University.
  *
  * Module: QLA25AA128
  *
@@ -57,7 +57,6 @@
 
 module QLA25AA128(
     input  wire clk,               // input clock
-    input  wire reset,             // global reset signal
 
     input  wire[15:0] reg_raddr,   // read address
     input  wire[15:0] reg_waddr,   // write address
@@ -74,6 +73,8 @@ module QLA25AA128(
     output reg prom_cs             // /CS to 25AA128
 );
 
+initial prom_cs = 1'bz;
+
 // State machine
 localparam [2:0]
     ST_IDLE = 0,
@@ -85,7 +86,9 @@ localparam [2:0]
     ST_IO_DISABLE = 6;
 
 reg       io_disabled;
+initial   io_disabled = 1'b1;
 reg[2:0]  state;
+initial   state = ST_IDLE;
 reg[9:0]  seqn;            // 10-bit counter for sequencing operation (clock)
 reg[9:0]  SendCnt;         // (2*NumBits)*8-1
 reg[9:0]  RecvCnt;         // (2*NumBits)*8-1 (0 if no bits to receive)
@@ -128,12 +131,9 @@ assign prom_sclk = io_disabled ? 1'bz : seqn[3];    // sysclk/8
 // -----------------------------------------
 // read/write request
 // ------------------------------------------
-always @(posedge(clk) or negedge(reset))
+always @(posedge(clk))
 begin
-    if (reset == 0) begin
-        reg_rdata <= 32'd0;                
-    end
-    else if (reg_raddr[11:8] == 4'h0) begin
+    if (reg_raddr[11:8] == 4'h0) begin
         case (reg_raddr[11:0])
         `REG_PROM_RESULT: reg_rdata <= prom_result;
         `REG_PROM_STATUS: reg_rdata <= prom_status;
@@ -153,167 +153,153 @@ end
 // -----------------------------------------
 // command processing 
 // ------------------------------------------
-always @(posedge(clk) or negedge(reset))
+always @(posedge(clk))
 begin
-    if (reset == 0) begin
-        io_disabled <= 1'b1;
-        prom_cs     <= 1'bz;
-        prom_result <= 32'd0;
-        prom_debug  <= 16'd0;
-        blk_wrt     <= 1'b0;
-        wr_index    <= 5'd0;
-        rd_index    <= 5'd0;
-        state       <= ST_IDLE;
+    // block data write from PC
+    if (prom_blk_wen) begin
+        data_block[reg_waddr[3:0]] <= reg_wdata;
     end
 
-    else begin
+    // command processing
+    case (state)
 
-        // block data write from PC
-        if (prom_blk_wen) begin
-            data_block[reg_waddr[3:0]] <= reg_wdata;
+    ST_IDLE: begin
+
+      if (prom_reg_wen) begin
+        seqn <= 7'd0;
+        blk_wrt <= 1'b0;
+        wr_index <= 5'd0;
+        rd_index <= 5'd0;
+        case (reg_wdata[31:24])
+           `CMD_IDLE_25AA128: begin    // Do nothing
+           end
+           `CMD_WREN_25AA128: begin    // Write Enable
+              SendCnt <= 10'd127;      // 2*8*8-1
+              RecvCnt <= 10'd0;
+              RecvQuadCnt <= 4'd0;
+              WriteQuadCnt <= 5'd0;
+              prom_data <= reg_wdata;
+              state <= ST_CHIP_SELECT;
+           end
+           `CMD_WRDI_25AA128: begin    // Write Disable
+              SendCnt <= 10'd127;
+              RecvCnt <= 10'd0;
+              RecvQuadCnt <= 4'd0;
+              WriteQuadCnt <= 5'd0;
+              prom_data <= reg_wdata;
+              state <= ST_CHIP_SELECT;
+           end
+           `CMD_RDSR_25AA128: begin    // Read Status Register
+              SendCnt <= 10'd127;      // 1-byte cmd
+              RecvCnt <= 10'd127;      // 1-byte SR
+              RecvQuadCnt <= 4'd0;
+              WriteQuadCnt <= 5'd0;
+              prom_data <= reg_wdata;
+              state <= ST_CHIP_SELECT;
+           end
+           `CMD_WRSR_25AA128: begin    // Write Status Register
+              SendCnt <= 10'd255;      // 1-byte cmd + 1-byte SR
+              RecvCnt <= 10'd0;
+              RecvQuadCnt <= 4'd0;
+              WriteQuadCnt <= 5'd0;
+              prom_data <= reg_wdata;
+              state <= ST_CHIP_SELECT;
+           end
+           `CMD_READ_25AA128: begin    // Read Data (64 bytes)
+              SendCnt <= 10'd383;      // 1-byte cmd + 2-byte addr
+              RecvCnt <= 10'd127;      // 1-bype data
+              RecvQuadCnt <= 4'd0;
+              WriteQuadCnt <= 5'd0;
+              prom_data <= reg_wdata;
+              state <= ST_CHIP_SELECT;
+           end
+           `CMD_WRIT_25AA128: begin   // Write 1 byte data
+              SendCnt <= 10'd511;     // 1 cmd 2 addr 1 data
+              RecvCnt <= 10'd0;
+              RecvQuadCnt <= 4'd0;
+              WriteQuadCnt <= 5'd0;
+              prom_data <= reg_wdata;
+              state <= ST_CHIP_SELECT;
+           end
+
+           // block quadlet read/write
+           `CMD_RBLK_25AA128: begin
+              SendCnt <= 10'd383;        // 1-byte cmd + 2-byte addr
+              RecvCnt <= 10'd511;        // 1-quad = 4-byte data
+              RecvQuadCnt <= reg_wdata[3:0];  // num of quad to receive -1
+              WriteQuadCnt <= 5'd0;
+              prom_data <= {`CMD_READ_25AA128, reg_wdata[23:8], 8'd0};
+              state <= ST_CHIP_SELECT;
+           end
+           `CMD_WBLK_25AA128: begin
+              SendCnt <= 10'd383;       // 1 cmd 2 addr
+              RecvCnt <= 10'd0;
+              RecvQuadCnt <= 0;
+              WriteQuadCnt <= reg_wdata[3:0] + 5'd1;  // num of quad to write
+              prom_data <= {`CMD_WRIT_25AA128, reg_wdata[23:8], 8'd0};
+              state <= ST_CHIP_SELECT;
+           end
+
+        endcase // case (prom_cmd[31:24])
+      end // if (prom_reg_wen)
+    end // case: ST_IDLE
+
+    ST_CHIP_SELECT: begin
+       io_disabled <= 1'b0;
+       prom_cs     <= 1'b0;
+       prom_result <= 32'd0;
+       state <= ST_WRITE;
+    end
+
+    ST_WRITE: begin
+        if (seqn[3:0] == 4'b1111) begin  // update data on falling sclk
+            prom_data <= prom_data<<1;
         end
-
-        // command processing
-        case (state)
-
-        ST_IDLE: begin
-           
-          if (prom_reg_wen) begin  
-            seqn <= 7'd0;
-            blk_wrt <= 1'b0;
-            wr_index <= 5'd0;
-            rd_index <= 5'd0;
-            case (reg_wdata[31:24])
-               `CMD_IDLE_25AA128: begin    // Do nothing
-               end
-               `CMD_WREN_25AA128: begin    // Write Enable
-                  SendCnt <= 10'd127;      // 2*8*8-1
-                  RecvCnt <= 10'd0;
-                  RecvQuadCnt <= 4'd0;
-                  WriteQuadCnt <= 5'd0;
-                  prom_data <= reg_wdata;
-                  state <= ST_CHIP_SELECT;
-               end
-               `CMD_WRDI_25AA128: begin    // Write Disable
-                  SendCnt <= 10'd127;
-                  RecvCnt <= 10'd0;
-                  RecvQuadCnt <= 4'd0;
-                  WriteQuadCnt <= 5'd0;
-                  prom_data <= reg_wdata;
-                  state <= ST_CHIP_SELECT;
-               end
-               `CMD_RDSR_25AA128: begin    // Read Status Register
-                  SendCnt <= 10'd127;      // 1-byte cmd
-                  RecvCnt <= 10'd127;      // 1-byte SR
-                  RecvQuadCnt <= 4'd0;
-                  WriteQuadCnt <= 5'd0;
-                  prom_data <= reg_wdata;
-                  state <= ST_CHIP_SELECT;
-               end
-               `CMD_WRSR_25AA128: begin    // Write Status Register
-                  SendCnt <= 10'd255;      // 1-byte cmd + 1-byte SR
-                  RecvCnt <= 10'd0;   
-                  RecvQuadCnt <= 4'd0;
-                  WriteQuadCnt <= 5'd0;
-                  prom_data <= reg_wdata;
-                  state <= ST_CHIP_SELECT;
-               end
-               `CMD_READ_25AA128: begin    // Read Data (64 bytes)
-                  SendCnt <= 10'd383;      // 1-byte cmd + 2-byte addr
-                  RecvCnt <= 10'd127;      // 1-bype data 
-                  RecvQuadCnt <= 4'd0; 
-                  WriteQuadCnt <= 5'd0;
-                  prom_data <= reg_wdata;    
-                  state <= ST_CHIP_SELECT;
-               end
-               `CMD_WRIT_25AA128: begin   // Write 1 byte data 
-                  SendCnt <= 10'd511;     // 1 cmd 2 addr 1 data
-                  RecvCnt <= 10'd0;
-                  RecvQuadCnt <= 4'd0; 
-                  WriteQuadCnt <= 5'd0;
-                  prom_data <= reg_wdata;    
-                  state <= ST_CHIP_SELECT;  
-               end
-
-               // block quadlet read/write
-               `CMD_RBLK_25AA128: begin
-                  SendCnt <= 10'd383;        // 1-byte cmd + 2-byte addr
-                  RecvCnt <= 10'd511;        // 1-quad = 4-byte data
-                  RecvQuadCnt <= reg_wdata[3:0];  // num of quad to receive -1 
-                  WriteQuadCnt <= 5'd0;
-                  prom_data <= {`CMD_READ_25AA128, reg_wdata[23:8], 8'd0}; 
-                  state <= ST_CHIP_SELECT;
-               end
-               `CMD_WBLK_25AA128: begin
-                  SendCnt <= 10'd383;       // 1 cmd 2 addr 
-                  RecvCnt <= 10'd0;         
-                  RecvQuadCnt <= 0; 
-                  WriteQuadCnt <= reg_wdata[3:0] + 5'd1;  // num of quad to write
-                  prom_data <= {`CMD_WRIT_25AA128, reg_wdata[23:8], 8'd0}; 
-                  state <= ST_CHIP_SELECT; 
-               end
-
-            endcase // case (prom_cmd[31:24])
-          end // if (prom_reg_wen)
-        end // case: ST_IDLE
-
-        ST_CHIP_SELECT: begin
-           io_disabled <= 1'b0;
-           prom_cs     <= 1'b0;
-           prom_result <= 32'd0;
-           state <= ST_WRITE;
-        end
-           
-        ST_WRITE: begin
-            if (seqn[3:0] == 4'b1111) begin  // update data on falling sclk
-                prom_data <= prom_data<<1;
-            end
-            if (seqn == SendCnt) begin
-                if (WriteQuadCnt != 5'd0) begin
-                    seqn <= 10'd0;     
-                    SendCnt <= 10'd511;  // 4 byte data
-                    prom_data <= data_block[rd_index[3:0]];
-                    rd_index <= rd_index + 1'd1;
-                    WriteQuadCnt <= WriteQuadCnt - 1'b1;
-                end
-                else begin
-                    state <= (RecvCnt == 10'd0) ? ST_CHIP_DESELECT : ST_READ;
-                    seqn <= 10'd0;
-                end 
-            end
-            else seqn <= seqn + 1'b1;        // counter, also creates sclk
-        end // case: ST_WRITE
-
-        ST_READ: begin
-            if (seqn[3:0] == 4'b0111) begin  // latch data on rising sclk
-                prom_result <= { prom_result[30:0], prom_miso };
-            end
-            if (seqn == RecvCnt) begin
+        if (seqn == SendCnt) begin
+            if (WriteQuadCnt != 5'd0) begin
                 seqn <= 10'd0;
-                data_block[wr_index[3:0]] <= prom_result;
-                wr_index <= wr_index + 1'b1;
-                // deselect when finished
-                if (wr_index == RecvQuadCnt) begin
-                    state <= ST_CHIP_DESELECT;
-                end
+                SendCnt <= 10'd511;  // 4 byte data
+                prom_data <= data_block[rd_index[3:0]];
+                rd_index <= rd_index + 1'd1;
+                WriteQuadCnt <= WriteQuadCnt - 1'b1;
             end
-            else
-                seqn <= seqn + 1'b1;
+            else begin
+                state <= (RecvCnt == 10'd0) ? ST_CHIP_DESELECT : ST_READ;
+                seqn <= 10'd0;
+            end
         end
-          
-        ST_CHIP_DESELECT: begin
-           prom_cs <= 1'b1;
-           state <= ST_IO_DISABLE;
-        end
+        else seqn <= seqn + 1'b1;        // counter, also creates sclk
+    end // case: ST_WRITE
 
-        ST_IO_DISABLE: begin
-           io_disabled <= 1'b1;
-           prom_cs <= 1'bz;
-           state <= ST_IDLE;
+    ST_READ: begin
+        if (seqn[3:0] == 4'b0111) begin  // latch data on rising sclk
+            prom_result <= { prom_result[30:0], prom_miso };
         end
+        if (seqn == RecvCnt) begin
+            seqn <= 10'd0;
+            data_block[wr_index[3:0]] <= prom_result;
+            wr_index <= wr_index + 1'b1;
+            // deselect when finished
+            if (wr_index == RecvQuadCnt) begin
+                state <= ST_CHIP_DESELECT;
+            end
+        end
+        else
+            seqn <= seqn + 1'b1;
+    end
 
-        endcase // case (state)
-    end // else: !if(reset == 0)
+    ST_CHIP_DESELECT: begin
+       prom_cs <= 1'b1;
+       state <= ST_IO_DISABLE;
+    end
+
+    ST_IO_DISABLE: begin
+       io_disabled <= 1'b1;
+       prom_cs <= 1'bz;
+       state <= ST_IDLE;
+    end
+
+    endcase // case (state)
 end
 
 

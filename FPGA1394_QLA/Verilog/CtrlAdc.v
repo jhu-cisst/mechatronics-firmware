@@ -1,6 +1,6 @@
 /*******************************************************************************
  *
- * Copyright(C) 2011 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2011-2020 ERC CISST, Johns Hopkins University.
  *
  * This module controls access to the adc modules by selecting the data to
  * output based on the read address, and by combining the 16-bit values for
@@ -15,7 +15,6 @@
 
 module CtrlAdc(
     input  wire clkadc,            // adc clock
-    input  wire reset,             // system reset
     output wire[1:2] sclk,         // sclk signal to each set of adcs
     output wire[1:2] conv,         // conv signal to each set of adcs
     input  wire[1:8] miso,         // data lines from each individual adc
@@ -51,7 +50,6 @@ assign reg_rdata = {potval[reg_raddr[7:4]], curval[reg_raddr[7:4]]};
 // pot feedback module
 Ltc1864x4 adc_pot(
     .clk(clkadc),
-    .reset(reset),
     .Out1(potval[1]),
     .Out2(potval[2]),
     .Out3(potval[3]),
@@ -64,7 +62,6 @@ Ltc1864x4 adc_pot(
 // cur feedback module
 Ltc1864x4 adc_cur(
     .clk(clkadc),
-    .reset(reset),
     .Out1(curval[1]),
     .Out2(curval[2]),
     .Out3(curval[3]),

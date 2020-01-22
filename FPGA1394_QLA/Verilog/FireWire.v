@@ -164,7 +164,6 @@
 module PhyLinkInterface(
     // globals
     input wire sysclk,           // system clock
-    input wire reset,            // global reset
     input wire eth1394,          // global eth1394
     input wire[3:0] board_id,    // global board id
     output wire[5:0] node_id,    // phy node id
@@ -218,6 +217,12 @@ module PhyLinkInterface(
     reg[7:0] data;                // data bus register
     reg[1:0] ctl;                 // control register
 
+    initial begin
+        // bidir phy-link lines normally driven by phy (we're the link)
+        ctl = 2'bz;              // phy-link control lines
+        data = 8'bz;             // phy-link data lines
+    end
+
     // -------------------------------------------------------------------------
     // local wires and registers
     //
@@ -227,9 +232,11 @@ module PhyLinkInterface(
     reg rx_active;                // rx active flag
 
     reg[3:0] state, next;         // state register
+    initial state = ST_IDLE;      // initialize state machine to idle state
     reg[2:0] rx_speed;            // received speed code
     reg[3:0] tx_type;             // encodes transmit type
     reg[9:0] bus_id;              // phy bus id (10 bits)
+    initial bus_id = 10'h3ff;     // set default bus_id to 10'h3ff
     reg[5:0] fw_node_id;          // phy node id firewire (6 bits)
     wire[15:0] local_id;          // full addr = bus_id + node_id
 
@@ -369,9 +376,9 @@ pkt_mem_gen pkt_mem(.clka(sysclk),
 // Timestamp 
 // -------------------------------------------------------
 // timestamp counts number of clocks between block reads
-always @(posedge(sysclk) or posedge(ts_reset) or negedge(reset))
+always @(posedge(sysclk) or posedge(ts_reset))
 begin
-    if (reset==0 || ts_reset)
+    if (ts_reset)
         timestamp <= 0;
     else
         timestamp <= timestamp + 1'b1;
@@ -407,9 +414,9 @@ end
 // assign write_trig_count = eth1394 ? {count[5:0], 8'd0} : {node_id[5:0], 8'd0};
 assign write_trig_count = eth1394 ? {count[5:0], 8'd0} : {write_trig_seq, 8'd0};
 
-always @(posedge(sysclk) or negedge(reset))
+always @(posedge(sysclk))
 begin
-    if (reset == 0 || rx_bc_bread) begin
+    if (rx_bc_bread) begin
         write_counter <= 32'd0;
         write_trig <= 1'b0;
     end
@@ -431,41 +438,8 @@ end
 //
 // state machine clocked by sysclk; transitions depend on ctl and data
 //
-always @(posedge(sysclk) or negedge(reset))
+always @(posedge(sysclk))
 begin
-
-    // reset sends everything to default states and values
-    if (reset == 0)
-    begin
-        // bidir phy-link lines normally driven by phy (we're the link)
-        ctl <= 2'bz;              // phy-link control lines
-        data <= 8'bz;             // phy-link data lines
-
-        // initialize internal buffers, registers, and counters
-        state <= ST_IDLE;         // initialize state machine to idle state
-        st_buff <= 0;             // status value receive buffer
-        stcount <= 0;             // received status bits counter
-        rx_speed <= 0;            // clear the received speed code
-        rx_active <= 0;           // clear the receive flag 
-        blk_wstart <= 0;          // clear the block write started flag
-        reg_wen <= 0;             // keep register writes inactive by default
-        blk_wen <= 0;             // keep block writes inactive by default
-        lreq_trig <= 0;           // clear the phy request trigger
-        lreq_type <= 0;           // set phy request type to known value
-        fw_node_id <= 0;          // hope phy updates this during self-id
-        bus_id <= 10'h3ff;        // set default bus_id to 10'h3ff
-        reg_raddr <= 0;           // set reg address to known value
-        reg_waddr <= 0;           // set reg address to known value
-        reg_wdata <= 0;           // set reg write data to known value
-        crc_ini <= 0;             // initialize crc start flag
-        crc_tx <= 0;              // flag for crc; 0=non-transmit state
-        ts_reset <= 0;            // clear the timestamp reset signal
-        data_block <= 0;          // indicates data portion of block writes
-        eth_send_req <= 0;        // clear send eth pkt request
-        eth_send_fw_ack <= 0;     // clear send firewire pkt ack
-    end
-
-    else begin
 
         // Remove cmdAck when cmdReq is negated
         if (eth_send_fw_ack && !eth_send_fw_req) begin
@@ -1324,7 +1298,6 @@ begin
         end
 
         endcase
-    end
 end
 
 
@@ -1365,7 +1338,6 @@ endmodule  // PhyLinkInterface
 
 module PhyRequest(
     input  wire     sysclk,     // global system clock
-    input  wire     reset,      // global reset signal
     output wire     lreq,       // lreq line to the phy
     
     input wire      trigger,    // initiates a link request
@@ -1384,14 +1356,10 @@ reg[16:0] request;       // formatted request bit sequence
 assign lreq = request[16];           // shift out msb of request string
 
 // requests initiated by active low trigger and shifted out on sysclk
-always @(posedge(sysclk) or negedge(reset))
+always @(posedge(sysclk))
 begin
-    // reset signal actions
-    if (reset == 0)
-        request <= 0;
-
     // on trigger, construct request string
-    else if (trigger == 1) begin
+    if (trigger == 1) begin
         request[16:12] <= { 2'b01, rtype };
         case (rtype)
             `LREQ_REG_RD: request[11:8] <= data[3:0];

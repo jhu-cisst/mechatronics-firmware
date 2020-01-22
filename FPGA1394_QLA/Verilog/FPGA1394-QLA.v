@@ -3,7 +3,7 @@
 
 /*******************************************************************************    
  *
- * Copyright(C) 2011-2019 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2011-2020 ERC CISST, Johns Hopkins University.
  *
  * This is the top level module for the FPGA1394-QLA motor controller interface.
  *
@@ -12,6 +12,7 @@
  *     10/27/11    Paul Thienphrapa    Initial revision (pault at cs.jhu.edu)
  *     02/29/12    Zihan Chen
  *     08/29/18    Peter Kazanzides    Added DS2505 module
+ *     01/22/20    Peter Kazanzides    Removed global reset
  */
 
 `timescale 1ns / 1ps
@@ -95,7 +96,6 @@ assign reg_rdata = (reg_raddr[15:12]==`ADDR_HUB) ? (reg_rdata_hub) :
 // 1394 phy low reset, never reset
 assign reset_phy = 1'b1; 
 
-
 // --------------------------------------------------------------------------
 // hub register module
 // --------------------------------------------------------------------------
@@ -124,7 +124,6 @@ icon_prom icon(
 // phy-link interface
 PhyLinkInterface phy(
     .sysclk(sysclk),         // in: global clk  
-    .reset(reset),           // in: global reset
     .eth1394(eth1394),       // in: eth1394 mode
     .board_id(~wenid),       // in: board id (rotary switch)
     
@@ -153,7 +152,6 @@ PhyLinkInterface phy(
 // phy request module
 PhyRequest phyreq(
     .sysclk(sysclk),          // in: global clock
-    .reset(reset),            // in: reset
     .lreq(lreq),              // out: phy request line
     .trigger(lreq_trig),      // in: phy request trigger
     .rtype(lreq_type),        // in: phy request type
@@ -184,7 +182,6 @@ wire[15:0] cur_fb[1:4];
 // adc controller routes conversion results according to address
 CtrlAdc adc(
     .clkadc(clkadc),
-    .reset(reset),
     .sclk({IO1[10],IO1[28]}),
     .conv({IO1[11],IO1[27]}),
     .miso({IO1[12:15],IO1[26],IO1[25],IO1[24],IO1[23]}),
@@ -210,7 +207,6 @@ wire[15:0] cur_cmd[1:4];
 // the dac controller manages access to the dacs
 CtrlDac dac(
     .sysclk(sysclk),
-    .reset(reset),
     .sclk(IO1[21]),
     .mosi(IO1[20]),
     .csel(IO1[22]),
@@ -248,7 +244,6 @@ assign reg_rd[`OFF_FREQ_DATA] = reg_renc;   // frequency
 // encoder controller: the thing that manages encoder reads and preloads
 CtrlEnc enc(
     .sysclk(sysclk),
-    .reset(reset),
     .enc_a({IO2[23],IO2[21],IO2[19],IO2[17]}),
     .enc_b({IO2[15],IO2[13],IO2[12],IO2[10]}),
     .reg_raddr(reg_raddr),
@@ -298,7 +293,6 @@ assign IO1[5] = (dout_config_valid && dout_config_bidir) ? (ds_enable ? dir34_ds
 
 CtrlDout cdout(
     .sysclk(sysclk),
-    .reset(reset),
     .reg_raddr(reg_raddr),
     .reg_waddr(reg_waddr),
     .reg_rdata(reg_rdout),
@@ -329,14 +323,12 @@ wire[15:0] tempsense;
 // tempsense module instantiations
 Max6576 T1(
     .clk400k(clk400k), 
-    .reset(reset), 
     .In(IO1[29]), 
     .Out(tempsense[15:8])
 );
 
 Max6576 T2(
     .clk400k(clk400k), 
-    .reset(reset), 
     .In(IO1[30]), 
     .Out(tempsense[7:0])
 );
@@ -352,7 +344,6 @@ wire[31:0] PROM_Result;
    
 M25P16 prom(
     .clk(sysclk),
-    .reset(reset),
     .prom_cmd(reg_wdata),
     .prom_status(PROM_Status),
     .prom_result(PROM_Result),
@@ -381,7 +372,6 @@ M25P16 prom(
 
 QLA25AA128 prom_qla(
     .clk(sysclk),
-    .reset(reset),
     
     // address & wen
     .reg_raddr(reg_raddr),
@@ -408,7 +398,6 @@ wire[31:0] ds_status;
 
 DS2505 ds_instrument(
     .clk(sysclk),
-    .reset(reset),
 
     // address & wen
     .reg_raddr(reg_raddr),
@@ -444,8 +433,6 @@ assign  Eth_Result = 32'b0;
 
 BoardRegs chan0(
     .sysclk(sysclk),
-    .clkaux(clk40m),
-    .reset(reset),
     .amp_disable({IO2[38],IO2[36],IO2[34],IO2[32]}),
     .dout(dout),
     .dout_cfg_valid(dout_config_valid),
@@ -487,7 +474,6 @@ BoardRegs chan0(
 //    2. check if cur_fb > 2 * cur_cmd
 SafetyCheck safe1(
     .clk(sysclk),
-    .reset(reset),
     .cur_in(cur_fb[1]),
     .dac_in(cur_cmd[1]),
     .clear_disable(pwr_enable_cmd | amp_enable_cmd[1]),
@@ -496,7 +482,6 @@ SafetyCheck safe1(
 
 SafetyCheck safe2(
     .clk(sysclk),
-    .reset(reset),
     .cur_in(cur_fb[2]),
     .dac_in(cur_cmd[2]),
     .clear_disable(pwr_enable_cmd | amp_enable_cmd[2]),
@@ -505,7 +490,6 @@ SafetyCheck safe2(
 
 SafetyCheck safe3(
     .clk(sysclk),
-    .reset(reset),
     .cur_in(cur_fb[3]),
     .dac_in(cur_cmd[3]),
     .clear_disable(pwr_enable_cmd | amp_enable_cmd[3]),
@@ -514,7 +498,6 @@ SafetyCheck safe3(
 
 SafetyCheck safe4(
     .clk(sysclk),
-    .reset(reset),
     .cur_in(cur_fb[4]),
     .dac_in(cur_cmd[4]),
     .clear_disable(pwr_enable_cmd | amp_enable_cmd[4]),
@@ -603,7 +586,6 @@ _PLL1 (     .CLKFBOUT          (clkfb),     // The FB-Out is connected to FB-In 
 CtrlUart uart_debug(
     .clk_14_pll(clk_14_pll),  // not used
     .clk_29_pll(clk_29_pll),
-    .reset(reset),
     .RxD(RxD),
     .TxD(TxD)
 );
@@ -643,7 +625,6 @@ assign DEBUG = { clk_1mhz, clk_12hz, CountI[23], CountC[23] };
 CtrlLED qla_led(
     .sysclk(sysclk),
     .clk_12hz(clk_12hz),
-    .reset(reset),
     .led1_grn(IO2[1]),
     .led1_red(IO2[3]),
     .led2_grn(IO2[5]),

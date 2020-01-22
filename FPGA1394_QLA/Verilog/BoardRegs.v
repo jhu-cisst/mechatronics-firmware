@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2008-2019 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2008-2020 ERC CISST, Johns Hopkins University.
  *
  * This module contains a register file dedicated to general board parameters.
  * Separate register files are maintained for each I/O channel (SpiCtrl).
@@ -15,6 +15,7 @@
  *     05/08/13    Zihan Chen          Fix watchdog 
  *     05/19/13    Zihan Chen          Add mv_good 40 ms sleep
  *     09/23/15    Peter Kazanzides    Moved DOUT code to CtrlDout.v
+ *     01/22/20    Peter Kazanzides    Removing reset (including software-generated reset)
  */
 
 
@@ -25,10 +26,8 @@
 `define WIDTH_WATCHDOG 8           // period = 5.208333 us (2^8 / 49.152 MHz) 
 
 module BoardRegs(
-    // global clock & reset
+    // global clock
     input  wire sysclk, 
-    input  wire clkaux,
-    output reg  reset,
     
     // board input (PC writes)
     output wire[4:1] amp_disable,   // hardware connection to op amps
@@ -91,6 +90,7 @@ module BoardRegs(
 
     // registered data
     reg[3:0] reg_disable;       // register the disable signals
+    initial reg_disable = 4'hf; // start up all disabled
     reg[15:0] phy_ctrl;         // for phy request bitstream
     reg[15:0] phy_data;         // for phy register transfer data
 
@@ -98,19 +98,12 @@ module BoardRegs(
     wire wdog_clk;              // watchdog clock
     reg  wdog_timeout;          // watchdog timeout status flag
     reg[15:0] wdog_period;      // watchdog period, user writable
+    initial wdog_period = 16'hffff;  // disables watchdog by default
     reg[15:0] wdog_count;       // watchdog timer counter
     
     // mv good timer                                                                                                                                       
     reg[15:0] mv_good_counter;  // mv_good counter 
     reg[4:1] mv_amp_disable;    // mv good amp_disable
-
-    // reset signal generation
-    reg[6:0] reset_shift;       // counts number of clocks after reset
-    reg reset_soft_trigger;     // trigger global reset when set
-    initial begin
-        reset_shift = 0;
-        reset = 1;
-    end
 
 //------------------------------------------------------------------------------
 // hardware description
@@ -140,23 +133,10 @@ wire powerup_cmd;
 assign powerup_cmd = pwr_enable_cmd | amp_enable_cmd[4] | amp_enable_cmd[3] | amp_enable_cmd[2] | amp_enable_cmd[1];
 
 // clocked process simulating a register file
-always @(posedge(sysclk) or negedge(reset))
+always @(posedge(sysclk))
   begin
-     // what to do on reset/startup
-     if (reset == 0) begin
-        reg_rdata <= 0;          // clear read output register
-        reg_disable <= 4'hf;     // start up all disabled
-        pwr_enable <= 0;         // start up with power off
-        phy_ctrl <= 0;           // clear phy command register
-        phy_data <= 0;           // clear phy data output register
-        wdog_period <= 16'hffff; // disables watchdog by default
-        relay_on <= 0;           // start with safety relay off
-        reset_soft_trigger <= 1'b0;  // clear reset_soft_trigger
-        eth1394 <= 1'b0;    // clear eth1394 mode (i.e. normal FireWire mode)
-     end
-
     // set register values for writes
-    else if (write_main) begin
+    if (write_main) begin
         case (reg_waddr[3:0])
         `REG_STATUS: begin
             // mask reg_wdata[15:8] with [7:0] for disable (~enable) control
@@ -170,8 +150,9 @@ always @(posedge(sysclk) or negedge(reset))
             // mask reg_wdata[19] with [18] for pwr_enable
             pwr_enable <= reg_wdata[19] ? reg_wdata[18] : pwr_enable;
             // mask reg_wdata[21] with [20] for soft_reset
-            reset_soft_trigger <= reg_wdata[21] ? reg_wdata[20] : 1'b0; 
-            // mask reg_wdata[23] with [22] for eth1394 mode 
+            // NOTE: Removing software reset in Rev 7
+            // reset_soft_trigger <= reg_wdata[21] ? reg_wdata[20] : 1'b0;
+            // mask reg_wdata[23] with [22] for eth1394 mode
             eth1394 <= reg_wdata[23] ? reg_wdata[22] : eth1394;
         end
         `REG_PHYCTRL: phy_ctrl <= reg_wdata[15:0];
@@ -225,22 +206,22 @@ always @(posedge(sysclk) or negedge(reset))
 end
 
 // --------------------------------------------------------------------------
-// Reset module
+// Watchdog
 // --------------------------------------------------------------------------
 // derive watchdog clock
 ClkDiv divWdog(sysclk, wdog_clk);
 defparam divWdog.width = `WIDTH_WATCHDOG;
 
-// watchdog timer and flag, resets via any register write
-always @(posedge(wdog_clk) or negedge(reset) or posedge(reg_wen) or posedge(powerup_cmd))
+// watchdog timer and flag, cleared via any register write
+always @(posedge(wdog_clk) or posedge(reg_wen) or posedge(powerup_cmd))
 begin
-    if (reset==0 || powerup_cmd) begin
-        wdog_count <= 0;                        // reset the timer counter
+    if (powerup_cmd) begin
+        wdog_count <= 0;                        // clear the timer counter
         wdog_timeout <= 0;                      // clear wdog_timeout
     end
     else if (reg_wen) begin
-        // reset counter on any reg write
-        wdog_count <= 0;                        // reset the timer counter
+        // clear counter on any reg write
+        wdog_count <= 0;                        // clear the timer counter
     end
     else if (wdog_period) begin
         // watchdog only works when period is set
@@ -255,13 +236,9 @@ end
 
 // to save resources use wdog_clk, period = 5.208333 us
 // 40 ms = 7680 cnts
-always @(posedge(wdog_clk) or negedge(reset))
+always @(posedge(wdog_clk))
 begin
-    if (reset == 0) begin
-        mv_amp_disable <= 4'b0000;
-        mv_good_counter <= 16'd0;
-    end
-    else if ((mv_good == 1'b1) && (mv_good_counter < 16'd7680)) begin
+    if ((mv_good == 1'b1) && (mv_good_counter < 16'd7680)) begin
         mv_good_counter <= mv_good_counter + 1'b1;
         mv_amp_disable <= 4'b1111;
     end 
@@ -272,33 +249,6 @@ begin
         mv_amp_disable <= 4'b1111;
         mv_good_counter <= 16'd0;
     end
-end
-
-   
-// --------------------------------------------------------------------------
-// Reset module
-//   - generate global reset signal, 
-//     assumes reset_shift = 0 at power up per spec
-// --------------------------------------------------------------------------
-always @(posedge(clkaux))
-begin
-    // power up with /reset inactive
-    if (reset_shift < 24) begin
-        reset_shift <= reset_shift + 1'b1;
-        reset <= 1;
-    end
-    // falling edge activates system reset
-    else if (reset_shift < 49) begin
-        reset_shift <= reset_shift + 1'b1;
-        reset <= 0;
-    end
-    // deactivate /reset to let system run
-    else if (reset_soft_trigger) begin
-        reset_shift <= 0;
-        reset <= 1;
-    end 
-    else
-        reset <= 1;
 end
 
 endmodule

@@ -1,6 +1,6 @@
 /*******************************************************************************
  *
- * Copyright(C) 2011 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2011-2020 ERC CISST, Johns Hopkins University.
  *
  * This module controls SPI writes to a set of daisy chained dacs. It collects
  * 32-bit dac command words one-by-one from the firewire interface to create a
@@ -27,7 +27,6 @@
 module CtrlDac(
     // globals
     input wire sysclk,             // global input clock
-    input wire reset,              // global reset signal
     // spi
     output wire sclk,              // serial clock
     output wire mosi,              // serial data out
@@ -78,7 +77,6 @@ module CtrlDac(
 // dac module instantiation; note: dac is write-only
 LTC2601x4 dac(
     .clkin(sysclk),
-    .reset(reset),
     .trig(trig),
     .word(dac_word),
     .addr(addr_dac),
@@ -116,12 +114,9 @@ end
 
 // delay trigger (blk_wen) by a clock to allow quadlet data to be stored into
 //   mem_data, as blk_wen and reg_wen become active at the same time
-always @(posedge(sysclk) or negedge(reset))
+always @(posedge(sysclk))
 begin
-    if (reset == 0)
-        trig <= 1'b0;
-    else
-        trig <= (blk_wen & (reg_waddr[15:12]==`ADDR_MAIN) & (reg_waddr[3:0]==`OFF_DAC_CTRL));
+    trig <= (blk_wen & (reg_waddr[15:12]==`ADDR_MAIN) & (reg_waddr[3:0]==`OFF_DAC_CTRL));
 end
 
 

@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2013 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2013-2020 ERC CISST, Johns Hopkins University.
  *
  * Module: UART interface for QLA board
  *
@@ -44,7 +44,6 @@
 module CtrlUart (
     input  wire clk_14_pll,
     input  wire clk_29_pll,
-    input  wire reset,
     input  wire RxD,
     output wire TxD    
 );
@@ -81,7 +80,6 @@ BUFG clkbaudclk(.I(Baud[3]), .O(BaudClk));
 // tx module
 UartTx uart_tx(
   .clkuart(BaudClk),
-  .reset(reset),
   .tx_data(tx_data),
   .tx_trig(tx_trig),
   .TxD(TxD),
@@ -92,7 +90,6 @@ UartTx uart_tx(
 // rx module 
 UartRx uart_rx(
   .clkuart(BaudClk),
-  .reset(reset),
   .RxD(RxD),
   .rx_data(rx_data),
   .rx_int(rx_int),
@@ -102,11 +99,8 @@ UartRx uart_rx(
 
 // ----------- Control Logic ------------
 // echo interface
-always @(posedge(BaudClk) or negedge(reset)) begin
-   if (reset == 0) begin
-        tx_trig <= 1'b0;  
-   end
-   else if (rx_int) begin
+always @(posedge(BaudClk)) begin
+   if (rx_int) begin
        tx_trig <= 1'b1;
        tx_data <= rx_data;
    end
@@ -141,7 +135,6 @@ endmodule
 // ---------------------------------------------  
 module UartTx (
     input  wire clkuart,          // uart clock 1.8432 MHz (ideal clk)
-    input  wire reset,            // reset
     input  wire[7:0] tx_data,     // tx data
     input  wire tx_trig,          // trigger to start
 
@@ -151,18 +144,17 @@ module UartTx (
     input wire[35:0] control
 );
 
+initial TxD = 1'b1;
+
 reg[7:0] tx_counter;    // tx time counter
+initial tx_counter = 8'h97; // stop counter
 reg[7:0] tx_reg;     // reg to latch tx_data 
 
 // tx_counter 
 //    counts from 0x00 -> 0x97, then stop
 //    when tx_trig, clear and start counting
- always @(posedge(clkuart) or negedge(reset)) begin
-     if (reset == 0) begin
-         tx_counter <= 8'h97;    // stop counter
-         tx_busy <= 1'b0;  
-     end
-     else if (tx_trig) begin
+ always @(posedge(clkuart)) begin
+     if (tx_trig) begin
          tx_counter <= 8'h00;   // start counting
          tx_reg <= tx_data;     // latch data
          tx_busy <= 1'b1;       // set tx_busy
@@ -177,11 +169,8 @@ reg[7:0] tx_reg;     // reg to latch tx_data
 
 
 // transmit data out
-always @(posedge(clkuart) or negedge(reset)) begin
-    if (reset == 0) begin
-        TxD <= 1'b1;
-    end
-    else if (tx_counter[3:0] == 4'h2) begin
+always @(posedge(clkuart)) begin
+    if (tx_counter[3:0] == 4'h2) begin
         if      (tx_counter[7:4]==4'h0) TxD <= 1'b0;       // start bit
         else if (tx_counter[7:4]==4'h1) TxD <= tx_reg[0];  // data 
         else if (tx_counter[7:4]==4'h2) TxD <= tx_reg[1];  
@@ -211,7 +200,6 @@ endmodule
 // -----------------------------------------------------------------------------  
 module UartRx (
     input  wire clkuart,           // uart clock 1.8432 MHz (ideal clk)
-    input  wire reset,             // reset
     input  wire RxD,               // UART Rx Data Pin 
     output reg[7:0] rx_data,       // rx data, hold till next data byte
     output reg rx_int,             // rx interrupt, rx received
@@ -223,16 +211,9 @@ module UartRx (
 reg rxd0, rxd1, rxd2, rxd3;      // RxD cache for filtering
 wire rxd_negedge;  
 
-// if reset sets rxdx to 1, it may false trigger
-always @(posedge(clkuart) or negedge(reset)) begin
-    if (reset == 0) begin
-        rxd0 <= 1'b0; rxd1 <= 1'b0; 
-        rxd2 <= 1'b0; rxd3 <= 1'b0;   
-    end
-    else begin
-        rxd0 <= RxD; rxd1 <= rxd0;
-        rxd2 <= rxd1; rxd3 <= rxd2;
-    end
+always @(posedge(clkuart)) begin
+    rxd0 <= RxD; rxd1 <= rxd0;
+    rxd2 <= rxd1; rxd3 <= rxd2;
 end
 
 // set rxd_negedge HIGH for 1 clk cycle, if neg edge
@@ -240,15 +221,11 @@ assign rxd_negedge = (rxd3 & rxd2 & ~rxd1 & ~rxd0);
 
 // ----- Receive counter -------------
 reg[7:0] rx_counter;    // rx time counter
+initial  rx_counter = 8'h97; // stop rx_counter
 reg rx_recv;            // uart_rx receiving 
 
-always @(posedge(clkuart) or negedge(reset)) begin
-    if (reset == 0) begin
-        rx_counter <= 8'h97;    // stop rx_counter
-        rx_int <= 1'b0;
-        rx_recv <= 1'b0;
-    end
-    else if (rxd_negedge && ~rx_recv) begin
+always @(posedge(clkuart)) begin
+    if (rxd_negedge && ~rx_recv) begin
         rx_counter <= 8'h00;    // start rx counter
         rx_recv <= 1'b1;
         rx_int <= 1'b0;
@@ -269,11 +246,8 @@ end
 // ----- Latch data --------------------
 reg[7:0] rx_reg;        // reg to hold temp rx value
 
-always @(posedge(clkuart) or negedge(reset)) begin
-    if (reset == 0) begin
-        rx_reg <= 8'h00;        // clear tmp rx_reg
-    end
-    else if (rx_counter[3:0] == 4'h2) begin                // start bit nothing
+always @(posedge(clkuart)) begin
+    if (rx_counter[3:0] == 4'h2) begin                // start bit nothing
         if      (rx_counter[7:4]==4'h1) rx_reg[0] <= RxD;  // data bit 0
         else if (rx_counter[7:4]==4'h2) rx_reg[1] <= RxD;  
         else if (rx_counter[7:4]==4'h3) rx_reg[2] <= RxD;  

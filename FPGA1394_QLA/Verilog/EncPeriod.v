@@ -1,6 +1,6 @@
 /*******************************************************************************
  *
- * Copyright(C) 2008-2018 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2008-2020 ERC CISST, Johns Hopkins University.
  *
  * This module measures the encoder pulse period by counting the edges of a
  * fixed fast clock between encoder pulses.  Each new encoder pulse
@@ -27,7 +27,6 @@
 // ------------------------------------------------
 module EncPeriodQuad(
     input wire clk,           // sysclk
-    input wire reset,         // global reset signal
     input wire a,             // quad encoder line a
     input wire b,             // quad encoder line b
     input wire dir,           // dir from EncQuad
@@ -107,15 +106,8 @@ assign sum = counter[1]+counter[2]+counter[3]+counter[4];
 assign latch_overflow = (counter[2] == overflow_value) || (counter[3] == overflow_value) 
                         || (counter[4] == overflow_value) || (counter[5] == overflow_value);
 
-always @(posedge clk or negedge reset) begin
-    if (reset == 0) begin
-        counter[1] <= overflow_value;
-        counter[2] <= overflow_value;
-        counter[3] <= overflow_value;
-        counter[4] <= overflow_value;
-        counter[5] <= overflow_value;
-        latched_mux <= mux;
-    end else begin
+always @(posedge clk) begin
+
         if (latched_mux != mux) begin
             // If a new edge has been detected, shift the queue and clear the running counter.
             // There is a 1-clock delay here, but since it happens for both clearing the counter
@@ -180,7 +172,6 @@ always @(posedge clk or negedge reset) begin
             // Indicate that overflow has occurred
             period[31] <= 1;
         end
-    end
 end
 
 //Should overflow more values

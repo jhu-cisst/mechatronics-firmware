@@ -1,6 +1,6 @@
 /*******************************************************************************
  *
- * Copyright(C) 2011-2012 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2011-2020 ERC CISST, Johns Hopkins University.
  *
  * Module: LTC1864x4
  *
@@ -38,7 +38,6 @@
 
 module Ltc1864x4(
     input clk,                // input clock (<20 MHz, >50 ns)
-    input reset,              // global reset signal
     output reg[15:0] Out1,    // ADC values captured from the four channels
     output reg[15:0] Out2,
     output reg[15:0] Out3,
@@ -48,39 +47,34 @@ module Ltc1864x4(
     input wire[3:0] miso      // miso inputs from the ADC
 );
 
+    initial conv = 1'b1;
+    initial sclk = 1'b1;
+
     reg[6:0] seqn;            // Master sequence counter
     reg[15:0] Dat1, Dat2;     // Running shift registers for the 4 channels
     reg[15:0] Dat3, Dat4;
     initial seqn = 0;
 
-always @(posedge(clk) or negedge(reset))
+always @(posedge(clk))
 begin
-    if (reset == 0) begin
-        seqn <= 0;
-        conv <= 1'b1;
-        sclk <= 1'b1;
+    seqn <= (seqn<7'h67) ? (seqn+1'b1) : 1'b0;
+    conv <= (seqn<7'h22) ? 1'b0 : 1'b1;
+    sclk <= ((seqn>7'h00)&&(seqn<7'h23)) ? seqn[0] : 1'b1;
+
+    // Continuously capture incoming data on every alternating input sequence
+    if (~seqn[0]) begin
+        Dat1 <= { Dat1[14:0], miso[0] };
+        Dat2 <= { Dat2[14:0], miso[1] };
+        Dat3 <= { Dat3[14:0], miso[2] };
+        Dat4 <= { Dat4[14:0], miso[3] };
     end
 
-    else begin
-        seqn <= (seqn<7'h67) ? (seqn+1'b1) : 1'b0;
-        conv <= (seqn<7'h22) ? 1'b0 : 1'b1;
-        sclk <= ((seqn>7'h00)&&(seqn<7'h23)) ? seqn[0] : 1'b1;
-
-        // Continuously capture incoming data on every alternating input sequence
-        if (~seqn[0]) begin
-            Dat1 <= { Dat1[14:0], miso[0] };
-            Dat2 <= { Dat2[14:0], miso[1] };
-            Dat3 <= { Dat3[14:0], miso[2] };
-            Dat4 <= { Dat4[14:0], miso[3] };
-        end
-
-        // Capture data from shift registers right after last bit shifted in
-        if (seqn == 7'h23) begin
-            Out1 <= Dat1;
-            Out2 <= Dat2;
-            Out3 <= Dat3;
-            Out4 <= Dat4;
-        end
+    // Capture data from shift registers right after last bit shifted in
+    if (seqn == 7'h23) begin
+        Out1 <= Dat1;
+        Out2 <= Dat2;
+        Out3 <= Dat3;
+        Out4 <= Dat4;
     end
 end
 
