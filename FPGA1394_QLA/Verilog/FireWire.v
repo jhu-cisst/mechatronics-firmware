@@ -190,6 +190,7 @@ module PhyLinkInterface(
     output reg[6:0] eth_fwpkt_raddr,  // firewire pkt read addr
     input wire[31:0] eth_fwpkt_rdata, // firewire pkt read data
     input wire[15:0] eth_fwpkt_len,   // firewire pkt len in bytes
+    input wire[15:0] eth_fw_addr,     // Host (PC) Firewire address (via Ethernet)
 
     output reg eth_send_req,         // request to send ethernet packet
     input wire eth_send_ack,         // ack from ethernet module
@@ -792,11 +793,11 @@ begin
                             end
 
                             // trigger packet forward if packet is for pc
-                            if ((rx_dest[15:0] == 16'hffd0) && (rx_tcode == `TC_QRESP)) begin
+                            if ((rx_dest[15:0] == eth_fw_addr) && (rx_tcode == `TC_QRESP)) begin
                                eth_send_req <= 1;
                                eth_send_len <= 16'd20;
                             end
-                            else if ((rx_dest[15:0] == 16'hffd0) && (rx_tcode == `TC_BRESP)) begin
+                            else if ((rx_dest[15:0] == eth_fw_addr) && (rx_tcode == `TC_BRESP)) begin
                                eth_send_req <= 1;
                                eth_send_len <= 16'd24 + buffer[31:16];
                             end

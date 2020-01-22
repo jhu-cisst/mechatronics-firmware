@@ -166,6 +166,7 @@ wire eth_send_fw_ack;
 wire[6:0] eth_fwpkt_raddr;
 wire[31:0] eth_fwpkt_rdata;
 wire[15:0] eth_fwpkt_len;
+wire[15:0] eth_host_fw_addr;
 
 wire eth_send_req;
 wire eth_send_ack;
@@ -199,6 +200,7 @@ PhyLinkInterface phy(
     .eth_fwpkt_raddr(eth_fwpkt_raddr), // out: eth fw packet addr
     .eth_fwpkt_rdata(eth_fwpkt_rdata), // in: eth fw packet data
     .eth_fwpkt_len(eth_fwpkt_len),     // out: eth fw packet length
+    .eth_fw_addr(eth_host_fw_addr),    // in: eth fw host address (e.g., ffd0)
 
     // Request from Firewire to send Ethernet packet
     .eth_send_req(eth_send_req),
@@ -288,6 +290,7 @@ EthernetIO EthernetTransfers(
     .eth_fwpkt_raddr(eth_fwpkt_raddr), // out: eth fw packet addr
     .eth_fwpkt_rdata(eth_fwpkt_rdata), // in: eth fw packet data
     .eth_fwpkt_len(eth_fwpkt_len),     // out: eth fw packet len
+    .host_fw_addr(eth_host_fw_addr),   // out: eth fw host address (e.g., ffd0)
 
     // Interface from Firewire (for sending packets via Ethernet)
     .sendReq(eth_send_req),

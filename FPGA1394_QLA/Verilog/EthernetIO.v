@@ -128,7 +128,8 @@ module EthernetIO(
     input wire eth_send_fw_ack,   // ack from firewire module
     input  wire[6:0] eth_fwpkt_raddr,
     output wire[31:0] eth_fwpkt_rdata,
-    output wire[15:0] eth_fwpkt_len,     // eth received fw pkt length
+    output wire[15:0] eth_fwpkt_len,   // eth received fw pkt length
+    output reg[15:0] host_fw_addr,     // Firewire address of host (e.g., ffd0)
 
     // Interface from Firewire (for sending packets via Ethernet)
     input wire sendReq,
@@ -380,8 +381,6 @@ localparam[4:0]
    UDP_Header_End     = 5'd20,
    ICMP_Header_Begin  = 5'd17,   // Offset to ICMP Header (words) [length=6]
    ICMP_Header_End    = 5'd22;
-
-reg[15:0] FrameCRC_High;  // High word of Frame CRC (TEMP)
 
 //************************** Ethernet Frame Header ********************************
 // Dest MAC (3 words), Src MAC (3 words), Ethertype/Length (1 word)
@@ -686,7 +685,7 @@ assign DebugData[3]  = { 2'd0, state, 2'd0, nextState,
                          2'h0, isLocal, isRemote, FireWirePacketFresh, isEthBroadcast, isEthMulticast, ~ETH_IRQn,
                          isForward, isInIRQ, sendARP, isUDP, isICMP, isEcho, is_IPv4_Long, is_IPv4_Short};
 assign DebugData[4]  = { RegISR, RegISROther};
-assign DebugData[5]  = { FrameCRC_High, FrameCount, count};
+assign DebugData[5]  = { host_fw_addr, FrameCount, count};
 assign DebugData[6]  = { Eth_destMac[1][7:0], Eth_destMac[1][15:8], Eth_destMac[0][7:0], Eth_destMac[0][15:8] };
 assign DebugData[7]  = { Eth_srcMac[0][7:0], Eth_srcMac[0][15:8], Eth_destMac[2][7:0], Eth_destMac[2][15:8] };
 assign DebugData[8]  = { Eth_srcMac[2][7:0], Eth_srcMac[2][15:8], Eth_srcMac[1][7:0], Eth_srcMac[1][15:8] };
@@ -1370,6 +1369,7 @@ always @(posedge sysclk) begin
                if (isRemote) begin
                   // Request to forward pkt
                   eth_send_fw_req <= 1;
+                  host_fw_addr <= FireWirePacket[1][31:16];
                end
             end
 
@@ -1400,7 +1400,7 @@ always @(posedge sysclk) begin
 
          ST_RECEIVE_DMA_FRAME_CRC:
          begin
-            FrameCRC_High <= `ReadDataSwapped;
+            // FrameCRC_High <= `ReadDataSwapped;
             // We can read the second word to get the 4-byte CRC, but flushing the
             // packet works better. We decrement rxPktWords by 1, but that
             // variable is just for debugging. In most cases, rxPktWords should
