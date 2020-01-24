@@ -253,31 +253,26 @@ localparam [5:0]
     ST_RECEIVE_DMA_FRAME_CRC = 6'd14,
     ST_RECEIVE_FLUSH_START = 6'd15,
     ST_RECEIVE_FLUSH_WAIT = 6'd16,
-    ST_SEND_DMA_CONTROLWORD = 6'd18,
-    ST_SEND_DMA_BYTECOUNT = 6'd19,
-    ST_SEND_DMA_FRAME_HEADER = 6'd20,
-    ST_SEND_DMA_FRAME_LENGTH = 6'd21,
-    ST_SEND_DMA_ARP = 6'd22,
-    ST_SEND_DMA_IPV4_HEADER = 6'd23,
-    ST_SEND_DMA_ICMP_HEADER = 6'd24,
-    ST_SEND_DMA_UDP_HEADER = 6'd25,
-    ST_SEND_DMA_PACKETDATA_HEADER = 6'd26,
-    ST_SEND_DMA_PACKETDATA_QUAD = 6'd27,
-    ST_SEND_DMA_PACKETDATA_BLOCK_START = 6'd28,
-    ST_SEND_DMA_PACKETDATA_BLOCK_MAIN = 6'd29,
-    ST_SEND_DMA_PACKETDATA_BLOCK_CHANNEL = 6'd30,
-    ST_SEND_DMA_PACKETDATA_BLOCK_PROM = 6'd31,
-    ST_SEND_DMA_PACKETDATA_CHECKSUM = 6'd32,
-    ST_SEND_DMA_FWD = 6'd33,
-    ST_SEND_DMA_DUMMY_DWORD = 6'd34,
-    ST_SEND_DMA_STOP = 6'd35,
-    ST_SEND_TXQ_ENQUEUE = 6'd36,
-    ST_SEND_TXQ_ENQUEUE_WAIT = 6'd37,
-    ST_SEND_END = 6'd38,
-    ST_WAVEFORM_OUTPUT = 6'd39,            // set up read/write waveforms
-    ST_WAVEFORM_OUTPUT_EXECUTE = 6'd40,    // generate read/write waveforms
-    ST_RECEIVE_DMA_ICMP_DATA = 6'd41,
-    ST_SEND_DMA_ICMP_DATA = 6'd42;
+    ST_SEND_DMA_CONTROLWORD = 6'd17,
+    ST_SEND_DMA_BYTECOUNT = 6'd18,
+    ST_SEND_DMA_ETHERNET_HEADERS = 6'd19,
+    ST_SEND_DMA_PACKETDATA_HEADER = 6'd20,
+    ST_SEND_DMA_PACKETDATA_QUAD = 6'd21,
+    ST_SEND_DMA_PACKETDATA_BLOCK_START = 6'd22,
+    ST_SEND_DMA_PACKETDATA_BLOCK_MAIN = 6'd23,
+    ST_SEND_DMA_PACKETDATA_BLOCK_CHANNEL = 6'd24,
+    ST_SEND_DMA_PACKETDATA_BLOCK_PROM = 6'd25,
+    ST_SEND_DMA_PACKETDATA_CHECKSUM = 6'd26,
+    ST_SEND_DMA_FWD = 6'd27,
+    ST_SEND_DMA_DUMMY_DWORD = 6'd28,
+    ST_SEND_DMA_STOP = 6'd29,
+    ST_SEND_TXQ_ENQUEUE = 6'd30,
+    ST_SEND_TXQ_ENQUEUE_WAIT = 6'd31,
+    ST_SEND_END = 6'd32,
+    ST_WAVEFORM_OUTPUT = 6'd33,            // set up read/write waveforms
+    ST_WAVEFORM_OUTPUT_EXECUTE = 6'd34,    // generate read/write waveforms
+    ST_RECEIVE_DMA_ICMP_DATA = 6'd35,
+    ST_SEND_DMA_ICMP_DATA = 6'd36;
 
 // Debugging support
 assign eth_io_isIdle = (state == ST_IDLE) ? 1'b1 : 1'b0;
@@ -351,6 +346,7 @@ reg[15:0] RegISR;      // 16-bit ISR register
 reg[15:0] RegISROther; // Unexpected ISR value (for debugging)
 reg[7:0] FrameCount;   // Number of received frames
 reg[7:0] count;        // General use counter
+reg[5:0] maxCount;     // Maximum count (in ST_SEND_DMA_ETHERNET_HEADERS)
 reg[2:0] next_addr;    // Address of next device (for block read)
 reg[6:0] block_index;  // Index into data block (5-70)
 reg[11:0] txPktWords;  // Num of words sent
@@ -561,71 +557,105 @@ assign ARP_Error = (ARP_Done && !isARPValid) ? 1'd1 : 1'd0;
 wire Any_Error;
 assign Any_Error = IPv4_Error|UDP_Error|ARP_Error|Frame_Error;
 
+//******************************* Reply packets *****************************************
+// Unlike the received packets (PacketBuffer), it is easier to avoid overlap
+wire[15:0] ReplyBuffer[0:40];
+
+localparam[5:0]
+   Frame_Reply_Begin  = 6'd0,    // Offset to FrameHeader (words) [length=7]
+   Frame_Reply_End    = 6'd6,
+   IPv4_Reply_Begin   = 6'd7,    // Offset to IPv4 Header (words) [length=10]
+   IPv4_Reply_End     = 6'd16,
+   UDP_Reply_Begin    = 6'd17,   // Offset to UDP Header (words)  [length=4]
+   UDP_Reply_End      = 6'd20,
+   ARP_Reply_Begin    = 6'd21,   // Offset to ARP Packet (words)  [length=14]
+   ARP_Reply_End      = 6'd34,
+   ICMP_Reply_Begin   = 6'd35,   // Offset to ICMP Header (words) [length=6]
+   ICMP_Reply_End     = 6'd40;
+
 //************************* Ethernet Frame Reply Header *********************************
-wire[15:0] Frame_Header_Reply[0:5];
-assign Frame_Header_Reply[0] = Eth_srcMac[0];
-assign Frame_Header_Reply[1] = Eth_srcMac[1];
-assign Frame_Header_Reply[2] = Eth_srcMac[2];
-assign Frame_Header_Reply[3] = 16'hFA61;
-assign Frame_Header_Reply[4] = 16'h0E13;
+assign ReplyBuffer[Frame_Reply_Begin+0] = Eth_srcMac[0];
+assign ReplyBuffer[Frame_Reply_Begin+1] = Eth_srcMac[1];
+assign ReplyBuffer[Frame_Reply_Begin+2] = Eth_srcMac[2];
+assign ReplyBuffer[Frame_Reply_Begin+3] = 16'hFA61;
+assign ReplyBuffer[Frame_Reply_Begin+4] = 16'h0E13;
 // Rather than using destAddr from last received packet, use our own MAC addr.
-assign Frame_Header_Reply[5] = {8'h94, 4'h0, board_id};  // 0x940n (n = board id)
-// Note Ethertype/Length field is handled separately
+assign ReplyBuffer[Frame_Reply_Begin+5] = {8'h94, 4'h0, board_id};  // 0x940n (n = board id)
+// Ethertype/Length field, cases are:
+//     1) Forwarding raw packet from FireWire (Length = sendLen)
+//     2) ARP response (Ethertype = 0x0806)
+//     3) UDP response, including ICMP echo (Ethertype = 0x0800)
+//     4) Local raw packet, quadlet read response (Length = 20) or block read response
+assign ReplyBuffer[Frame_Reply_Begin+6] = (isForward && !useUDP) ? sendLen :
+                                          sendARP ? 16'h0806 :
+                                          (isUDP || isEcho || isForward) ? 16'h0800 :
+                                          quadRead ? 16'd20 : (16'd24 + block_data_length);
 
 //***************************** IPv4 Reply Header ************************************
-wire[15:0] IPv4_Header_Reply[0:9];
-
 // Word 0: Version=4, Internet Header Length (IHL)=5, DSCP=0, ECN=0
-assign IPv4_Header_Reply[0] = {4'd4, 4'd5, 6'd0, 2'd0};  // 0x4500
+assign ReplyBuffer[IPv4_Reply_Begin+0] = {4'd4, 4'd5, 6'd0, 2'd0};  // 0x4500
 // Word 1: Total length (header and data)
 //     ICMP reply (echo): same size as request
 //     Quadlet read response: 20 (IPv4 header) + 8 (UDP header) + 20 (data)
 //     FW forward: 20 (IPv4 header) + 8 (UDP header) + sendLen
 //     Block read response: 20 (IPv4 header) + 8 (UDP header) + 24 + block_data_length
-assign IPv4_Header_Reply[1] = isEcho ? IPv4_Length :
+assign ReplyBuffer[IPv4_Reply_Begin+1] = isEcho ? IPv4_Length :
                               isForward ? 16'd28 + sendLen :
                               quadRead ? 16'd48 : (16'd52 + block_data_length);
 // Word 2: Identification (supposed to be unique within packet lifetime)
-assign IPv4_Header_Reply[2] = 16'd0;
+assign ReplyBuffer[IPv4_Reply_Begin+2] = 16'd0;
 // Word 3: Flags, Fragment Offset
 //     Set the DF (do not fragment) bit
-assign IPv4_Header_Reply[3] = {3'b010, 13'd0};   // 0x4000
+assign ReplyBuffer[IPv4_Reply_Begin+3] = {3'b010, 13'd0};   // 0x4000
 // Word 4: Time To Live=64 (recommended default), Protocol= 1 (ICMP) or 17 (UDP)
-assign IPv4_Header_Reply[4] = {8'd64, (isEcho ? 8'd1: 8'd17)};     // 0x4001 or 0x4011
+assign ReplyBuffer[IPv4_Reply_Begin+4] = {8'd64, (isEcho ? 8'd1: 8'd17)};     // 0x4001 or 0x4011
 // Word 5: Header Checksum: will be computed by KSZ8851
-assign IPv4_Header_Reply[5] = 16'd0;
+assign ReplyBuffer[IPv4_Reply_Begin+5] = 16'd0;
 // Words 6,7: Source IP
-assign IPv4_Header_Reply[6] = is_ip_unassigned ? IPv4_fpgaIP[31:16] : {ip_address[7:0], ip_address[15:8] };
-assign IPv4_Header_Reply[7] = is_ip_unassigned ? IPv4_fpgaIP[15:0]  : {ip_address[23:16], ip_address[31:24] };
+assign ReplyBuffer[IPv4_Reply_Begin+6] = is_ip_unassigned ? IPv4_fpgaIP[31:16] : {ip_address[7:0], ip_address[15:8] };
+assign ReplyBuffer[IPv4_Reply_Begin+7] = is_ip_unassigned ? IPv4_fpgaIP[15:0]  : {ip_address[23:16], ip_address[31:24] };
 // Words 8,9: Destination IP
-assign IPv4_Header_Reply[8] = Last_hostIP[31:16];
-assign IPv4_Header_Reply[9] = Last_hostIP[15:0];
-
-// The following code should compute the checksum (not tested, since KSZ8851 computes checksum)
-// Sum of fixed fields (words 0, 2, 3, 4) = 0x4500 + 0 + 0x4000 + 0x4011 = 0xC511 (or 0xC501 for ICMP)
-// Since Length is small, we assume no more than 4 carries, so sum as an 18-bit number.
-// wire[18:0] IPv4_Checksum;  // Checksum for IPv4 header
-// assign IPv4_Checksum = 18'hC511 +
-//                       {2'd0,IPv4_Header_Reply[1]} +
-//                       {2'd0,IPv4_Header_Reply[6]} +
-//                       {2'd0,IPv4_Header_Reply[7]} +
-//                       {2'd0,IPv4_Header_Reply[8]} +
-//                       {2'd0,IPv4_Header_Reply[9]};
-// Word 5: Header Checksum: Ones complement of sum of all 16-bit words, with carry added.
-// assign IPv4_Header_Reply[5] = ~(IPv4_Checksum[15:0] + {14'd0,IPv4_Checksum[17:16]});
+assign ReplyBuffer[IPv4_Reply_Begin+8] = Last_hostIP[31:16];
+assign ReplyBuffer[IPv4_Reply_Begin+9] = Last_hostIP[15:0];
 
 //****************************** UDP Reply Header *************************************
-wire[15:0] UDP_Header_Reply[0:3];
-assign UDP_Header_Reply[0] = 16'd1394;       // Source Port = 1394
-assign UDP_Header_Reply[1] = UDP_hostPort;   // Destination Port
+assign ReplyBuffer[UDP_Reply_Begin+0] = 16'd1394;       // Source Port = 1394
+assign ReplyBuffer[UDP_Reply_Begin+1] = UDP_hostPort;   // Destination Port
 // Word 2: Length (header and data)
 //     Quadlet read response: 8 (UDP header) + 20 (data)
 //     Block read response: 8 (UDP header) + 24 + block_data_length
-assign UDP_Header_Reply[2] = quadRead ? 16'd28 : (16'd32 + block_data_length);
-assign UDP_Header_Reply[3] = 16'd0;   // Checksum (optional, will be generated by KSZ8851)
+assign ReplyBuffer[UDP_Reply_Begin+2] = quadRead ? 16'd28 : (16'd32 + block_data_length);
+assign ReplyBuffer[UDP_Reply_Begin+3] = 16'd0;   // Checksum (optional, will be generated by KSZ8851)
+
+//********************************** ARP Reply *****************************************
+assign ReplyBuffer[ARP_Reply_Begin+0] = 16'h0001;  // Hardware type (HTYPE): 1 for Ethernet
+assign ReplyBuffer[ARP_Reply_Begin+1] = 16'h0800;  // Protocol type (PTYPE): 0x0800 for IPv4
+assign ReplyBuffer[ARP_Reply_Begin+2] = 16'h0604;  // HLEN (6) and PLEN (4)
+assign ReplyBuffer[ARP_Reply_Begin+3] = 16'h0002;  // Operation (OPER): 2 for reply
+// Word 4-6: Sender hardware address (SHA):  MAC address of sender
+assign ReplyBuffer[ARP_Reply_Begin+4] = 16'hFA61;  // 0xFA61
+assign ReplyBuffer[ARP_Reply_Begin+5] = 16'h0E13;  // 0x0E13
+assign ReplyBuffer[ARP_Reply_Begin+6] = {8'h94,4'h0,board_id}; // 0x940n (n = board id)
+// Word 7-8: Sender protocol address (SPA):  IPv4 address of sender (0 for ARP Probe)
+assign ReplyBuffer[ARP_Reply_Begin+7] = {ip_address[7:0], ip_address[15:8]};
+assign ReplyBuffer[ARP_Reply_Begin+8] = {ip_address[23:16], ip_address[31:24]};
+// Word 9-11: Target hardware address (THA):  MAC address of target (ignored in request)
+assign ReplyBuffer[ARP_Reply_Begin+9] = ARP_srcMac[0];
+assign ReplyBuffer[ARP_Reply_Begin+10] = ARP_srcMac[1];
+assign ReplyBuffer[ARP_Reply_Begin+11] = ARP_srcMac[2];
+// Word 12-13: Target protocol address (TPA): IPv4 address of target
+assign ReplyBuffer[ARP_Reply_Begin+12] = ARP_hostIP[31:16];
+assign ReplyBuffer[ARP_Reply_Begin+13] = ARP_hostIP[15:0];
+
+//********************************** ICMP Reply *****************************************
+assign ReplyBuffer[ICMP_Reply_Begin+0] = 16'd0;  // Echo Reply: Type=0, Code=0
+assign ReplyBuffer[ICMP_Reply_Begin+1] = 16'd0;  // ICMP Checksum will be generated by KSZ8851
+assign ReplyBuffer[ICMP_Reply_Begin+2] = Echo_id;
+assign ReplyBuffer[ICMP_Reply_Begin+3] = Echo_seq;
+assign ReplyBuffer[ICMP_Reply_Begin+4] = Echo_payload[31:16];
+assign ReplyBuffer[ICMP_Reply_Begin+5] = Echo_payload[15:0];
 
 //**************************** Firewire Reply Header ***********************************
-
 wire[15:0] Firewire_Header_Reply[0:5];
 assign Firewire_Header_Reply[0] = {FireWirePacket[1][23:16], FireWirePacket[1][31:24]};   // quadlet 0: dest-id
 assign Firewire_Header_Reply[1] = {quadRead ? `TC_QRESP : `TC_BRESP, 4'd0, fw_tl, 2'd0};  // quadlet 0: tcode
@@ -633,29 +663,6 @@ assign Firewire_Header_Reply[2] = {FireWirePacket[0][23:22], node_id, FireWirePa
 assign Firewire_Header_Reply[3] = 16'd0;   // rcode, reserved
 assign Firewire_Header_Reply[4] = 16'd0;   // reserved
 assign Firewire_Header_Reply[5] = 16'd0;
-
-//********************************** ARP Reply *****************************************
-
-wire[15:0] ARP_Packet_Reply[0:13];
-
-assign ARP_Packet_Reply[0] = 16'h0001;  // Hardware type (HTYPE): 1 for Ethernet
-assign ARP_Packet_Reply[1] = 16'h0800;  // Protocol type (PTYPE): 0x0800 for IPv4
-assign ARP_Packet_Reply[2] = 16'h0604;  // HLEN (6) and PLEN (4)
-assign ARP_Packet_Reply[3] = 16'h0002;  // Operation (OPER): 2 for reply
-// Word 4-6: Sender hardware address (SHA):  MAC address of sender
-assign ARP_Packet_Reply[4] = 16'hFA61;  // 0xFA61
-assign ARP_Packet_Reply[5] = 16'h0E13;  // 0x0E13
-assign ARP_Packet_Reply[6] = {8'h94,4'h0,board_id}; // 0x940n (n = board id)
-// Word 7-8: Sender protocol address (SPA):  IPv4 address of sender (0 for ARP Probe)
-assign ARP_Packet_Reply[7] = {ip_address[7:0], ip_address[15:8]};
-assign ARP_Packet_Reply[8] = {ip_address[23:16], ip_address[31:24]};
-// Word 9-11: Target hardware address (THA):  MAC address of target (ignored in request)
-assign ARP_Packet_Reply[9] = ARP_srcMac[0];
-assign ARP_Packet_Reply[10] = ARP_srcMac[1];
-assign ARP_Packet_Reply[11] = ARP_srcMac[2];
-// Word 12-13: Target protocol address (TPA): IPv4 address of target
-assign ARP_Packet_Reply[12] = ARP_hostIP[31:16];
-assign ARP_Packet_Reply[13] = ARP_hostIP[15:0];
 
 //******************************** Debug Counters *************************************
 
@@ -1228,6 +1235,7 @@ always @(posedge sysclk) begin
                count[1:0] <= count[1:0]+2'd1;
             end
          end
+
          ST_RECEIVE_DMA_ETHERNET_HEADERS:
          begin
             if (Any_Error) begin
@@ -1518,100 +1526,53 @@ always @(posedge sysclk) begin
                endcase
             end
             state <= ST_WAVEFORM_OUTPUT;
-            nextState <= ST_SEND_DMA_FRAME_HEADER;
-            count <= 8'd0;
+            nextState <= ST_SEND_DMA_ETHERNET_HEADERS;
+            count[5:0] <= Frame_Reply_Begin;
+            maxCount <= UDP_Reply_End;   // nominal value (may get updated)
          end
 
-         ST_SEND_DMA_FRAME_HEADER:
+         ST_SEND_DMA_ETHERNET_HEADERS:
          begin
             state <= ST_WAVEFORM_OUTPUT;
-            `WriteDataSwapped <= Frame_Header_Reply[count[2:0]];
-            if (count[2:0] == 3'd5) begin
-               count[2:0] <= 3'd0;
-               nextState <= ST_SEND_DMA_FRAME_LENGTH;
+            nextState <= ST_SEND_DMA_ETHERNET_HEADERS;
+            count[5:0] <= (count[5:0] == maxCount) ? 6'd0 : (count[5:0] + 6'd1);
+            `WriteDataSwapped <= ReplyBuffer[count];
+            if (count[5:0] == Frame_Reply_End) begin
+               if (isForward && !useUDP) begin
+                  nextState <= ST_SEND_DMA_FWD;
+                  sendAddr <= 7'd0;
+                  isForward <= 1'd0;
+               end
+               else if (sendARP) begin
+                  count[5:0] <= ARP_Reply_Begin;
+                  maxCount <= ARP_Reply_End;
+               end
+               else if (!(isUDP || isEcho || isForward)) begin
+                  // Raw packet
+                  nextState <= ST_SEND_DMA_PACKETDATA_HEADER;
+                  count[5:0] <= 6'd0;
+               end
             end
-            else begin
-               count[2:0] <= count[2:0] + 3'd1;
-               nextState <= ST_SEND_DMA_FRAME_HEADER;
+            else if (count[5:0] == IPv4_Reply_End) begin
+               count[5:0] <= isEcho ? ICMP_Reply_Begin : UDP_Reply_Begin;
+               maxCount <= isEcho ? ICMP_Reply_End : UDP_Reply_End;
             end
-         end
-
-         // EtherType/Length
-         ST_SEND_DMA_FRAME_LENGTH:
-         begin
-            state <= ST_WAVEFORM_OUTPUT;
-            count <= 8'd0;
-
-            if (isForward && !useUDP) begin
-               // Forwarding raw packet from Firewire
-               `WriteDataSwapped <= sendLen;
-               nextState <= ST_SEND_DMA_FWD;
-               sendAddr <= 7'd0;
-               isForward <= 1'd0;
+            else if (count[5:0] == UDP_Reply_End) begin
+               if (isForward) begin
+                  nextState <= ST_SEND_DMA_FWD;
+                  sendAddr <= 7'd0;
+                  isForward <= 1'd0;
+               end
+               else begin
+                  nextState <= ST_SEND_DMA_PACKETDATA_HEADER;
+               end
             end
-            else if (sendARP) begin
-               `WriteDataSwapped <= 16'h0806;
-               nextState <= ST_SEND_DMA_ARP;
-            end
-            else if (isUDP || isEcho || isForward) begin
-               // Note that (isForward && !useUDP) is handled above
-               `WriteDataSwapped <= 16'h0800;
-               nextState <= ST_SEND_DMA_IPV4_HEADER;
-            end
-            else begin
-               // 20 bytes for quadlet read response
-               // (24 + block_data_length) bytes for block read response
-               `WriteDataSwapped <= quadRead ? 16'd20 : (16'd24 + block_data_length);
-               nextState <= ST_SEND_DMA_PACKETDATA_HEADER;
-            end
-         end
-
-         ST_SEND_DMA_ARP:
-         begin
-            state <= ST_WAVEFORM_OUTPUT;
-            `WriteDataSwapped <= ARP_Packet_Reply[count[4:0]];
-            if (count[4:0] == 5'd13) begin
-               count[4:0] <= 5'd0;
+            else if (count[5:0] == ARP_Reply_End) begin
                nextState <= ST_SEND_DMA_STOP;
             end
-            else begin
-               count[4:0] <= count[4:0]+5'd1;
-               nextState <= ST_SEND_DMA_ARP;
+            else if (count[5:0] == ICMP_Reply_End) begin
+               nextState <= ST_SEND_DMA_ICMP_DATA;
             end
-         end
-
-         ST_SEND_DMA_IPV4_HEADER:
-         begin
-            state <= ST_WAVEFORM_OUTPUT;
-            `WriteDataSwapped <= IPv4_Header_Reply[count[3:0]];
-            if (count[3:0] == 4'd9) begin
-               count[3:0] <= 4'd0;
-               nextState <= isEcho ? ST_SEND_DMA_ICMP_HEADER : ST_SEND_DMA_UDP_HEADER;
-            end
-            else begin
-               count[3:0] <= count[3:0]+4'd1;
-               nextState <= ST_SEND_DMA_IPV4_HEADER;
-            end
-         end
-
-         ST_SEND_DMA_ICMP_HEADER:
-         begin
-            state <= ST_WAVEFORM_OUTPUT;
-            nextState <= ST_SEND_DMA_ICMP_HEADER;
-            count[2:0] <= count[2:0] + 3'd1;
-            // Only handles echo (ping).
-            case (count[2:0])
-              3'd0: `WriteDataSwapped <= 16'd0;  // Echo Reply: Type=0, Code=0
-              3'd1: `WriteDataSwapped <= 16'd0;  // ICMP Checksum will be generated by KSZ8851
-              3'd2: `WriteDataSwapped <= Echo_id;
-              3'd3: `WriteDataSwapped <= Echo_seq;
-              3'd4: `WriteDataSwapped <= Echo_payload[31:16];
-              3'd5: begin
-                    `WriteDataSwapped <= Echo_payload[15:0];
-                    count[2:0] <= 3'd0;
-                    nextState <= ST_SEND_DMA_ICMP_DATA;
-                    end
-            endcase
          end
 
          ST_SEND_DMA_ICMP_DATA:
@@ -1621,26 +1582,6 @@ always @(posedge sysclk) begin
                                                  : FireWirePacket[count[7:1]][15:0];
             count <= count + 8'd1;
             nextState <= (count == icmp_data_length[7:0]) ? ST_SEND_DMA_STOP : ST_SEND_DMA_ICMP_DATA;
-         end
-
-         ST_SEND_DMA_UDP_HEADER:
-         begin
-            state <= ST_WAVEFORM_OUTPUT;
-            `WriteDataSwapped <= UDP_Header_Reply[count[1:0]];
-            if (count[1:0] == 2'd3) begin
-               count[1:0] <= 2'd0;
-               if (isForward) begin
-                  nextState <= ST_SEND_DMA_FWD;
-                  sendAddr <= 7'd0;
-                  isForward <= 1'd0;
-               end
-               else
-                  nextState <= ST_SEND_DMA_PACKETDATA_HEADER;
-            end
-            else begin
-               count[1:0] <= count[1:0]+2'd1;
-               nextState <= ST_SEND_DMA_UDP_HEADER;
-            end
          end
 
          // Send first 6 words (3 quadlets), which are nearly identical between quadlet read response
