@@ -246,14 +246,13 @@ localparam [5:0]
     ST_RECEIVE_FRAME_COUNT = 6'd7,
     ST_RECEIVE_FRAME_STATUS = 6'd8,
     ST_RECEIVE_FRAME_LENGTH = 6'd9,
-    ST_RECEIVE_DMA_START = 6'd10,
+    ST_ENABLE_DMA = 6'd10,
     ST_RECEIVE_DMA_SKIP = 6'd11,
     ST_RECEIVE_DMA_ETHERNET_HEADERS = 6'd12,
     ST_RECEIVE_DMA_FIREWIRE_PACKET = 6'd13,
     ST_RECEIVE_DMA_FRAME_CRC = 6'd14,
     ST_RECEIVE_FLUSH_START = 6'd15,
     ST_RECEIVE_FLUSH_WAIT = 6'd16,
-    ST_SEND_DMA_START = 6'd17,
     ST_SEND_DMA_CONTROLWORD = 6'd18,
     ST_SEND_DMA_BYTECOUNT = 6'd19,
     ST_SEND_DMA_FRAME_HEADER = 6'd20,
@@ -310,6 +309,10 @@ reg isEthBroadcast;
 // (i.e., set if a valid UDP packet received, cleared if
 // a valid raw Ethernet frame is received).
 reg useUDP;
+
+// Whether currently sending or receiving
+// (used in ST_ENABLE_DMA).
+reg isSending;
 
 // Non-zero initial values
 initial begin
@@ -941,8 +944,9 @@ always @(posedge sysclk) begin
             end
             else if (sendReq) begin
                // forward packet from FireWire
-               state <= ST_SEND_DMA_START;
+               state <= ST_ENABLE_DMA;
                isForward <= 1;
+               isSending <= 1;
                sendAck <= 1;
             end
          end
@@ -1189,18 +1193,22 @@ always @(posedge sysclk) begin
                 RegAddr <= `ETH_ADDR_RXFDPR;
                 WriteData <= 16'h5000;
                 state <= ST_WAVEFORM_OUTPUT;
-                nextState <= ST_RECEIVE_DMA_START;
+                nextState <= ST_ENABLE_DMA;
+                isSending <= 0;
             end
          end
 
-         ST_RECEIVE_DMA_START:
+         ST_ENABLE_DMA:
          begin
+            if (isSending && !isInIRQ) begin
+               sendAck <= 0;  // TEMP
+            end
             // Enable DMA transfers
             isWrite <= 1;
             RegAddr <= `ETH_ADDR_RXQCR;
             WriteData <= {ETH_VALUE_RXQCR[15:4],1'b1,ETH_VALUE_RXQCR[2:0]};
             state <= ST_WAVEFORM_OUTPUT;
-            nextState <= ST_RECEIVE_DMA_SKIP;
+            nextState <= isSending ? ST_SEND_DMA_CONTROLWORD : ST_RECEIVE_DMA_SKIP;
             count <= 8'd0;
          end
 
@@ -1443,7 +1451,8 @@ always @(posedge sysclk) begin
             isWrite <= 0;
             if ((isWrite == 0) && (ReadData[0] == 1'b0)) begin
                if ((FireWirePacketFresh && (quadRead || blockRead) && isLocal) || sendARP || isEcho) begin
-                  state <= ST_SEND_DMA_START;
+                  isSending <= 1;
+                  state <= ST_ENABLE_DMA;
                end
                else begin
                   if (FrameCount == 8'd0) begin
@@ -1465,19 +1474,6 @@ always @(posedge sysclk) begin
 
          //*************** States for sending Ethernet packets ******************
          // First, should check if enough memory on QMU TXQ
-
-         ST_SEND_DMA_START:  // same as ST_RECEIVE_DMA_START
-         begin
-            if (isInIRQ == 1'b0) begin
-               sendAck <= 0;  // TEMP
-            end
-            // Enable DMA transfers
-            isWrite <= 1;
-            RegAddr <= `ETH_ADDR_RXQCR;
-            WriteData <= {ETH_VALUE_RXQCR[15:4],1'b1,ETH_VALUE_RXQCR[2:0]};
-            state <= ST_WAVEFORM_OUTPUT;
-            nextState <= ST_SEND_DMA_CONTROLWORD;
-         end
 
          ST_SEND_DMA_CONTROLWORD:
          begin
@@ -1734,7 +1730,6 @@ always @(posedge sysclk) begin
             end
          end
 
-
          ST_SEND_DMA_PACKETDATA_BLOCK_MAIN:
          begin
             state <= ST_WAVEFORM_OUTPUT;
@@ -1890,12 +1885,6 @@ always @(posedge sysclk) begin
             end
          end
 
-         default:
-         begin
-            numStateInvalid <= numStateInvalid + 10'd1;
-            state <= ST_IDLE;
-         end
-
          ST_WAVEFORM_OUTPUT:
          begin
             state <= ST_WAVEFORM_OUTPUT_EXECUTE;
@@ -1957,7 +1946,13 @@ always @(posedge sysclk) begin
                // All done
                state <= nextState;
             end
-        end
+         end
+
+         default:
+         begin
+            numStateInvalid <= numStateInvalid + 10'd1;
+            state <= ST_IDLE;
+         end
 
          endcase // case (state)
 end
