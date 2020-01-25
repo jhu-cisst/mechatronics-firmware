@@ -346,7 +346,6 @@ reg[15:0] RegISR;      // 16-bit ISR register
 reg[15:0] RegISROther; // Unexpected ISR value (for debugging)
 reg[7:0] FrameCount;   // Number of received frames
 reg[7:0] count;        // General use counter
-reg[5:0] maxCount;     // Maximum count (in ST_SEND_DMA_ETHERNET_HEADERS)
 reg[2:0] next_addr;    // Address of next device (for block read)
 reg[6:0] block_index;  // Index into data block (5-70)
 reg[11:0] txPktWords;  // Num of words sent
@@ -378,6 +377,8 @@ localparam[4:0]
    UDP_Header_End     = 5'd20,
    ICMP_Header_Begin  = 5'd17,   // Offset to ICMP Header (words) [length=6]
    ICMP_Header_End    = 5'd22;
+
+reg[4:0] rCount;                 // Index into PacketBuffer
 
 //************************** Ethernet Frame Header ********************************
 // Dest MAC (3 words), Src MAC (3 words), Ethertype/Length (1 word)
@@ -526,7 +527,7 @@ assign icmp_data_length = IPv4_Length-16'd32;
 // These signals should only be used in ST_RECEIVE_DMA_ETHERNET_HEADERS
 
 wire Frame_Done;
-assign Frame_Done = (count == Frame_Header_End) ? 1'd1 : 1'd0;
+assign Frame_Done = (rCount == Frame_Header_End) ? 1'd1 : 1'd0;
 
 // Following duplicates logic in isRaw, except using `ReadDataSwapped instead of Eth_EtherType
 // because Eth_EtherType is not yet valid when Frame_Done is true.
@@ -534,16 +535,16 @@ wire Frame_Raw;
 assign Frame_Raw = (Frame_Done && (`ReadDataSwapped[15:9] == 7'd0)) ? 1'd1 : 1'd0;
 
 wire ARP_Done;
-assign ARP_Done = (isARP && (count == ARP_Packet_End)) ? 1'd1 : 1'd0;
+assign ARP_Done = (isARP && (rCount == ARP_Packet_End)) ? 1'd1 : 1'd0;
 
 wire IPv4_Done;
-assign IPv4_Done = (isIPv4 && (count == IPv4_Header_End)) ? 1'd1 : 1'd0;
+assign IPv4_Done = (isIPv4 && (rCount == IPv4_Header_End)) ? 1'd1 : 1'd0;
 
 wire UDP_Done;
-assign UDP_Done = (isUDP && (count == UDP_Header_End)) ? 1'd1 : 1'd0;
+assign UDP_Done = (isUDP && (rCount == UDP_Header_End)) ? 1'd1 : 1'd0;
 
 wire ICMP_Done;
-assign ICMP_Done = (isICMP && (count == ICMP_Header_End)) ? 1'd1 : 1'd0;
+assign ICMP_Done = (isICMP && (rCount == ICMP_Header_End)) ? 1'd1 : 1'd0;
 
 // A few convenient combinations for error checking
 wire Frame_Error;
@@ -572,6 +573,8 @@ localparam[5:0]
    ARP_Reply_End      = 6'd34,
    ICMP_Reply_Begin   = 6'd35,   // Offset to ICMP Header (words) [length=6]
    ICMP_Reply_End     = 6'd40;
+
+reg[5:0] sCount;                 // Index into ReplyBuffer
 
 //************************* Ethernet Frame Reply Header *********************************
 assign ReplyBuffer[Frame_Reply_Begin+0] = Eth_srcMac[0];
@@ -801,6 +804,8 @@ initial begin
     InitProgram[16] = {CMD_WRITE, CMD_OR, `ETH_ADDR_RXCR1, 15'd0, 1'd1};
 end
 
+reg[4:0] progIndex;    // Index into program (program counter)
+
 // Following data is accessible via block read from address `ADDR_ETH (0x4000)
 //    Maximum block read size is 64 quadlets (implementation choice)
 //    4000 - 4007f (128 quadlets) FireWire packet
@@ -921,7 +926,6 @@ always @(posedge sysclk) begin
              isWord <= fw_reg_wdata[24];
              RegAddr <= fw_reg_wdata[23:16];
              WriteData <= fw_reg_wdata[15:0];
-             count <= 8'd0;
              state <= ST_WAVEFORM_OUTPUT;
              nextState <= ST_IDLE;
           end
@@ -1016,7 +1020,7 @@ always @(posedge sysclk) begin
          begin
             if (ReadData[15:4] == 12'h887) begin
                // Chip ID is ok, go to next state
-               count[4:0] <= 5'd0;
+               progIndex <= 5'd0;
                InitProgram[0][3:0] <= board_id;
                state <= ST_INIT_RUN_PROGRAM;
             end
@@ -1028,13 +1032,13 @@ always @(posedge sysclk) begin
 
          ST_INIT_RUN_PROGRAM:
          begin
-            isWrite <= InitProgram[count[4:0]][`WRITE_BIT];
-            RegAddr <= InitProgram[count[4:0]][`ADDR_BITS];
-            WriteData <= InitProgram[count[4:0]][`OR_BIT] ? (ReadData|InitProgram[count[4:0]][`DATA_BITS])
-                                                          : InitProgram[count[4:0]][`DATA_BITS];
-            count[4:0] <= count[4:0] + 5'd1;
+            isWrite <= InitProgram[progIndex][`WRITE_BIT];
+            RegAddr <= InitProgram[progIndex][`ADDR_BITS];
+            WriteData <= InitProgram[progIndex][`OR_BIT] ? (ReadData|InitProgram[progIndex][`DATA_BITS])
+                                                          : InitProgram[progIndex][`DATA_BITS];
+            progIndex <= progIndex + 5'd1;
             state <= ST_WAVEFORM_OUTPUT;
-            if (count[4:0] == 5'd16) begin
+            if (progIndex == 5'd16) begin
                initOK <= 1;
                nextState <= ST_IDLE;
             end
@@ -1086,7 +1090,6 @@ always @(posedge sysclk) begin
                RegISR[13] <= 1'b0;     // clear ISR receive IRQ bit
                state <= ST_WAVEFORM_OUTPUT;
                nextState <= ST_RECEIVE_FRAME_COUNT;
-               count <= 8'd0;
             end
             else if (RegISR[14] || RegISR[11] || RegISR[9] || RegISR[8] || RegISR[6]) begin
                // These interrupts are not handled and are disabled, so clear them
@@ -1119,71 +1122,63 @@ always @(posedge sysclk) begin
 
          ST_RECEIVE_FRAME_COUNT:
          begin
-            if (count[0] == 1'b0) begin
+            // Assumes isWrite==1 on entry
+            if (isWrite) begin
                isWrite <= 0;
                RegAddr <= `ETH_ADDR_RXFCTR;
                state <= ST_WAVEFORM_OUTPUT;
                nextState <= ST_RECEIVE_FRAME_COUNT;
-               count[0] <= 1'd1;
             end
             else begin
                FrameCount <= ReadData[15:8];
-               count[0] <= 1'd0;
                if (ReadData[15:8] == 0) begin
                   state <= isInIRQ ? ST_IRQ_DISPATCH : ST_IDLE;
                end
                else begin
-                  state <= ST_RECEIVE_FRAME_STATUS;
+                  // isWrite already 0
+                  RegAddr <= `ETH_ADDR_RXFHSR;
+                  state <= ST_WAVEFORM_OUTPUT;
+                  nextState <= ST_RECEIVE_FRAME_STATUS;
                end
             end
          end
 
          ST_RECEIVE_FRAME_STATUS:
          begin
-            if (count[0] == 1'b0) begin
-               isWrite <= 0;
-               RegAddr <= `ETH_ADDR_RXFHSR;
-               state <= ST_WAVEFORM_OUTPUT;
-               nextState <= ST_RECEIVE_FRAME_STATUS;
-               count[0] <= 1'd1;
+            FrameCount <= FrameCount-8'd1;
+            FireWirePacketFresh <= 1'd0;
+            // Check if packet valid:
+            // B15: RXFV  receive frame valid
+            // B13: ICMP checksum invalid
+            // B12: IP checksum invalid
+            // B11: TCP checksum invalid
+            // B10: UDP checksum invalid
+            // B07: Received broadcast frame
+            // B06: Received multicast frame
+            // B05: Received unicastframe
+            // B04: Received MII error
+            // B03: Indicates Ethernet-type frame (length > 1500 bytes)
+            // B02: RXFTL receive frame too long
+            // B01: RXRF  receive runt frame, damaged by collision
+            // B00: RXCE  receive CRC error
+            if (~ReadData[15] || (ReadData&16'b0011110000010111 != 16'h0)) begin
+               // Error detected, so flush frame
+               FrameValid <= 0;
+               isEthMulticast <= 0;
+               isEthBroadcast <= 0;
+               numPacketInvalid <= numPacketInvalid + 10'd1;
+               state <= ST_RECEIVE_FLUSH_START;
             end
             else begin
-               FrameCount <= FrameCount-8'd1;
-               count[0] <= 1'd0;
-               FireWirePacketFresh <= 1'd0;
-               // Check if packet valid:
-               // B15: RXFV  receive frame valid
-               // B13: ICMP checksum invalid
-               // B12: IP checksum invalid
-               // B11: TCP checksum invalid
-               // B10: UDP checksum invalid
-               // B07: Received broadcast frame
-               // B06: Received multicast frame
-               // B05: Received unicastframe
-               // B04: Received MII error
-               // B03: Indicates Ethernet-type frame (length > 1500 bytes)
-               // B02: RXFTL receive frame too long
-               // B01: RXRF  receive runt frame, damaged by collision
-               // B00: RXCE  receive CRC error
-               if (~ReadData[15] || (ReadData&16'b0011110000010111 != 16'h0)) begin
-                  // Error detected, so flush frame
-                  FrameValid <= 0;
-                  isEthMulticast <= 0;
-                  isEthBroadcast <= 0;
-                  numPacketInvalid <= numPacketInvalid + 10'd1;
-                  state <= ST_RECEIVE_FLUSH_START;
-               end
-               else begin
-                  // Valid frame, so start processing
-                  FrameValid <= 1;
-                  isEthBroadcast <= ReadData[7];
-                  isEthMulticast <= ReadData[6];
-                  isWrite <= 0;
-                  RegAddr <= `ETH_ADDR_RXFHBCR;
-                  state <= ST_WAVEFORM_OUTPUT;
-                  nextState <= ST_RECEIVE_FRAME_LENGTH;
-                  numPacketValid <= numPacketValid + 16'd1;
-               end
+               // Valid frame, so start processing
+               FrameValid <= 1;
+               isEthBroadcast <= ReadData[7];
+               isEthMulticast <= ReadData[6];
+               isWrite <= 0;
+               RegAddr <= `ETH_ADDR_RXFHBCR;
+               state <= ST_WAVEFORM_OUTPUT;
+               nextState <= ST_RECEIVE_FRAME_LENGTH;
+               numPacketValid <= numPacketValid + 16'd1;
             end
          end
 
@@ -1228,7 +1223,8 @@ always @(posedge sysclk) begin
             // ignore(1) + status(1) + byte-count(1)
             if (count[1:0] == 2'd3) begin
                nextState <= ST_RECEIVE_DMA_ETHERNET_HEADERS;
-               count[4:0] <= Frame_Header_Begin;
+               count[1:0] <= 2'd0;
+               rCount <= Frame_Header_Begin;
             end
             else begin
                nextState <= ST_RECEIVE_DMA_SKIP;
@@ -1238,19 +1234,13 @@ always @(posedge sysclk) begin
 
          ST_RECEIVE_DMA_ETHERNET_HEADERS:
          begin
-            if (Any_Error) begin
-               state  <= ST_RECEIVE_FLUSH_START;
-               count[4:0] <= 5'd0;
-            end
-            else begin
-               state <= ST_WAVEFORM_OUTPUT;
-               nextState <= ICMP_Done ? ST_RECEIVE_DMA_ICMP_DATA :
-                            (ARP_Done ? ST_RECEIVE_DMA_FRAME_CRC :
-                             ((UDP_Done || Frame_Raw) ? ST_RECEIVE_DMA_FIREWIRE_PACKET :
-                             ST_RECEIVE_DMA_ETHERNET_HEADERS));
-               count[4:0] <= (ICMP_Done || ARP_Done || UDP_Done || Frame_Raw) ? 5'd0 : count[4:0]+5'd1;
-            end
-            PacketBuffer[count[4:0]] <= `ReadDataSwapped;
+            state <= Any_Error ? ST_RECEIVE_FLUSH_START : ST_WAVEFORM_OUTPUT;
+            nextState <= ICMP_Done ? ST_RECEIVE_DMA_ICMP_DATA :
+                         (ARP_Done ? ST_RECEIVE_DMA_FRAME_CRC :
+                          ((UDP_Done || Frame_Raw) ? ST_RECEIVE_DMA_FIREWIRE_PACKET :
+                          ST_RECEIVE_DMA_ETHERNET_HEADERS));
+            rCount <= rCount + 5'd1;
+            PacketBuffer[rCount] <= `ReadDataSwapped;
             numPacketError <= numPacketError + {9'd0, Frame_Error|IPv4_Error|UDP_Error};
             ethFrameError <= Frame_Error ? 1'd1 : ethFrameError;
             ethIPv4Error <= IPv4_Error ? 1'd1 : ethIPv4Error;
@@ -1467,7 +1457,10 @@ always @(posedge sysclk) begin
                      state <= isInIRQ ? ST_IRQ_DISPATCH : ST_IDLE;
                   end
                   else begin
-                     state <= ST_RECEIVE_FRAME_STATUS;
+                     // isWrite is already 0
+                     RegAddr <= `ETH_ADDR_RXFHSR;
+                     state <= ST_WAVEFORM_OUTPUT;
+                     nextState <= ST_RECEIVE_FRAME_STATUS;
                   end
                end
                waitInfo <= WAIT_NONE;
@@ -1527,37 +1520,34 @@ always @(posedge sysclk) begin
             end
             state <= ST_WAVEFORM_OUTPUT;
             nextState <= ST_SEND_DMA_ETHERNET_HEADERS;
-            count[5:0] <= Frame_Reply_Begin;
-            maxCount <= UDP_Reply_End;   // nominal value (may get updated)
+            sCount <= Frame_Reply_Begin;
          end
 
          ST_SEND_DMA_ETHERNET_HEADERS:
          begin
             state <= ST_WAVEFORM_OUTPUT;
             nextState <= ST_SEND_DMA_ETHERNET_HEADERS;
-            count[5:0] <= (count[5:0] == maxCount) ? 6'd0 : (count[5:0] + 6'd1);
-            `WriteDataSwapped <= ReplyBuffer[count];
-            if (count[5:0] == Frame_Reply_End) begin
+            sCount <= sCount + 6'd1;
+            `WriteDataSwapped <= ReplyBuffer[sCount];
+            if (sCount == Frame_Reply_End) begin
                if (isForward && !useUDP) begin
                   nextState <= ST_SEND_DMA_FWD;
                   sendAddr <= 7'd0;
                   isForward <= 1'd0;
                end
                else if (sendARP) begin
-                  count[5:0] <= ARP_Reply_Begin;
-                  maxCount <= ARP_Reply_End;
+                  sCount <= ARP_Reply_Begin;
                end
                else if (!(isUDP || isEcho || isForward)) begin
                   // Raw packet
                   nextState <= ST_SEND_DMA_PACKETDATA_HEADER;
-                  count[5:0] <= 6'd0;
+                  sCount <= 6'd0;
                end
             end
-            else if (count[5:0] == IPv4_Reply_End) begin
-               count[5:0] <= isEcho ? ICMP_Reply_Begin : UDP_Reply_Begin;
-               maxCount <= isEcho ? ICMP_Reply_End : UDP_Reply_End;
+            else if (sCount == IPv4_Reply_End) begin
+               sCount <= isEcho ? ICMP_Reply_Begin : UDP_Reply_Begin;
             end
-            else if (count[5:0] == UDP_Reply_End) begin
+            else if (sCount == UDP_Reply_End) begin
                if (isForward) begin
                   nextState <= ST_SEND_DMA_FWD;
                   sendAddr <= 7'd0;
@@ -1567,10 +1557,11 @@ always @(posedge sysclk) begin
                   nextState <= ST_SEND_DMA_PACKETDATA_HEADER;
                end
             end
-            else if (count[5:0] == ARP_Reply_End) begin
+            else if (sCount == ARP_Reply_End) begin
                nextState <= ST_SEND_DMA_STOP;
             end
-            else if (count[5:0] == ICMP_Reply_End) begin
+            else if (sCount == ICMP_Reply_End) begin
+               count <= 8'd0;
                nextState <= ST_SEND_DMA_ICMP_DATA;
             end
          end
@@ -1769,7 +1760,6 @@ always @(posedge sysclk) begin
 
          ST_SEND_DMA_DUMMY_DWORD:
          begin
-            count <= 8'd0;
             if (txPktWords[0]) begin
                WriteData <= 16'd0;
                state <= ST_WAVEFORM_OUTPUT;
@@ -1805,7 +1795,6 @@ always @(posedge sysclk) begin
          begin
             isWrite <= 0;
             // RegAddr is already set to TXQCR
-            count[0] <= 1'd0;
             // Wait for bit 0 in Register TXQCR (0x80) to be cleared
             state <= ST_WAVEFORM_OUTPUT;
             nextState <= ((isWrite == 0) && (ReadData[0] == 1'b0)) ? ST_SEND_END : ST_SEND_TXQ_ENQUEUE_WAIT;
@@ -1818,7 +1807,10 @@ always @(posedge sysclk) begin
                   state <= ST_IRQ_DISPATCH;
                end
                else begin
-                  state <= ST_RECEIVE_FRAME_STATUS;
+                  isWrite <= 0;
+                  RegAddr <= `ETH_ADDR_RXFHSR;
+                  state <= ST_WAVEFORM_OUTPUT;
+                  nextState <= ST_RECEIVE_FRAME_STATUS;
                end
             end
             else begin
