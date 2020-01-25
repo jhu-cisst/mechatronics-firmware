@@ -576,14 +576,19 @@ localparam[5:0]
 
 reg[5:0] sCount;                 // Index into ReplyBuffer
 
+wire[15:0] Eth_fpgaMAC[0:2];
+assign Eth_fpgaMAC[0] = InitProgram[2][15:0];
+assign Eth_fpgaMAC[1] = InitProgram[1][15:0];
+assign Eth_fpgaMAC[2] = InitProgram[0][15:0];
+
 //************************* Ethernet Frame Reply Header *********************************
 assign ReplyBuffer[Frame_Reply_Begin+0] = Eth_srcMac[0];
 assign ReplyBuffer[Frame_Reply_Begin+1] = Eth_srcMac[1];
 assign ReplyBuffer[Frame_Reply_Begin+2] = Eth_srcMac[2];
-assign ReplyBuffer[Frame_Reply_Begin+3] = 16'hFA61;
-assign ReplyBuffer[Frame_Reply_Begin+4] = 16'h0E13;
 // Rather than using destAddr from last received packet, use our own MAC addr.
-assign ReplyBuffer[Frame_Reply_Begin+5] = {8'h94, 4'h0, board_id};  // 0x940n (n = board id)
+assign ReplyBuffer[Frame_Reply_Begin+3] = Eth_fpgaMAC[0];
+assign ReplyBuffer[Frame_Reply_Begin+4] = Eth_fpgaMAC[1];
+assign ReplyBuffer[Frame_Reply_Begin+5] = Eth_fpgaMAC[2];
 // Ethertype/Length field, cases are:
 //     1) Forwarding raw packet from FireWire (Length = sendLen)
 //     2) ARP response (Ethertype = 0x0806)
@@ -596,6 +601,7 @@ assign ReplyBuffer[Frame_Reply_Begin+6] = (isForward && !useUDP) ? sendLen :
 
 //***************************** IPv4 Reply Header ************************************
 // Word 0: Version=4, Internet Header Length (IHL)=5, DSCP=0, ECN=0
+// Could probably reuse PacketBuffer[IPv4_Header_Begin+5'd0]
 assign ReplyBuffer[IPv4_Reply_Begin+0] = {4'd4, 4'd5, 6'd0, 2'd0};  // 0x4500
 // Word 1: Total length (header and data)
 //     ICMP reply (echo): same size as request
@@ -636,9 +642,9 @@ assign ReplyBuffer[ARP_Reply_Begin+1] = PacketBuffer[ARP_Packet_Begin+5'd1];  //
 assign ReplyBuffer[ARP_Reply_Begin+2] = PacketBuffer[ARP_Packet_Begin+5'd2];  // HLEN (6) and PLEN (4)
 assign ReplyBuffer[ARP_Reply_Begin+3] = 16'h0002;  // Operation (OPER): 2 for reply
 // Word 4-6: Sender hardware address (SHA):  MAC address of sender
-assign ReplyBuffer[ARP_Reply_Begin+4] = 16'hFA61;  // 0xFA61
-assign ReplyBuffer[ARP_Reply_Begin+5] = 16'h0E13;  // 0x0E13
-assign ReplyBuffer[ARP_Reply_Begin+6] = {8'h94,4'h0,board_id}; // 0x940n (n = board id)
+assign ReplyBuffer[ARP_Reply_Begin+4] = Eth_fpgaMAC[0];    // 0xFA61
+assign ReplyBuffer[ARP_Reply_Begin+5] = Eth_fpgaMAC[1];    // 0x0E13
+assign ReplyBuffer[ARP_Reply_Begin+6] = Eth_fpgaMAC[2];    // 0x940n (n = board id)
 // Word 7-8: Sender protocol address (SPA):  IPv4 address of sender (0 for ARP Probe)
 assign ReplyBuffer[ARP_Reply_Begin+7] = {ip_address[7:0], ip_address[15:8]};
 assign ReplyBuffer[ARP_Reply_Begin+8] = {ip_address[23:16], ip_address[31:24]};
