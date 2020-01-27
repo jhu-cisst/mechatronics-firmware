@@ -105,7 +105,7 @@ module EthernetIO(
     output wire[31:0] reg_rdata,
     input  wire[31:0] reg_wdata,
     input  wire ip_reg_wen,
-    output reg[31:0] ip_address,
+    output wire[31:0] ip_address,
 
     // Interface to/from board registers. These enable the Ethernet module to drive
     // the internal bus on the FPGA. In particular, they are used to read registers
@@ -311,7 +311,6 @@ reg isSending;
 // Non-zero initial values
 initial begin
    isWord = 1'd1;
-   ip_address = IP_UNASSIGNED;
    Cur_WRn = Init_WRn;
    Cur_RDn = Init_RDn;
    Cur_CMD = Init_CMD;
@@ -495,7 +494,9 @@ assign isRaw = (Eth_EtherType[15:9] == 7'd0) ? 1'd1 : 1'd0;
 // Word 9-11: Target hardware address (THA):  MAC address of target (ignored in request)
 // Word 12-13: Target protocol address (TPA): IPv4 address of target
 wire[31:0] ARP_fpgaIP;
-assign ARP_fpgaIP = { PacketBuffer[ID_ARP_fpgaIP0], PacketBuffer[ID_ARP_fpgaIP1] };
+// Byteswapped to match ip_address
+assign ARP_fpgaIP = { PacketBuffer[ID_ARP_fpgaIP1][7:0], PacketBuffer[ID_ARP_fpgaIP1][15:8], PacketBuffer[ID_ARP_fpgaIP0][7:0], PacketBuffer[ID_ARP_fpgaIP0][15:8] };
+
 wire isARPValid;  // Whether ARP request is valid
 assign isARPValid = (PacketBuffer[ID_ARP_HTYPE] == 16'h0001) &&
                     (PacketBuffer[ID_ARP_PTYPE] == 16'h0800) &&
@@ -503,8 +504,7 @@ assign isARPValid = (PacketBuffer[ID_ARP_HTYPE] == 16'h0001) &&
                     (PacketBuffer[ID_ARP_Oper] == 16'h0001);
 
 // Whether ARP IP address matches this board
-wire isARP_ip_equal = (!is_ip_unassigned &&
-                      (ip_address == {ARP_fpgaIP[7:0], ARP_fpgaIP[15:8], ARP_fpgaIP[23:16], ARP_fpgaIP[31:24]})) ? 1'd1 : 1'd0;
+wire isARP_ip_equal = (!is_ip_unassigned && (ip_address == ARP_fpgaIP)) ? 1'd1 : 1'd0;
 
 // Whether we should send an ARP response. This will be valid before it is first used in ST_RECEIVE_FLUSH_WAIT,
 // and should not get checked in ST_SEND states if isForward is 1.
@@ -533,7 +533,8 @@ assign IPv4_Length = PacketBuffer[ID_IPv4_Length];
 wire[7:0] IPv4_Protocol;
 assign IPv4_Protocol = PacketBuffer[ID_IPv4_Protocol][7:0];
 wire[31:0] IPv4_fpgaIP;
-assign IPv4_fpgaIP = { PacketBuffer[ID_IPv4_destIP0], PacketBuffer[ID_IPv4_destIP1] };
+// Byteswapped to match ip_address
+assign IPv4_fpgaIP = { PacketBuffer[ID_IPv4_destIP1][7:0], PacketBuffer[ID_IPv4_destIP1][15:8], PacketBuffer[ID_IPv4_destIP0][7:0], PacketBuffer[ID_IPv4_destIP0][15:8] };
 
 wire is_IPv4_Long;
 // The following conditional is an efficient alternative to (IPv4_IHL > 5).
@@ -679,6 +680,10 @@ initial begin
 end
 
 reg[5:0] replyCnt;                 // Counter for ReplyIndex
+
+// For IP Address register (BoardRegs)
+assign ip_address = {PacketBuffer[ID_Rep_IPv4_Address1][7:0], PacketBuffer[ID_Rep_IPv4_Address1][15:8],
+                     PacketBuffer[ID_Rep_IPv4_Address0][7:0], PacketBuffer[ID_Rep_IPv4_Address0][15:8]};
 
 //**************************** Firewire Reply Header ***********************************
 wire[15:0] Firewire_Header_Reply[0:5];
@@ -920,7 +925,7 @@ always @(posedge sysclk) begin
 
        // Write to IP address register
        if (ip_reg_wen) begin
-          ip_address <= reg_wdata;
+          // Following is equivalent to: ip_address <= reg_wdata;
           PacketBuffer[ID_Rep_IPv4_Address0] <= {reg_wdata[7:0], reg_wdata[15:8] };
           PacketBuffer[ID_Rep_IPv4_Address1] <= {reg_wdata[23:16], reg_wdata[31:24] };
        end
@@ -1088,19 +1093,24 @@ always @(posedge sysclk) begin
             //    B3: Linkup detect
             //    B2: Energy detect
             RegISR <= ReadData;
-            state <= ST_IRQ_DISPATCH;
             isInIRQ <= 1;
             if (~(ReadData[15] || ReadData[13])) begin
                // Record unexpected interrupt
                RegISROther <= ReadData;
             end
+            // Disable interrupts
+            isWrite <= 1;
+            RegAddr <= `ETH_ADDR_IER;
+            WriteData <= 16'd0;
+            state <= ST_WAVEFORM_OUTPUT;
+            nextState <= ST_IRQ_DISPATCH;
          end
 
          ST_IRQ_DISPATCH:
          begin
+            isWrite <= 1;
             if (RegISR[15] == 1'b1) begin
                // Handle link change (TBD)
-               isWrite <= 1;
                RegAddr <= `ETH_ADDR_ISR;
                WriteData <= 16'h8000;    // Clear interrupt
                RegISR[15] <= 1'b0;       // Clear RegISR
@@ -1109,7 +1119,6 @@ always @(posedge sysclk) begin
             end
             else if (RegISR[13] == 1'b1) begin
                // Handle receive
-               isWrite <= 1;
                RegAddr <= `ETH_ADDR_ISR;
                WriteData <= 16'h2000;  // clear interrupt
                RegISR[13] <= 1'b0;     // clear ISR receive IRQ bit
@@ -1119,7 +1128,6 @@ always @(posedge sysclk) begin
             else if (RegISR[14] || RegISR[11] || RegISR[9] || RegISR[8] || RegISR[6]) begin
                // These interrupts are not handled and are disabled, so clear them
                // if they somehow occurred.
-               isWrite <= 1;
                RegAddr <= `ETH_ADDR_ISR;
                WriteData <= RegISR&16'b0100101101000000;
                RegISR <= RegISR&16'b1011010010111111;    // Clear RegISR bits
@@ -1129,17 +1137,20 @@ always @(posedge sysclk) begin
             else if (RegISR[5] || RegISR[4] || RegISR[3] || RegISR[2]) begin
                // These interrupts are also not handled and are disabled, but are
                // cleared differently (by writing to PMECR)
-               isWrite <= 1;
                RegAddr <= `ETH_ADDR_PMECR;
                WriteData <= RegISR&16'h003c;
                RegISR    <= RegISR&16'hffc3;    // Clear RegISR bits
                state <= ST_WAVEFORM_OUTPUT;
-               nextState <= ST_IDLE;
+               nextState <= ST_IRQ_DISPATCH;             // Return to this state to enable interrupts
             end
             else begin
                // Done IRQ handle, clear flag
                isInIRQ <= 0;
-               state <= ST_IDLE;
+               // Enable interrupts
+               RegAddr <= `ETH_ADDR_IER;
+               WriteData <= ETH_VALUE_IER;
+               state <= ST_WAVEFORM_OUTPUT;
+               nextState <= ST_IDLE;
             end
          end
 
@@ -1157,7 +1168,7 @@ always @(posedge sysclk) begin
             else begin
                FrameCount <= ReadData[15:8];
                if (ReadData[15:8] == 0) begin
-                  state <= isInIRQ ? ST_IRQ_DISPATCH : ST_IDLE;
+                  state <= ST_IRQ_DISPATCH;
                end
                else begin
                   // isWrite already 0
@@ -1266,33 +1277,26 @@ always @(posedge sysclk) begin
             ethFrameError <= Frame_Error ? 1'd1 : ethFrameError;
             ethIPv4Error <= IPv4_Error ? 1'd1 : ethIPv4Error;
             ethUDPError <= UDP_Error ? 1'd1 : ethUDPError;
-            if (IPv4_Done && !IPv4_Error) begin
-               // Can check for IHL > 5
-               // maxCount <= IPv4_Header_Begin + {ReadData[3:0],1'd0}-5'd1;
-               if (is_ip_unassigned && (IPv4_fpgaIP[7:0] != 8'hff)) begin
+            // At some point, could check for IHL > 5
+            // maxCount <= IPv4_Header_Begin + {IHL,1'd0}-5'd1;
+            if (recvCnt == ID_IPv4_End+1) begin
+               // This check is done just after the IPv4 packet is processed so we can use
+               // IPv4_fpgaIP; otherwise, the last word (ID_IPv4_destIP1) would not yet be
+               // assigned to PacketBuffer.
+               if (is_ip_unassigned && (IPv4_fpgaIP[31:24] != 8'hff)) begin
                   // This case can occur when the host PC already has an ARP
                   // cache entry for this board, in which case we just assign
                   //  the IP address, as long as it is not a broadcast address
                   //  (we only check whether the last byte is 255).
-                  ip_address[31:16] <= {IPv4_fpgaIP[7:0], IPv4_fpgaIP[15:8] };
-                  ip_address[15:0] <= {IPv4_fpgaIP[23:16], IPv4_fpgaIP[31:24] };
-                  PacketBuffer[ID_Rep_IPv4_Address0] <= IPv4_fpgaIP[31:16];
-                  PacketBuffer[ID_Rep_IPv4_Address1] <= IPv4_fpgaIP[15:0];
+                  PacketBuffer[ID_Rep_IPv4_Address0] <= PacketBuffer[ID_IPv4_destIP0];
+                  PacketBuffer[ID_Rep_IPv4_Address1] <= PacketBuffer[ID_IPv4_destIP1];
                end
-               else if ((ip_address != {IPv4_fpgaIP[7:0], IPv4_fpgaIP[15:8], IPv4_fpgaIP[23:16], IPv4_fpgaIP[31:24]})
-                        && !isEthBroadcast && !isEthMulticast) begin
+               else if ((ip_address != IPv4_fpgaIP) && !isEthBroadcast && !isEthMulticast) begin
                   // If IP assigned, but not equal, we process the packet anyway,
                   // but keep track of the number of times this occurred.
                   // We could decide to update ip_address.
                   numIPv4Mismatch <= numIPv4Mismatch + 10'd1;
                end
-            end
-            else if (ARP_Done && isARPValid && is_ip_unassigned) begin
-               // If our IP address not yet set, update it
-               ip_address[31:16] <= ReadData;
-               ip_address[15:0] <= {ARP_fpgaIP[23:16], ARP_fpgaIP[31:24] };
-               PacketBuffer[ID_Rep_IPv4_Address0] <= ARP_fpgaIP[31:16];
-               PacketBuffer[ID_Rep_IPv4_Address1] <= `ReadDataSwapped;
             end
             else if (UDP_Done && !UDP_Error) begin
                // Save the UDP host port because UDP_hostPort may get overwritten if an ARP packet is received, which
@@ -1446,6 +1450,17 @@ always @(posedge sysclk) begin
             // (this happens with raw Ethernet quadlet read/write commands).
             // Note: rxPktWords does not seem to be predictable, so ignoring it for now.
             //rxPktWords <= rxPktWords-12'd1;
+
+            // Update IP address in response to valid ARP packet. We do this here so
+            // that ARP_fpgaIP is valid (the last word is read at end of previous state).
+            // Note: this feature (setting IP address based on ARP packet received) will
+            //       be removed in the future, since it is better to set the IP address
+            //       by a broadcast write to register `REG_IPADDR (11).
+            if (isARP && isARPValid && is_ip_unassigned) begin
+               // If our IP address not yet set, update it
+               PacketBuffer[ID_Rep_IPv4_Address0] <= PacketBuffer[ID_ARP_fpgaIP0];
+               PacketBuffer[ID_Rep_IPv4_Address1] <= PacketBuffer[ID_ARP_fpgaIP1];
+            end
             state <= ST_RECEIVE_FLUSH_START;
          end
 
@@ -1487,7 +1502,7 @@ always @(posedge sysclk) begin
                end
                else begin
                   if (FrameCount == 8'd0) begin
-                     state <= isInIRQ ? ST_IRQ_DISPATCH : ST_IDLE;
+                     state <= ST_IRQ_DISPATCH;
                   end
                   else begin
                      // isWrite is already 0
