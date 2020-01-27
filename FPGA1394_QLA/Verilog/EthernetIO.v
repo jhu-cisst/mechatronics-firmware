@@ -412,8 +412,12 @@ localparam[5:0]
    ID_ARP_fpgaIP0       = ID_ARP_Begin+12,   // Target (FPGA) IP address (MSW)
    ID_ARP_fpgaIP1       = ID_ARP_Begin+13,   // Target (FPGA) IP address (LSW)
    ID_ARP_End           = ID_ARP_Begin+13,   // ******** End of ARP Header (30) *********
-   ID_Packet_End        = ID_ARP_End,        // ****** End of Packet Data (30) **********
-   ID_Reply_Begin       = ID_Packet_End+1,   // ****** Start of Reply Data (31) *********
+   ID_Csum_Begin        = ID_ARP_End+1,      // ***** Frame Checksum (31) [length=2] ****
+   ID_Frame_Checksum0   = ID_Csum_Begin,     // Ethernet frame checksum (MSW)
+   ID_Frame_Checksum1   = ID_Csum_Begin+1,   // Ethernet frame checksum (MSW)
+   ID_Csum_End          = ID_Csum_Begin+1,   // ***** End of Frame Checksum (32) ********
+   ID_Packet_End        = ID_Csum_End,       // ****** End of Packet Data (32) **********
+   ID_Reply_Begin       = ID_Packet_End+1,   // ****** Start of Reply Data (33) *********
    ID_Rep_Zero          = ID_Reply_Begin,    // Value of 0 for generic use
    ID_Rep_fpgaMac0      = ID_Reply_Begin+1,  // FPGA MAC address (FA61)
    ID_Rep_fpgaMac1      = ID_Reply_Begin+2,  // FPGA MAC address (0E13)
@@ -429,7 +433,7 @@ localparam[5:0]
    ID_Rep_UDP_hostPort  = ID_Reply_Begin+12, // UDP port on host (ID_UDP_hostPort)
    ID_Rep_UDP_Length    = ID_Reply_Begin+13, // UDP Reply Length
    ID_Rep_ARP_Oper      = ID_Reply_Begin+14, // ARP reply operation = 2
-   ID_Reply_End         = ID_Reply_Begin+14; // ******** End of all data (44) ***********
+   ID_Reply_End         = ID_Reply_Begin+14; // ******** End of all data (46) ***********
 
 reg[15:0] PacketBuffer[0:63];
 
@@ -459,15 +463,6 @@ reg[4:0] recvCnt;                // Index into PacketBuffer
 reg[2:0] skipCnt;                // For skipping first 3 words in RXQ
 
 //************************** Ethernet Frame Header ********************************
-// Dest MAC (3 words), Src MAC (3 words), Ethertype/Length (1 word)
-wire[15:0] Eth_destMac[0:2];
-assign Eth_destMac[0] = PacketBuffer[ID_Frame_destMac0];
-assign Eth_destMac[1] = PacketBuffer[ID_Frame_destMac1];
-assign Eth_destMac[2] = PacketBuffer[ID_Frame_destMac2];
-wire[15:0] Eth_srcMac[0:2];
-assign Eth_srcMac[0] = PacketBuffer[ID_Frame_srcMac0];
-assign Eth_srcMac[1] = PacketBuffer[ID_Frame_srcMac1];
-assign Eth_srcMac[2] = PacketBuffer[ID_Frame_srcMac2];
 wire[15:0] Eth_EtherType;
 assign Eth_EtherType = PacketBuffer[ID_Frame_Length];
 
@@ -537,8 +532,6 @@ wire[15:0] IPv4_Length;
 assign IPv4_Length = PacketBuffer[ID_IPv4_Length];
 wire[7:0] IPv4_Protocol;
 assign IPv4_Protocol = PacketBuffer[ID_IPv4_Protocol][7:0];
-wire[31:0] IPv4_hostIP;
-assign IPv4_hostIP = { PacketBuffer[ID_IPv4_hostIP0], PacketBuffer[ID_IPv4_hostIP1] };
 wire[31:0] IPv4_fpgaIP;
 assign IPv4_fpgaIP = { PacketBuffer[ID_IPv4_destIP0], PacketBuffer[ID_IPv4_destIP1] };
 
@@ -557,19 +550,11 @@ wire isICMP;
 assign isICMP = (isIPv4 && (IPv4_Protocol == 8'd1)) ? 1'd1 : 1'd0;
 
 //********************************* UDP Header ****************************************
-// Word 0:  Source port
-// Word 1:  Destination port
-// Word 2:  Length
-// Word 3:  Checksum
-wire[15:0] UDP_hostPort;
-assign UDP_hostPort = PacketBuffer[ID_UDP_hostPort];
-wire[15:0] UDP_destPort;
-assign UDP_destPort = PacketBuffer[ID_UDP_destPort];
 wire[15:0] UDP_Length;
 assign UDP_Length = PacketBuffer[ID_UDP_Length];
 
 wire isPortValid;
-assign isPortValid = (UDP_destPort == 16'd1394) ? 1'd1 : 1'd0;
+assign isPortValid = (PacketBuffer[ID_UDP_destPort] == 16'd1394) ? 1'd1 : 1'd0;
 
 //********************************* ICMP Header ***************************************
 // Data received in ICMP Echo packet (ping)
@@ -725,7 +710,7 @@ assign is_ip_unassigned = (ip_address == IP_UNASSIGNED) ? 1'd1 : 1'd0;
 // ----------------------------------------
 reg isForward;
 
-wire [31:0] DebugData[0:31];
+wire[31:0] DebugData[0:15];
 assign DebugData[0]  = "0GBD";  // DBG0 byte-swapped
 assign DebugData[1]  = timestamp;
 assign DebugData[2]  = {5'd0, ethUDPError, 1'd0, ethIPv4Error, 2'd0, node_id, eth_status};
@@ -734,21 +719,16 @@ assign DebugData[3]  = { 2'd0, state, 2'd0, nextState,
                          isForward, isInIRQ, sendARP, isUDP, isICMP, isEcho, is_IPv4_Long, is_IPv4_Short};
 assign DebugData[4]  = { RegISR, RegISROther};
 assign DebugData[5]  = { host_fw_addr, FrameCount, count};
-assign DebugData[6]  = { Eth_destMac[1][7:0], Eth_destMac[1][15:8], Eth_destMac[0][7:0], Eth_destMac[0][15:8] };
-assign DebugData[7]  = { Eth_srcMac[0][7:0], Eth_srcMac[0][15:8], Eth_destMac[2][7:0], Eth_destMac[2][15:8] };
-assign DebugData[8]  = { Eth_srcMac[2][7:0], Eth_srcMac[2][15:8], Eth_srcMac[1][7:0], Eth_srcMac[1][15:8] };
-assign DebugData[9]  = { 8'h11, maxCountFW, LengthFW };
-assign DebugData[10] = { IPv4_hostIP[7:0], IPv4_hostIP[15:8], IPv4_hostIP[23:16], IPv4_hostIP[31:24] };
-assign DebugData[11] = { IPv4_fpgaIP[7:0], IPv4_fpgaIP[15:8], IPv4_fpgaIP[23:16], IPv4_fpgaIP[31:24] };
-assign DebugData[12] = { IPv4_Length, 4'h0, rxPktWords };
-assign DebugData[13] = { 16'h8877, 4'd0, txPktWords };
-assign DebugData[14] = { 6'd0, numPacketInvalid, numPacketValid };
-assign DebugData[15] = { 6'd0, numUDP, 6'd0, numIPv4 };
-assign DebugData[16] = { 6'd0, numICMP, 6'd0, numARP };
-assign DebugData[17] = { 6'd0, numIPv4Mismatch, 6'd0, numPacketError };
-assign DebugData[18] = { UDP_Length, 6'd0, numStateInvalid };
-//assign DebugData[19] = { UDP_hostPort, UDP_destPort };
-assign DebugData[20] = timestamp;
+assign DebugData[6]  = { 8'h11, maxCountFW, LengthFW };
+assign DebugData[7]  = { 4'd0, txPktWords, 4'h0, rxPktWords };
+assign DebugData[8]  = { 16'h8877,  16'd0 };
+assign DebugData[9]  = { 6'd0, numPacketInvalid, numPacketValid };
+assign DebugData[10] = { 6'd0, numUDP, 6'd0, numIPv4 };
+assign DebugData[11] = { 6'd0, numICMP, 6'd0, numARP };
+assign DebugData[12] = { 6'd0, numIPv4Mismatch, 6'd0, numPacketError };
+assign DebugData[13] = { 16'd0, 6'd0, numStateInvalid };
+assign DebugData[14] = 32'd0;
+assign DebugData[15] = timestamp;
 
 
 // Firewire packet received from host
@@ -846,14 +826,14 @@ reg[4:0] progIndex;    // Index into program (program counter)
 // Following data is accessible via block read from address `ADDR_ETH (0x4000)
 //    Maximum block read size is 64 quadlets (implementation choice)
 //    4000 - 407f (128 quadlets) FireWire packet
-//    4080 - 409f (32 quadlets) Debug data
+//    4080 - 408f (16 quadlets) Debug data
 //    40a0 - 40bf (32 quadlets) InitProgram
 //    40c0 - 40df (32 quadlets) PacketBuffer (64 words)
 //    40e0 - 40ff (32 quadlets) ReplyIndex (64 words)
 // Note that full address decoding is not done, so other addresses will work too
 // (for example, 4f80-4f9f will also give Debug data)
 assign reg_rdata = (reg_raddr[7] == 0) ? FireWirePacket[reg_raddr[6:0]] :
-                   (reg_raddr[6:5] == 2'b00) ? DebugData[reg_raddr[4:0]] :
+                   (reg_raddr[6:4] == 3'b000) ? DebugData[reg_raddr[3:0]] :
                    (reg_raddr[6:5] == 2'b01) ? {6'd0, InitProgram[reg_raddr[4:0]]} :
                    (reg_raddr[6:5] == 2'b10) ? {PacketBuffer[{reg_raddr[4:0],1'b1}], PacketBuffer[{reg_raddr[4:0],1'b0}]} :
                                                {10'd0, ReplyIndex[{reg_raddr[4:0],1'b1}], 10'd0, ReplyIndex[{reg_raddr[4:0],1'b0}]};
@@ -1321,7 +1301,7 @@ always @(posedge sysclk) begin
                // but that would require a much larger PacketBuffer. Also, even separating ARP and UDP in PacketBuffer
                // would not handle the (unlikely) case where an invalid UDP packet is received prior to the request to
                // forward a packet from FireWire.
-               PacketBuffer[ID_Rep_UDP_hostPort] <= UDP_hostPort;
+               PacketBuffer[ID_Rep_UDP_hostPort] <= PacketBuffer[ID_UDP_hostPort];
             end
          end
 
@@ -1558,7 +1538,7 @@ always @(posedge sysclk) begin
                PacketBuffer[ID_Rep_Frame_Length] <= 16'h0800; // IPv4 EtherType
                PacketBuffer[ID_Rep_IPv4_Length] <= 16'd28 + sendLen;
                PacketBuffer[ID_Rep_IPv4_Prot][7:0] <= 8'd17;  // UDP protocol
-               PacketBuffer[ID_Rep_UDP_Length] <= sendLen;
+               PacketBuffer[ID_Rep_UDP_Length] <= 16'd8 + sendLen;
             end
             else if (sendARP) begin
                // ARP response: 14 + 28
