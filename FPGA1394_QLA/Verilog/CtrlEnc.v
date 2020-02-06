@@ -8,12 +8,11 @@
  *
  * Revision history
  *     11/16/11    Paul Thienphrapa    Initial revision
- *     10/27/13    Zihan Chen          Minor, set preload to 24'h800000
+ *     10/27/13    Zihan Chen          Minor, set preload to 24'h800000 (`ENC_MIDRANGE)
  *     04/07/17    Jie Ying Wu         Minor change to clock frequency for velocity estimation
  */
 
-// device register file offset
-`include "Constants.v" 
+`include "Constants.v"
 
 module CtrlEnc(
     input  wire sysclk,           // global clock
@@ -44,10 +43,10 @@ module CtrlEnc(
     wire[31:0] freq_data[1:4];    // encoder frequency measurement
 
     initial begin
-        preload[1] = 24'h800000;    // set to half value
-        preload[2] = 24'h800000;
-        preload[3] = 24'h800000;
-        preload[4] = 24'h800000;
+        preload[1] = `ENC_MIDRANGE;    // set to half value
+        preload[2] = `ENC_MIDRANGE;
+        preload[3] = `ENC_MIDRANGE;
+        preload[4] = `ENC_MIDRANGE;
     end
 
 //------------------------------------------------------------------------------

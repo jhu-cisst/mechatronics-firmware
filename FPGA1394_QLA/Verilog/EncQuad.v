@@ -13,6 +13,8 @@
  *     02/29/12    Zihan Chen          Fix direction flag in updated logic
  */
 
+`include "Constants.v"
+
 module EncQuad(
     input wire clk,              // global clock
     input wire a,                // quad encoder line a
@@ -25,6 +27,7 @@ module EncQuad(
     // local registers
     reg overflow;           // overflow flag, output as the count msb
     reg[24:0] counter;      // register for encoder event counter
+    initial counter = {1'b0, `ENC_MIDRANGE};
 
     // signals for encoder state
     wire[1:0] code;         // value formed from concatenated encoder lines

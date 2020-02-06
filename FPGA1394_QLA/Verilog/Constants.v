@@ -70,6 +70,8 @@
 `define OFF_FREQ_DATA 4'd7         // enc frequency register offset
 `define OFF_DOUT_CTRL 4'd8         // dout hi/lo period (16-bits hi, 16-bits lo)
 
+`define ENC_MIDRANGE 24'h800000    // encoder mid-range value
+
 // FireWire transaction and response codes
 `define TC_QWRITE 4'd0            // quadlet write
 `define TC_BWRITE 4'd1            // block write
