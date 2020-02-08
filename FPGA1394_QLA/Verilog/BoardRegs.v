@@ -81,6 +81,8 @@ module BoardRegs(
     output wire pwr_enable_cmd,
     output wire[4:1] amp_enable_cmd,
 
+    output wire[31:0] reg_status,  // Status register (for reading)
+    output wire[31:0] reg_digin,   // Digital I/O register (for reading)
     output reg[31:0] reg_debug     // for debug purpose only
 );
 
@@ -104,6 +106,22 @@ module BoardRegs(
     // mv good timer                                                                                                                                       
     reg[15:0] mv_good_counter;  // mv_good counter 
     reg[4:1] mv_amp_disable;    // mv good amp_disable
+
+    assign reg_status = {
+                // Byte 3: num channels (4), board id
+                4'd4, board_id,
+                // Byte 2: wdog timeout, eth1394 mode, dout_cfg_valid, dout_cfg_bidir
+                wdog_timeout, eth1394, dout_cfg_valid, dout_cfg_bidir,
+                // mv_good, power enable, safety relay state, safety relay control
+                mv_good, pwr_enable, ~relay, relay_on,
+                // mv_fault, unused (0)
+                ~mv_faultn, 3'd0,
+                // amplifier: 1 -> amplifier on, 0 -> fault (4 axes)
+                fault,
+                // Byte 0: 1 -> amplifier enabled, 0 -> disabled
+                safety_amp_disable[4:1], ~reg_disable[3:0] };
+
+    assign reg_digin = {v_fault, 3'd0, enc_a, enc_b, enc_i, dout, neg_limit, pos_limit, home};
 
 //------------------------------------------------------------------------------
 // hardware description
@@ -168,19 +186,7 @@ always @(posedge(sysclk))
     // return register data for reads
     else begin
         case (reg_raddr[3:0])
-        `REG_STATUS: reg_rdata <= { 
-                // Byte 3: num channels (4), board id
-                4'd4, board_id,
-                // Byte 2: wdog timeout, eth1394 mode, dout_cfg_valid, dout_cfg_bidir
-                wdog_timeout, eth1394, dout_cfg_valid, dout_cfg_bidir,
-                // mv_good, power enable, safety relay state, safety relay control      
-                mv_good, pwr_enable, ~relay, relay_on,   
-                // mv_fault, unused (0)
-                ~mv_faultn, 3'd0,
-                // amplifier: 1 -> amplifier on, 0 -> fault (4 axes)
-                fault,
-                // Byte 0: 1 -> amplifier enabled, 0 -> disabled
-                safety_amp_disable[4:1], ~reg_disable[3:0] };     
+        `REG_STATUS: reg_rdata <= reg_status;
         `REG_PHYCTRL: reg_rdata <= phy_ctrl;
         `REG_PHYDATA: reg_rdata <= phy_data;
         `REG_TIMEOUT: reg_rdata <= wdog_period;
@@ -191,7 +197,7 @@ always @(posedge(sysclk))
         `REG_PROMSTAT: reg_rdata <= prom_status;
         `REG_PROMRES: reg_rdata <= prom_result;
         `REG_DSSTAT: reg_rdata <= ds_status;
-        `REG_DIGIN: reg_rdata <= {v_fault, 3'd0, enc_a, enc_b, enc_i, dout, neg_limit, pos_limit, home};
+        `REG_DIGIN: reg_rdata <= reg_digin;
         `REG_IPADDR: reg_rdata <= ip_address;
         `REG_ETHRES: reg_rdata <= eth_result;
         `REG_DEBUG:  reg_rdata <= reg_debug;

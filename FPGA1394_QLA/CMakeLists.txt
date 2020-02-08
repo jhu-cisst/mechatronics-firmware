@@ -47,6 +47,7 @@ set (VERILOG_SOURCE_REV1 ${VERILOG_SOURCE_COMMON}
 # Verilog source files for Rev 2 firmware
 set (VERILOG_SOURCE_REV2 ${VERILOG_SOURCE_COMMON}
                          "${VERILOG_SOURCE_DIR}/EthernetIO.v"
+                         "${VERILOG_SOURCE_DIR}/SampleData.v"
                          "${VERILOG_SOURCE_DIR}/FPGA1394Eth-QLA.v")
 
 # Compile the Rev 1 firmware -- output is FPGA1394-QLA.mcs, which is copied

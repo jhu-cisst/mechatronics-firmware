@@ -18,14 +18,23 @@ module CtrlEnc(
     input  wire sysclk,           // global clock
     input  wire[1:4] enc_a,       // set of quadrature encoder inputs
     input  wire[1:4] enc_b,
-    input  wire[15:0] reg_raddr,  // register file read addr from outside 
-    input  wire[15:0] reg_waddr,  // register file write addr from outside 
-    output wire[31:0] reg_rdata,  // outgoing register file data
+    input  wire[15:0] reg_raddr_chan,  // register file read addr from outside
+    input  wire[15:0] reg_waddr,  // register file write addr from outside
     input  wire[31:0] reg_wdata,  // incoming register file data
     input  wire reg_wen,          // write enable signal from outside world
+    output wire[31:0] reg_preload,
+    output wire[31:0] reg_quad_data,
+    output wire[31:0] reg_perd_data,
+    output wire[31:0] reg_freq_data,
     output wire[31:0] running
 );    
     
+// output selected read register
+assign reg_preload = {8'd0, preload[reg_raddr_chan]};
+assign reg_quad_data = {7'd0, quad_data[reg_raddr_chan]};
+assign reg_perd_data = perd_data[reg_raddr_chan];
+assign reg_freq_data = freq_data[reg_raddr_chan];
+
     // -------------------------------------------------------------------------
     // local wires and registers
     //
@@ -85,16 +94,6 @@ EncPeriodQuad EncPerd4(sysclk, enc_a_filt[4], enc_b_filt[4], dir[4], perd_data[4
 //EncFreq EncFreq2(sysclk, clk_slow, reset, enc_b_filt[2], dir[2], freq_data[2]);
 //EncFreq EncFreq3(sysclk, clk_slow, reset, enc_b_filt[3], dir[3], freq_data[3]);
 //EncFreq EncFreq4(sysclk, clk_slow, reset, enc_b_filt[4], dir[4], freq_data[4]);
-
-//------------------------------------------------------------------------------
-// register file interface to outside world
-//
-
-// output selected read register
-assign reg_rdata = (reg_raddr[3:0]==`OFF_ENC_LOAD) ? (preload[reg_raddr[7:4]]) :
-                  ((reg_raddr[3:0]==`OFF_ENC_DATA) ? (quad_data[reg_raddr[7:4]]) :
-                  ((reg_raddr[3:0]==`OFF_PER_DATA) ? (perd_data[reg_raddr[7:4]]) : 
-                  ((reg_raddr[3:0]==`OFF_FREQ_DATA) ? (freq_data[reg_raddr[7:4]]) : 32'd0)));
 
 // write selected preload register
 // set_enc: create a pulse when encoder preload is written

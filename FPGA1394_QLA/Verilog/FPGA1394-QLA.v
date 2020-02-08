@@ -40,7 +40,7 @@ module FPGA1394QLA
 
     // debug I/Os
     input wire       clk40m,    // 40.0000 MHz 
-    output wire [3:0] DEBUG,
+    // output wire [3:0] DEBUG,
 
     // misc board I/Os
     input [3:0]      wenid,     // rotary switch
@@ -173,13 +173,11 @@ defparam div2clk.width = 2;
 BUFG adcclk(.I(clkdiv2), .O(clkadc));
 
 
-// map 2 types of  reads to the output of the adc controller; the
-//   latter will select the correct data to output based on read address
-wire[31:0] reg_radc;
-assign reg_rd[`OFF_ADC_DATA] = reg_radc;    // adc reads
-
 // local wire for cur_fb(1-4) 
 wire[15:0] cur_fb[1:4];
+
+// local wire for pot_fb(1-4)
+wire[15:0] pot_fb;
 
 // adc controller routes conversion results according to address
 CtrlAdc adc(
@@ -187,14 +185,20 @@ CtrlAdc adc(
     .sclk({IO1[10],IO1[28]}),
     .conv({IO1[11],IO1[27]}),
     .miso({IO1[12:15],IO1[26],IO1[25],IO1[24],IO1[23]}),
-    .reg_raddr(reg_raddr),
-    .reg_rdata(reg_radc),
     .cur1(cur_fb[1]),
     .cur2(cur_fb[2]),
     .cur3(cur_fb[3]),
-    .cur4(cur_fb[4])
+    .cur4(cur_fb[4]),
+    .pot1(pot_fb[1]),
+    .pot2(pot_fb[2]),
+    .pot3(pot_fb[3]),
+    .pot4(pot_fb[4])
 );
 
+wire[31:0] reg_adc_data;
+assign reg_adc_data = {pot_fb[reg_raddr[7:4]], cur_fb[reg_raddr[7:4]]};
+
+assign reg_rd[`OFF_ADC_DATA] = reg_adc_data;
 
 // --------------------------------------------------------------------------
 // dacs
@@ -229,31 +233,31 @@ CtrlDac dac(
 // encoders
 // --------------------------------------------------------------------------
 
-// fast (~1 MHz) / slow (~12 Hz) clocks to measure encoder period / frequency
-wire clk_1mhz, clk_12hz;
-ClkDiv divenc1(sysclk, clk_1mhz); defparam divenc1.width = 6;   // 49.152 MHz / 2**6 ==> 768 kHz
-ClkDiv divenc2(sysclk, clk_12hz); defparam divenc2.width = 22;  // 49.152 MHz / 2**22 ==> 11.71875 Hz
-
-// map all types of encoder reads to the output of the encoder controller; the
-//   latter will select the correct data to output based on read address
-wire[31:0] reg_renc;
-assign reg_rd[`OFF_ENC_LOAD] = reg_renc;    // preload
-assign reg_rd[`OFF_ENC_DATA] = reg_renc;    // quadrature
-assign reg_rd[`OFF_PER_DATA] = reg_renc;    // period
-assign reg_rd[`OFF_FREQ_DATA] = reg_renc;   // frequency
-
+wire[31:0] reg_preload;
+wire[31:0] reg_quad_data;
+wire[31:0] reg_perd_data;
+wire[31:0] reg_freq_data;
 
 // encoder controller: the thing that manages encoder reads and preloads
 CtrlEnc enc(
     .sysclk(sysclk),
     .enc_a({IO2[23],IO2[21],IO2[19],IO2[17]}),
     .enc_b({IO2[15],IO2[13],IO2[12],IO2[10]}),
-    .reg_raddr(reg_raddr),
+    .reg_raddr_chan(reg_raddr[7:4]),
     .reg_waddr(reg_waddr),
-    .reg_rdata(reg_renc),
     .reg_wdata(reg_wdata),
-    .reg_wen(reg_wen)
+    .reg_wen(reg_wen),
+    .reg_preload(reg_preload),
+    .reg_quad_data(reg_quad_data),
+    .reg_perd_data(reg_perd_data),
+    .reg_freq_data(reg_freq_data)
 );
+
+assign reg_rd[`OFF_ENC_LOAD] = reg_preload;      // preload
+assign reg_rd[`OFF_ENC_DATA] = reg_quad_data;    // quadrature
+assign reg_rd[`OFF_PER_DATA] = reg_perd_data;    // period
+assign reg_rd[`OFF_FREQ_DATA] = reg_freq_data;   // frequency
+
 
 // --------------------------------------------------------------------------
 // digital output (DOUT) control
@@ -422,7 +426,7 @@ DS2505 ds_instrument(
 // miscellaneous board I/Os
 // --------------------------------------------------------------------------
 
-// safety_amp_enable from SafetyCheck moudle
+// safety_amp_enable from SafetyCheck module
 wire[4:1] safety_amp_disable;
 
 // pwr_enable_cmd and amp_enable_cmd from BoardRegs; used to clear safety_amp_disable
@@ -602,7 +606,7 @@ always @(posedge(sysclk)) CountI <= CountI + 1'b1;
 
 assign LED = IO1[32];     // NOTE: IO1[32] pwr_enable
 // assign LED = reg_led;
-assign DEBUG = { clk_1mhz, clk_12hz, CountI[23], CountC[23] }; 
+// assign DEBUG = { clk_1mhz, clk_12hz, CountI[23], CountC[23] }; 
 
 // --- debug LED ----------
 // reg reg_led;
@@ -624,6 +628,9 @@ assign DEBUG = { clk_1mhz, clk_12hz, CountI[23], CountC[23] };
 
 //------------------------------------------------------------------------------
 // LEDs on QLA 
+wire clk_12hz;
+ClkDiv divclk12(sysclk, clk_12hz); defparam divclk12.width = 22;  // 49.152 MHz / 2**22 ==> 11.71875 Hz
+
 CtrlLED qla_led(
     .sysclk(sysclk),
     .clk_12hz(clk_12hz),

@@ -136,7 +136,14 @@ module EthernetIO(
     output reg sendAck,
     output reg[6:0] sendAddr,
     input wire[31:0] sendData,
-    input wire[15:0] sendLen
+    input wire[15:0] sendLen,
+
+    // Interface for sampling data (for block read)
+    output reg sample_start,         // 1 -> start sampling for block read
+    input wire sample_busy,          // Sampling in process
+    output wire[4:0] sample_raddr,   // Read address for sampled data
+    input wire[31:0] sample_rdata,   // Sampled data (for block read)
+    input wire[31:0] timestamp       // Timestamp (for debugging)
 );
 
 reg initOK;            // 1 -> Initialization successful
@@ -214,6 +221,7 @@ reg ethFrameError;     // 1 -> Frame too long (currently, if more than 512 bytes
 reg ethIPv4Error;      // 1 -> IPv4 header error (protocol not UDP or ICMP; header version != 4)
 reg ethUDPError;       // 1 -> Wrong UDP port (not 1394)
 reg ethDestError;      // 1 -> Incorrect destination (FireWire destination does not begin with 0xFFC)
+reg ethAccessError;    // 1 -> Unable to access internal bus
 
 // Current state and next state
 reg[5:0] state;
@@ -259,7 +267,6 @@ localparam [5:0]
     ST_SEND_DMA_PACKETDATA_QUAD = 6'd21,
     ST_SEND_DMA_PACKETDATA_BLOCK_START = 6'd22,
     ST_SEND_DMA_PACKETDATA_BLOCK_MAIN = 6'd23,
-    ST_SEND_DMA_PACKETDATA_BLOCK_CHANNEL = 6'd24,
     ST_SEND_DMA_PACKETDATA_BLOCK_PROM = 6'd25,
     ST_SEND_DMA_PACKETDATA_CHECKSUM = 6'd26,
     ST_SEND_DMA_FWD = 6'd27,
@@ -343,7 +350,6 @@ reg[15:0] RegISR;      // 16-bit ISR register
 reg[15:0] RegISROther; // Unexpected ISR value (for debugging)
 reg[7:0] FrameCount;   // Number of received frames
 reg[7:0] count;        // General use counter
-reg[2:0] next_addr;    // Address of next device (for block read)
 reg[6:0] block_index;  // Index into data block (5-70)
 reg[11:0] txPktWords;  // Num of words sent
 reg[11:0] rxPktWords;  // Num of words in receive queue
@@ -357,6 +363,9 @@ wire[15:0] LengthFW;   // Firewire packet length in bytes
 assign LengthFW = isUDP ? UDP_Length-8'd8 : Eth_EtherType;
 
 assign eth_fwpkt_len = LengthFW;
+
+// Read address for sampled data (32-bit data)
+assign sample_raddr = count[5:1];
 
 //************************ Large buffer to hold various packets **************************
 // Note that it is fine for some buffers to overlap. Below, the UDP, ICMP and ARP buffers
@@ -718,9 +727,9 @@ reg isForward;
 wire[31:0] DebugData[0:15];
 assign DebugData[0]  = "0GBD";  // DBG0 byte-swapped
 assign DebugData[1]  = timestamp;
-assign DebugData[2]  = {5'd0, ethUDPError, 1'd0, ethIPv4Error, 2'd0, node_id, eth_status};
+assign DebugData[2]  = {5'd0, ethUDPError, ethAccessError, ethIPv4Error, 2'd0, node_id, eth_status};
 assign DebugData[3]  = { 2'd0, state, 2'd0, nextState,
-                         2'h0, isLocal, isRemote, FireWirePacketFresh, isEthBroadcast, isEthMulticast, ~ETH_IRQn,
+                         sample_start, sample_busy, isLocal, isRemote, FireWirePacketFresh, isEthBroadcast, isEthMulticast, ~ETH_IRQn,
                          isForward, isInIRQ, sendARP, isUDP, isICMP, isEcho, is_IPv4_Long, is_IPv4_Short};
 assign DebugData[4]  = { RegISR, RegISROther};
 assign DebugData[5]  = { host_fw_addr, FrameCount, count};
@@ -883,31 +892,6 @@ assign addrPROM = (FireWirePacket[2][15:12] == `ADDR_PROM) ? 1'd1 : 1'd0;
 assign addrQLA  = (FireWirePacket[2][15:12] == `ADDR_PROM_QLA) ? 1'd1 : 1'd0;
 
 
-// Registers in block read
-reg[7:0] BlockRegAddr[0:3];
-initial begin
-   BlockRegAddr[0] = {4'd0, `REG_STATUS};
-   BlockRegAddr[1] = {4'd0, `REG_DIGIN};
-   BlockRegAddr[2] = {4'd0, `REG_TEMPSNS};
-   BlockRegAddr[3] = {4'd1, 4'd0 };   // Channel 1 start
-end
-
-// TEMP: Timestamp copied from Firewire.v -- should consolidate
-reg[31:0]  timestamp;          // timestamp counter register
-reg ts_reset;                 // timestamp counter reset signal
-// -------------------------------------------------------
-// Timestamp
-// -------------------------------------------------------
-// timestamp counts number of clocks between block reads
-always @(posedge(sysclk) or posedge(ts_reset))
-begin
-    if (ts_reset)
-        timestamp <= 0;
-    else
-        timestamp <= timestamp + 1'b1;
-end
-
-
 // -------------------------------------------------------
 // Ethernet state machine
 // -------------------------------------------------------
@@ -921,6 +905,10 @@ always @(posedge sysclk) begin
        // Clear sendAck (acknowledge request from Firewire)
        if (sendAck && !sendReq) begin
           sendAck <= 1'd0;
+       end
+
+       if (sample_start && sample_busy) begin
+          sample_start <= 1'd0;
        end
 
        // Write to IP address register
@@ -1009,6 +997,7 @@ always @(posedge sysclk) begin
                ethIPv4Error <= 0;
                ethUDPError <= 0;
                ethDestError <= 0;
+               ethAccessError <= 0;
                FrameValid <= 0;
                isEthMulticast <= 0;
                isEthBroadcast <= 0;
@@ -1368,6 +1357,12 @@ always @(posedge sysclk) begin
                      // (arbitrarily chose to set it at count==8).
                      eth_block_wstart <= 1;
                   end
+                  else if (blockRead && addrMain) begin
+                     // Set and clear sample_start to trigger sampling data for block read
+                     // (arbitrarily chose to set it at count==8; just needs to be early enough that
+                     // sampling is finished before we access it in ST_SEND_DMA_PACKETDATA_BLOCK_MAIN).
+                     sample_start <= 1;
+                  end
                end
             end
             else if (count == 8'd11) begin
@@ -1657,6 +1652,7 @@ always @(posedge sysclk) begin
                eth_reg_raddr <= FireWirePacket[2][15:0];
                if (quadRead) begin
                   // Get ready to read data from the board.
+                  ethAccessError <= sample_busy ? 1'd1 : ethAccessError;
                   eth_read_en <= 1;
                   nextState <= ST_SEND_DMA_PACKETDATA_QUAD;
                end
@@ -1705,11 +1701,13 @@ always @(posedge sysclk) begin
                case (FireWirePacket[2][15:12])
                `ADDR_MAIN: 
                begin
+                  count[5:0] <= 6'd0;
                   nextState <= ST_SEND_DMA_PACKETDATA_BLOCK_MAIN;
                end
                `ADDR_PROM_QLA, `ADDR_PROM:
                begin
                   // Get ready to read data
+                  ethAccessError <= sample_busy ? 1'd1 : ethAccessError;
                   eth_read_en <= 1;
                   eth_reg_raddr[7:0] <= 8'd0;  // Just to be sure
                   nextState <= ST_SEND_DMA_PACKETDATA_BLOCK_PROM;
@@ -1717,6 +1715,7 @@ always @(posedge sysclk) begin
                `ADDR_HUB, `ADDR_ETH, `ADDR_FW:
                begin
                   // TODO: implement read from Hub (for now, abort)
+                  ethAccessError <= sample_busy ? 1'd1 : ethAccessError;
                   eth_read_en <= 1;
                   nextState <= ST_SEND_DMA_PACKETDATA_BLOCK_PROM;
                end
@@ -1736,54 +1735,12 @@ always @(posedge sysclk) begin
          ST_SEND_DMA_PACKETDATA_BLOCK_MAIN:
          begin
             state <= ST_WAVEFORM_OUTPUT;
-            eth_reg_raddr <= (count[0] == 1) ? {8'd0, BlockRegAddr[count[2:1]]} : eth_reg_raddr;
-            `WriteDataSwapped <= (count[2:1] == 2'b00) ?
-                                 ((count[0] == 1'b0) ? timestamp[31:16] : timestamp[15:0]) :
-                                 ((count[0] == 1'b0) ? eth_reg_rdata[31:16] : eth_reg_rdata[15:0]);
-            // count==1: Reset timestamp and get ready to read from board
-            {ts_reset, eth_read_en} <= (count[2:0] == 3'd1) ? 2'b11 : {1'b0, eth_read_en};
-            if (count[2:0] == 3'd7) begin
-               nextState <= ST_SEND_DMA_PACKETDATA_BLOCK_CHANNEL;
-               // NOTE: Following is hard-coded to first read from channel 0,
-               //       and then from 5,6,7. This is correct, but less flexible
-               //       than the implementation in Firewire.v, which uses dev_addr[].
-               next_addr <= 3'd5;             // set next device address
-               count[2:0] <= 3'd0;
-            end
-            else begin
-                nextState <= ST_SEND_DMA_PACKETDATA_BLOCK_MAIN;
-                count[2:0] <= count[2:0]+3'd1;
-            end
-         end
-
-         ST_SEND_DMA_PACKETDATA_BLOCK_CHANNEL:
-         begin
-            state <= ST_WAVEFORM_OUTPUT;
-            if (count[0] == 0) begin
-                count[0] <= 1;
-                WriteData <= {eth_reg_rdata[23:16], eth_reg_rdata[31:24]};
-                nextState <= ST_SEND_DMA_PACKETDATA_BLOCK_CHANNEL;
-            end
-            else begin
-                count[0] <= 0;
-                WriteData <= {eth_reg_rdata[7:0], eth_reg_rdata[15:8]};
-                if (eth_reg_raddr[7:4] == `NUM_CHANNELS) begin
-                    if (next_addr == 3'd7) begin
-                        eth_read_en <= 0;  // we are done
-                        nextState <= ST_SEND_DMA_PACKETDATA_CHECKSUM;
-                    end
-                    else begin
-                        eth_reg_raddr[7:4] <= 4'd1;
-                        eth_reg_raddr[2:0] <= next_addr;
-                        next_addr <= next_addr + 3'd1;
-                        nextState <= ST_SEND_DMA_PACKETDATA_BLOCK_CHANNEL;
-                    end
-                end
-                else begin
-                    eth_reg_raddr[7:4] <= eth_reg_raddr[7:4] + 4'd1;
-                    nextState <= ST_SEND_DMA_PACKETDATA_BLOCK_CHANNEL;
-                end
-            end
+            `WriteDataSwapped <= (count[0] == 1'b0) ? sample_rdata[31:16]
+                                                    : sample_rdata[15:0];
+            // Reading 20 quadlets means max count will reach 39
+            count[5:0] <= (count[5:0] == 6'd39) ? 6'd0 :  count[5:0] + 6'd1;
+            nextState <= (count[5:0] == 6'd39) ? ST_SEND_DMA_PACKETDATA_CHECKSUM
+                                               : ST_SEND_DMA_PACKETDATA_BLOCK_MAIN;
          end
 
          ST_SEND_DMA_PACKETDATA_BLOCK_PROM:

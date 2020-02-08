@@ -103,7 +103,20 @@ module FPGA1394EthQLA
 
 BUFG clksysclk(.I(clk1394), .O(sysclk));
 
-assign reg_raddr = eth_read_en ? eth_reg_raddr : fw_reg_raddr;
+// Wires for sampling block read data
+wire sample_start;        // Start sampling read data
+wire sample_busy;         // 1 -> data sampler has control of bus
+wire[3:0] sample_chan;    // Channel for sampling
+wire[4:0] sample_raddr;   // Address in sample_data buffer
+wire[31:0] sample_rdata;  // Output from sample_data buffer
+wire[31:0] timestamp;     // Timestamp used when sampling
+
+wire eth_sample_start;
+assign sample_start = eth_sample_start & ~sample_busy;
+
+assign reg_raddr = sample_busy ? {`ADDR_MAIN, 4'd0, sample_chan, 4'd0} :
+                   eth_read_en ? eth_reg_raddr :
+                   fw_reg_raddr;
 assign reg_waddr = (eth_reg_wen | eth_blk_wen) ? eth_reg_waddr : fw_reg_waddr;
 assign reg_wdata = (eth_reg_wen | eth_blk_wen) ? eth_reg_wdata : fw_reg_wdata;
 assign reg_wen = fw_reg_wen | eth_reg_wen;
@@ -132,7 +145,6 @@ assign reg_rdata = (reg_raddr[15:12]==`ADDR_HUB) ? (reg_rdata_hub) :
                   ((reg_raddr[15:12]==`ADDR_FW) ? (reg_rdata_fw) :
                   ((reg_raddr[15:12]==`ADDR_DS) ? (reg_rdata_ds) :
                   ((reg_raddr[7:4]==4'd0) ? reg_rdata_chan0 : reg_rd[reg_raddr[3:0]]))))));
-
 
 // 1394 phy low reset, never reset
 assign reset_phy = 1'b1; 
@@ -299,9 +311,15 @@ EthernetIO EthernetTransfers(
     .sendAck(eth_send_ack),
     .sendAddr(eth_send_addr),
     .sendData(eth_send_data),
-    .sendLen(eth_send_len)
-);
+    .sendLen(eth_send_len),
 
+    // Interface for sampling data (for block read)
+    .sample_start(eth_sample_start),   // 1 -> start sampling for block read
+    .sample_busy(sample_busy),         // Sampling in process
+    .sample_raddr(sample_raddr),       // Read address for sampled data
+    .sample_rdata(sample_rdata),       // Sampled data (for block read)
+    .timestamp(timestamp)              // timestamp
+);
 
 // --------------------------------------------------------------------------
 // adcs: pot + current 
@@ -314,13 +332,11 @@ defparam div2clk.width = 2;
 BUFG adcclk(.I(clkdiv2), .O(clkadc));
 
 
-// map 2 types of  reads to the output of the adc controller; the
-//   latter will select the correct data to output based on read address
-wire[31:0] reg_radc;
-assign reg_rd[`OFF_ADC_DATA] = reg_radc;    // adc reads
-
 // local wire for cur_fb(1-4) 
 wire[15:0] cur_fb[1:4];
+
+// local wire for pot_fb(1-4)
+wire[15:0] pot_fb;
 
 // adc controller routes conversion results according to address
 CtrlAdc adc(
@@ -328,14 +344,20 @@ CtrlAdc adc(
     .sclk({IO1[10],IO1[28]}),
     .conv({IO1[11],IO1[27]}),
     .miso({IO1[12:15],IO1[26],IO1[25],IO1[24],IO1[23]}),
-    .reg_raddr(reg_raddr),
-    .reg_rdata(reg_radc),
     .cur1(cur_fb[1]),
     .cur2(cur_fb[2]),
     .cur3(cur_fb[3]),
-    .cur4(cur_fb[4])
+    .cur4(cur_fb[4]),
+    .pot1(pot_fb[1]),
+    .pot2(pot_fb[2]),
+    .pot3(pot_fb[3]),
+    .pot4(pot_fb[4])
 );
 
+wire[31:0] reg_adc_data;
+assign reg_adc_data = {pot_fb[reg_raddr[7:4]], cur_fb[reg_raddr[7:4]]};
+
+assign reg_rd[`OFF_ADC_DATA] = reg_adc_data;
 
 // --------------------------------------------------------------------------
 // dacs
@@ -370,26 +392,31 @@ CtrlDac dac(
 // encoders
 // --------------------------------------------------------------------------
 
-// map all types of encoder reads to the output of the encoder controller; the
-//   latter will select the correct data to output based on read address
-wire[31:0] reg_renc;
-assign reg_rd[`OFF_ENC_LOAD] = reg_renc;    // preload
-assign reg_rd[`OFF_ENC_DATA] = reg_renc;    // quadrature
-assign reg_rd[`OFF_PER_DATA] = reg_renc;    // period
-assign reg_rd[`OFF_FREQ_DATA] = reg_renc;   // frequency
-
+wire[31:0] reg_preload;
+wire[31:0] reg_quad_data;
+wire[31:0] reg_perd_data;
+wire[31:0] reg_freq_data;
 
 // encoder controller: the thing that manages encoder reads and preloads
 CtrlEnc enc(
     .sysclk(sysclk),
     .enc_a({IO2[23],IO2[21],IO2[19],IO2[17]}),
     .enc_b({IO2[15],IO2[13],IO2[12],IO2[10]}),
-    .reg_raddr(reg_raddr),
+    .reg_raddr_chan(reg_raddr[7:4]),
     .reg_waddr(reg_waddr),
-    .reg_rdata(reg_renc),
     .reg_wdata(reg_wdata),
-    .reg_wen(reg_wen)
+    .reg_wen(reg_wen),
+    .reg_preload(reg_preload),
+    .reg_quad_data(reg_quad_data),
+    .reg_perd_data(reg_perd_data),
+    .reg_freq_data(reg_freq_data)
 );
+
+assign reg_rd[`OFF_ENC_LOAD] = reg_preload;      // preload
+assign reg_rd[`OFF_ENC_DATA] = reg_quad_data;    // quadrature
+assign reg_rd[`OFF_PER_DATA] = reg_perd_data;    // period
+assign reg_rd[`OFF_FREQ_DATA] = reg_freq_data;   // frequency
+
 
 // --------------------------------------------------------------------------
 // digital output (DOUT) control
@@ -455,9 +482,6 @@ wire clk400k_raw, clk400k;
 ClkDivI divtemp(clk25m, clk400k_raw);
 defparam divtemp.div = 63;
 BUFG clktemp(.I(clk400k_raw), .O(clk400k));
-
-// route temperature data into BoardRegs module for readout
-wire[15:0] tempsense;
 
 // tempsense module instantiations
 Max6576 T1(
@@ -559,7 +583,7 @@ DS2505 ds_instrument(
 // miscellaneous board I/Os
 // --------------------------------------------------------------------------
 
-// safety_amp_enable from SafetyCheck moudle
+// safety_amp_enable from SafetyCheck module
 wire[4:1] safety_amp_disable;
 
 // pwr_enable_cmd and amp_enable_cmd from BoardRegs; used to clear safety_amp_disable
@@ -568,6 +592,10 @@ wire[4:1] amp_enable_cmd;
 
 // 'channel 0' is a special axis that contains various board I/Os
 wire[31:0] reg_rdata_chan0;
+
+wire[31:0] reg_status;    // Status register
+wire[31:0] reg_digio;     // Digital I/O register
+wire[15:0] tempsense;     // Temperature sensor
 
 BoardRegs chan0(
     .sysclk(sysclk),
@@ -603,7 +631,30 @@ BoardRegs chan0(
     .ds_status(ds_status),
     .safety_amp_disable(safety_amp_disable),
     .pwr_enable_cmd(pwr_enable_cmd),
-    .amp_enable_cmd(amp_enable_cmd)
+    .amp_enable_cmd(amp_enable_cmd),
+    .reg_status(reg_status),
+    .reg_digin(reg_digio)
+);
+
+// --------------------------------------------------------------------------
+// Sample data for block read
+// --------------------------------------------------------------------------
+
+SampleData sampler(
+    .clk(sysclk),
+    .doSample(sample_start),
+    .isBusy(sample_busy),
+    .reg_status(reg_status),
+    .reg_digio(reg_digio),
+    .reg_temp({16'd0, tempsense}),
+    .chan(sample_chan),
+    .adc_in(reg_adc_data),
+    .enc_pos(reg_quad_data),
+    .enc_period(reg_perd_data),
+    .enc_freq(reg_freq_data),
+    .blk_addr(sample_raddr),
+    .blk_data(sample_rdata),
+    .timestamp(timestamp)
 );
 
 // ----------------------------------------------------------------------------

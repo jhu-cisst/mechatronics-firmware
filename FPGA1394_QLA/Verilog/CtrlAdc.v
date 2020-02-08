@@ -18,12 +18,14 @@ module CtrlAdc(
     output wire[1:2] sclk,         // sclk signal to each set of adcs
     output wire[1:2] conv,         // conv signal to each set of adcs
     input  wire[1:8] miso,         // data lines from each individual adc
-    input  wire[15:0] reg_raddr,   // register read addr from outside world
-    output wire[31:0] reg_rdata,   // outgoing register file data
     output wire[15:0] cur1,        // current axis 1
     output wire[15:0] cur2,        // current axis 2
     output wire[15:0] cur3,        // current axis 3
-    output wire[15:0] cur4         // current axis 4
+    output wire[15:0] cur4,        // current axis 4
+    output wire[15:0] pot1,        // pot axis 1
+    output wire[15:0] pot2,        // pot axis 2
+    output wire[15:0] pot3,        // pot axis 3
+    output wire[15:0] pot4         // pot axis 4
 );
 
 
@@ -40,12 +42,6 @@ module CtrlAdc(
 // assign miso to local miso wire
 assign miso_pot = miso[1:4];
 assign miso_cur = miso[5:8];
-
-// output selected read register
-// NOTE:
-//   - reg_raddr[7:4]: channel number  
-//   - top module selects reg_rdata based on #device
-assign reg_rdata = {potval[reg_raddr[7:4]], curval[reg_raddr[7:4]]};
 
 // pot feedback module
 Ltc1864x4 adc_pot(

@@ -303,10 +303,10 @@ module PhyLinkInterface(
         ST_TX_ACK1 = 6,           // tx state, link transmits acknowledgement
         ST_TX_ACK2 = 7,           // tx state, link cleans up after ack
         ST_TX_QUAD = 8,           // tx state, link transmits quadlet response
-        ST_TX_HEAD = 9,           // tx state, link transmits block header
-        ST_TX_HEAD_BC = 10,       // tx state, link transmits block write broadcast to PC
-        ST_TX_DATA = 11,          // tx state, link transmits block data
-        ST_TX_DATA_HUB = 12,      // tx state, link transmits hub block data
+        ST_TX_HEAD = 9,           // tx state, link transmits block read header
+        ST_TX_HEAD_BC = 10,       // tx state, link transmits block read header for broadcast to PC
+        ST_TX_DATA = 11,          // tx state, link transmits block data (including read from hub?)
+        ST_TX_DATA_HUB = 12,      // tx state, link transmits hub block data (NOT USED?)
         ST_TX_FWD = 13,           // tx state, link transmits forward data from eth
         ST_TX_DONE1 = 14,         // tx state, link finalizes transmission
         ST_TX_DONE2 = 15;         // tx state, phy regains phy-link bus
