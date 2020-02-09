@@ -395,7 +395,9 @@ CtrlDac dac(
 wire[31:0] reg_preload;
 wire[31:0] reg_quad_data;
 wire[31:0] reg_perd_data;
-wire[31:0] reg_freq_data;
+wire[31:0] reg_qtr1_data;
+wire[31:0] reg_qtr5_data;
+wire[31:0] reg_run_data;
 
 // encoder controller: the thing that manages encoder reads and preloads
 CtrlEnc enc(
@@ -409,14 +411,17 @@ CtrlEnc enc(
     .reg_preload(reg_preload),
     .reg_quad_data(reg_quad_data),
     .reg_perd_data(reg_perd_data),
-    .reg_freq_data(reg_freq_data)
+    .reg_qtr1_data(reg_qtr1_data),
+    .reg_qtr5_data(reg_qtr5_data),
+    .reg_run_data(reg_run_data)
 );
 
 assign reg_rd[`OFF_ENC_LOAD] = reg_preload;      // preload
 assign reg_rd[`OFF_ENC_DATA] = reg_quad_data;    // quadrature
 assign reg_rd[`OFF_PER_DATA] = reg_perd_data;    // period
-assign reg_rd[`OFF_FREQ_DATA] = reg_freq_data;   // frequency
-
+assign reg_rd[`OFF_QTR1_DATA] = reg_qtr1_data;   // last quarter cycle 
+assign reg_rd[`OFF_QTR5_DATA] = reg_qtr5_data;   // quarter cycle 5 edges ago
+assign reg_rd[`OFF_RUN_DATA] = reg_run_data;     // running counter
 
 // --------------------------------------------------------------------------
 // digital output (DOUT) control
@@ -651,7 +656,9 @@ SampleData sampler(
     .adc_in(reg_adc_data),
     .enc_pos(reg_quad_data),
     .enc_period(reg_perd_data),
-    .enc_freq(reg_freq_data),
+    .enc_qtr1(reg_qtr1_data),
+    .enc_qtr5(reg_qtr5_data),
+    .enc_run(reg_run_data),
     .blk_addr(sample_raddr),
     .blk_data(sample_rdata),
     .timestamp(timestamp)
@@ -705,7 +712,6 @@ always @(posedge(sysclk)) CountI <= CountI + 1'b1;
 
 assign LED = IO1[32];     // NOTE: IO1[32] pwr_enable
 // assign LED = reg_led;
-// assign DEBUG = { clk_1mhz, clk_12hz, CountI[23], CountC[23] }; 
 
 // --- debug LED ----------
 // reg reg_led;

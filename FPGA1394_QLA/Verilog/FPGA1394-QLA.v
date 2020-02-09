@@ -236,7 +236,9 @@ CtrlDac dac(
 wire[31:0] reg_preload;
 wire[31:0] reg_quad_data;
 wire[31:0] reg_perd_data;
-wire[31:0] reg_freq_data;
+wire[31:0] reg_qtr1_data;
+wire[31:0] reg_qtr5_data;
+wire[31:0] reg_run_data;
 
 // encoder controller: the thing that manages encoder reads and preloads
 CtrlEnc enc(
@@ -250,14 +252,17 @@ CtrlEnc enc(
     .reg_preload(reg_preload),
     .reg_quad_data(reg_quad_data),
     .reg_perd_data(reg_perd_data),
-    .reg_freq_data(reg_freq_data)
+    .reg_qtr1_data(reg_qtr1_data),
+    .reg_qtr5_data(reg_qtr5_data),
+    .reg_run_data(reg_run_data)
 );
 
 assign reg_rd[`OFF_ENC_LOAD] = reg_preload;      // preload
 assign reg_rd[`OFF_ENC_DATA] = reg_quad_data;    // quadrature
 assign reg_rd[`OFF_PER_DATA] = reg_perd_data;    // period
-assign reg_rd[`OFF_FREQ_DATA] = reg_freq_data;   // frequency
-
+assign reg_rd[`OFF_QTR1_DATA] = reg_qtr1_data;   // last quarter cycle 
+assign reg_rd[`OFF_QTR5_DATA] = reg_qtr5_data;   // quarter cycle 5 edges ago
+assign reg_rd[`OFF_RUN_DATA] = reg_run_data;     // running counter
 
 // --------------------------------------------------------------------------
 // digital output (DOUT) control

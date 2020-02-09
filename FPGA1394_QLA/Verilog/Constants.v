@@ -26,12 +26,14 @@
 //`define USE_SIMULATION 
 //`define USE_CHIPSCOPE
 
-// Number of channels on QLA
-`define NUM_CHANNELS 4
-
 // firmware constants
 `define VERSION 32'h514C4131       // hard-wired version number "QLA1" = 0x514C4131 
 `define FW_VERSION 32'h07          // firmware version = 7
+
+// define board components
+`define NUM_CHANNELS 4             // number of channels on QLA
+`define NUM_PER_CHN_FIELDS 6       // number of per-channel entries in block read
+                                   // (4 in Firmware Rev 1-6, 6 in Firmware Rev 7+)
 
 // address space  
 `define ADDR_MAIN     4'h0         // board reg & device reg
@@ -60,15 +62,19 @@
 `define REG_DEBUG    4'd15         // Debug register for testing 
 
 // device register file offsets from channel base
-`define OFF_ADC_DATA 4'd0          // adc data register offset (pot + cur)
-`define OFF_DAC_CTRL 4'd1          // dac control register offset
-`define OFF_POT_CTRL 4'd2          // pot control register offset
-`define OFF_POT_DATA 4'd3          // pot data register offset
-`define OFF_ENC_LOAD 4'd4          // enc data preload offset
-`define OFF_ENC_DATA 4'd5          // enc quadrature register offset
-`define OFF_PER_DATA 4'd6          // enc period register offset
-`define OFF_FREQ_DATA 4'd7         // enc frequency register offset
-`define OFF_DOUT_CTRL 4'd8         // dout hi/lo period (16-bits hi, 16-bits lo)
+// For additional fields, please see dev_addr in FireWire.v to send back data in the correct slot
+`define OFF_ADC_DATA 4'h0          // adc data register offset (pot + cur)
+`define OFF_DAC_CTRL 4'h1          // dac control register offset
+`define OFF_POT_CTRL 4'h2          // pot control register offset
+`define OFF_POT_DATA 4'h3          // pot data register offset
+`define OFF_ENC_LOAD 4'h4          // enc data preload offset
+`define OFF_ENC_DATA 4'h5          // enc quadrature register offset
+`define OFF_PER_DATA 4'h6          // enc period register offset
+`define OFF_QTR1_DATA 4'h7         // enc previous quarter offset
+`define OFF_DOUT_CTRL 4'h8         // dout hi/lo period (16-bits hi, 16-bits lo)
+`define OFF_QTR5_DATA 4'h9         // enc most recent quarter offset
+`define OFF_RUN_DATA  4'hA         // enc running counter offset
+
 
 `define ENC_MIDRANGE 24'h800000    // encoder mid-range value
 

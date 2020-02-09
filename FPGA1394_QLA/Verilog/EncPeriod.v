@@ -26,13 +26,14 @@
 // Quad Ticks Version 
 // ------------------------------------------------
 module EncPeriodQuad(
-    input wire clk,           // sysclk
-    input wire a,             // quad encoder line a
-    input wire b,             // quad encoder line b
-    input wire dir,           // dir from EncQuad
-    output reg[31:0] period,  // num of fast clock ticks
-    output reg[31:0] acc,     // [31:16] time since last edge, [15:0] estimated acc
-    output wire[31:0] t_cur   // time since last edge
+    input wire clk,               // sysclk
+    input wire a,                 // quad encoder line a
+    input wire b,                 // quad encoder line b
+    input wire dir,               // dir from EncQuad
+    output reg[31:0] period,      // num of fast clock ticks
+    output reg[31:0] quarter1,    // [23:0] clock ticks in last quarter cycle
+    output reg[31:0] quarter5,    // [23:0] clock ticks in quarter cycle 5 edges ago
+    output wire[31:0] t_cur       // time since last edge
 );
 
     reg[1:0] mux;  // Indicates most recent edge (a_up, a_dn, b_up, or b_dn)
@@ -127,10 +128,10 @@ always @(posedge clk) begin
             // The MSB (period[31]) indicates an overflow and period[30] contains the direction.
             if (sum > overflow_value) begin
                 period[31] <= 1;
-                period[21:0] <= overflow_value[width-1:4];
+                period[width+1:0] <= overflow_value;
             end else begin
                 period[31] <= 0;
-                period[21:0] <= sum[width-1:4];
+                period[width+1:0] <= sum;
             end
             period[30] <= dir;
 
@@ -138,19 +139,17 @@ always @(posedge clk) begin
             // 8 least-significant bits of last latched value are stored in upper bits of period.
             // 12 most-significant bits of last latched value are stored in upper bits of acc.
             if (counter[1] > small_overflow) begin
-                period[29:22] <= small_overflow[11:4];
-                acc[31:20] <= small_overflow[23:12];
+                quarter1[width-3:0] <= small_overflow[width-3:0];
             end else begin
-                period[29:22] <= counter[1][11:4];
-                acc[31:20] <= counter[1][23:12];
+                quarter1[width-3:0] <= counter[1][width-3:0];
             end
 
             // Prev counter for acceleration
             // 20 bits of previous counter stored in lower bits of acc.
             if (counter[5] > small_overflow) begin
-                acc[19:0] <= small_overflow[23:4];
+                quarter5[width-3:0] <= small_overflow[width-3:0];
              end else begin
-                acc[19:0] <= counter[5][23:4];
+                quarter5[width-3:0] <= counter[1][width-3:0];
              end
              
         end else if (counter[1] != overflow_value) begin
@@ -162,10 +161,10 @@ always @(posedge clk) begin
                 period[30] <= dir;
                 if (sum > overflow_value) begin
                     period[31] <= 1;
-                    period[21:0] <= overflow_value[width-1:4];
+                    period[width+1:0] <= {2'b0, overflow_value};
                 end else begin
                     period[31] <= 0;
-                    period[21:0] <= sum[width-1:4];
+                    period[width+1:0] <= sum;
                 end
             end
         end else begin
@@ -175,6 +174,5 @@ always @(posedge clk) begin
 end
 
 //Should overflow more values
-// PK: why not provide all bits of counter[1]?
-assign t_cur = {7'b0, latch_overflow, latched_mux, mux, counter[1][23:4]};
+assign t_cur = {1'b0, latch_overflow, latched_mux, mux, counter[1]};
 endmodule

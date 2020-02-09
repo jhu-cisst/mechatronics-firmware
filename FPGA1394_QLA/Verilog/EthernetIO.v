@@ -1737,9 +1737,9 @@ always @(posedge sysclk) begin
             state <= ST_WAVEFORM_OUTPUT;
             `WriteDataSwapped <= (count[0] == 1'b0) ? sample_rdata[31:16]
                                                     : sample_rdata[15:0];
-            // Reading 20 quadlets means max count will reach 39
-            count[5:0] <= (count[5:0] == 6'd39) ? 6'd0 :  count[5:0] + 6'd1;
-            nextState <= (count[5:0] == 6'd39) ? ST_SEND_DMA_PACKETDATA_CHECKSUM
+            // Reading 28 quadlets means max count will reach 55
+            count[5:0] <= (count[5:0] == 6'd55) ? 6'd0 :  count[5:0] + 6'd1;
+            nextState <= (count[5:0] == 6'd55) ? ST_SEND_DMA_PACKETDATA_CHECKSUM
                                                : ST_SEND_DMA_PACKETDATA_BLOCK_MAIN;
          end
 

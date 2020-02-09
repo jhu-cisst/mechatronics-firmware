@@ -25,6 +25,7 @@
  *     10/28/13    Zihan Chen          Added seperate write address line
  *     08/23/14    Zihan Chen          Added support for Eth1394
  *     12/02/16    Zihan Chen          Added packet forward from Ethernet
+ *     05/03/18    Jie Ying Wu         Added additional fields for velocity
  */
 
 // LLC: link layer controller (implemented in this file)
@@ -286,7 +287,7 @@ module PhyLinkInterface(
     // real-time read stuff
     // an array of 4 4-bits device address
     // adc enc_pos enc_period enc_freq
-    wire[3:0] dev_addr[0:3];      // order of device addresses for block read
+    wire[3:0] dev_addr[0:`NUM_PER_CHN_FIELDS-1];      // order of device addresses for block read
     reg[2:0] dev_index;           // selects device address from map
     reg[31:0] timestamp;          // timestamp counter register
     reg ts_reset;                 // timestamp counter reset signal
@@ -353,8 +354,10 @@ assign phy_rw = buffer[12];
 // map of device address in order of appearance in block read
 assign dev_addr[0] = `OFF_ADC_DATA;        // adc device address
 assign dev_addr[1] = `OFF_ENC_DATA;        // enc position address
-assign dev_addr[2] = `OFF_PER_DATA;        // enc period address
-assign dev_addr[3] = `OFF_FREQ_DATA;       // enc frequency address
+assign dev_addr[2] = `OFF_PER_DATA;        // enc vel period address
+assign dev_addr[3] = `OFF_QTR1_DATA;       // enc vel last quarter address
+assign dev_addr[4] = `OFF_QTR5_DATA;       // enc vel 5 quarters ago address
+assign dev_addr[5] = `OFF_RUN_DATA;        // enc vel running counter address
 
 // packet module (used to store FireWire packet)
 reg pkt_mem_wen;
@@ -787,7 +790,7 @@ begin
                             if (reg_waddr[15:12]==`ADDR_MAIN) begin
                                 // main is special, ignore address in 1394 packet
                                 reg_waddr[7:4] <= 0;    // init channel address
-                                reg_waddr[3:0] <= 1;    // set dac device address
+                                reg_waddr[3:0] <= `OFF_DAC_CTRL;    // set dac device address
                             end
                             else begin
                                 // block write to hub, prom, prom_qla
@@ -1050,7 +1053,7 @@ begin
                     if (reg_raddr[15:12]==`ADDR_MAIN) begin
                         // main keep going special case
                         buffer <= timestamp;         // latch timestamp
-                        reg_raddr[7:0] <= 8'h00;     // address for status data
+                        reg_raddr[7:0] <= {4'b0, `REG_STATUS};     // address for status data
                         ts_reset <= 1'b1;            // set timestamp reset 
                     end
                     else begin
@@ -1067,14 +1070,14 @@ begin
                 // latch status data, setup address for digital inputs
                 184: begin
                     buffer <= reg_rdata;             
-                    reg_raddr[7:0] <= 8'h0a;      // 8'h0a: digital inputs
+                    reg_raddr[7:0] <= {4'b0, `REG_DIGIN};      // 8'h0a: digital inputs
                     ts_reset <= 1'b0;             // clear timestamp reset
                 end
 
                 // latch digital inputs, setup address for temperature sensors
                 216: begin
                     buffer <= reg_rdata;             
-                    reg_raddr[7:0] <= 8'h05;      // 8'h05: temperature sensors
+                    reg_raddr[7:0] <= {4'b0, `REG_TEMPSNS};      // 8'h05: temperature sensors
                 end
 
                 // latch temperature sensors, go to block data state
@@ -1146,7 +1149,7 @@ begin
                     reg_waddr[4:0] <= 4'd1;  // hubreg 
                     reg_wdata <= timestamp;
                     buffer <= timestamp;    // latch timestamp
-                    reg_raddr[15:0] <= { `ADDR_MAIN, 4'h0, 8'h00 };      // 0: status (See BoardRegs)
+                    reg_raddr[15:0] <= { `ADDR_MAIN, 8'h0, `REG_STATUS };      // 0: status (See BoardRegs)
                     ts_reset <= 1;          // reset timestamp counter
                 end
 
@@ -1155,7 +1158,7 @@ begin
                     reg_waddr[4:0] <= 4'd2;  // hubreg
                     reg_wdata <= reg_rdata;
                     buffer <= reg_rdata;    // latch status
-                    reg_raddr[7:0] <= 8'h0a;      // 8'h0a: digital inputs (See BoardRegs)
+                    reg_raddr[7:0] <= {4'b0, `REG_DIGIN};      // 8'h0a: digital inputs (See BoardRegs)
                     ts_reset <= 0;          // clear timestamp reset
                 end
 
@@ -1164,7 +1167,7 @@ begin
                     reg_waddr[4:0] <= 4'd3;  // hubreg
                     reg_wdata <= reg_rdata;
                     buffer <= reg_rdata;    // latch digital inputs
-                    reg_raddr[7:0] <= 8'h05;      // 5: temperature sensors (See BoardRegs)
+                    reg_raddr[7:0] <= {4'b0, `REG_TEMPSNS};      // 5: temperature sensors (See BoardRegs)
                 end
 
                 // latch temperature sensors, go to block data state
@@ -1214,7 +1217,7 @@ begin
                         if (reg_raddr[7:4] == `NUM_CHANNELS) begin
                             reg_raddr[7:4] <= 4'h1;
                             reg_raddr[3:0] <= dev_addr[dev_index];
-                            dev_index <= (dev_index<3) ? (dev_index+1'b1) : 3'd0;
+                            dev_index <= (dev_index<`NUM_PER_CHN_FIELDS) ? (dev_index+1'b1) : 3'd0;
                         end
                         else
                             reg_raddr[7:4] <= reg_raddr[7:4] + 1'b1;
