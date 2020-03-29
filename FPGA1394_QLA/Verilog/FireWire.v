@@ -1232,6 +1232,9 @@ begin
                             reg_raddr[4:0] <= reg_raddr[4:0] + 1'b1;
                         end
                     end
+                    else if (reg_raddr[15:12] == `ADDR_DATA_BUF) begin
+                        reg_raddr[9:0] <= reg_raddr[9:0] + 10'd1;
+                    end
                     else begin   // PROM & PROM_QLA // ETH // FW // Dallas (DS2505)
                         reg_raddr[5:0] <= reg_raddr[5:0] + 1'b1;
                     end

@@ -22,10 +22,12 @@ module CtrlAdc(
     output wire[15:0] cur2,        // current axis 2
     output wire[15:0] cur3,        // current axis 3
     output wire[15:0] cur4,        // current axis 4
+    output wire       cur_ready,   // new current data available
     output wire[15:0] pot1,        // pot axis 1
     output wire[15:0] pot2,        // pot axis 2
     output wire[15:0] pot3,        // pot axis 3
-    output wire[15:0] pot4         // pot axis 4
+    output wire[15:0] pot4,        // pot axis 4
+    output wire       pot_ready    // new pot data available
 );
 
 
@@ -50,6 +52,7 @@ Ltc1864x4 adc_pot(
     .Out2(potval[2]),
     .Out3(potval[3]),
     .Out4(potval[4]),
+    .OutReady(pot_ready),
     .sclk(sclk[1]),
     .conv(conv[1]),
     .miso(miso_pot)
@@ -62,6 +65,7 @@ Ltc1864x4 adc_cur(
     .Out2(curval[2]),
     .Out3(curval[3]),
     .Out4(curval[4]),
+    .OutReady(cur_ready),
     .sclk(sclk[2]),
     .conv(conv[2]),
     .miso(miso_cur)

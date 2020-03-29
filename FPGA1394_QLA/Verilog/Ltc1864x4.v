@@ -42,6 +42,7 @@ module Ltc1864x4(
     output reg[15:0] Out2,
     output reg[15:0] Out3,
     output reg[15:0] Out4,
+    output reg OutReady,      // 1 -> New ADC values available
     output reg sclk,          // sclk signal to all the ADCs
     output reg conv,          // conv signal to all the ADCs
     input wire[3:0] miso      // miso inputs from the ADC
@@ -67,6 +68,7 @@ begin
         Dat2 <= { Dat2[14:0], miso[1] };
         Dat3 <= { Dat3[14:0], miso[2] };
         Dat4 <= { Dat4[14:0], miso[3] };
+        OutReady <= 0;
     end
 
     // Capture data from shift registers right after last bit shifted in
@@ -75,7 +77,9 @@ begin
         Out2 <= Dat2;
         Out3 <= Dat3;
         Out4 <= Dat4;
+        OutReady <= 1;
     end
+
 end
 
 endmodule

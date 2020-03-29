@@ -144,7 +144,8 @@ assign reg_rdata = (reg_raddr[15:12]==`ADDR_HUB) ? (reg_rdata_hub) :
                   ((reg_raddr[15:12]==`ADDR_ETH) ? (reg_rdata_eth) :
                   ((reg_raddr[15:12]==`ADDR_FW) ? (reg_rdata_fw) :
                   ((reg_raddr[15:12]==`ADDR_DS) ? (reg_rdata_ds) :
-                  ((reg_raddr[7:4]==4'd0) ? reg_rdata_chan0 : reg_rd[reg_raddr[3:0]]))))));
+                  ((reg_raddr[15:12]==`ADDR_DATA_BUF) ? (reg_rdata_databuf) :
+                  ((reg_raddr[7:4]==4'd0) ? reg_rdata_chan0 : reg_rd[reg_raddr[3:0]])))))));
 
 // 1394 phy low reset, never reset
 assign reset_phy = 1'b1; 
@@ -334,9 +335,11 @@ BUFG adcclk(.I(clkdiv2), .O(clkadc));
 
 // local wire for cur_fb(1-4) 
 wire[15:0] cur_fb[1:4];
+wire       cur_fb_wen;
 
 // local wire for pot_fb(1-4)
 wire[15:0] pot_fb;
+wire       pot_fb_wen;
 
 // adc controller routes conversion results according to address
 CtrlAdc adc(
@@ -348,10 +351,12 @@ CtrlAdc adc(
     .cur2(cur_fb[2]),
     .cur3(cur_fb[3]),
     .cur4(cur_fb[4]),
+    .cur_ready(cur_fb_wen),
     .pot1(pot_fb[1]),
     .pot2(pot_fb[2]),
     .pot3(pot_fb[3]),
-    .pot4(pot_fb[4])
+    .pot4(pot_fb[4]),
+    .pot_ready(pot_fb_wen)
 );
 
 wire[31:0] reg_adc_data;
@@ -634,7 +639,11 @@ BoardRegs chan0(
     .ip_address(ip_address),
     .eth_result(Eth_Result),
     .ds_status(ds_status),
+`ifdef DISABLE_SAFETY_CHECK
+    .safety_amp_disable(4'd0),
+`else
     .safety_amp_disable(safety_amp_disable),
+`endif
     .pwr_enable_cmd(pwr_enable_cmd),
     .amp_enable_cmd(amp_enable_cmd),
     .reg_status(reg_status),
@@ -700,6 +709,26 @@ SafetyCheck safe4(
     .amp_disable(safety_amp_disable[4])
 );
 
+
+// --------------------------------------------------------------------------
+// Data Buffer
+// --------------------------------------------------------------------------
+wire[3:0] data_channel;
+wire[31:0] reg_rdata_databuf;
+
+DataBuffer data_buffer(
+    .clk(sysclk),
+    // data collection interface
+    .cur_fb_wen(cur_fb_wen),
+    .cur_fb(cur_fb[data_channel]),
+    .chan(data_channel),
+    // cpu interface
+    .reg_waddr(reg_waddr),          // write address
+    .reg_wdata(reg_wdata),          // write data
+    .reg_wen(reg_wen),              // write enable
+    .reg_raddr(reg_raddr),          // read address
+    .reg_rdata(reg_rdata_databuf)   // read data
+);
 
 //------------------------------------------------------------------------------
 // debugging, etc.
