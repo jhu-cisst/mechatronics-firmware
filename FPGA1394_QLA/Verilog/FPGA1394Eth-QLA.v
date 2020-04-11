@@ -338,7 +338,7 @@ wire[15:0] cur_fb[1:4];
 wire       cur_fb_wen;
 
 // local wire for pot_fb(1-4)
-wire[15:0] pot_fb;
+wire[15:0] pot_fb[1:4];
 wire       pot_fb_wen;
 
 // adc controller routes conversion results according to address

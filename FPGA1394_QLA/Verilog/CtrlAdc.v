@@ -34,8 +34,6 @@ module CtrlAdc(
     // local wires
     wire[1:4] miso_pot;
     wire[1:4] miso_cur;
-    wire[15:0] potval[1:4];       // 4 channels of analog pot values
-    wire[15:0] curval[1:4];       // 4 channels of current feedback values
 
 //------------------------------------------------------------------------------
 // hardware description
@@ -48,10 +46,10 @@ assign miso_cur = miso[5:8];
 // pot feedback module
 Ltc1864x4 adc_pot(
     .clk(clkadc),
-    .Out1(potval[1]),
-    .Out2(potval[2]),
-    .Out3(potval[3]),
-    .Out4(potval[4]),
+    .Out1(pot1),
+    .Out2(pot2),
+    .Out3(pot3),
+    .Out4(pot4),
     .OutReady(pot_ready),
     .sclk(sclk[1]),
     .conv(conv[1]),
@@ -61,20 +59,14 @@ Ltc1864x4 adc_pot(
 // cur feedback module
 Ltc1864x4 adc_cur(
     .clk(clkadc),
-    .Out1(curval[1]),
-    .Out2(curval[2]),
-    .Out3(curval[3]),
-    .Out4(curval[4]),
+    .Out1(cur1),
+    .Out2(cur2),
+    .Out3(cur3),
+    .Out4(cur4),
     .OutReady(cur_ready),
     .sclk(sclk[2]),
     .conv(conv[2]),
     .miso(miso_cur)
 );
-
-// connect to cur value output
-assign cur1 = curval[1];
-assign cur2 = curval[2];
-assign cur3 = curval[3];
-assign cur4 = curval[4];
 
 endmodule
