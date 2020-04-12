@@ -30,23 +30,26 @@ module DataBuffer(
 
 initial chan = 4'd1;
 
-// Register write to `ADDR_DATA_BUF to set channel number
-wire chan_wen;
-assign chan_wen = reg_wen && (reg_waddr[15:12] == `ADDR_DATA_BUF) && (reg_waddr[11:0] == 12'd0);
-
-// Note that the data collection bit (30) is used to start/stop data collection.
-wire cur_cmd_wen;    // Write enable for commanded current
-assign cur_cmd_wen = reg_wen && (reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[3:0]==`OFF_DAC_CTRL)
-                     && (reg_waddr[7:4] == chan);
-
 reg       collecting = 0;
 reg       buf_wr = 0;
 reg[9:0]  buf_wr_addr = 10'h000;
 reg[31:0] buf_wr_data;
 
+// Note that the data collection bit (30) is used to start/stop data collection.
+wire cur_cmd_wen;    // Write enable for commanded current
+// Write the command current to the buffer when:
+//   1) Collection bit set (reg_wdata[30]), but not already collecting
+//   2) Collection in process and writing current to the correct channel
+assign cur_cmd_wen = reg_wen && (reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[3:0]==`OFF_DAC_CTRL) &&
+                     ((!collecting && reg_wdata[30])) || (collecting && (reg_waddr[7:4] == chan));
+
 // Following used in case cur_cmd_wen and cur_fb_wen happen at same time
 reg       cur_cmd_wen_dly = 0;
 reg[15:0] cur_cmd_dly = 16'd0;
+
+wire[31:0] mem_read;
+// Read data: flags (2 bits), current write address (10 bits), channel (4 bits), data (16 bits)
+assign reg_rdata = {mem_read[31:30], buf_wr_addr, mem_read[19:0]};
 
 Dual_port_RAM_32X1024 Dual_port_RAM_32X1024(
     .clka(clk),
@@ -57,16 +60,12 @@ Dual_port_RAM_32X1024 Dual_port_RAM_32X1024(
     .clkb(clk),
     .enb(1'b1),
     .addrb(reg_raddr),
-    .doutb(reg_rdata)
+    .doutb(mem_read)
 );
 
 // --------------------------------------------
 // buffer write address and data gen
 // --------------------------------------------
-always @(posedge chan_wen)
-begin
-    chan <= reg_wdata[3:0];
-end
 
 always @(posedge clk)
 begin
@@ -74,7 +73,8 @@ begin
     if (cur_cmd_wen) begin
         collecting <= reg_wdata[30];
         if (!collecting && reg_wdata[30]) begin
-           // If data collection just started, reset buffer address
+           // If data collection just started, set channel and reset buffer address
+           chan <= reg_waddr[7:4];
            buf_wr_addr <= 10'd0;
         end
         cur_cmd_dly <= reg_wdata[15:0];
@@ -103,7 +103,7 @@ begin
                     end
           default : begin
                     buf_wr <= 0;
-                   buf_wr_data <= 32'h00000000;
+                    buf_wr_data <= 32'h00000000;
                     end
         endcase
     end
