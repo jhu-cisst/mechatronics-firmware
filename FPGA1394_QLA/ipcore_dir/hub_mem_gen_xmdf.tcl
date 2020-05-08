@@ -35,27 +35,31 @@ utilities_xmdf::xmdfSetData $instance FileSet $fcount type logical_library
 utilities_xmdf::xmdfSetData $instance FileSet $fcount logical_library unisim
 incr fcount
 
-utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path blk_mem_gen_ds512.pdf
-utilities_xmdf::xmdfSetData $instance FileSet $fcount type AnyView
-incr fcount
-
-utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path blk_mem_gen_v6_3_readme.txt
-utilities_xmdf::xmdfSetData $instance FileSet $fcount type text
-incr fcount
-
-utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path hub_mem_gen/example_design/bmg_wrapper.vhd
+utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path hub_mem_gen/blk_mem_gen_v7_3_readme.txt
 utilities_xmdf::xmdfSetData $instance FileSet $fcount type Ignore
 incr fcount
 
-utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path hub_mem_gen/example_design/hub_mem_gen_top.ucf
+utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path hub_mem_gen/doc/blk_mem_gen_v7_3_vinfo.html
 utilities_xmdf::xmdfSetData $instance FileSet $fcount type Ignore
 incr fcount
 
-utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path hub_mem_gen/example_design/hub_mem_gen_top.vhd
+utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path hub_mem_gen/doc/pg058-blk-mem-gen.pdf
 utilities_xmdf::xmdfSetData $instance FileSet $fcount type Ignore
 incr fcount
 
-utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path hub_mem_gen/example_design/hub_mem_gen_top.xdc
+utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path hub_mem_gen/example_design/hub_mem_gen_exdes.ucf
+utilities_xmdf::xmdfSetData $instance FileSet $fcount type Ignore
+incr fcount
+
+utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path hub_mem_gen/example_design/hub_mem_gen_exdes.vhd
+utilities_xmdf::xmdfSetData $instance FileSet $fcount type Ignore
+incr fcount
+
+utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path hub_mem_gen/example_design/hub_mem_gen_exdes.xdc
+utilities_xmdf::xmdfSetData $instance FileSet $fcount type Ignore
+incr fcount
+
+utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path hub_mem_gen/example_design/hub_mem_gen_prod.vhd
 utilities_xmdf::xmdfSetData $instance FileSet $fcount type Ignore
 incr fcount
 
@@ -67,15 +71,15 @@ utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path hub_mem_gen/
 utilities_xmdf::xmdfSetData $instance FileSet $fcount type Ignore
 incr fcount
 
-utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path hub_mem_gen/implement/planAhead_rdn.bat
+utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path hub_mem_gen/implement/planAhead_ise.bat
 utilities_xmdf::xmdfSetData $instance FileSet $fcount type Ignore
 incr fcount
 
-utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path hub_mem_gen/implement/planAhead_rdn.sh
+utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path hub_mem_gen/implement/planAhead_ise.sh
 utilities_xmdf::xmdfSetData $instance FileSet $fcount type Ignore
 incr fcount
 
-utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path hub_mem_gen/implement/planAhead_rdn.tcl
+utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path hub_mem_gen/implement/planAhead_ise.tcl
 utilities_xmdf::xmdfSetData $instance FileSet $fcount type Ignore
 incr fcount
 
@@ -99,14 +103,6 @@ utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path hub_mem_gen/
 utilities_xmdf::xmdfSetData $instance FileSet $fcount type Ignore
 incr fcount
 
-utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path hub_mem_gen/simulation/bmg_tb_synth.vhd
-utilities_xmdf::xmdfSetData $instance FileSet $fcount type Ignore
-incr fcount
-
-utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path hub_mem_gen/simulation/bmg_tb_top.vhd
-utilities_xmdf::xmdfSetData $instance FileSet $fcount type Ignore
-incr fcount
-
 utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path hub_mem_gen/simulation/checker.vhd
 utilities_xmdf::xmdfSetData $instance FileSet $fcount type Ignore
 incr fcount
@@ -115,7 +111,7 @@ utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path hub_mem_gen/
 utilities_xmdf::xmdfSetData $instance FileSet $fcount type Ignore
 incr fcount
 
-utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path hub_mem_gen/simulation/functional/isim_tcl_cmds.tcl
+utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path hub_mem_gen/simulation/functional/simcmds.tcl
 utilities_xmdf::xmdfSetData $instance FileSet $fcount type Ignore
 incr fcount
 
@@ -123,11 +119,31 @@ utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path hub_mem_gen/
 utilities_xmdf::xmdfSetData $instance FileSet $fcount type Ignore
 incr fcount
 
+utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path hub_mem_gen/simulation/functional/simulate_mti.bat
+utilities_xmdf::xmdfSetData $instance FileSet $fcount type Ignore
+incr fcount
+
 utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path hub_mem_gen/simulation/functional/simulate_mti.do
 utilities_xmdf::xmdfSetData $instance FileSet $fcount type Ignore
 incr fcount
 
+utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path hub_mem_gen/simulation/functional/simulate_mti.sh
+utilities_xmdf::xmdfSetData $instance FileSet $fcount type Ignore
+incr fcount
+
 utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path hub_mem_gen/simulation/functional/simulate_ncsim.sh
+utilities_xmdf::xmdfSetData $instance FileSet $fcount type Ignore
+incr fcount
+
+utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path hub_mem_gen/simulation/functional/simulate_vcs.sh
+utilities_xmdf::xmdfSetData $instance FileSet $fcount type Ignore
+incr fcount
+
+utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path hub_mem_gen/simulation/functional/ucli_commands.key
+utilities_xmdf::xmdfSetData $instance FileSet $fcount type Ignore
+incr fcount
+
+utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path hub_mem_gen/simulation/functional/vcs_session.tcl
 utilities_xmdf::xmdfSetData $instance FileSet $fcount type Ignore
 incr fcount
 
@@ -139,11 +155,19 @@ utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path hub_mem_gen/
 utilities_xmdf::xmdfSetData $instance FileSet $fcount type Ignore
 incr fcount
 
+utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path hub_mem_gen/simulation/hub_mem_gen_synth.vhd
+utilities_xmdf::xmdfSetData $instance FileSet $fcount type Ignore
+incr fcount
+
+utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path hub_mem_gen/simulation/hub_mem_gen_tb.vhd
+utilities_xmdf::xmdfSetData $instance FileSet $fcount type Ignore
+incr fcount
+
 utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path hub_mem_gen/simulation/random.vhd
 utilities_xmdf::xmdfSetData $instance FileSet $fcount type Ignore
 incr fcount
 
-utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path hub_mem_gen/simulation/timing/isim_tcl_cmds.tcl
+utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path hub_mem_gen/simulation/timing/simcmds.tcl
 utilities_xmdf::xmdfSetData $instance FileSet $fcount type Ignore
 incr fcount
 
@@ -151,11 +175,31 @@ utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path hub_mem_gen/
 utilities_xmdf::xmdfSetData $instance FileSet $fcount type Ignore
 incr fcount
 
+utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path hub_mem_gen/simulation/timing/simulate_mti.bat
+utilities_xmdf::xmdfSetData $instance FileSet $fcount type Ignore
+incr fcount
+
 utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path hub_mem_gen/simulation/timing/simulate_mti.do
 utilities_xmdf::xmdfSetData $instance FileSet $fcount type Ignore
 incr fcount
 
+utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path hub_mem_gen/simulation/timing/simulate_mti.sh
+utilities_xmdf::xmdfSetData $instance FileSet $fcount type Ignore
+incr fcount
+
 utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path hub_mem_gen/simulation/timing/simulate_ncsim.sh
+utilities_xmdf::xmdfSetData $instance FileSet $fcount type Ignore
+incr fcount
+
+utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path hub_mem_gen/simulation/timing/simulate_vcs.sh
+utilities_xmdf::xmdfSetData $instance FileSet $fcount type Ignore
+incr fcount
+
+utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path hub_mem_gen/simulation/timing/ucli_commands.key
+utilities_xmdf::xmdfSetData $instance FileSet $fcount type Ignore
+incr fcount
+
+utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path hub_mem_gen/simulation/timing/vcs_session.tcl
 utilities_xmdf::xmdfSetData $instance FileSet $fcount type Ignore
 incr fcount
 
@@ -185,6 +229,10 @@ incr fcount
 
 utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path hub_mem_gen.xco
 utilities_xmdf::xmdfSetData $instance FileSet $fcount type coregen_ip
+incr fcount
+
+utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path hub_mem_gen_upgrade.txt
+utilities_xmdf::xmdfSetData $instance FileSet $fcount type text
 incr fcount
 
 utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path hub_mem_gen_xmdf.tcl

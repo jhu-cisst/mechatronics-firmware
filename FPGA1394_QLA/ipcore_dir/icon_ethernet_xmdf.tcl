@@ -40,12 +40,16 @@ utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path icon_etherne
 utilities_xmdf::xmdfSetData $instance FileSet $fcount type asy
 incr fcount
 
-utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path icon_ethernet.xdc
-utilities_xmdf::xmdfSetData $instance FileSet $fcount type Xdc
+utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path icon_ethernet.constraints/icon_ethernet.ucf
+utilities_xmdf::xmdfSetData $instance FileSet $fcount type Ucf
 incr fcount
 
 utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path icon_ethernet.ncf
 utilities_xmdf::xmdfSetData $instance FileSet $fcount type Ncf
+incr fcount
+
+utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path icon_ethernet.constraints/icon_ethernet.xdc
+utilities_xmdf::xmdfSetData $instance FileSet $fcount type Xdc
 incr fcount
 
 utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path icon_ethernet.xcf

@@ -1,5 +1,5 @@
 The following files were generated for 'ila_3_8_8_8' in directory
-/home/zihan/dev/mechatronics/firmware/FPGA1394_QLA/ipcore_dir/
+/mnt/Data/Peter/JHU/Hardware/mechatronics-firmware/FPGA1394_QLA/ipcore_dir/
 
 XCO file generator:
    Generate an XCO file for compatibility with legacy flows.
@@ -10,11 +10,14 @@ Creates an implementation netlist:
    Creates an implementation netlist for the IP.
 
    * ila_3_8_8_8.cdc
-   * ila_3_8_8_8.ejp
+   * ila_3_8_8_8.constraints/ila_3_8_8_8.ucf
+   * ila_3_8_8_8.constraints/ila_3_8_8_8.xdc
    * ila_3_8_8_8.ncf
    * ila_3_8_8_8.ngc
+   * ila_3_8_8_8.ucf
    * ila_3_8_8_8.v
    * ila_3_8_8_8.veo
+   * ila_3_8_8_8.xdc
    * ila_3_8_8_8_xmdf.tcl
 
 IP Symbol Generator:

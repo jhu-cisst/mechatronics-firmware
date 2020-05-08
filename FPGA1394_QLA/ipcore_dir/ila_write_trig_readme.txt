@@ -1,5 +1,5 @@
 The following files were generated for 'ila_write_trig' in directory
-/home/zihan/dev/mechatronics/firmware/FPGA1394_QLA/ipcore_dir/
+/mnt/Data/Peter/JHU/Hardware/mechatronics-firmware/FPGA1394_QLA/ipcore_dir/
 
 XCO file generator:
    Generate an XCO file for compatibility with legacy flows.
@@ -10,11 +10,14 @@ Creates an implementation netlist:
    Creates an implementation netlist for the IP.
 
    * ila_write_trig.cdc
-   * ila_write_trig.ejp
+   * ila_write_trig.constraints/ila_write_trig.ucf
+   * ila_write_trig.constraints/ila_write_trig.xdc
    * ila_write_trig.ncf
    * ila_write_trig.ngc
+   * ila_write_trig.ucf
    * ila_write_trig.v
    * ila_write_trig.veo
+   * ila_write_trig.xdc
    * ila_write_trig_xmdf.tcl
 
 IP Symbol Generator:

@@ -1,5 +1,5 @@
 The following files were generated for 'icon_prom' in directory
-/home/zihan/dev/mechatronics/firmware/FPGA1394_QLA/ipcore_dir/
+/mnt/Data/Peter/JHU/Hardware/mechatronics-firmware/FPGA1394_QLA/ipcore_dir/
 
 XCO file generator:
    Generate an XCO file for compatibility with legacy flows.
@@ -9,10 +9,13 @@ XCO file generator:
 Creates an implementation netlist:
    Creates an implementation netlist for the IP.
 
-   * icon_prom.ejp
+   * icon_prom.constraints/icon_prom.ucf
+   * icon_prom.constraints/icon_prom.xdc
    * icon_prom.ngc
+   * icon_prom.ucf
    * icon_prom.v
    * icon_prom.veo
+   * icon_prom.xdc
    * icon_prom_xmdf.tcl
 
 IP Symbol Generator:

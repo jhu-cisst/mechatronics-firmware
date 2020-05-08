@@ -1,14 +1,14 @@
 ///////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2016 Xilinx, Inc.
+// Copyright (c) 2020 Xilinx, Inc.
 // All Rights Reserved
 ///////////////////////////////////////////////////////////////////////////////
 //   ____  ____
 //  /   /\/   /
 // /___/  \  /    Vendor     : Xilinx
-// \   \   \/     Version    : 13.4
+// \   \   \/     Version    : 14.7
 //  \   \         Application: Xilinx CORE Generator
 //  /   /         Filename   : ila_eth_chip.v
-// /___/   /\     Timestamp  : Sun Nov 27 22:55:10 EST 2016
+// /___/   /\     Timestamp  : Fri May 08 02:10:05 EDT 2020
 // \   \  /  \
 //  \___\/\___\
 //
@@ -30,7 +30,7 @@ module ila_eth_chip(
     TRIG6,
     TRIG7,
     TRIG8,
-    TRIG9);
+    TRIG9) /* synthesis syn_black_box syn_noprune=1 */;
 
 
 inout [35 : 0] CONTROL;

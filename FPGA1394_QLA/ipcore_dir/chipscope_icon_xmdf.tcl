@@ -40,12 +40,16 @@ utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path chipscope_ic
 utilities_xmdf::xmdfSetData $instance FileSet $fcount type asy
 incr fcount
 
-utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path chipscope_icon.xdc
-utilities_xmdf::xmdfSetData $instance FileSet $fcount type Xdc
+utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path chipscope_icon.constraints/chipscope_icon.ucf
+utilities_xmdf::xmdfSetData $instance FileSet $fcount type Ucf
 incr fcount
 
 utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path chipscope_icon.ncf
 utilities_xmdf::xmdfSetData $instance FileSet $fcount type Ncf
+incr fcount
+
+utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path chipscope_icon.constraints/chipscope_icon.xdc
+utilities_xmdf::xmdfSetData $instance FileSet $fcount type Xdc
 incr fcount
 
 utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path chipscope_icon.xcf

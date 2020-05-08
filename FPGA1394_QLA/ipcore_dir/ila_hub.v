@@ -1,14 +1,14 @@
 ///////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2013 Xilinx, Inc.
+// Copyright (c) 2020 Xilinx, Inc.
 // All Rights Reserved
 ///////////////////////////////////////////////////////////////////////////////
 //   ____  ____
 //  /   /\/   /
 // /___/  \  /    Vendor     : Xilinx
-// \   \   \/     Version    : 13.4
+// \   \   \/     Version    : 14.7
 //  \   \         Application: Xilinx CORE Generator
 //  /   /         Filename   : ila_hub.v
-// /___/   /\     Timestamp  : Tue Oct 29 11:00:40 EDT 2013
+// /___/   /\     Timestamp  : Fri May 08 02:13:00 EDT 2020
 // \   \  /  \
 //  \___\/\___\
 //
@@ -26,7 +26,7 @@ module ila_hub(
     TRIG2,
     TRIG3,
     TRIG4,
-    TRIG5);
+    TRIG5) /* synthesis syn_black_box syn_noprune=1 */;
 
 
 inout [35 : 0] CONTROL;

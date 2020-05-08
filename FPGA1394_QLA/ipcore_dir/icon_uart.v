@@ -1,14 +1,14 @@
 ///////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2013 Xilinx, Inc.
+// Copyright (c) 2020 Xilinx, Inc.
 // All Rights Reserved
 ///////////////////////////////////////////////////////////////////////////////
 //   ____  ____
 //  /   /\/   /
 // /___/  \  /    Vendor     : Xilinx
-// \   \   \/     Version    : 13.4
+// \   \   \/     Version    : 14.7
 //  \   \         Application: Xilinx CORE Generator
 //  /   /         Filename   : icon_uart.v
-// /___/   /\     Timestamp  : Thu Oct 31 10:56:57 EDT 2013
+// /___/   /\     Timestamp  : Fri May 08 02:05:49 EDT 2020
 // \   \  /  \
 //  \___\/\___\
 //
@@ -21,7 +21,7 @@
 module icon_uart(
     CONTROL0,
     CONTROL1,
-    CONTROL2);
+    CONTROL2) /* synthesis syn_black_box syn_noprune=1 */;
 
 
 inout [35 : 0] CONTROL0;

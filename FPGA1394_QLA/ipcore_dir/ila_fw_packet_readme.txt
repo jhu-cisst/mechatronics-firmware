@@ -1,5 +1,5 @@
 The following files were generated for 'ila_fw_packet' in directory
-/home/zihan/dev/mechatronics/firmware/FPGA1394_QLA/ipcore_dir/
+/mnt/Data/Peter/JHU/Hardware/mechatronics-firmware/FPGA1394_QLA/ipcore_dir/
 
 XCO file generator:
    Generate an XCO file for compatibility with legacy flows.
@@ -10,11 +10,14 @@ Creates an implementation netlist:
    Creates an implementation netlist for the IP.
 
    * ila_fw_packet.cdc
-   * ila_fw_packet.ejp
+   * ila_fw_packet.constraints/ila_fw_packet.ucf
+   * ila_fw_packet.constraints/ila_fw_packet.xdc
    * ila_fw_packet.ncf
    * ila_fw_packet.ngc
+   * ila_fw_packet.ucf
    * ila_fw_packet.v
    * ila_fw_packet.veo
+   * ila_fw_packet.xdc
    * ila_fw_packet_xmdf.tcl
 
 IP Symbol Generator:

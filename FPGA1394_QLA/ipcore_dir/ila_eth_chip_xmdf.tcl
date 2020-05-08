@@ -45,11 +45,16 @@ utilities_xmdf::xmdfSetData $instance FileSet $fcount type AnyView
 incr fcount
 
 
+utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path ila_eth_chip.constraints/ila_eth_chip.ucf
+utilities_xmdf::xmdfSetData $instance FileSet $fcount type Ucf
+incr fcount
+
+
 utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path ila_eth_chip.ncf
 utilities_xmdf::xmdfSetData $instance FileSet $fcount type Ncf
 incr fcount
 
-utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path ila_eth_chip.xdc
+utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path ila_eth_chip.constraints/ila_eth_chip.xdc
 utilities_xmdf::xmdfSetData $instance FileSet $fcount type Xdc
 incr fcount
 

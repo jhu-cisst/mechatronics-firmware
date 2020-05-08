@@ -1,14 +1,14 @@
 ///////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2013 Xilinx, Inc.
+// Copyright (c) 2020 Xilinx, Inc.
 // All Rights Reserved
 ///////////////////////////////////////////////////////////////////////////////
 //   ____  ____
 //  /   /\/   /
 // /___/  \  /    Vendor     : Xilinx
-// \   \   \/     Version    : 13.4
+// \   \   \/     Version    : 14.7
 //  \   \         Application: Xilinx CORE Generator
 //  /   /         Filename   : ila_write_trig.v
-// /___/   /\     Timestamp  : Thu Sep 05 20:37:38 EDT 2013
+// /___/   /\     Timestamp  : Fri May 08 02:15:51 EDT 2020
 // \   \  /  \
 //  \___\/\___\
 //
@@ -24,7 +24,7 @@ module ila_write_trig(
     TRIG0,
     TRIG1,
     TRIG2,
-    TRIG3);
+    TRIG3) /* synthesis syn_black_box syn_noprune=1 */;
 
 
 inout [35 : 0] CONTROL;

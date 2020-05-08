@@ -56,7 +56,7 @@ output [31 : 0] doutb;
 
 // synthesis translate_off
 
-  BLK_MEM_GEN_V6_3 #(
+  BLK_MEM_GEN_V7_3 #(
     .C_ADDRA_WIDTH(7),
     .C_ADDRB_WIDTH(7),
     .C_ALGORITHM(1),
@@ -84,6 +84,7 @@ output [31 : 0] doutb;
     .C_HAS_RSTB(0),
     .C_HAS_SOFTECC_INPUT_REGS_A(0),
     .C_HAS_SOFTECC_OUTPUT_REGS_B(0),
+    .C_INIT_FILE("BlankString"),
     .C_INIT_FILE_NAME("no_coe_file_loaded"),
     .C_INITA_VAL("0"),
     .C_INITB_VAL("0"),
@@ -102,6 +103,7 @@ output [31 : 0] doutb;
     .C_RSTRAM_A(0),
     .C_RSTRAM_B(0),
     .C_SIM_COLLISION_CHECK("ALL"),
+    .C_USE_BRAM_BLOCK(0),
     .C_USE_BYTE_WEA(0),
     .C_USE_BYTE_WEB(0),
     .C_USE_DEFAULT_DATA(1),
