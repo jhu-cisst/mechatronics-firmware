@@ -3,9 +3,17 @@
 # This package assumes that find_package(XilinxISE) has already been called,
 # so that the XILINX_ISE programs have already been found.
 #
+# Macro: ise_ipcoregen
+# Parameters:
+#   - TARGET_NAME:        target name
+#   - IPCORE_SOURCE_DIR:  directory for source (.xco) files
+#   - IPCORE_BINARY_DIR:  directory for build files
+#   - XCO_SOURCE:         list of CoreGen Input files (.xco)
+#
 # Macro: ise_compile_fpga
 # Parameters:
 #   - PROJ_NAME:       the project name (most output files will use this name)
+#   - DEPENDENCIES:    dependencies for this target (e.g., IP cores)
 #   - FPGA_PARTNUM:    the FPGA part number
 #   - VERILOG_SOURCE:  list of Verilog source code (.v)
 #   - UCF_FILE:        User constraints file
@@ -21,12 +29,15 @@
 # the various compilation steps. Presently, most options are left at their default
 # values, with a few exceptions noted. These settings are consistent with the ISE
 # project files, FPGA1394-QLA.xise and FPGA1394Eth-QLA.xise.
+#
+# NOTE: This macro would be a lot simpler using XFLOW
 
 macro (ise_compile_fpga ...)
 
   # set all keywords and their values to ""
   set (FUNCTION_KEYWORDS
        PROJ_NAME
+       DEPENDENCIES
        FPGA_PARTNUM
        VERILOG_SOURCE
        UCF_FILE
@@ -79,7 +90,7 @@ macro (ise_compile_fpga ...)
   # file (TO_NATIVE_PATH ${XST_FILE} XST_FILE_NATIVE)
 
   add_custom_target(${PROJ_NAME}-generate-xst
-                    DEPENDS ${VERILOG_SOURCE}
+                    DEPENDS ${VERILOG_SOURCE} ${DEPENDENCIES}
                     COMMENT "Scanning Verilog files")
 
   # XST Synthesis (Verilog --> NGC)
@@ -218,3 +229,63 @@ macro (ise_compile_fpga ...)
   set_directory_properties(PROPERTIES ADDITIONAL_MAKE_CLEAN_FILES ${XILINX_CLEAN_FILES})
 
 endmacro(ise_compile_fpga)
+
+macro (ise_ipcoregen ...)
+
+  # set all keywords and their values to ""
+  set (FUNCTION_KEYWORDS
+       TARGET_NAME
+       FPGA_DEVICE
+       FPGA_PACKAGE
+       FPGA_SPEED
+       IPCORE_SOURCE_DIR
+       IPCORE_BINARY_DIR
+       XCO_SOURCE)
+
+  # reset local variables
+  foreach(keyword ${FUNCTION_KEYWORDS})
+    set (${keyword} "")
+  endforeach(keyword)
+
+  # parse input
+  foreach (arg ${ARGV})
+    list (FIND FUNCTION_KEYWORDS ${arg} ARGUMENT_IS_A_KEYWORD)
+    if (${ARGUMENT_IS_A_KEYWORD} GREATER -1)
+      set (CURRENT_PARAMETER ${arg})
+      set (${CURRENT_PARAMETER} "")
+    else (${ARGUMENT_IS_A_KEYWORD} GREATER -1)
+      set (${CURRENT_PARAMETER} ${${CURRENT_PARAMETER}} ${arg})
+    endif (${ARGUMENT_IS_A_KEYWORD} GREATER -1)
+  endforeach (arg)
+
+  file(TO_NATIVE_PATH ${XILINX_ISE_COREGEN} COREGEN_NATIVE)
+
+  # Create build directory, if it does not already exist
+  file (MAKE_DIRECTORY "${IPCORE_BINARY_DIR}")
+
+  if (NOT IPCORE_BINARY_DIR STREQUAL IPCORE_SOURCE_DIR)
+    # Probably CMake checks if source and binary directories are equal
+    file (COPY "${IPCORE_SOURCE_DIR}/coregen.cgp" DESTINATION "${IPCORE_BINARY_DIR}")
+  endif ()
+  # Create batch file for CoreGen
+  set (COREGEN_FILE "${IPCORE_BINARY_DIR}/${TARGET_NAME}.cmd")
+  file (WRITE ${COREGEN_FILE} "")
+  foreach (f ${XCO_SOURCE})
+    if (NOT IPCORE_BINARY_DIR STREQUAL IPCORE_SOURCE_DIR)
+      file (COPY "${IPCORE_SOURCE_DIR}/${f}" DESTINATION "${IPCORE_BINARY_DIR}")
+    endif ()
+    set (XCO_SOURCE_FULL "${XCO_SOURCE_FULL}" "${IPCORE_BINARY_DIR}/${f}")
+    file (APPEND ${COREGEN_FILE} "EXECUTE \"${IPCORE_BINARY_DIR}/${f}\"\n")
+  endforeach()
+
+  # CoreGen (XCO --> Verilog)
+  add_custom_command (OUTPUT "coregen.log"
+                      COMMAND ${COREGEN_NATIVE} -b "${IPCORE_BINARY_DIR}/${TARGET_NAME}.cmd"
+                                                -p "${IPCORE_BINARY_DIR}"
+		      DEPENDS "${XCO_SOURCE_FULL}"
+                      COMMENT "Running COREGEN to generate IP cores")
+
+  add_custom_target(${TARGET_NAME} ALL
+                    DEPENDS "coregen.log")
+
+endmacro (ise_ipcoregen)
