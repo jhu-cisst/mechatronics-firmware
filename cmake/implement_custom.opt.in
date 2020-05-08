@@ -1,0 +1,110 @@
+FLOWTYPE = FPGA;
+###############################################################
+## Filename: high_effort.opt
+##
+## Option File For Xilinx FPGA Implementation Flow targeted for
+## high effort.
+## 
+## Version: 13.1
+## $Header: /devl/xcs/repo/env/Jobs/Xflow/data/optionfiles/high_effort.opt,v 1.26 2011/01/05 01:18:16 rvklair Exp $
+###############################################################
+#
+# Options for Translator
+#
+# Type "ngdbuild -h" for a detailed list of ngdbuild command line options
+#
+Program ngdbuild 
+-p <partname>;        		# Partname to use - picked from xflow commandline
+-nt timestamp;        		# NGO File generation. Regenerate only when
+                      		# source netlist is newer than existing 
+                      		# NGO file (default)
+# Lines below added by PK
+-dd @CMAKE_CURRENT_BINARY_DIR@/_ngo;
+-sd @IPCORE_DIR@;
+-uc @UCF_FILE@;
+# Lines above added by PK
+-intstyle xflow;                # Message Reporting Style: ise, xflow, or silent
+#-insert_keep_hierarchy; 	# Retain hierarchy identified by individual source input netlists
+<userdesign>;         		# User design - pick from xflow command line
+<design>.ngd;         		# Name of NGD file. Filebase same as design filebase
+End Program ngdbuild
+
+#
+# Options for Mapper
+#
+# Type "map -h <arch>" for a detailed list of map command line options
+#
+Program map
+-o <design>_map.ncd;     # Output Mapped ncd file
+-intstyle xflow;         # Message Reporting Style: ise, xflow, or silent
+# Lines below added by PK
+-w;                      # Overwrite existing files
+-logic_opt off;
+-xt 0;
+-register_duplication off;
+-r 4;
+-mt 2;                   # Use multi-threading (-mt on)
+-ir off;                 # Uncertain whether this is default
+-lc off;
+-power off;
+# Lines above added by PK
+# -fp <design>.mfp;      # Floorplan file
+# -gm incremental;	 # Guide mode
+# -timing;               # Perform Timing-Driven Packing and Placement
+# -ol med;               # Map Effort Levels. -ol [std|med|high]
+                         # Note: If -timing is not specified, -ol switch is ignored.
+                         # Device families supported: Virtex2, Virtex2P
+<inputdir><design>.ngd;  # Input NGD file
+<inputdir><design>.pcf;  # Physical constraints file
+END Program map
+
+#
+# Options for Post Map Trace
+#
+# Type "trce -h" for a detailed list of trce command line options
+#
+Program post_map_trce
+-e 3;                        # Produce error report limited to 3 items per constraint
+-xml <design>_map.twx;       # Output XML version of the timing report
+-intstyle xflow;             # Message Reporting Style: ise, xflow, or silent
+#-o <design>_map.twr;        # Output trace report file
+#-tsi <design>_map.tsi;      # Produce Timing Specification Interaction report
+#-fastpaths;                 # Report minimum paths in verbose mode
+#-nodatasheet;               # Do not create the datasheet section of the report
+<inputdir><design>_map.ncd;  # Input mapped ncd
+<inputdir><design>.pcf;      # Physical constraints file
+END Program post_map_trce
+
+#
+# Options for Place and Route
+#
+# Type "par -h" for a detailed list of par command line options
+#
+Program par
+-w;                          # Overwrite existing placed and routed ncd
+# PK: changed -ol from "med" to "high" and added "-mt 4" and "silent"
+-ol high;                     # Overall effort level
+-mt 4;
+-intstyle xflow;             # Message Reporting Style: ise, xflow, or silent
+# -gm incremental;           # Guide mode
+<inputdir><design>_map.ncd;  # Input mapped NCD file
+<design>.ncd;                # Output placed and routed NCD
+<inputdir><design>.pcf;      # Input physical constraints file
+END Program par
+
+#
+# Options for Post Par Trace
+#
+# Type "trce -h" for a detailed list of trce command line options
+#
+Program post_par_trce
+-e 3;                        # Produce error report limited to 3 items per constraint
+-intstyle xflow;             # Message Reporting Style: ise, xflow, or silent
+-xml <design>.twx;           # Output XML version of the timing report
+#-o <design>.twr;            # Output trace report file
+#-tsi <design>.tsi;          # Produce Timing Specification Interaction report
+#-fastpaths;                 # Report minimum paths in verbose mode
+#-nodatasheet;               # Do not create the datasheet section of the report
+<inputdir><design>.ncd;      # Input placed and routed ncd
+<inputdir><design>.pcf;      # Physical constraints file
+END Program post_par_trce
