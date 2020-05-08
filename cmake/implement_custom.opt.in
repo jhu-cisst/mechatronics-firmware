@@ -103,7 +103,10 @@ Program post_par_trce
 -xml <design>.twx;           # Output XML version of the timing report
 #-o <design>.twr;            # Output trace report file
 #-tsi <design>.tsi;          # Produce Timing Specification Interaction report
-#-fastpaths;                 # Report minimum paths in verbose mode
+# PK: added -v 3 -n 3 and uncommented -fastpaths
+-v 3;                        # generate verbose report, with a limit of 3 items per timing constraint
+-n 3;                        # number of endpoints to report
+-fastpaths;                  # Report minimum paths in verbose mode
 #-nodatasheet;               # Do not create the datasheet section of the report
 <inputdir><design>.ncd;      # Input placed and routed ncd
 <inputdir><design>.pcf;      # Physical constraints file

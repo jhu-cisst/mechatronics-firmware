@@ -70,7 +70,7 @@ ise_ipcoregen(TARGET_NAME       "CoreGenCommon"
 # Compile the Rev 1 firmware -- output is FPGA1394-QLA.mcs, which is copied
 # to the Generated subdirectory in the source directory (if different).
 ise_compile_fpga(PROJ_NAME      "FPGA1394QLA"
-                 DEPENDENCIES   "CoreGenCommon"
+                 #DEPENDENCIES   "CoreGenCommon"
                  FPGA_PARTNUM   ${FPGA_PARTNUM}
                  VERILOG_SOURCE ${VERILOG_SOURCE_REV1}
                  UCF_FILE       "${VERILOG_SOURCE_DIR}/XC6S45.ucf"
@@ -81,7 +81,7 @@ ise_compile_fpga(PROJ_NAME      "FPGA1394QLA"
 # Compile the Rev 2 firmware -- output is FPGA1394Eth-QLA.mcs, which is copied
 # to the Generated subdirectory in the source directory (if different).
 ise_compile_fpga(PROJ_NAME      "FPGA1394EthQLA"
-                 DEPENDENCIES   "CoreGenCommon"
+                 #DEPENDENCIES   "CoreGenCommon"
                  FPGA_PARTNUM   ${FPGA_PARTNUM}
                  VERILOG_SOURCE ${VERILOG_SOURCE_REV2}
                  UCF_FILE       "${VERILOG_SOURCE_DIR}/XC6S45-Rev2.ucf"
@@ -89,8 +89,9 @@ ise_compile_fpga(PROJ_NAME      "FPGA1394EthQLA"
                  TOP_LEVEL      "FPGA1394EthQLA"
                  PROJ_OUTPUT    "FPGA1394Eth-QLA")
 
-add_custom_target(timing
-                  DEPENDS FPGA1394QLA-timing FPGA1394EthQLA-timing)
+# timing target only defined by ise_compile_fpga_old
+# add_custom_target(timing
+#                   DEPENDS FPGA1394QLA-timing FPGA1394EthQLA-timing)
 
 # Copy MCS files to Generated folder in source tree (if different)
 add_custom_target(generated)

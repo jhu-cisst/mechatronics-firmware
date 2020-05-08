@@ -85,11 +85,15 @@ macro (ise_compile_fpga ...)
     file (APPEND ${PRJ_FILE} "verilog work \"${f}\"\n")
   endforeach()
 
-  add_custom_command (OUTPUT ${PROJ_NAME}.bit
+  # Note: Had to add ${CMAKE_CURRENT_BINARY_DIR} to the following two custom commands
+  #       and target for CMake dependency checking to work properly.
+
+  add_custom_command (OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/${PROJ_NAME}.bit"
                       COMMAND ${XFLOW_NATIVE} -p         ${FPGA_PARTNUM}
                                               -synth     ${PROJ_NAME}_synth.opt
                                               -implement ${PROJ_NAME}_implement.opt
                                               -config    ${XILINX_BITGEN_OPT_FILE}
+					      -rd        "reports"
                                               ${PROJ_NAME}.prj
                       DEPENDS ${VERILOG_SOURCE} ${DEPENDENCIES})
 
@@ -103,19 +107,20 @@ macro (ise_compile_fpga ...)
   # -u 0000       --> load upward starting at address
   # -spi          --> disable bit swapping for compatibility with SPI flash devices
   # -intstyle silent
-  add_custom_command(OUTPUT "${PROJ_OUTPUT}.mcs"
+  add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/${PROJ_OUTPUT}.mcs"
                      COMMAND ${PROMGEN_NATIVE} -intstyle silent -w -p mcs -c FF -o ${PROJ_OUTPUT} -s 2048
                                                -u 0000 ${PROJ_NAME}.bit -spi
-                     DEPENDS  ${PROJ_NAME}.bit
+                     DEPENDS  "${CMAKE_CURRENT_BINARY_DIR}/${PROJ_NAME}.bit"
                      COMMENT "Running promgen to create ${PROJ_OUTPUT}.mcs")
 
   add_custom_target(${PROJ_NAME} ALL
-                    DEPENDS "${PROJ_OUTPUT}.mcs")
+                    DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/${PROJ_OUTPUT}.mcs")
 
-  # Additional files to clean; ${PROJ_OUTPUT}.mcs is already handled by CMake, so here we add
-  # the other generated output files (first two lines) and various log and temporary files.
-  set(XILINX_CLEAN_FILES ${PROJ_NAME}.ngc ${PROJ_NAME}.ngd ${PROJ_NAME}.pcf
-                         ${PROJ_NAME}_map.ncd ${PROJ_NAME}.ncd ${PROJ_NAME}.twr ${PROJ_NAME}.bit
+  # Additional files to clean; ${PROJ_OUTPUT}.mcs and ${PROJ_NAME}.bit are already handled by CMake,
+  # so here we add the other generated output files (first two lines) and various log and temporary files.
+  set(XILINX_CLEAN_FILES ${XILINX_CLEAN_FILES}
+                         ${PROJ_NAME}.ngc ${PROJ_NAME}.ngd ${PROJ_NAME}.pcf
+                         ${PROJ_NAME}_map.ncd ${PROJ_NAME}.ncd ${PROJ_NAME}.twr
                          ${PROJ_NAME}.bgn ${PROJ_NAME}.bld ${PROJ_OUTPUT}.cfi ${PROJ_NAME}.drc
                          ${PROJ_NAME}.lso ${PROJ_NAME}.pad ${PROJ_NAME}.par ${PROJ_NAME}.prm
                          ${PROJ_NAME}.ptwx ${PROJ_NAME}.srp ${PROJ_NAME}.unroutes ${PROJ_NAME}.xpi
@@ -123,7 +128,7 @@ macro (ise_compile_fpga ...)
                          ${PROJ_NAME}_ngdbuild.xrpt ${PROJ_NAME}_pad.csv ${PROJ_NAME}_pad.txt
                          ${PROJ_NAME}.xrpt ${PROJ_NAME}_summary.xml ${PROJ_NAME}_usage.xml)
 
-  set_directory_properties(PROPERTIES ADDITIONAL_MAKE_CLEAN_FILES ${XILINX_CLEAN_FILES})
+  set_directory_properties(PROPERTIES ADDITIONAL_MAKE_CLEAN_FILES "${XILINX_CLEAN_FILES}")
 
 endmacro (ise_compile_fpga)
 
