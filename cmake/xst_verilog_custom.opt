@@ -15,7 +15,7 @@ FLOWTYPE = FPGA_SYNTHESIS;
 Program xst
 -ifn <design>_xst.scr;            # input XST script file
 -ofn <design>_xst.log;            # output XST log file
--intstyle xflow;                  # Message Reporting Style: ise, xflow, or silent
+-intstyle silent;                 # Message Reporting Style: ise, xflow, or silent
 #
 # The options listed under ParamFile are the XST Properties that can be set by the 
 # user. To turn on an option, uncomment by removing the '#' in front of the switch.

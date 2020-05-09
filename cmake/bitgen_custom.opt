@@ -20,7 +20,7 @@ Program bitgen
 #-m;                       # Create mask file
 -g UserID:0xFFFFFFFF;     # Default UserID
 -g TIMER_CFG:0xFFFF;      # Value of watchdog timer in configuration mode (default is 0x0000)
--intstyle xflow;          # Message Reporting Style: ise, xflow, or silent
+-intstyle silent;         # Message Reporting Style: ise, xflow, or silent
 END Program bitgen
 
 #

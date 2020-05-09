@@ -23,7 +23,7 @@ Program ngdbuild
 -sd $ipcore_dir;
 -uc $ucf_file;
 # Lines above added by PK
--intstyle xflow;                # Message Reporting Style: ise, xflow, or silent
+-intstyle silent;               # Message Reporting Style: ise, xflow, or silent
 #-insert_keep_hierarchy; 	# Retain hierarchy identified by individual source input netlists
 <userdesign>;         		# User design - pick from xflow command line
 <design>.ngd;         		# Name of NGD file. Filebase same as design filebase
@@ -36,7 +36,7 @@ End Program ngdbuild
 #
 Program map
 -o <design>_map.ncd;     # Output Mapped ncd file
--intstyle xflow;         # Message Reporting Style: ise, xflow, or silent
+-intstyle silent;        # Message Reporting Style: ise, xflow, or silent
 # Lines below added by PK
 -w;                      # Overwrite existing files
 -logic_opt off;
@@ -66,7 +66,7 @@ END Program map
 Program post_map_trce
 -e 3;                        # Produce error report limited to 3 items per constraint
 -xml <design>_map.twx;       # Output XML version of the timing report
--intstyle xflow;             # Message Reporting Style: ise, xflow, or silent
+-intstyle silent;            # Message Reporting Style: ise, xflow, or silent
 #-o <design>_map.twr;        # Output trace report file
 #-tsi <design>_map.tsi;      # Produce Timing Specification Interaction report
 #-fastpaths;                 # Report minimum paths in verbose mode
@@ -85,7 +85,7 @@ Program par
 # PK: changed -ol from "med" to "high" and added "-mt 4" and "silent"
 -ol high;                     # Overall effort level
 -mt 4;
--intstyle xflow;             # Message Reporting Style: ise, xflow, or silent
+-intstyle silent;            # Message Reporting Style: ise, xflow, or silent
 # -gm incremental;           # Guide mode
 <inputdir><design>_map.ncd;  # Input mapped NCD file
 <design>.ncd;                # Output placed and routed NCD
@@ -99,7 +99,7 @@ END Program par
 #
 Program post_par_trce
 -e 3;                        # Produce error report limited to 3 items per constraint
--intstyle xflow;             # Message Reporting Style: ise, xflow, or silent
+-intstyle silent;            # Message Reporting Style: ise, xflow, or silent
 -xml <design>.twx;           # Output XML version of the timing report
 #-o <design>.twr;            # Output trace report file
 #-tsi <design>.tsi;          # Produce Timing Specification Interaction report
