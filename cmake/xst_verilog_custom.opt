@@ -33,7 +33,7 @@ ParamFile: <design>_xst.scr
 "-ofmt ngc";	         	      # Output File Format
 "-p <partname>";                  # Target Device
 # PK: added following line
-"-top @TOP_LEVEL@";               # Set by CMake
+"-top $top_level";                # Top level module
 "-opt_level 1";                   # Optimization Effort Criteria
                                   # 1 (Normal) or 2 (High)
 "-opt_mode SPEED";                # Optimization Criteria

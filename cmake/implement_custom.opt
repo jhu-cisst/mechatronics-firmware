@@ -19,9 +19,9 @@ Program ngdbuild
                       		# source netlist is newer than existing 
                       		# NGO file (default)
 # Lines below added by PK
--dd @CMAKE_CURRENT_BINARY_DIR@/_ngo;
--sd @IPCORE_DIR@;
--uc @UCF_FILE@;
+-dd ./_ngo;
+-sd $ipcore_dir;
+-uc $ucf_file;
 # Lines above added by PK
 -intstyle xflow;                # Message Reporting Style: ise, xflow, or silent
 #-insert_keep_hierarchy; 	# Retain hierarchy identified by individual source input netlists
