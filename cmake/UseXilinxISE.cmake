@@ -69,7 +69,9 @@ macro (ise_compile_fpga ...)
   endforeach (arg)
 
   file(TO_NATIVE_PATH ${XILINX_ISE_XFLOW} XFLOW_NATIVE)
-  file(TO_NATIVE_PATH ${XILINX_ISE_PROMGEN} PROMGEN_NATIVE)
+
+  # Copy custom flow file (FLW) to build tree (customized to add promgen)
+  file (COPY "${XILINX_OPT_DIR}/${XILINX_FPGA_FLW_FILE}" DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
 
   # Copy OPT files to build tree
   configure_file("${XILINX_OPT_DIR}/${XILINX_SYNTH_OPT_FILE}.in"
@@ -77,6 +79,15 @@ macro (ise_compile_fpga ...)
   configure_file("${XILINX_OPT_DIR}/${XILINX_IMPLEMENT_OPT_FILE}.in"
                  "${CMAKE_CURRENT_BINARY_DIR}/${PROJ_NAME}_implement.opt")
   file (COPY "${XILINX_OPT_DIR}/${XILINX_BITGEN_OPT_FILE}" DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
+
+  # Create xflow command file (necessary because Linux shell interprets $ character following -g)
+  set (CMD_FILE "${CMAKE_CURRENT_BINARY_DIR}/${PROJ_NAME}-xflow.cmd")
+  file (WRITE  ${CMD_FILE} "-p ${FPGA_PARTNUM}\n")
+  file (APPEND ${CMD_FILE} "-synth ${PROJ_NAME}_synth.opt\n")
+  file (APPEND ${CMD_FILE} "-implement ${PROJ_NAME}_implement.opt\n")
+  file (APPEND ${CMD_FILE} "-config    ${XILINX_BITGEN_OPT_FILE}\n")
+  file (APPEND ${CMD_FILE} "-rd reports\n")
+  file (APPEND ${CMD_FILE} "-g $proj_output:${PROJ_OUTPUT}\n")
 
   # Prepare files used by XST (synthesis)
   set (PRJ_FILE "${CMAKE_CURRENT_BINARY_DIR}/${PROJ_NAME}.prj")
@@ -88,39 +99,18 @@ macro (ise_compile_fpga ...)
   # Note: Had to add ${CMAKE_CURRENT_BINARY_DIR} to the following two custom commands
   #       and target for CMake dependency checking to work properly.
 
-  add_custom_command (OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/${PROJ_NAME}.bit"
-                      COMMAND ${XFLOW_NATIVE} -p         ${FPGA_PARTNUM}
-                                              -synth     ${PROJ_NAME}_synth.opt
-                                              -implement ${PROJ_NAME}_implement.opt
-                                              -config    ${XILINX_BITGEN_OPT_FILE}
-					      -rd        "reports"
-                                              ${PROJ_NAME}.prj
+  add_custom_command (OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/${PROJ_OUTPUT}.mcs"
+                      COMMAND ${XFLOW_NATIVE} -f ${PROJ_NAME}-xflow.cmd ${PROJ_NAME}.prj
                       DEPENDS ${VERILOG_SOURCE} ${DEPENDENCIES})
-
-  # Promgen (BIT --> MCS)
-  # When using the IDE, promgen is called by impact.
-  # For now, hard-coded values such as prom size of 2048.
-  # -w            --> overwrite file
-  # -c FF         --> checksum
-  # -o <filename> --> output file name
-  # -s <size>     --> prom size (in Kbytes)
-  # -u 0000       --> load upward starting at address
-  # -spi          --> disable bit swapping for compatibility with SPI flash devices
-  # -intstyle silent
-  add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/${PROJ_OUTPUT}.mcs"
-                     COMMAND ${PROMGEN_NATIVE} -intstyle silent -w -p mcs -c FF -o ${PROJ_OUTPUT} -s 2048
-                                               -u 0000 ${PROJ_NAME}.bit -spi
-                     DEPENDS  "${CMAKE_CURRENT_BINARY_DIR}/${PROJ_NAME}.bit"
-                     COMMENT "Running promgen to create ${PROJ_OUTPUT}.mcs")
 
   add_custom_target(${PROJ_NAME} ALL
                     DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/${PROJ_OUTPUT}.mcs")
 
-  # Additional files to clean; ${PROJ_OUTPUT}.mcs and ${PROJ_NAME}.bit are already handled by CMake,
-  # so here we add the other generated output files (first two lines) and various log and temporary files.
+  # Additional files to clean; ${PROJ_OUTPUT}.mcs is already handled by CMake, so here we
+  # add the other generated output files (first two lines) and various log and temporary files.
   set(XILINX_CLEAN_FILES ${XILINX_CLEAN_FILES}
                          ${PROJ_NAME}.ngc ${PROJ_NAME}.ngd ${PROJ_NAME}.pcf
-                         ${PROJ_NAME}_map.ncd ${PROJ_NAME}.ncd ${PROJ_NAME}.twr
+                         ${PROJ_NAME}_map.ncd ${PROJ_NAME}.ncd ${PROJ_NAME}.twr ${PROJ_NAME}.bit
                          ${PROJ_NAME}.bgn ${PROJ_NAME}.bld ${PROJ_OUTPUT}.cfi ${PROJ_NAME}.drc
                          ${PROJ_NAME}.lso ${PROJ_NAME}.pad ${PROJ_NAME}.par ${PROJ_NAME}.prm
                          ${PROJ_NAME}.ptwx ${PROJ_NAME}.srp ${PROJ_NAME}.unroutes ${PROJ_NAME}.xpi
@@ -382,7 +372,7 @@ macro (ise_ipcoregen ...)
   add_custom_command (OUTPUT "coregen.log"
                       COMMAND ${COREGEN_NATIVE} -b "${IPCORE_BINARY_DIR}/${TARGET_NAME}.cmd"
                                                 -p "${IPCORE_BINARY_DIR}"
-		      DEPENDS "${XCO_SOURCE_FULL}"
+                      DEPENDS "${XCO_SOURCE_FULL}"
                       COMMENT "Running COREGEN to generate IP cores")
 
   add_custom_target(${TARGET_NAME} ALL

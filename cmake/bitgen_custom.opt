@@ -22,3 +22,17 @@ Program bitgen
 -g TIMER_CFG:0xFFFF;      # Value of watchdog timer in configuration mode (default is 0x0000)
 -intstyle xflow;          # Message Reporting Style: ise, xflow, or silent
 END Program bitgen
+
+#
+# Options for promgen
+#
+Program promgen
+-intstyle silent;
+-w;                       # Overwrite file
+-c FF;                    # Checksum
+-o $proj_output;          # Output file name
+-s 2048;                  # Prom size (in Kbytes)
+-spi;                     # Disable bit swapping for compatibility with SPI flash devices
+-u 0000;                  # Load upward starting at address
+<inputdir><design>.bit;   # Input bit file (must follow -u option)
+END Program promgen

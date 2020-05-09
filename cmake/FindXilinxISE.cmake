@@ -21,6 +21,7 @@ find_program(XILINX_ISE_COREGEN NAMES "coregen" HINTS ${XILINX_ISE_BINARY_DIR} D
 set (XILINX_ISE_USE_FILE "${CMAKE_CURRENT_SOURCE_DIR}/cmake/UseXilinxISE.cmake")
 
 set (XILINX_OPT_DIR            "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+set (XILINX_FPGA_FLW_FILE      "fpga.flw")
 set (XILINX_SYNTH_OPT_FILE     "xst_verilog_custom.opt")
 set (XILINX_IMPLEMENT_OPT_FILE "implement_custom.opt")
 set (XILINX_BITGEN_OPT_FILE    "bitgen_custom.opt")
