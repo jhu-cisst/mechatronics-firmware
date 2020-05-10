@@ -6,8 +6,6 @@
 # Macro: ise_ipcoregen
 # Parameters:
 #   - TARGET_NAME:        target name
-#   - IPCORE_SOURCE_DIR:  directory for source (.xco) files
-#   - IPCORE_BINARY_DIR:  directory for build files
 #   - XCO_SOURCE:         list of CoreGen Input files (.xco)
 #
 # Macro: ise_compile_fpga
@@ -326,11 +324,6 @@ macro (ise_ipcoregen ...)
   # set all keywords and their values to ""
   set (FUNCTION_KEYWORDS
        TARGET_NAME
-       FPGA_DEVICE
-       FPGA_PACKAGE
-       FPGA_SPEED
-       IPCORE_SOURCE_DIR
-       IPCORE_BINARY_DIR
        XCO_SOURCE)
 
   # reset local variables
@@ -351,29 +344,22 @@ macro (ise_ipcoregen ...)
 
   file(TO_NATIVE_PATH ${XILINX_ISE_COREGEN} COREGEN_NATIVE)
 
-  # Create build directory, if it does not already exist
-  file (MAKE_DIRECTORY "${IPCORE_BINARY_DIR}")
+  # Copy CoreGen project file to build tree
+  file (COPY "${CMAKE_CURRENT_SOURCE_DIR}/coregen.cgp" DESTINATION "${CMAKE_CURRENT_BINARY_DIR}")
 
-  if (NOT IPCORE_BINARY_DIR STREQUAL IPCORE_SOURCE_DIR)
-    # Probably CMake checks if source and binary directories are equal
-    file (COPY "${IPCORE_SOURCE_DIR}/coregen.cgp" DESTINATION "${IPCORE_BINARY_DIR}")
-  endif ()
-  # Create batch file for CoreGen
-  set (COREGEN_FILE "${IPCORE_BINARY_DIR}/${TARGET_NAME}.cmd")
+  # Create batch file for CoreGen and copy xco files to build tree
+  set (COREGEN_FILE "${CMAKE_CURRENT_BINARY_DIR}/${TARGET_NAME}.cmd")
   file (WRITE ${COREGEN_FILE} "")
   foreach (f ${XCO_SOURCE})
-    if (NOT IPCORE_BINARY_DIR STREQUAL IPCORE_SOURCE_DIR)
-      file (COPY "${IPCORE_SOURCE_DIR}/${f}" DESTINATION "${IPCORE_BINARY_DIR}")
-    endif ()
-    set (XCO_SOURCE_FULL "${XCO_SOURCE_FULL}" "${IPCORE_BINARY_DIR}/${f}")
-    file (APPEND ${COREGEN_FILE} "EXECUTE \"${IPCORE_BINARY_DIR}/${f}\"\n")
+    file (COPY "${CMAKE_CURRENT_SOURCE_DIR}/${f}" DESTINATION "${CMAKE_CURRENT_BINARY_DIR}")
+    file (APPEND ${COREGEN_FILE} "EXECUTE \"${f}\"\n")
   endforeach()
 
   # CoreGen (XCO --> Verilog)
   add_custom_command (OUTPUT "coregen.log"
-                      COMMAND ${COREGEN_NATIVE} -b "${IPCORE_BINARY_DIR}/${TARGET_NAME}.cmd"
-                                                -p "${IPCORE_BINARY_DIR}"
-                      DEPENDS "${XCO_SOURCE_FULL}"
+                      COMMAND ${COREGEN_NATIVE} -b "${TARGET_NAME}.cmd"
+                                                -p "${CMAKE_CURRENT_BINARY_DIR}"
+                      DEPENDS "${XCO_SOURCE}"
                       COMMENT "Running COREGEN to generate IP cores")
 
   add_custom_target(${TARGET_NAME} ALL

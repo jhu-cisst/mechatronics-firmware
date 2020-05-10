@@ -15,8 +15,11 @@ set (FPGA_PARTNUM "${FPGA_DEVICE}${FPGA_SPEED}${FPGA_PACKAGE}")
 set (VERILOG_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/Verilog")
 
 # Paths to IP core files (source and build)
+# By default, use files in build tree (IPCORE_BINARY_DIR)
 set (IPCORE_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/ipcore_dir")
 set (IPCORE_BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/ipcore_dir")
+
+add_subdirectory(ipcore_dir)
 
 # Verilog source files used by both versions of firmware
 set (VERILOG_SOURCE_COMMON "${VERILOG_SOURCE_DIR}/ClkDiv.v"
@@ -46,11 +49,6 @@ set (VERILOG_SOURCE_COMMON "${VERILOG_SOURCE_DIR}/ClkDiv.v"
                            "${VERILOG_SOURCE_DIR}/DataBuffer.v"
                            "${IPCORE_BINARY_DIR}/Dual_port_RAM_32X1024.v")
 
-# IP core source files used by both versions of firmware
-set (IPCORE_SOURCE_COMMON "pkt_mem_gen.xco"
-                          "hub_mem_gen.xco"
-                          "Dual_port_RAM_32X1024.xco")
-
 # Verilog source files for Rev 1 firmware
 set (VERILOG_SOURCE_REV1 ${VERILOG_SOURCE_COMMON}
                          "${VERILOG_SOURCE_DIR}/FPGA1394-QLA.v")
@@ -61,16 +59,10 @@ set (VERILOG_SOURCE_REV2 ${VERILOG_SOURCE_COMMON}
                          "${VERILOG_SOURCE_DIR}/SampleData.v"
                          "${VERILOG_SOURCE_DIR}/FPGA1394Eth-QLA.v")
 
-# Generate the common IP cores (target name is CoreGenCommon)
-ise_ipcoregen(TARGET_NAME       "CoreGenCommon"
-              IPCORE_SOURCE_DIR ${IPCORE_SOURCE_DIR}
-              IPCORE_BINARY_DIR ${IPCORE_BINARY_DIR}
-              XCO_SOURCE        ${IPCORE_SOURCE_COMMON})
-
 # Compile the Rev 1 firmware -- output is FPGA1394-QLA.mcs, which is copied
 # to the Generated subdirectory in the source directory (if different).
 ise_compile_fpga(PROJ_NAME      "FPGA1394QLA"
-                 #DEPENDENCIES   "CoreGenCommon"
+                 DEPENDENCIES   "CoreGenCommon"
                  FPGA_PARTNUM   ${FPGA_PARTNUM}
                  VERILOG_SOURCE ${VERILOG_SOURCE_REV1}
                  UCF_FILE       "${VERILOG_SOURCE_DIR}/XC6S45.ucf"
@@ -81,7 +73,7 @@ ise_compile_fpga(PROJ_NAME      "FPGA1394QLA"
 # Compile the Rev 2 firmware -- output is FPGA1394Eth-QLA.mcs, which is copied
 # to the Generated subdirectory in the source directory (if different).
 ise_compile_fpga(PROJ_NAME      "FPGA1394EthQLA"
-                 #DEPENDENCIES   "CoreGenCommon"
+                 DEPENDENCIES   "CoreGenCommon"
                  FPGA_PARTNUM   ${FPGA_PARTNUM}
                  VERILOG_SOURCE ${VERILOG_SOURCE_REV2}
                  UCF_FILE       "${VERILOG_SOURCE_DIR}/XC6S45-Rev2.ucf"
