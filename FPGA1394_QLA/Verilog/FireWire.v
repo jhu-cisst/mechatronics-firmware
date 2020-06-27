@@ -477,7 +477,8 @@ begin
                         tx_type <= `TX_TYPE_BBC;
                     end
                     else if (eth_send_fw_req) begin
-                        eth_send_fw_ack <= 1;
+                        // 6/26/20: now set eth_send_fw_ack when done
+                        // eth_send_fw_ack <= 1;
                         lreq_trig <= 1;
                         lreq_type <= `LREQ_TX_ISO;
                         tx_type <= `TX_TYPE_FWD;
@@ -1257,6 +1258,7 @@ begin
               // stop
               ctl <= `CTL_IDLE;
               state <= ST_TX_DONE1;
+              eth_send_fw_ack <= 1;
            end
            else begin
               // shift out transmit bit from buffer

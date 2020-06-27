@@ -104,7 +104,8 @@ Program post_par_trce
 #-o <design>.twr;            # Output trace report file
 #-tsi <design>.tsi;          # Produce Timing Specification Interaction report
 # PK: added -v 3 -n 3 and uncommented -fastpaths
--v 3;                        # generate verbose report, with a limit of 3 items per timing constraint
+# PK: commented out -v 3 because it conflicts with -e 3
+#-v 3;                        # generate verbose report, with a limit of 3 items per timing constraint
 -n 3;                        # number of endpoints to report
 -fastpaths;                  # Report minimum paths in verbose mode
 #-nodatasheet;               # Do not create the datasheet section of the report
