@@ -224,6 +224,7 @@ reg ethDestError;      // 1 -> Incorrect destination (FireWire destination does 
 reg ethAccessError;    // 1 -> Unable to access internal bus
 
 reg[9:0] numStateInvalid;   // Number of invalid states (for debugging)
+reg[7:0] numReset;          // Number of times reset called
 
 // IER value
 // B15: LCIE link change interrupt enable
@@ -349,7 +350,6 @@ initial begin
    Cur_WRn = Init_WRn;
    Cur_RDn = Init_RDn;
    Cur_CMD = Init_CMD;
-   state = ST_RESET;
 end
 
 // Ethernet status:
@@ -378,7 +378,7 @@ reg[15:0] RegISR;      // 16-bit ISR register
 reg[15:0] RegISROther; // Unexpected ISR value (for debugging)
 reg[7:0] FrameCount;   // Number of received frames
 reg[7:0] fw_count;     // Counter when reading FireWire packet
-reg[6:0] block_index;  // Index into data block (5-70)
+reg blockw_active;     // Indicates that block write is active
 reg[11:0] txPktWords;  // Num of words sent
 reg[11:0] rxPktWords;  // Num of words in receive queue
 
@@ -768,7 +768,7 @@ assign DebugData[9]  = { 6'd0, numPacketInvalid, numPacketValid };
 assign DebugData[10] = { 6'd0, numUDP, 6'd0, numIPv4 };
 assign DebugData[11] = { 6'd0, numICMP, 6'd0, numARP };
 assign DebugData[12] = { 6'd0, numIPv4Mismatch, 6'd0, numPacketError };
-assign DebugData[13] = { 16'd0, 6'd0, numStateInvalid };
+assign DebugData[13] = { 4'd0, sendState, numReset, 6'd0, numStateInvalid };
 assign DebugData[14] = 32'd0;
 assign DebugData[15] = timestamp;
 
@@ -1018,7 +1018,7 @@ always @(posedge sysclk) begin
       eth_reg_wen <= 0;
       eth_block_wen <= 0;
       eth_block_wstart <= 0;
-      block_index <= 0;
+      blockw_active <= 0;
       waitInfo <= WAIT_NONE;
       if (~ETH_IRQn) begin
          // If an interrupt transition to ST_IRQ
@@ -1050,6 +1050,7 @@ always @(posedge sysclk) begin
             ETH_RSTn <= 1;   // Remove the reset
             initCount <= 21'd0;
             resetState <= ST_RESET_WAIT;
+            numReset <= numReset + 8'd1;
          end
          else begin
             ETH_RSTn <= 0;
@@ -1075,7 +1076,6 @@ always @(posedge sysclk) begin
             numICMP <= 10'd0;
             numIPv4Mismatch <= 10'd0;
             numPacketError <= 10'd0;
-            numStateInvalid <= 10'd0;
             FireWirePacketFresh <= 0;
             initCount <= initCount + 21'd1;
          end
@@ -1465,7 +1465,6 @@ always @(posedge sysclk) begin
             block_data_length <= FireWireQuadlet[31:16];
             if (isLocal) begin
                if (quadWrite) begin
-                  eth_block_wen <= 1;
                   eth_reg_waddr <= fw_dest_offset;
                   eth_reg_wdata <= FireWireQuadlet;
                   // Special case: write to FireWire PHY register
@@ -1494,19 +1493,42 @@ always @(posedge sysclk) begin
          end
          else if (fw_count == 8'd12) begin
             if (isLocal && blockWrite) begin
+               // First quadlet of block write data
                eth_reg_waddr[15:12] <= fw_dest_offset[15:12];
                if (addrMain) begin
                   eth_reg_waddr[7:4] <= 4'd1;  // start with channel 1
                   eth_reg_waddr[3:0] <= `OFF_DAC_CTRL;
-                  //eth_reg_wdata[15:0] <= FireWirePacket[5][15:0];
-                  //PK: why just 15:0 above?
-                  eth_reg_wdata <= FireWireQuadlet;
+                  eth_reg_wdata <= {1'b0, FireWireQuadlet[30:0]};
                end
                else begin
                   eth_reg_waddr[11:0] <= fw_dest_offset[11:0];
                   eth_reg_wdata <= FireWireQuadlet;
                end
-               block_index <= 7'd5;
+               blockw_active <= 1;
+            end
+         end
+
+         // Remaining contents of block write (for fw_count=13...maxCountFW)
+         // Note that blockw_active is only non-zero when (isLocal && blockWrite)
+         // so we do not need to check those.
+         // The sequence is as follows:
+         //    fw_count even (starting at 12): latch address and data
+         //    fw_count odd (starting at 13): set write enable (wen)
+         if (blockw_active) begin
+            if (fw_count[0] == 0) begin      // (even)
+               eth_reg_wen <= 0;
+               if (addrMain) begin
+                  eth_reg_waddr[7:4] <= eth_reg_waddr[7:4] + 4'd1;
+                  eth_reg_wdata <= {1'b0, FireWireQuadlet[30:0]};
+               end
+               else begin
+                  eth_reg_waddr <= eth_reg_waddr + 16'd1;
+                  eth_reg_wdata <= FireWireQuadlet;
+               end
+            end
+            else begin                    // (odd)
+               // MSB is "valid" bit for DAC write (addrMain)
+               eth_reg_wen <= addrMain ? FireWireQuadlet[31] : 1'b1;
             end
          end
 
@@ -1519,11 +1541,10 @@ always @(posedge sysclk) begin
             if (isLocal) begin
                if (quadWrite) begin
                   eth_reg_wen <= 1;
+                  eth_block_wen <= 1;
                   lreq_trig <= 0;     // Clear lreq_trig in case it was set
                end
-               else if (blockWrite) begin
-                  eth_block_wen <= 1;
-               end
+               blockw_active <= 0;
             end
             if (isRemote) begin
                // Request to forward pkt
@@ -1532,29 +1553,6 @@ always @(posedge sysclk) begin
             end
          end
 
-         // Remaining contents of block write (for fw_count=13...maxCountFW)
-         // Note that block_index is only non-zero when (isLocal && blockWrite)
-         // so we do not need to check those.
-         if (block_index != 7'd0) begin   // fw_count > 12
-            if (fw_count[0] == 0) begin      // (even)
-               eth_reg_wen <= 0;
-               if (addrMain) begin
-                  eth_reg_waddr[7:4] <= eth_reg_waddr[7:4] + 4'd1;
-                  //eth_reg_wdata[15:0] <= FireWirePacket[block_index][15:0];
-                  //PK: why just 15:0 above?
-                  eth_reg_wdata <= FireWireQuadlet;
-               end
-               else begin
-                  eth_reg_waddr <= eth_reg_waddr + 16'd1;
-                  eth_reg_wdata <= FireWireQuadlet;
-               end
-            end
-            else begin                    // (odd)
-               // MSB is "valid" bit for DAC write (addrMain)
-               eth_reg_wen <= addrMain ? FireWireQuadlet[31] : 1'b1;
-               block_index <= block_index + 7'd1;
-            end
-         end
       end
 
       ST_RECEIVE_DMA_FRAME_CRC:
@@ -1579,6 +1577,9 @@ always @(posedge sysclk) begin
             PacketBuffer[ID_Rep_IPv4_Address0] <= PacketBuffer[ID_ARP_fpgaIP0];
             PacketBuffer[ID_Rep_IPv4_Address1] <= PacketBuffer[ID_ARP_fpgaIP1];
          end
+         // Clean up from quadlet/block writes
+         eth_reg_wen <= 0;
+         eth_block_wen <= 0;
          recvState <= ST_RECEIVE_FLUSH_START;
       end
 
@@ -1589,9 +1590,6 @@ always @(posedge sysclk) begin
          numARP <= numARP + {9'd0, isARP};
          numICMP <= numICMP + {9'd0, isICMP};
          numUDP <= numUDP + {9'd0, isUDP};
-         // Clean up from quadlet/block writes
-         eth_reg_wen <= 0;
-         eth_block_wen <= 0;
          // Flush the rest of the packet:
          //    1. Clear DMA bit (bit 3)
          //    2. Set flush bit (bit 0)
@@ -1620,6 +1618,7 @@ always @(posedge sysclk) begin
                // Could instead set to ST_RECEIVE_FRAME_STATUS
             end
             else begin
+               eth_block_wen <= 0;                       // cleanup from block write
                if (FrameCount == 8'd0) begin
                   state <= ST_IRQ;
                   recvState <= ST_RECEIVE_FRAME_COUNT;   // init for next time
@@ -1638,6 +1637,8 @@ always @(posedge sysclk) begin
             // RegAddr is already set to RXQCR
             state <= ST_KSZIO;
             waitInfo <= WAIT_FLUSH;
+            if (blockWrite)
+               eth_block_wen <= 1;
          end
       end
 
