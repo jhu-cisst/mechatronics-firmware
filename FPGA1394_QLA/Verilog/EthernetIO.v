@@ -248,8 +248,8 @@ localparam[2:0]
     ST_SEND = 3'd4,
     ST_KSZIO = 3'd5;
 
-// Current state
-reg[2:0] state = ST_RESET;
+// Current state (one-hot encoding)
+reg[5:0] state = 6'b000010;   // ST_RESET
 // State to return to after ST_KSZIO
 reg[2:0] retState = ST_IDLE;
 
@@ -314,7 +314,7 @@ localparam
 reg ioState = ST_WAVEFORM_OUTPUT_INIT;
 
 // Debugging support
-assign eth_io_isIdle = (state == ST_IDLE) ? 1'b1 : 1'b0;
+assign eth_io_isIdle = state[ST_IDLE];
 
 // Keep track of areas where state machine may wait
 // for unknown amount of time (for debugging)
@@ -756,7 +756,7 @@ wire[31:0] DebugData[0:15];
 assign DebugData[0]  = "0GBD";  // DBG0 byte-swapped
 assign DebugData[1]  = timestamp;
 assign DebugData[2]  = {5'd0, ethUDPError, ethAccessError, ethIPv4Error, 2'd0, node_id, eth_status};
-assign DebugData[3]  = { 5'd0, state, 5'd0, retState,
+assign DebugData[3]  = { 2'd0, state, 5'd0, retState,
                          sample_start, sample_busy, isLocal, isRemote, FireWirePacketFresh, isEthBroadcast, isEthMulticast, ~ETH_IRQn,
                          isForward, isInIRQ, sendARP, isUDP, isICMP, isEcho, is_IPv4_Long, is_IPv4_Short};
 assign DebugData[4]  = { RegISR, RegISROther};
@@ -792,7 +792,7 @@ wire[6:0]  mem_raddr;
 wire[31:0] mem_rdata;
 
 assign mem_raddr = eth_send_fw_req ? eth_fwpkt_raddr[6:0] :
-                   (((state == ST_SEND) || (retState == ST_SEND)) && (sendState == ST_SEND_DMA_ICMP_DATA))  ? fw_count[7:1]
+                   ((state[ST_SEND] || (retState == ST_SEND)) && (sendState == ST_SEND_DMA_ICMP_DATA))  ? fw_count[7:1]
                                    : reg_raddr[6:0];
 assign eth_fwpkt_rdata = mem_rdata;
 
@@ -802,7 +802,7 @@ wire[31:0] mem_wdata;
 assign mem_wdata = {FireWireQuadlet[31:16], `ReadDataSwapped};
 
 wire mem_wen;   // memory write enable
-assign mem_wen = (state == ST_RECEIVE) &&
+assign mem_wen = state[ST_RECEIVE] &&
                  ((recvState == ST_RECEIVE_DMA_ICMP_DATA) || (recvState == ST_RECEIVE_DMA_FIREWIRE_PACKET)) &&
                  fw_count[0];
 
@@ -969,47 +969,19 @@ always @(posedge sysclk) begin
       PacketBuffer[ID_Rep_IPv4_Address1] <= {reg_wdata[23:16], reg_wdata[31:24] };
    end
 
-   if (ksz_reg_wen) begin
-      //****** Access to KSZ8851 registers via Firewire interface ******
-      // Format of 32-bit fw_reg_wdata:
-      // 0(4) DMA(1) Reset(1) R/W(1) W/B(1) Addr(8) Data(16)
-      // bit 27: DMA
-      // bit 26: reset
-      // bit 25: R/W Read (0) or Write (1)
-      // bit 24: W/B Word or Byte
-      // bit 23-16: 8-bit address
-      // bit 15-0 : 16-bit data
-      // The initialization request is processed any time, but other
-      // request are only processed if received in the IDLE state.
-      // If not in the IDLE state, then eth_error is set.
-      // Because the reset can be received at any time, we explictly
-      // set resetState rather than assuming it is set to ST_RESET_ASSERT.
-      if (fw_reg_wdata[26]) begin   // if reset
-         initCount <= 21'd0;        // Clear counter
-         state <= ST_RESET;
-         resetState <= ST_RESET_ASSERT;
-         eth_error <= 0;
-      end
-      else if (state == ST_IDLE) begin
-         eth_error <= 0;
-         isDMA <= fw_reg_wdata[27];
-         isWrite <= fw_reg_wdata[25];
-         isWord <= fw_reg_wdata[24];
-         RegAddr <= fw_reg_wdata[23:16];
-         WriteData <= fw_reg_wdata[15:0];
-         state <= ST_KSZIO;
-      end
-      else begin
-         eth_error <= 1;
-      end
+   //******************** State Machine ********************
+   state <= 6'd0;
+
+   if (state == 6'd0) begin
+      // Should never happen, except for programming errors
+      numStateInvalid <= numStateInvalid + 10'd1;
+      state[ST_IDLE] <= 1;
    end
 
-   //******************** State Machine ********************
-   // Set default return state (retState) used in ST_KSZIO.
-   retState <= (state != ST_KSZIO) ? state : retState;
+   // One-hot state machine implementation
+   case (1'b1)  // synthesis parallel_case
 
-   case (state)
-   ST_IDLE:
+   state[ST_IDLE]:
    begin
       isDMA <= 0;
       isWord <= 1;       // all transfers are word
@@ -1020,18 +992,48 @@ always @(posedge sysclk) begin
       eth_block_wstart <= 0;
       blockw_active <= 0;
       waitInfo <= WAIT_NONE;
-      if (~ETH_IRQn) begin
+      if (ksz_reg_wen) begin
+         //****** Access to KSZ8851 registers via Firewire interface ******
+         // Format of 32-bit fw_reg_wdata:
+         // 0(4) DMA(1) Reset(1) R/W(1) W/B(1) Addr(8) Data(16)
+         // bit 27: DMA
+         // bit 26: reset
+         // bit 25: R/W Read (0) or Write (1)
+         // bit 24: W/B Word or Byte
+         // bit 23-16: 8-bit address
+         // bit 15-0 : 16-bit data
+         // Previously, this was implemented to accept commands at any time,
+         // but now it will only work in the IDLE state and does not give any
+         // feedback if it fails (should be improved).
+         if (fw_reg_wdata[26]) begin   // if reset
+            state[ST_RESET] <= 1;
+         end
+         else begin
+            eth_error <= 0;
+            isDMA <= fw_reg_wdata[27];
+            isWrite <= fw_reg_wdata[25];
+            isWord <= fw_reg_wdata[24];
+            RegAddr <= fw_reg_wdata[23:16];
+            WriteData <= fw_reg_wdata[15:0];
+            state[ST_KSZIO] <= 1;
+            retState <= ST_IDLE;
+         end
+      end
+      else if (initOK & ~ETH_IRQn) begin
          // If an interrupt transition to ST_IRQ
          isWrite <= 0;
          RegAddr <= `ETH_ADDR_ISR;
-         state <= ST_KSZIO;
+         state[ST_KSZIO] <= 1;
          retState <= ST_IRQ;
       end
-      else if (sendReq) begin
+      else if (initOK & sendReq) begin
          // forward packet from FireWire
-         state <= ST_SEND;
+         state[ST_SEND] <= 1;
          isForward <= 1;
          sendAck <= 1;
+      end
+      else begin
+         state[ST_IDLE] <= 1;
       end
    end
 
@@ -1039,13 +1041,15 @@ always @(posedge sysclk) begin
    // This is the first state called (note that state is initialized to ST_RESET).
    // It can also be called via the Firewire interface.
    // When done, it sets resetState=ST_RESET_ASSERT (for the next call) and returns to ST_IDLE.
-   ST_RESET:
+   state[ST_RESET]:
    begin
+
       case (resetState)
 
       // Assert the reset and wait 10 ms before removing it.
       ST_RESET_ASSERT:
       begin
+         state[ST_RESET] <= 1;
          if (initCount == 21'd491520) begin  // 10 ms (49.152 MHz sysclk)
             ETH_RSTn <= 1;   // Remove the reset
             initCount <= 21'd0;
@@ -1091,11 +1095,14 @@ always @(posedge sysclk) begin
             isDMA <= 0;
             isWrite <= 0;
             RegAddr <= `ETH_ADDR_CIDER;   // Read Chip ID
-            state <= ST_KSZIO;
+            state[ST_KSZIO] <= 1;
+            retState <= ST_RESET;
             resetState <= ST_INIT_CHECK_CHIPID;
          end
-         else
+         else begin
             initCount <= initCount + 21'd1;
+            state[ST_RESET] <= 1;
+         end
       end
 
       //*************** States for initializing Ethernet ******************
@@ -1106,11 +1113,12 @@ always @(posedge sysclk) begin
             // Chip ID is ok, go to next state
             progIndex <= 5'd0;
             resetState <= ST_INIT_RUN_PROGRAM;
+            state[ST_RESET] <= 1;
          end
          else begin
             initOK <= 0;
             resetState <= ST_RESET_ASSERT;  // init for next time
-            state <= ST_IDLE;
+            state[ST_IDLE] <= 1;
          end
       end
 
@@ -1121,18 +1129,21 @@ always @(posedge sysclk) begin
          WriteData <= InitProgram[progIndex][`OR_BIT] ? (ReadData|InitProgram[progIndex][`DATA_BITS])
                                                       : InitProgram[progIndex][`DATA_BITS];
          progIndex <= progIndex + 5'd1;
-         state <= ST_KSZIO;
+         state[ST_KSZIO] <= 1;
          if (progIndex == 5'd16) begin
             initOK <= 1;
             resetState <= ST_RESET_ASSERT;  // init for next time
             retState <= ST_IDLE;
+         end
+         else begin
+            retState <= ST_RESET;
          end
       end
       endcase
    end
 
    //*************** States for handling IRQs ******************
-   ST_IRQ:
+   state[ST_IRQ]:
    begin
       // There are two states:  ST_IRQ_HANDLER and ST_IRQ_DISPATCH
       //
@@ -1174,7 +1185,8 @@ always @(posedge sysclk) begin
          isWrite <= 1;
          RegAddr <= `ETH_ADDR_IER;
          WriteData <= 16'd0;
-         state <= ST_KSZIO;
+         state[ST_KSZIO] <= 1;
+         retState <= ST_IRQ;
          irqState <= ST_IRQ_DISPATCH;
       end
 
@@ -1186,14 +1198,15 @@ always @(posedge sysclk) begin
             RegAddr <= `ETH_ADDR_ISR;
             WriteData <= 16'h8000;    // Clear interrupt
             RegISR[15] <= 1'b0;       // Clear RegISR
-            state <= ST_KSZIO;
+            state[ST_KSZIO] <= 1;
+            retState <= ST_IRQ;
          end
          else if (RegISR[13] == 1'b1) begin
             // Handle receive
             RegAddr <= `ETH_ADDR_ISR;
             WriteData <= 16'h2000;  // clear interrupt
             RegISR[13] <= 1'b0;     // clear ISR receive IRQ bit
-            state <= ST_KSZIO;
+            state[ST_KSZIO] <= 1;
             irqState <= ST_IRQ_HANDLER;  // init for next time
             retState <= ST_RECEIVE;      // Go to ST_RECEIVE
          end
@@ -1203,7 +1216,8 @@ always @(posedge sysclk) begin
             RegAddr <= `ETH_ADDR_ISR;
             WriteData <= RegISR&16'b0100101101000000;
             RegISR <= RegISR&16'b1011010010111111;    // Clear RegISR bits
-            state <= ST_KSZIO;
+            state[ST_KSZIO] <= 1;
+            retState <= ST_IRQ;
          end
          else if (RegISR[5] || RegISR[4] || RegISR[3] || RegISR[2]) begin
             // These interrupts are also not handled and are disabled, but are
@@ -1211,7 +1225,8 @@ always @(posedge sysclk) begin
             RegAddr <= `ETH_ADDR_PMECR;
             WriteData <= RegISR&16'h003c;
             RegISR    <= RegISR&16'hffc3;    // Clear RegISR bits
-            state <= ST_KSZIO;
+            state[ST_KSZIO] <= 1;
+            retState <= ST_IRQ;
          end
          else begin
             // Done IRQ handle, clear flag
@@ -1219,16 +1234,16 @@ always @(posedge sysclk) begin
             // Enable interrupts
             RegAddr <= `ETH_ADDR_IER;
             WriteData <= ETH_VALUE_IER;
-            state <= ST_KSZIO;
-            retState <= ST_IDLE;             // Go to ST_IDLE
-            irqState <= ST_IRQ_HANDLER;      // init for next time
+            state[ST_KSZIO] <= 1;
+            retState <= ST_IDLE;                  // Go to ST_IDLE
+            irqState <= ST_IRQ_HANDLER;           // init for next time
          end
       end
 
       default:
       begin
          numStateInvalid <= numStateInvalid + 10'd1;
-         state <= ST_IDLE;
+         state[ST_IDLE] <= 1;
          irqState <= ST_IRQ_HANDLER;      // init for next time
       end
 
@@ -1251,8 +1266,10 @@ always @(posedge sysclk) begin
    // ST_RECEIVE also transitions to ST_IDLE and sets recvState=ST_RECEIVE_FRAME_COUNT if an invalid state
    // is encountered.
 
-   ST_RECEIVE:
+   state[ST_RECEIVE]:
    begin
+      retState <= ST_RECEIVE;    // Default return state
+
       case (recvState)
 
       ST_RECEIVE_FRAME_COUNT:
@@ -1261,18 +1278,18 @@ always @(posedge sysclk) begin
          if (isWrite) begin
             isWrite <= 0;
             RegAddr <= `ETH_ADDR_RXFCTR;
-            state <= ST_KSZIO;
+            state[ST_KSZIO] <= 1;
          end
          else begin
             FrameCount <= ReadData[15:8];
             if (ReadData[15:8] == 0) begin
-               state <= ST_IRQ;
+               state[ST_IRQ] <= 1;
                // recvState is still ST_RECEIVE_FRAME_COUNT
             end
             else begin
                // isWrite already 0
                RegAddr <= `ETH_ADDR_RXFHSR;
-               state <= ST_KSZIO;
+               state[ST_KSZIO] <= 1;
                recvState <= ST_RECEIVE_FRAME_STATUS;
             end
          end
@@ -1302,6 +1319,7 @@ always @(posedge sysclk) begin
             isEthMulticast <= 0;
             isEthBroadcast <= 0;
             numPacketInvalid <= numPacketInvalid + 10'd1;
+            state[ST_RECEIVE] <= 1;
             recvState <= ST_RECEIVE_FLUSH_START;
          end
          else begin
@@ -1311,7 +1329,7 @@ always @(posedge sysclk) begin
             isEthMulticast <= ReadData[6];
             isWrite <= 0;
             RegAddr <= `ETH_ADDR_RXFHBCR;
-            state <= ST_KSZIO;
+            state[ST_KSZIO] <= 1;
             recvState <= ST_RECEIVE_FRAME_LENGTH;
             numPacketValid <= numPacketValid + 16'd1;
          end
@@ -1321,6 +1339,7 @@ always @(posedge sysclk) begin
       begin
          if (ReadData[11:0] == 12'd0) begin
             numPacketInvalid <= numPacketInvalid + 10'd1;
+            state[ST_RECEIVE] <= 1;
             recvState <= ST_RECEIVE_FLUSH_START;
          end
          else begin
@@ -1329,7 +1348,7 @@ always @(posedge sysclk) begin
              isWrite <= 1;
              RegAddr <= `ETH_ADDR_RXFDPR;
              WriteData <= 16'h5000;
-             state <= ST_KSZIO;
+             state[ST_KSZIO] <= 1;
              recvState <= ST_RECEIVE_ENABLE_DMA;
          end
       end
@@ -1340,7 +1359,7 @@ always @(posedge sysclk) begin
          isWrite <= 1;
          RegAddr <= `ETH_ADDR_RXQCR;
          WriteData <= {ETH_VALUE_RXQCR[15:4],1'b1,ETH_VALUE_RXQCR[2:0]};
-         state <= ST_KSZIO;
+         state[ST_KSZIO] <= 1;
          skipCnt <= 3'd4;  // Skip first 3 words in packet when receiving
                            // ignore(1) + status(1) + byte-count(1)
                            // Add 1 to skipCnt because DMA read will not start
@@ -1354,10 +1373,11 @@ always @(posedge sysclk) begin
          isDMA <= 1;
          isWrite <= 0;
          if (Any_Error) begin
+            state[ST_RECEIVE] <= 1;
             recvState <= ST_RECEIVE_FLUSH_START;
          end
          else begin
-            state <= ST_KSZIO;
+            state[ST_KSZIO] <= 1;
             recvState <= ICMP_Done ? ST_RECEIVE_DMA_ICMP_DATA :
                          (ARP_Done ? ST_RECEIVE_DMA_FRAME_CRC :
                          ((UDP_Done || Frame_Raw) ? ST_RECEIVE_DMA_FIREWIRE_PACKET :
@@ -1406,7 +1426,7 @@ always @(posedge sysclk) begin
 
       ST_RECEIVE_DMA_ICMP_DATA:
       begin
-         state <= ST_KSZIO;
+         state[ST_KSZIO] <= 1;
          if (fw_count == icmp_data_length[7:0])
             recvState <= ST_RECEIVE_DMA_FRAME_CRC;
          fw_count <= fw_count + 8'd1;
@@ -1420,7 +1440,7 @@ always @(posedge sysclk) begin
 
       ST_RECEIVE_DMA_FIREWIRE_PACKET:
       begin
-         state <= ST_KSZIO;
+         state[ST_KSZIO] <= 1;
          fw_count <= fw_count + 8'd1;
 
          // Read FireWire packet, byteswap to make it easier to work with;
@@ -1580,6 +1600,7 @@ always @(posedge sysclk) begin
          // Clean up from quadlet/block writes
          eth_reg_wen <= 0;
          eth_block_wen <= 0;
+         state[ST_RECEIVE] <= 1;
          recvState <= ST_RECEIVE_FLUSH_START;
       end
 
@@ -1597,7 +1618,7 @@ always @(posedge sysclk) begin
          isWrite <= 1;
          RegAddr <= `ETH_ADDR_RXQCR;
          WriteData <= {ETH_VALUE_RXQCR[15:4],1'b0,ETH_VALUE_RXQCR[2:1],1'b1};
-         state <= ST_KSZIO;
+         state[ST_KSZIO] <= 1;
          recvState <= ST_RECEIVE_FLUSH_WAIT;
          fw_count <= 8'd0;
       end
@@ -1613,21 +1634,21 @@ always @(posedge sysclk) begin
          isWrite <= 0;
          if ((isWrite == 0) && (ReadData[0] == 1'b0)) begin
             if ((FireWirePacketFresh && (quadRead || blockRead) && isLocal) || sendARP || isEcho) begin
-               state <= ST_SEND;
+               state[ST_SEND] <= 1;
                recvState <= ST_RECEIVE_FRAME_COUNT;     // init for next time
                // Could instead set to ST_RECEIVE_FRAME_STATUS
             end
             else begin
                eth_block_wen <= 0;                       // cleanup from block write
                if (FrameCount == 8'd0) begin
-                  state <= ST_IRQ;
+                  state[ST_IRQ] <= 1;
                   recvState <= ST_RECEIVE_FRAME_COUNT;   // init for next time
                   // irqState is already set to ST_IRQ_DISPATCH
                end
                else begin
                   // isWrite is already 0
                   RegAddr <= `ETH_ADDR_RXFHSR;
-                  state <= ST_KSZIO;
+                  state[ST_KSZIO] <= 1;
                   recvState <= ST_RECEIVE_FRAME_STATUS;
                end
             end
@@ -1635,7 +1656,7 @@ always @(posedge sysclk) begin
          end
          else begin
             // RegAddr is already set to RXQCR
-            state <= ST_KSZIO;
+            state[ST_KSZIO] <= 1;
             waitInfo <= WAIT_FLUSH;
             if (blockWrite)
                eth_block_wen <= 1;
@@ -1645,7 +1666,7 @@ always @(posedge sysclk) begin
       default:
       begin
          numStateInvalid <= numStateInvalid + 10'd1;
-         state <= ST_IDLE;
+         state[ST_IDLE] <= 1;
          recvState <= ST_RECEIVE_FRAME_COUNT;      // init for next time
       end
 
@@ -1664,8 +1685,10 @@ always @(posedge sysclk) begin
    //    is greater than 0 (and isInIRQ==1).
    // Otherwise, ST_SEND:ST_SEND_END transitions to ST_IDLE (via retState).
 
-   ST_SEND:
+   state[ST_SEND]:
    begin
+      retState <= ST_SEND;    // Default return state
+
       case (sendState)
 
       ST_SEND_ENABLE_DMA:
@@ -1677,7 +1700,7 @@ always @(posedge sysclk) begin
          isWrite <= 1;
          RegAddr <= `ETH_ADDR_RXQCR;
          WriteData <= {ETH_VALUE_RXQCR[15:4],1'b1,ETH_VALUE_RXQCR[2:0]};
-         state <= ST_KSZIO;
+         state[ST_KSZIO] <= 1;
          sendState <= ST_SEND_DMA_CONTROLWORD;
          fw_count <= 8'd0;
       end
@@ -1691,7 +1714,7 @@ always @(posedge sysclk) begin
          // B0-B5: TXFID transmit frame ID
          isDMA <= 1;
          WriteData <= 16'h0;  // Control word = 0
-         state <= ST_KSZIO;
+         state[ST_KSZIO] <= 1;
          sendState <= ST_SEND_DMA_BYTECOUNT;
       end
 
@@ -1747,7 +1770,7 @@ always @(posedge sysclk) begin
             // Quadlet read response (Length = 20) or block read response
             PacketBuffer[ID_Rep_Frame_Length] <= quadRead ? 16'd20 : (16'd24 + block_data_length);
          end
-         state <= ST_KSZIO;
+         state[ST_KSZIO] <= 1;
          sendState <= ST_SEND_DMA_ETHERNET_HEADERS;
          replyCnt <= Frame_Reply_Begin;
       end
@@ -1755,7 +1778,7 @@ always @(posedge sysclk) begin
       ST_SEND_DMA_ETHERNET_HEADERS:
       begin
          fw_count <= 8'd0;
-         state <= ST_KSZIO;
+         state[ST_KSZIO] <= 1;
          replyCnt <= replyCnt + 6'd1;
          `WriteDataSwapped <= PacketBuffer[ReplyIndex[replyCnt]];
          if (replyCnt == Frame_Reply_End) begin
@@ -1796,7 +1819,7 @@ always @(posedge sysclk) begin
 
       ST_SEND_DMA_ICMP_DATA:
       begin
-         state <= ST_KSZIO;
+         state[ST_KSZIO] <= 1;
          `WriteDataSwapped <= (fw_count[0] == 0) ? mem_rdata[31:16]
                                                  : mem_rdata[15:0];
          fw_count <= fw_count + 8'd1;
@@ -1808,7 +1831,7 @@ always @(posedge sysclk) begin
       // and block read response (only difference is tcode).
       ST_SEND_DMA_PACKETDATA_HEADER:
       begin
-         state <= ST_KSZIO;
+         state[ST_KSZIO] <= 1;
          WriteData <= Firewire_Header_Reply[fw_count[2:0]];
          if (fw_count[2:0] == 3'd5) begin
             fw_count[2:0] <= 3'd0;
@@ -1830,7 +1853,7 @@ always @(posedge sysclk) begin
 
       ST_SEND_DMA_PACKETDATA_QUAD:
       begin
-         state <= ST_KSZIO;
+         state[ST_KSZIO] <= 1;
          if (fw_count[0] == 0) begin
             WriteData <= {eth_reg_rdata[23:16], eth_reg_rdata[31:24]};
             fw_count[0] <= 1;
@@ -1848,7 +1871,7 @@ always @(posedge sysclk) begin
       // All block reads start with length, extended_tcode, and header_CRC
       ST_SEND_DMA_PACKETDATA_BLOCK_START:
       begin
-         state <= ST_KSZIO;
+         state[ST_KSZIO] <= 1;
          if (fw_count[1:0] == 2'd0) begin
             WriteData <= {block_data_length[7:0], block_data_length[15:8]};    // data_length
          end
@@ -1896,7 +1919,7 @@ always @(posedge sysclk) begin
 
       ST_SEND_DMA_PACKETDATA_BLOCK_MAIN:
       begin
-         state <= ST_KSZIO;
+         state[ST_KSZIO] <= 1;
          `WriteDataSwapped <= (fw_count[0] == 1'b0) ? sample_rdata[31:16]
                                                     : sample_rdata[15:0];
          // Reading 28 quadlets means max count will reach 55
@@ -1907,7 +1930,7 @@ always @(posedge sysclk) begin
 
       ST_SEND_DMA_PACKETDATA_BLOCK_PROM:
       begin
-         state <= ST_KSZIO;
+         state[ST_KSZIO] <= 1;
          if (fw_count[0] == 0) begin
             fw_count[0] <= 1;
             WriteData <= {eth_reg_rdata[23:16], eth_reg_rdata[31:24]};
@@ -1933,7 +1956,7 @@ always @(posedge sysclk) begin
 
       ST_SEND_DMA_PACKETDATA_CHECKSUM:
       begin
-         state <= ST_KSZIO;
+         state[ST_KSZIO] <= 1;
          fw_count[0] <= 1;
          WriteData <= 16'd0;    // Checksum currently not set
          if (fw_count[0] == 1)
@@ -1945,7 +1968,7 @@ always @(posedge sysclk) begin
          fw_count <= fw_count + 8'd1;
          WriteData <= (fw_count[0] == 0) ? {sendData[23:16], sendData[31:24]} : {sendData[7:0], sendData[15:8]};
          if (fw_count[0] == 1) sendAddr <= sendAddr + 7'd1;
-         state <= ST_KSZIO;
+         state[ST_KSZIO] <= 1;
          if (fw_count == (sendLen[8:1]-8'd1))
             sendState <= ST_SEND_DMA_STOP;
       end
@@ -1965,7 +1988,7 @@ always @(posedge sysclk) begin
             WriteData <= {ETH_VALUE_RXQCR[15:4],1'b0,ETH_VALUE_RXQCR[2:0]};
             sendState <= ST_SEND_TXQ_ENQUEUE;
          end
-         state <= ST_KSZIO;
+         state[ST_KSZIO] <= 1;
       end
 
       ST_SEND_TXQ_ENQUEUE:
@@ -1975,7 +1998,7 @@ always @(posedge sysclk) begin
          // For now, wait for the frame to be transmitted. According to the datasheet,
          // "the software should wait for the bit to be cleared before setting up another
          // new TX frame," so this check could be moved elsewhere for efficiency.
-         state <= ST_KSZIO;
+         state[ST_KSZIO] <= 1;
          sendState <= ST_SEND_TXQ_ENQUEUE_WAIT;
       end
 
@@ -1984,7 +2007,7 @@ always @(posedge sysclk) begin
          isWrite <= 0;
          // RegAddr is already set to TXQCR
          // Wait for bit 0 in Register TXQCR (0x80) to be cleared
-         state <= ST_KSZIO;
+         state[ST_KSZIO] <= 1;
          if ((isWrite == 0) && (ReadData[0] == 1'b0))
             sendState <= ST_SEND_END;
       end
@@ -1993,19 +2016,19 @@ always @(posedge sysclk) begin
       begin
          if (isInIRQ) begin
             if (FrameCount == 8'd0) begin
-               state <= ST_IRQ;
+               state[ST_IRQ] <= 1;
                // irqState is already set to ST_IRQ_DISPATCH;
             end
             else begin
                isWrite <= 0;
                RegAddr <= `ETH_ADDR_RXFHSR;
-               state <= ST_KSZIO;
+               state[ST_KSZIO] <= 1;
                retState <= ST_RECEIVE;
                recvState <= ST_RECEIVE_FRAME_STATUS;
             end
          end
          else begin
-            retState <= ST_IDLE;
+            state[ST_IDLE] <= 1;
          end
          sendState <= ST_SEND_ENABLE_DMA;   // init for next time
       end
@@ -2025,10 +2048,11 @@ always @(posedge sysclk) begin
    // Many other states call ST_KSZIO, assuming that ioState==ST_WAVEFORM_OUTPUT_INIT.
    // This state always transitions from ST_WAVEFORM_OUTPUT_EXECUTE to whatever state
    // is in retState, which usually is the calling state.
-   ST_KSZIO:
+   state[ST_KSZIO]:
    begin
 
       if (ioState == ST_WAVEFORM_OUTPUT_INIT) begin
+         state[ST_KSZIO] <= 1;
          ioState <= ST_WAVEFORM_OUTPUT_EXECUTE;
          case ({isDMA, isWrite})
          2'b00: begin   // Register Read
@@ -2064,6 +2088,7 @@ always @(posedge sysclk) begin
       end
       else begin  // ST_WAVEFORM_OUTPUT_EXECUTE
          if (ShiftCnt != 4'd0) begin
+            state[ST_KSZIO] <= 1;
             Cur_WRn <= Cur_WRn << 1;
             Cur_RDn <= Cur_RDn << 1;
             Cur_CMD <= Cur_CMD << 1;
@@ -2084,16 +2109,10 @@ always @(posedge sysclk) begin
          end
          else begin
             // All done, return to previous (or next) state
-            state <= retState;
+            state[retState] <= 1;
             ioState <= ST_WAVEFORM_OUTPUT_INIT;
          end
       end
-   end
-
-   default:
-   begin
-      numStateInvalid <= numStateInvalid + 10'd1;
-      state <= ST_IDLE;
    end
 
    endcase // case (state)
