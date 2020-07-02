@@ -257,13 +257,15 @@ reg[5:0] state = (6'd1 << ST_RESET);
 reg[2:0] retState = ST_IDLE;
 
 // reset/init states
-localparam[1:0]
-    ST_RESET_ASSERT = 2'd0,         // assert reset (low) -- 10 msec
-    ST_RESET_WAIT = 2'd1,           // wait after bringing reset high -- 50 msec
-    ST_INIT_CHECK_CHIPID = 2'd2,    // Read chip ID
-    ST_INIT_RUN_PROGRAM = 2'd3;
+// Defined using one-hot encoding, though Xilinx XST infers the state machine
+// and optimizes using Gray encoding.
+localparam[3:0]
+    ST_RESET_ASSERT = 4'b0001,         // assert reset (low) -- 10 msec
+    ST_RESET_WAIT = 4'b0010,           // wait after bringing reset high -- 50 msec
+    ST_INIT_CHECK_CHIPID = 4'b0100,    // Read chip ID
+    ST_INIT_RUN_PROGRAM = 4'b1000;
 
-reg[1:0] resetState = ST_RESET_ASSERT;
+reg[3:0] resetState = ST_RESET_ASSERT;
 
 // interrupt handler states. Only 2 for now, but could extend
 // when adding other interrupt handlers, such as for link change.
