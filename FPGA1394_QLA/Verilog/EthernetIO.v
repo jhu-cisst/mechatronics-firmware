@@ -252,7 +252,7 @@ localparam[2:0]
     ST_KSZIO = 3'd5;
 
 // Current state (one-hot encoding)
-reg[5:0] state = 6'b000010;   // ST_RESET
+reg[5:0] state = (6'd1 << ST_RESET);
 // State to return to after ST_KSZIO
 reg[2:0] retState = ST_IDLE;
 
@@ -286,7 +286,8 @@ localparam[3:0]
     ST_RECEIVE_FLUSH_WAIT = 4'd8,
     ST_RECEIVE_DMA_ICMP_DATA = 4'd9;
 
-reg[3:0] recvState = ST_RECEIVE_FRAME_COUNT;
+// Receive state (one-hot encoding)
+reg[9:0] recvState = (10'd1 << ST_RECEIVE_FRAME_COUNT);
 
 // send states
 localparam[3:0]
@@ -307,7 +308,8 @@ localparam[3:0]
     ST_SEND_TXQ_ENQUEUE_WAIT = 4'd14,
     ST_SEND_END = 4'd15;
 
-reg[15:0] sendState = 16'd1;  // ST_SEND_ENABLE_DMA
+// Send state (one-hot encoding)
+reg [15:0] sendState = (16'd1 << ST_SEND_ENABLE_DMA);
 
 
 // KSZIO states
@@ -807,7 +809,7 @@ assign mem_wdata = {FireWireQuadlet[31:16], `ReadDataSwapped};
 
 wire mem_wen;   // memory write enable
 assign mem_wen = state[ST_RECEIVE] &&
-                 ((recvState == ST_RECEIVE_DMA_ICMP_DATA) || (recvState == ST_RECEIVE_DMA_FIREWIRE_PACKET)) &&
+                 (recvState[ST_RECEIVE_DMA_ICMP_DATA] | recvState[ST_RECEIVE_DMA_FIREWIRE_PACKET]) &&
                  fw_count[0];
 
 pkt_mem_gen fw_packet(.clka(sysclk),
@@ -1288,33 +1290,43 @@ always @(posedge sysclk) begin
    state[ST_RECEIVE]:
    begin
       retState <= ST_RECEIVE;    // Default return state
+      recvState <= 10'd0;
 
-      case (recvState)
+      if (recvState == 10'd0) begin
+         // Should never happen, except for programming errors
+         numStateInvalid <= numStateInvalid + 10'd1;
+         recvState[ST_RECEIVE_FRAME_COUNT] <= 1;
+         state[ST_IDLE] <= 1;
+      end
 
-      ST_RECEIVE_FRAME_COUNT:
+      // One-hot state machine implementation
+      case (1'b1)  // synthesis parallel_case
+
+      recvState[ST_RECEIVE_FRAME_COUNT]:
       begin
          // Assumes isWrite==1 on entry
          if (isWrite) begin
             isWrite <= 0;
             RegAddr <= `ETH_ADDR_RXFCTR;
             state[ST_KSZIO] <= 1;
+            recvState[ST_RECEIVE_FRAME_COUNT] <= 1;
          end
          else begin
             FrameCount <= ReadData[15:8];
             if (ReadData[15:8] == 0) begin
                state[ST_IRQ] <= 1;
-               // recvState is still ST_RECEIVE_FRAME_COUNT
+               recvState[ST_RECEIVE_FRAME_COUNT] <= 1;
             end
             else begin
                // isWrite already 0
                RegAddr <= `ETH_ADDR_RXFHSR;
                state[ST_KSZIO] <= 1;
-               recvState <= ST_RECEIVE_FRAME_STATUS;
+               recvState[ST_RECEIVE_FRAME_STATUS] <= 1;
             end
          end
       end
 
-      ST_RECEIVE_FRAME_STATUS:
+      recvState[ST_RECEIVE_FRAME_STATUS]:
       begin
          FrameCount <= FrameCount-8'd1;
          FireWirePacketFresh <= 1'd0;
@@ -1339,7 +1351,7 @@ always @(posedge sysclk) begin
             isEthBroadcast <= 0;
             numPacketInvalid <= numPacketInvalid + 10'd1;
             state[ST_RECEIVE] <= 1;
-            recvState <= ST_RECEIVE_FLUSH_START;
+            recvState[ST_RECEIVE_FLUSH_START] <= 1;
          end
          else begin
             // Valid frame, so start processing
@@ -1349,17 +1361,17 @@ always @(posedge sysclk) begin
             isWrite <= 0;
             RegAddr <= `ETH_ADDR_RXFHBCR;
             state[ST_KSZIO] <= 1;
-            recvState <= ST_RECEIVE_FRAME_LENGTH;
+            recvState[ST_RECEIVE_FRAME_LENGTH] <= 1;
             numPacketValid <= numPacketValid + 16'd1;
          end
       end
 
-      ST_RECEIVE_FRAME_LENGTH:
+      recvState[ST_RECEIVE_FRAME_LENGTH]:
       begin
          if (ReadData[11:0] == 12'd0) begin
             numPacketInvalid <= numPacketInvalid + 10'd1;
             state[ST_RECEIVE] <= 1;
-            recvState <= ST_RECEIVE_FLUSH_START;
+            recvState[ST_RECEIVE_FLUSH_START] <= 1;
          end
          else begin
              rxPktWords <= ((ReadData[11:0]+12'd3)>>1)&12'hffe;
@@ -1368,11 +1380,11 @@ always @(posedge sysclk) begin
              RegAddr <= `ETH_ADDR_RXFDPR;
              WriteData <= 16'h5000;
              state[ST_KSZIO] <= 1;
-             recvState <= ST_RECEIVE_ENABLE_DMA;
+             recvState[ST_RECEIVE_ENABLE_DMA] <= 1;
          end
       end
 
-      ST_RECEIVE_ENABLE_DMA:
+      recvState[ST_RECEIVE_ENABLE_DMA]:
       begin
          // Enable DMA transfers
          isWrite <= 1;
@@ -1383,24 +1395,28 @@ always @(posedge sysclk) begin
                            // ignore(1) + status(1) + byte-count(1)
                            // Add 1 to skipCnt because DMA read will not start
                            // until next state.
-         recvState <= ST_RECEIVE_DMA_ETHERNET_HEADERS;
+         recvState[ST_RECEIVE_DMA_ETHERNET_HEADERS] <= 1;
          fw_count <= 8'd0;
       end
 
-      ST_RECEIVE_DMA_ETHERNET_HEADERS:
+      recvState[ST_RECEIVE_DMA_ETHERNET_HEADERS]:
       begin
          isDMA <= 1;
          isWrite <= 0;
          if (Any_Error) begin
             state[ST_RECEIVE] <= 1;
-            recvState <= ST_RECEIVE_FLUSH_START;
+            recvState[ST_RECEIVE_FLUSH_START] <= 1;
          end
          else begin
             state[ST_KSZIO] <= 1;
-            recvState <= ICMP_Done ? ST_RECEIVE_DMA_ICMP_DATA :
-                         (ARP_Done ? ST_RECEIVE_DMA_FRAME_CRC :
-                         ((UDP_Done || Frame_Raw) ? ST_RECEIVE_DMA_FIREWIRE_PACKET :
-                         ST_RECEIVE_DMA_ETHERNET_HEADERS));
+            if (ICMP_Done)
+              recvState[ST_RECEIVE_DMA_ICMP_DATA] <= 1;
+            else if (ARP_Done)
+              recvState[ST_RECEIVE_DMA_FRAME_CRC] <= 1;
+            else if (UDP_Done || Frame_Raw)
+              recvState[ST_RECEIVE_DMA_FIREWIRE_PACKET] <= 1;
+            else
+              recvState[ST_RECEIVE_DMA_ETHERNET_HEADERS] <= 1;
          end
          skipCnt <= (skipCnt == 3'd0) ? 3'd0 : skipCnt - 3'd1;
          recvCnt <= (skipCnt != 3'd0) ? ID_Frame_Begin :
@@ -1443,11 +1459,13 @@ always @(posedge sysclk) begin
          end
       end
 
-      ST_RECEIVE_DMA_ICMP_DATA:
+      recvState[ST_RECEIVE_DMA_ICMP_DATA]:
       begin
          state[ST_KSZIO] <= 1;
          if (fw_count == icmp_data_length[7:0])
-            recvState <= ST_RECEIVE_DMA_FRAME_CRC;
+            recvState[ST_RECEIVE_DMA_FRAME_CRC] <= 1;
+         else
+            recvState[ST_RECEIVE_DMA_ICMP_DATA] <= 1;
          fw_count <= fw_count + 8'd1;
          // For now, read ICMP data into FireWirePacket memory (fw_packet). If memory resources available,
          // it would be cleaner to instantiate a separate 16-bit memory.
@@ -1457,7 +1475,7 @@ always @(posedge sysclk) begin
             FireWireQuadlet[15:0] <= `ReadDataSwapped;
       end
 
-      ST_RECEIVE_DMA_FIREWIRE_PACKET:
+      recvState[ST_RECEIVE_DMA_FIREWIRE_PACKET]:
       begin
          state[ST_KSZIO] <= 1;
          fw_count <= fw_count + 8'd1;
@@ -1484,12 +1502,6 @@ always @(posedge sysclk) begin
             fw_pri <= FireWireQuadlet[3:0];
             dest_bus_id <= FireWireQuadlet[31:22];
             dest_node_id <= FireWireQuadlet[21:16];
-            // Valid destination address: check if first 10 bits are FFC (i.e., all 1)
-            if (FireWireQuadlet[31:22] != 10'h3FF) begin
-               // invalid destination address, flush packet
-               ethDestError <= 1;
-               recvState <= ST_RECEIVE_FLUSH_START;
-            end
          end
          else if (fw_count == 8'd4) begin
             // Save important fields from Quadlet 1
@@ -1576,7 +1588,7 @@ always @(posedge sysclk) begin
             FireWirePacketFresh <= 1;
             useUDP <= isUDP;
             // Allow reading of FireWire CRC
-            recvState <= ST_RECEIVE_DMA_FRAME_CRC;
+            recvState[ST_RECEIVE_DMA_FRAME_CRC] <= 1;
             if (isLocal) begin
                if (quadWrite) begin
                   eth_reg_wen <= 1;
@@ -1591,10 +1603,17 @@ always @(posedge sysclk) begin
                host_fw_addr <= fw_src_id;
             end
          end
-
+         else if ((fw_count == 8'd2) && (FireWireQuadlet[31:22] != 10'h3FF)) begin
+            // Invalid destination address (first 10 bits are not FFC), flush packet
+            ethDestError <= 1;
+            recvState[ST_RECEIVE_FLUSH_START] <= 1;
+         end
+         else begin
+            recvState[ST_RECEIVE_DMA_FIREWIRE_PACKET] <= 1;
+         end
       end
 
-      ST_RECEIVE_DMA_FRAME_CRC:
+      recvState[ST_RECEIVE_DMA_FRAME_CRC]:
       begin
          // FrameCRC_High <= `ReadDataSwapped;
          // We can read the second word to get the 4-byte CRC, but flushing the
@@ -1620,10 +1639,10 @@ always @(posedge sysclk) begin
          eth_reg_wen <= 0;
          eth_block_wen <= 0;
          state[ST_RECEIVE] <= 1;
-         recvState <= ST_RECEIVE_FLUSH_START;
+         recvState[ST_RECEIVE_FLUSH_START] <= 1;
       end
 
-      ST_RECEIVE_FLUSH_START:
+      recvState[ST_RECEIVE_FLUSH_START]:
       begin
          // Increment counters
          numIPv4 <= numIPv4 + {9'd0, isIPv4};
@@ -1638,11 +1657,11 @@ always @(posedge sysclk) begin
          RegAddr <= `ETH_ADDR_RXQCR;
          WriteData <= {ETH_VALUE_RXQCR[15:4],1'b0,ETH_VALUE_RXQCR[2:1],1'b1};
          state[ST_KSZIO] <= 1;
-         recvState <= ST_RECEIVE_FLUSH_WAIT;
+         recvState[ST_RECEIVE_FLUSH_WAIT] <= 1;
          fw_count <= 8'd0;
       end
 
-      ST_RECEIVE_FLUSH_WAIT:
+      recvState[ST_RECEIVE_FLUSH_WAIT]:
       begin
          // Wait for bit 0 in Register RXQCR to be cleared;
          // Then enable interrupt
@@ -1654,21 +1673,21 @@ always @(posedge sysclk) begin
          if ((isWrite == 0) && (ReadData[0] == 1'b0)) begin
             if ((FireWirePacketFresh && (quadRead || blockRead) && isLocal) || sendARP || isEcho) begin
                state[ST_SEND] <= 1;
-               recvState <= ST_RECEIVE_FRAME_COUNT;     // init for next time
+               recvState[ST_RECEIVE_FRAME_COUNT] <= 1;     // init for next time
                // Could instead set to ST_RECEIVE_FRAME_STATUS
             end
             else begin
                eth_block_wen <= 0;                       // cleanup from block write
                if (FrameCount == 8'd0) begin
                   state[ST_IRQ] <= 1;
-                  recvState <= ST_RECEIVE_FRAME_COUNT;   // init for next time
+                  recvState[ST_RECEIVE_FRAME_COUNT] <= 1;   // init for next time
                   // irqState is already set to ST_IRQ_DISPATCH
                end
                else begin
                   // isWrite is already 0
                   RegAddr <= `ETH_ADDR_RXFHSR;
                   state[ST_KSZIO] <= 1;
-                  recvState <= ST_RECEIVE_FRAME_STATUS;
+                  recvState[ST_RECEIVE_FRAME_STATUS] <= 1;
                end
             end
             waitInfo <= WAIT_NONE;
@@ -1676,17 +1695,11 @@ always @(posedge sysclk) begin
          else begin
             // RegAddr is already set to RXQCR
             state[ST_KSZIO] <= 1;
+            recvState[ST_RECEIVE_FLUSH_WAIT] <= 1;
             waitInfo <= WAIT_FLUSH;
             if (blockWrite)
                eth_block_wen <= 1;
          end
-      end
-
-      default:
-      begin
-         numStateInvalid <= numStateInvalid + 10'd1;
-         state[ST_IDLE] <= 1;
-         recvState <= ST_RECEIVE_FRAME_COUNT;      // init for next time
       end
 
       endcase
