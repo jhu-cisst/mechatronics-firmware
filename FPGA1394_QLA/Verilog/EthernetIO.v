@@ -181,6 +181,9 @@ assign SD = ETH_RDn ? SDReg : 16'hz;
 wire   ksz_reg_wen;
 assign ksz_reg_wen = (fw_reg_waddr == {`ADDR_MAIN, 8'h0, `REG_ETHRES}) ? fw_reg_wen : 1'b0;
 
+reg       ksz_req;    // External request pending for KSZ I/O
+reg[31:0] ksz_wdata;  // Cached register for KSZ I/O request
+
 // Following registers hold address/data for requested register reads/writes
 // (note: eth_data is declared above, as parameter)
 //reg[7:0]  eth_addr;     // I/O register address (0-0xFF)
@@ -962,6 +965,20 @@ always @(posedge sysclk) begin
       sample_start <= 1'd0;
    end
 
+   // Store request to write to KSZ register (from Firewire), in case
+   // we are not in the idle state.
+   if (ksz_reg_wen) begin
+      if (ksz_req) begin
+         // if previous request still pending, set error flag
+         eth_error <= 1;
+      end
+      ksz_req <= 1;
+      // Possibly overwrite previous request (note: if current state is ST_IDLE, then
+      // previous request will still be executed and current request will be ignored
+      // because ksz_wdata is not updated until next cycle).
+      ksz_wdata <= fw_reg_wdata;
+   end
+
    // Write to IP address register
    if (ip_reg_wen) begin
       // Following is equivalent to: ip_address <= reg_wdata;
@@ -992,29 +1009,30 @@ always @(posedge sysclk) begin
       eth_block_wstart <= 0;
       blockw_active <= 0;
       waitInfo <= WAIT_NONE;
-      if (ksz_reg_wen) begin
+      if (ksz_req) begin
          //****** Access to KSZ8851 registers via Firewire interface ******
-         // Format of 32-bit fw_reg_wdata:
+         // Format of 32-bit register:
          // 0(4) DMA(1) Reset(1) R/W(1) W/B(1) Addr(8) Data(16)
+         // bit 28: reset error flag
          // bit 27: DMA
          // bit 26: reset
          // bit 25: R/W Read (0) or Write (1)
          // bit 24: W/B Word or Byte
          // bit 23-16: 8-bit address
          // bit 15-0 : 16-bit data
-         // Previously, this was implemented to accept commands at any time,
-         // but now it will only work in the IDLE state and does not give any
-         // feedback if it fails (should be improved).
-         if (fw_reg_wdata[26]) begin   // if reset
+         // Previously, this was implemented to accept the reset command at any time,
+         // but now it will only work in the IDLE state.
+         ksz_req <= 0;
+         eth_error <= ksz_wdata[28] ? 0 : eth_error;
+         if (ksz_wdata[26]) begin   // if reset
             state[ST_RESET] <= 1;
          end
          else begin
-            eth_error <= 0;
-            isDMA <= fw_reg_wdata[27];
-            isWrite <= fw_reg_wdata[25];
-            isWord <= fw_reg_wdata[24];
-            RegAddr <= fw_reg_wdata[23:16];
-            WriteData <= fw_reg_wdata[15:0];
+            isDMA <= ksz_wdata[27];
+            isWrite <= ksz_wdata[25];
+            isWord <= ksz_wdata[24];
+            RegAddr <= ksz_wdata[23:16];
+            WriteData <= ksz_wdata[15:0];
             state[ST_KSZIO] <= 1;
             retState <= ST_IDLE;
          end
