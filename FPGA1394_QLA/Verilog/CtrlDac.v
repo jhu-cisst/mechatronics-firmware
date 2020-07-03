@@ -111,7 +111,7 @@ begin
 end
 
 // delay trigger (blk_wen) by a clock to allow quadlet data to be stored into
-//   mem_data, as blk_wen and reg_wen become active at the same time
+//   mem_data, as blk_wen and reg_wen become active at the same time for quadlet writes
 always @(posedge(sysclk))
 begin
     trig <= (blk_wen & (reg_waddr[15:12]==`ADDR_MAIN) & (reg_waddr[3:0]==`OFF_DAC_CTRL));

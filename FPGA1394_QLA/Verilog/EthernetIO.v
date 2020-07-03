@@ -389,9 +389,11 @@ reg[7:0] fw_count;     // Counter when reading FireWire packet
 reg blockw_active;     // Indicates that block write is active
 reg[11:0] txPktWords;  // Num of words sent
 reg[11:0] rxPktWords;  // Num of words in receive queue
+reg[1:0] genCnt;       // Generic counter
 
 wire[7:0] maxCountFW;  // Maximum count (of words) when reading FireWire packets
 // Subtract 4 words for UDP header (nBytes/2-4-1); otherwise, just subtract 1 word
+// Following assumes that UDP_Length is an even number
 assign maxCountFW = isUDP ? (UDP_Length[8:1]-8'd5) : (Eth_EtherType[8:1]-8'd1);
 
 wire[15:0] LengthFW;   // Firewire packet length in bytes
@@ -1552,36 +1554,33 @@ always @(posedge sysclk) begin
                   eth_reg_waddr[7:4] <= 4'd1;  // start with channel 1
                   eth_reg_waddr[3:0] <= `OFF_DAC_CTRL;
                   eth_reg_wdata <= {1'b0, FireWireQuadlet[30:0]};
+                  // MSB is "valid" bit for DAC write (addrMain)
+                  eth_reg_wen <=FireWireQuadlet[31];
                end
                else begin
                   eth_reg_waddr[11:0] <= fw_dest_offset[11:0];
                   eth_reg_wdata <= FireWireQuadlet;
+                  eth_reg_wen <= 1'b1;
                end
                blockw_active <= 1;
+               genCnt <= 2'd0;
             end
          end
 
-         // Remaining contents of block write (for fw_count=13...maxCountFW)
+         // Remaining contents of block write (for fw_count > 12, even counts only)
          // Note that blockw_active is only non-zero when (isLocal && blockWrite)
          // so we do not need to check those.
-         // The sequence is as follows:
-         //    fw_count even (starting at 12): latch address and data
-         //    fw_count odd (starting at 13): set write enable (wen)
-         if (blockw_active) begin
-            if (fw_count[0] == 0) begin      // (even)
-               eth_reg_wen <= 0;
-               if (addrMain) begin
-                  eth_reg_waddr[7:4] <= eth_reg_waddr[7:4] + 4'd1;
-                  eth_reg_wdata <= {1'b0, FireWireQuadlet[30:0]};
-               end
-               else begin
-                  eth_reg_waddr <= eth_reg_waddr + 16'd1;
-                  eth_reg_wdata <= FireWireQuadlet;
-               end
-            end
-            else begin                    // (odd)
+         if (blockw_active && (fw_count[0] == 0)) begin
+            if (addrMain) begin
+               eth_reg_waddr[7:4] <= eth_reg_waddr[7:4] + 4'd1;
+               eth_reg_wdata <= {1'b0, FireWireQuadlet[30:0]};
                // MSB is "valid" bit for DAC write (addrMain)
-               eth_reg_wen <= addrMain ? FireWireQuadlet[31] : 1'b1;
+               eth_reg_wen <=FireWireQuadlet[31];
+            end
+            else begin
+               eth_reg_waddr <= eth_reg_waddr + 16'd1;
+               eth_reg_wdata <= FireWireQuadlet;
+               eth_reg_wen <= 1'b1;
             end
          end
 
@@ -1597,7 +1596,6 @@ always @(posedge sysclk) begin
                   eth_block_wen <= 1;
                   lreq_trig <= 0;     // Clear lreq_trig in case it was set
                end
-               blockw_active <= 0;
             end
             if (isRemote) begin
                // Request to forward pkt
@@ -1637,11 +1635,20 @@ always @(posedge sysclk) begin
             PacketBuffer[ID_Rep_IPv4_Address0] <= PacketBuffer[ID_ARP_fpgaIP0];
             PacketBuffer[ID_Rep_IPv4_Address1] <= PacketBuffer[ID_ARP_fpgaIP1];
          end
-         // Clean up from quadlet/block writes
-         eth_reg_wen <= 0;
-         eth_block_wen <= 0;
+         // Following code adds 3 extra cycles for a block write so that eth_block_wen
+         // is asserted 60 ns (3 clks) after the falling edge of eth_reg_wen, which is
+         // consistent with the original implementation (in Firewire.v).
+         eth_reg_wen <= 0;    // Clean up from quadlet/block writes
+         eth_block_wen <= (blockw_active && (genCnt == 2'd3)) ? 1 : 0;
+         genCnt <= genCnt + 2'd1;
+         if (blockw_active) begin
+            recvState[ST_RECEIVE_DMA_FRAME_CRC] <= 1;
+            blockw_active <= (genCnt == 2'd3) ? 0 : 1;
+         end
+         else begin
+            recvState[ST_RECEIVE_FLUSH_START] <= 1;
+         end
          state[ST_RECEIVE] <= 1;
-         recvState[ST_RECEIVE_FLUSH_START] <= 1;
       end
 
       recvState[ST_RECEIVE_FLUSH_START]:
@@ -1679,7 +1686,6 @@ always @(posedge sysclk) begin
                // Could instead set to ST_RECEIVE_FRAME_STATUS
             end
             else begin
-               eth_block_wen <= 0;                       // cleanup from block write
                if (FrameCount == 8'd0) begin
                   state[ST_IRQ] <= 1;
                   recvState[ST_RECEIVE_FRAME_COUNT] <= 1;   // init for next time
@@ -1699,8 +1705,6 @@ always @(posedge sysclk) begin
             state[ST_KSZIO] <= 1;
             recvState[ST_RECEIVE_FLUSH_WAIT] <= 1;
             waitInfo <= WAIT_FLUSH;
-            if (blockWrite)
-               eth_block_wen <= 1;
          end
       end
 
