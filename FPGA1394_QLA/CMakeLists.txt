@@ -47,7 +47,8 @@ set (VERILOG_SOURCE_COMMON "${VERILOG_SOURCE_DIR}/ClkDiv.v"
                            "${VERILOG_SOURCE_DIR}/BoardRegs.v"
                            "${VERILOG_SOURCE_DIR}/DS2505.v"
                            "${VERILOG_SOURCE_DIR}/DataBuffer.v"
-                           "${IPCORE_BINARY_DIR}/Dual_port_RAM_32X1024.v")
+                           "${IPCORE_BINARY_DIR}/Dual_port_RAM_32X1024.v"
+			   "${VERILOG_SOURCE_DIR}/Reboot.v")
 
 # Verilog source files for Rev 1 firmware
 set (VERILOG_SOURCE_REV1 ${VERILOG_SOURCE_COMMON}

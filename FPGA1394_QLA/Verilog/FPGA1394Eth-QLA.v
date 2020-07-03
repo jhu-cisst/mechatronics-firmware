@@ -607,8 +607,11 @@ wire[31:0] reg_status;    // Status register
 wire[31:0] reg_digio;     // Digital I/O register
 wire[15:0] tempsense;     // Temperature sensor
 
+wire reboot;              // Reboot the FPGA
+
 BoardRegs chan0(
     .sysclk(sysclk),
+    .reboot(reboot),
     .amp_disable({IO2[38],IO2[36],IO2[34],IO2[32]}),
     .dout(dout),
     .dout_cfg_valid(dout_config_valid),
@@ -709,6 +712,13 @@ SafetyCheck safe4(
     .amp_disable(safety_amp_disable[4])
 );
 
+// --------------------------------------------------------------------------
+// Reboot
+// --------------------------------------------------------------------------
+Reboot fpga_reboot(
+     .clk(clkadc),     // Use 12 MHz clock (cannot be more than 20 MHz)
+     .reboot(reboot)
+);
 
 // --------------------------------------------------------------------------
 // Data Buffer

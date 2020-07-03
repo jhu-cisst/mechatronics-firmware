@@ -15,7 +15,7 @@
  *     05/08/13    Zihan Chen          Fix watchdog 
  *     05/19/13    Zihan Chen          Add mv_good 40 ms sleep
  *     09/23/15    Peter Kazanzides    Moved DOUT code to CtrlDout.v
- *     01/22/20    Peter Kazanzides    Removing reset (including software-generated reset)
+ *     07/03/20    Peter Kazanzides    Changing reset to reboot
  */
 
 
@@ -28,6 +28,7 @@
 module BoardRegs(
     // global clock
     input  wire sysclk, 
+    output reg  reboot,
     
     // board input (PC writes)
     output wire[4:1] amp_disable,   // hardware connection to op amps
@@ -167,9 +168,8 @@ always @(posedge(sysclk))
             relay_on <= reg_wdata[17] ? reg_wdata[16] : relay_on;
             // mask reg_wdata[19] with [18] for pwr_enable
             pwr_enable <= reg_wdata[19] ? reg_wdata[18] : pwr_enable;
-            // mask reg_wdata[21] with [20] for soft_reset
-            // NOTE: Removing software reset in Rev 7
-            // reset_soft_trigger <= reg_wdata[21] ? reg_wdata[20] : 1'b0;
+            // mask reg_wdata[21] with [20] for reboot (was reset prior to Rev 7)
+            reboot <= reg_wdata[21] ? reg_wdata[20] : 1'b0;
             // mask reg_wdata[23] with [22] for eth1394 mode
             eth1394 <= reg_wdata[23] ? reg_wdata[22] : eth1394;
         end
