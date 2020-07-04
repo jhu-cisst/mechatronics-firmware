@@ -387,6 +387,7 @@ reg[15:0] RegISROther; // Unexpected ISR value (for debugging)
 reg[7:0] FrameCount;   // Number of received frames
 reg[7:0] fw_count;     // Counter when reading FireWire packet
 reg blockw_active;     // Indicates that block write is active
+reg dac_local;         // Indicates that DAC entries in block write are for this board_id
 reg[11:0] txPktWords;  // Num of words sent
 reg[11:0] rxPktWords;  // Num of words in receive queue
 reg[1:0] genCnt;       // Generic counter
@@ -1555,9 +1556,13 @@ always @(posedge sysclk) begin
                   eth_reg_waddr[3:0] <= `OFF_DAC_CTRL;
                   // only respond to bit 27-24 == board_id
                   if (FireWireQuadlet[27:24] == board_id) begin
+                     dac_local <= 1;
                      eth_reg_wdata <= {1'b0, FireWireQuadlet[30:0]};
                      // MSB is "valid" bit for DAC write (addrMain)
                      eth_reg_wen <=FireWireQuadlet[31];
+                  end
+                  else begin
+                     dac_local <= 0;
                   end
                end
                else begin
@@ -1575,12 +1580,44 @@ always @(posedge sysclk) begin
          // so we do not need to check those.
          if (blockw_active && (fw_count[0] == 0)) begin
             if (addrMain) begin
-               eth_reg_waddr[7:4] <= eth_reg_waddr[7:4] + 4'd1;
-               // only respond to bit 27-24 == board_id
-               if (FireWireQuadlet[27:24] == board_id) begin
-                  eth_reg_wdata <= {1'b0, FireWireQuadlet[30:0]};
-                  // MSB is "valid" bit for DAC write (addrMain)
-                  eth_reg_wen <=FireWireQuadlet[31];
+               // Real-time block write.
+               // Starting with Rev 7, the first 4 entries are the DAC (same as Rev 1-6),
+               // but that is followed by the status register (for power control).
+               // Note that for broadcast write, the packet will have data for all boards;
+               // thus, we check for consecutive DAC entries that match our board_id and
+               // assume that the next entry is the status register for this board.
+               if (eth_reg_waddr[7:4] == `NUM_CHANNELS) begin
+                  // Status write
+                  eth_reg_waddr[7:0] <= 8'd0;
+                  if (dac_local) begin
+                     // Write status register. Note that we only write the lowest 20 bits,
+                     // so that we do not accidentally make other changes, such as requesting
+                     // an FPGA reboot.
+                     eth_reg_wdata <= {12'd0, FireWireQuadlet[19:0]};
+                     eth_reg_wen <= 1;
+                  end
+                  dac_local <= 0;
+               end
+               else begin
+                  // DAC write
+                  if (eth_reg_waddr[7:4] == 4'd0) begin
+                     // Restart with DAC channel 1
+                     eth_reg_waddr[7:4] <= 4'd1;
+                     eth_reg_waddr[3:0] <= `OFF_DAC_CTRL;
+                  end
+                  else
+                     eth_reg_waddr[7:4] <= eth_reg_waddr[7:4] + 4'd1;
+                  // only respond to bit 27-24 == board_id
+                  if (FireWireQuadlet[27:24] == board_id) begin
+                     // If the first channel, set dac_local=1. If any subsequent channel does not
+                     // contain the matching board_id, the else clause below will set dac_local=0.
+                     dac_local <= (eth_reg_waddr[7:4] == 4'd0) ? 1 : dac_local;
+                     eth_reg_wdata <= {1'b0, FireWireQuadlet[30:0]};
+                     // MSB is "valid" bit for DAC write (addrMain)
+                     eth_reg_wen <= FireWireQuadlet[31];
+                  end
+                  else
+                     dac_local <= 0;
                end
             end
             else begin

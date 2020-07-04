@@ -292,7 +292,8 @@ module PhyLinkInterface(
     reg[31:0] timestamp;          // timestamp counter register
     reg ts_reset;                 // timestamp counter reset signal
     reg data_block;               // flag for block write data being received
-    
+    reg dac_local;                // Indicates that DAC entries in block write are for this board_id
+
     // state machine states
     parameter[3:0]
         ST_IDLE = 0,              // wait for phy event
@@ -610,18 +611,39 @@ begin
 
                             // main address: special case
                             if (reg_waddr[15:12]==`ADDR_MAIN) begin
-                                // Block write to dac data
-                                // channel address circularly increments from 1 to `NUM_CHANNELS
-                                // (chan addr and dev offset are previously set)
-                                if (reg_waddr[7:4] == `NUM_CHANNELS)
-                                    reg_waddr[7:4] <= 4'd1;
-                                else
-                                    reg_waddr[7:4] <= reg_waddr[7:4] + 1'b1;
-
-                                // only respond to bit 27-24 == board_id (bc mode)
-                                if (buffer[27:24] == board_id) begin
-                                    reg_wdata <= buffer[30:0];               // data to write
-                                    reg_wen <= (buffer[31] & rx_active);     // check valid bit
+                                // Real-time block write.
+                                // Starting with Rev 7, the first 4 entries are the DAC (same as Rev 1-6),
+                                // but that is followed by the status register (for power control).
+                                // Note that for broadcast write, the packet will have data for all boards;
+                                // thus, we check for consecutive DAC entries that match our board_id and
+                                // assume that the next entry is the status register for this board.
+                                if (reg_waddr[7:4] == `NUM_CHANNELS) begin
+                                    // Status write
+                                    reg_waddr[7:0] <= 8'd0;
+                                    if (dac_local) begin
+                                        // Write status register. Note that we only write the lowest 20 bits,
+                                        // so that we do not accidentally make other changes, such as requesting
+                                        // an FPGA reboot.
+                                        reg_wdata <= {12'd0, buffer[19:0]};
+                                        reg_wen <= 1;
+                                    end
+                                    dac_local <= 0;
+                                end
+                                else begin
+                                    // DAC write
+                                    if (reg_waddr[7:4] == 4'd0) begin
+                                        // Restart with DAC channel 1
+                                        reg_waddr[7:4] <= 4'd1;
+                                        reg_waddr[3:0] <= `OFF_DAC_CTRL;
+                                    end
+                                    else
+                                        reg_waddr[7:4] <= reg_waddr[7:4] + 4'd1;
+                                    // only respond to bit 27-24 == board_id (bc mode)
+                                    if (buffer[27:24] == board_id) begin
+                                        dac_local <= (reg_waddr[7:4] == 4'd0) ? 1 : dac_local;
+                                        reg_wdata <= {1'b0, buffer[30:0]};       // data to write
+                                        reg_wen <= (buffer[31] & rx_active);     // check valid bit
+                                    end
                                 end
                             end
                             // other space
@@ -792,6 +814,7 @@ begin
                                 // main is special, ignore address in 1394 packet
                                 reg_waddr[7:4] <= 0;    // init channel address
                                 reg_waddr[3:0] <= `OFF_DAC_CTRL;    // set dac device address
+                                dac_local <= 0;
                             end
                             else begin
                                 // block write to hub, prom, prom_qla
