@@ -1553,9 +1553,12 @@ always @(posedge sysclk) begin
                if (addrMain) begin
                   eth_reg_waddr[7:4] <= 4'd1;  // start with channel 1
                   eth_reg_waddr[3:0] <= `OFF_DAC_CTRL;
-                  eth_reg_wdata <= {1'b0, FireWireQuadlet[30:0]};
-                  // MSB is "valid" bit for DAC write (addrMain)
-                  eth_reg_wen <=FireWireQuadlet[31];
+                  // only respond to bit 27-24 == board_id
+                  if (FireWireQuadlet[27:24] == board_id) begin
+                     eth_reg_wdata <= {1'b0, FireWireQuadlet[30:0]};
+                     // MSB is "valid" bit for DAC write (addrMain)
+                     eth_reg_wen <=FireWireQuadlet[31];
+                  end
                end
                else begin
                   eth_reg_waddr[11:0] <= fw_dest_offset[11:0];
@@ -1573,9 +1576,12 @@ always @(posedge sysclk) begin
          if (blockw_active && (fw_count[0] == 0)) begin
             if (addrMain) begin
                eth_reg_waddr[7:4] <= eth_reg_waddr[7:4] + 4'd1;
-               eth_reg_wdata <= {1'b0, FireWireQuadlet[30:0]};
-               // MSB is "valid" bit for DAC write (addrMain)
-               eth_reg_wen <=FireWireQuadlet[31];
+               // only respond to bit 27-24 == board_id
+               if (FireWireQuadlet[27:24] == board_id) begin
+                  eth_reg_wdata <= {1'b0, FireWireQuadlet[30:0]};
+                  // MSB is "valid" bit for DAC write (addrMain)
+                  eth_reg_wen <=FireWireQuadlet[31];
+               end
             end
             else begin
                eth_reg_waddr <= eth_reg_waddr + 16'd1;

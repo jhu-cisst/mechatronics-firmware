@@ -15,26 +15,18 @@ module Reboot(
   input wire reboot
   );
 
-reg[15:0] RebootProgram[0:14];
+reg[15:0] RebootProgram[0:6];
 initial begin
-   RebootProgram[0]  = 16'hffff;   // dummy word
-   RebootProgram[1]  = 16'haa99;   // sync word
-   RebootProgram[2]  = 16'h5566;   // sync word
-   RebootProgram[3]  = 16'h3261;   // write GENERAL1
-   RebootProgram[4]  = 16'h0000;   // start address
-   RebootProgram[5]  = 16'h3281;   // write GENERAL2
-   RebootProgram[6]  = 16'h0b00;   // op code and address
-   RebootProgram[7]  = 16'h32a1;   // write GENERAL3
-   RebootProgram[8]  = 16'h0000;   // start address
-   RebootProgram[9]  = 16'h32c1;   // write GENERAL4
-   RebootProgram[10] = 16'h0b00;   // op code and address
-   RebootProgram[11] = 16'h30a1;   // write CMD
-   RebootProgram[12] = 16'h000e;   // IPROG
-   RebootProgram[13] = 16'h2000;   // NOP
-   RebootProgram[14] = 16'hffff;   // dummy word
+   RebootProgram[0] = 16'hffff;   // dummy word
+   RebootProgram[1] = 16'haa99;   // sync word
+   RebootProgram[2] = 16'h5566;   // sync word
+   RebootProgram[3] = 16'h30a1;   // write CMD
+   RebootProgram[4] = 16'h000e;   // IPROG
+   RebootProgram[5] = 16'h2000;   // NOP
+   RebootProgram[6] = 16'hffff;   // dummy word
 end
 
-reg[3:0] count;
+reg[2:0] count;
 reg      write;
 
 wire[15:0] data;
@@ -61,8 +53,8 @@ icap_reboot (
 always @(posedge clk)
 begin
    if (reboot) begin
-      count <= (count == 4'd14) ? count : count + 4'd1;
-      write <= (count == 4'd14) ? 0 : 1;
+      count <= (count == 3'd6) ? count : count + 3'd1;
+      write <= (count == 3'd6) ? 0 : 1;
    end
    else begin
       count <= 4'd0;
