@@ -134,6 +134,7 @@ module EthernetIO(
     // Interface from Firewire (for sending packets via Ethernet)
     input wire sendReq,
     output reg sendAck,
+    output reg sendActive,       // Indicates that Ethernet module is reading via sendAddr/sendData
     output reg[6:0] sendAddr,
     input wire[31:0] sendData,
     input wire[15:0] sendLen,
@@ -312,7 +313,6 @@ localparam[3:0]
 
 // Send state (one-hot encoding)
 reg [15:0] sendState = (16'd1 << ST_SEND_ENABLE_DMA);
-
 
 // KSZIO states
 localparam
@@ -1017,6 +1017,7 @@ always @(posedge sysclk) begin
       eth_block_wstart <= 0;
       blockw_active <= 0;
       waitInfo <= WAIT_NONE;
+      sendActive <= 0;
       if (ksz_req) begin
          //****** Access to KSZ8851 registers via Firewire interface ******
          // Format of 32-bit register:
@@ -1874,6 +1875,7 @@ always @(posedge sysclk) begin
          if (replyCnt == Frame_Reply_End) begin
             if (isForward && !useUDP) begin
                sendState[ST_SEND_DMA_FWD] <= 1;
+               sendActive <= 1;
                sendAddr <= 7'd0;
                isForward <= 1'd0;
             end
@@ -1897,6 +1899,7 @@ always @(posedge sysclk) begin
          else if (replyCnt == UDP_Reply_End) begin
             if (isForward) begin
                sendState[ST_SEND_DMA_FWD] <= 1;
+               sendActive <= 1;
                sendAddr <= 7'd0;
                isForward <= 1'd0;
             end
@@ -2077,8 +2080,10 @@ always @(posedge sysclk) begin
          WriteData <= (fw_count[0] == 0) ? {sendData[23:16], sendData[31:24]} : {sendData[7:0], sendData[15:8]};
          if (fw_count[0] == 1) sendAddr <= sendAddr + 7'd1;
          state[ST_KSZIO] <= 1;
-         if (fw_count == (sendLen[8:1]-8'd1))
+         if (fw_count == (sendLen[8:1]-8'd1)) begin
             sendState[ST_SEND_DMA_STOP] <= 1;
+            sendActive <= 0;
+         end
          else
             sendState[ST_SEND_DMA_FWD] <= 1;
       end
