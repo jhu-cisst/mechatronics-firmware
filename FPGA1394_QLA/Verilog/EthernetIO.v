@@ -754,6 +754,12 @@ reg[9:0] numICMP;            // Number of ICMP packets received
 reg[9:0] numPacketError;     // Number of packet errors (Frame, IPv4 or UDP error)
 reg[9:0] numIPv4Mismatch;    // Number of IPv4 packets with different IP address
 
+reg[15:0] timeNotIdle;       // Time counter when not in ST_IDLE
+reg[15:0] timeReceive;       // Time when receive portion finished
+reg[15:0] timeSend;          // Time when send portion finished
+reg[15:0] timeForwardFromFw; // Time required to forward packet from FireWire
+reg[15:0] timeForwardToFw;   // Time required to forward packet via FireWire
+
 localparam[31:0] IP_UNASSIGNED = 32'hffffffff;
 wire is_ip_unassigned;
 assign is_ip_unassigned = (ip_address == IP_UNASSIGNED) ? 1'd1 : 1'd0;
@@ -767,20 +773,20 @@ wire[31:0] DebugData[0:15];
 assign DebugData[0]  = "0GBD";  // DBG0 byte-swapped
 assign DebugData[1]  = timestamp;
 assign DebugData[2]  = {5'd0, ethUDPError, ethAccessError, ethIPv4Error, 2'd0, node_id, eth_status};
-assign DebugData[3]  = { 2'd0, state, 5'd0, retState,
+assign DebugData[3]  = { 2'd0, state, 3'd0, eth_send_fw_ack, eth_send_fw_req, retState,
                          sample_start, sample_busy, isLocal, isRemote, FireWirePacketFresh, isEthBroadcast, isEthMulticast, ~ETH_IRQn,
                          isForward, isInIRQ, sendARP, isUDP, isICMP, isEcho, is_IPv4_Long, is_IPv4_Short};
 assign DebugData[4]  = { RegISR, RegISROther};
 assign DebugData[5]  = { host_fw_addr, FrameCount, fw_count};
 assign DebugData[6]  = { 8'h11, maxCountFW, LengthFW };
 assign DebugData[7]  = { 4'd0, txPktWords, 4'h0, rxPktWords };
-assign DebugData[8]  = { 16'h8877,  16'd0 };
+assign DebugData[8]  = { timeSend, timeReceive };
 assign DebugData[9]  = { 6'd0, numPacketInvalid, numPacketValid };
 assign DebugData[10] = { 6'd0, numUDP, 6'd0, numIPv4 };
 assign DebugData[11] = { 6'd0, numICMP, 6'd0, numARP };
 assign DebugData[12] = { 6'd0, numIPv4Mismatch, 6'd0, numPacketError };
 assign DebugData[13] = { 8'd0, numReset, 6'd0, numStateInvalid };
-assign DebugData[14] = 32'd0;
+assign DebugData[14] = { timeForwardToFw, timeForwardFromFw };
 assign DebugData[15] = timestamp;
 
 
@@ -802,7 +808,7 @@ assign DebugData[15] = timestamp;
 wire[6:0]  mem_raddr;
 wire[31:0] mem_rdata;
 
-assign mem_raddr = eth_send_fw_req ? eth_fwpkt_raddr[6:0] :
+assign mem_raddr = eth_send_fw_ack ? eth_fwpkt_raddr[6:0] :
                    ((state[ST_SEND] || (retState == ST_SEND)) && sendState[ST_SEND_DMA_ICMP_DATA])  ? fw_count[7:1]
                                    : reg_raddr[6:0];
 assign eth_fwpkt_rdata = mem_rdata;
@@ -960,8 +966,13 @@ assign addrQLA  = (fw_dest_offset[15:12] == `ADDR_PROM_QLA) ? 1'd1 : 1'd0;
 always @(posedge sysclk) begin
 
    // Clear eth_send_fw_req flag
-   if (eth_send_fw_req && eth_send_fw_ack) begin
+   if (eth_send_fw_req & eth_send_fw_ack) begin
       eth_send_fw_req <= 1'd0;
+   end
+
+   // Measure time to forward packet via Firewire
+   if (eth_send_fw_req | eth_send_fw_ack) begin
+      timeForwardToFw <= timeForwardToFw + 16'd1;
    end
 
    // Clear sendAck (acknowledge request from Firewire)
@@ -1002,6 +1013,8 @@ always @(posedge sysclk) begin
       numStateInvalid <= numStateInvalid + 10'd1;
       state[ST_IDLE] <= 1;
    end
+
+   timeNotIdle <= state[ST_IDLE] ? timeNotIdle : timeNotIdle + 16'd1;
 
    // One-hot state machine implementation
    case (1'b1)  // synthesis parallel_case
@@ -1052,12 +1065,14 @@ always @(posedge sysclk) begin
          RegAddr <= `ETH_ADDR_ISR;
          state[ST_KSZIO] <= 1;
          retState <= ST_IRQ;
+         timeNotIdle <= 16'd0;
       end
       else if (initOK & sendReq) begin
          // forward packet from FireWire
          state[ST_SEND] <= 1;
          isForward <= 1;
          sendAck <= 1;
+         timeNotIdle <= 16'd0;
       end
       else begin
          state[ST_IDLE] <= 1;
@@ -1644,6 +1659,7 @@ always @(posedge sysclk) begin
             if (isRemote) begin
                // Request to forward pkt
                eth_send_fw_req <= 1;
+               timeForwardToFw <= 16'd0;
                host_fw_addr <= fw_src_id;
             end
          end
@@ -1724,6 +1740,7 @@ always @(posedge sysclk) begin
          //   - else go to idle state
          isWrite <= 0;
          if ((isWrite == 0) && (ReadData[0] == 1'b0)) begin
+            timeReceive <= timeNotIdle;
             if ((FireWirePacketFresh && (quadRead || blockRead) && isLocal) || sendARP || isEcho) begin
                state[ST_SEND] <= 1;
                recvState[ST_RECEIVE_FRAME_COUNT] <= 1;     // init for next time
@@ -2133,6 +2150,7 @@ always @(posedge sysclk) begin
       sendState[ST_SEND_END]:
       begin
          if (isInIRQ) begin
+            timeSend <= timeNotIdle;
             if (FrameCount == 8'd0) begin
                state[ST_IRQ] <= 1;
                // irqState is already set to ST_IRQ_DISPATCH;
@@ -2146,6 +2164,7 @@ always @(posedge sysclk) begin
             end
          end
          else begin
+            timeForwardFromFw <= timeNotIdle;
             state[ST_IDLE] <= 1;
          end
          sendState[ST_SEND_ENABLE_DMA] <= 1;   // init for next time
