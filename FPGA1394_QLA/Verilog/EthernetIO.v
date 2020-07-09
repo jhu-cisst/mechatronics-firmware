@@ -132,9 +132,10 @@ module EthernetIO(
     output reg[15:0] host_fw_addr,     // Firewire address of host (e.g., ffd0)
 
     // Interface from Firewire (for sending packets via Ethernet)
-    input wire sendReq,
-    output reg sendAck,
-    output reg sendActive,       // Indicates that Ethernet module is reading via sendAddr/sendData
+    // Note that sendAck is asserted when the Ethernet module is accessing the Firewire
+    // packet memory via sendAddr and sendData.
+    input wire sendReq,              // Send request from FireWire
+    output reg sendAck,              // Ack from Ethernet
     output reg[6:0] sendAddr,
     input wire[31:0] sendData,
     input wire[15:0] sendLen,
@@ -975,11 +976,6 @@ always @(posedge sysclk) begin
       timeForwardToFw <= timeForwardToFw + 16'd1;
    end
 
-   // Clear sendAck (acknowledge request from Firewire)
-   if (sendAck && !sendReq) begin
-      sendAck <= 1'd0;
-   end
-
    if (sample_start && sample_busy) begin
       sample_start <= 1'd0;
    end
@@ -1030,7 +1026,6 @@ always @(posedge sysclk) begin
       eth_block_wstart <= 0;
       blockw_active <= 0;
       waitInfo <= WAIT_NONE;
-      sendActive <= 0;
       if (ksz_req) begin
          //****** Access to KSZ8851 registers via Firewire interface ******
          // Format of 32-bit register:
@@ -1071,7 +1066,6 @@ always @(posedge sysclk) begin
          // forward packet from FireWire
          state[ST_SEND] <= 1;
          isForward <= 1;
-         sendAck <= 1;
          timeNotIdle <= 16'd0;
       end
       else begin
@@ -1801,9 +1795,6 @@ always @(posedge sysclk) begin
 
       sendState[ST_SEND_ENABLE_DMA]:
       begin
-         if (!isInIRQ) begin
-            sendAck <= 0;  // TEMP
-         end
          // Enable DMA transfers
          isWrite <= 1;
          RegAddr <= `ETH_ADDR_RXQCR;
@@ -1892,7 +1883,7 @@ always @(posedge sysclk) begin
          if (replyCnt == Frame_Reply_End) begin
             if (isForward && !useUDP) begin
                sendState[ST_SEND_DMA_FWD] <= 1;
-               sendActive <= 1;
+               sendAck <= 1;
                sendAddr <= 7'd0;
                isForward <= 1'd0;
             end
@@ -1916,7 +1907,7 @@ always @(posedge sysclk) begin
          else if (replyCnt == UDP_Reply_End) begin
             if (isForward) begin
                sendState[ST_SEND_DMA_FWD] <= 1;
-               sendActive <= 1;
+               sendAck <= 1;
                sendAddr <= 7'd0;
                isForward <= 1'd0;
             end
@@ -2099,7 +2090,7 @@ always @(posedge sysclk) begin
          state[ST_KSZIO] <= 1;
          if (fw_count == (sendLen[8:1]-8'd1)) begin
             sendState[ST_SEND_DMA_STOP] <= 1;
-            sendActive <= 0;
+            sendAck <= 0;
          end
          else
             sendState[ST_SEND_DMA_FWD] <= 1;

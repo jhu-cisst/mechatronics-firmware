@@ -187,10 +187,11 @@ wire[15:0] eth_host_fw_addr;
 
 wire eth_send_req;
 wire eth_send_ack;
-wire eth_send_active;
 wire [6:0] eth_send_addr;
 wire [15:0] eth_send_len;
-   
+
+wire[6:0] eth_send_addr_mux;
+assign eth_send_addr_mux = eth_send_ack ? eth_send_addr : reg_raddr[6:0];
 
 // phy-link interface
 PhyLinkInterface phy(
@@ -219,11 +220,11 @@ PhyLinkInterface phy(
     .eth_fw_addr(eth_host_fw_addr),    // in: eth fw host address (e.g., ffd0)
 
     // Request from Firewire to send Ethernet packet
-    // Note that if !eth_send_active, then the Firewire packet memory
+    // Note that if !eth_send_ack, then the Firewire packet memory
     // is accessible via reg_raddr/reg_rdata.
     .eth_send_req(eth_send_req),
     .eth_send_ack(eth_send_ack),
-    .eth_send_addr(eth_send_active ? eth_send_addr : reg_raddr[6:0]),
+    .eth_send_addr(eth_send_addr_mux),
     .eth_send_data(reg_rdata_fw),
     .eth_send_len(eth_send_len),
                      
@@ -310,9 +311,8 @@ EthernetIO EthernetTransfers(
     // Interface from Firewire (for sending packets via Ethernet)
     .sendReq(eth_send_req),
     .sendAck(eth_send_ack),
-    .sendActive(eth_send_active),
     .sendAddr(eth_send_addr),
-    .sendData(eth_send_data),
+    .sendData(reg_rdata_fw),
     .sendLen(eth_send_len),
 
     // Interface for sampling data (for block read)

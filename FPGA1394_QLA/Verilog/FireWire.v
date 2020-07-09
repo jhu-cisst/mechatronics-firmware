@@ -442,8 +442,8 @@ end
 always @(posedge(sysclk))
 begin
 
-       // Remove eth_send_req when eth_send_ack is negated
-       if (eth_send_req && !eth_send_ack) begin
+       // Clear eth_send_req when eth_send_ack asserted
+       if (eth_send_req & eth_send_ack) begin
           eth_send_req <= 1'b0;
        end
 
