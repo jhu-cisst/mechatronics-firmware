@@ -1698,6 +1698,9 @@ always @(posedge sysclk) begin
          if (blockw_active) begin
             recvState[ST_RECEIVE_DMA_FRAME_CRC] <= 1;
             blockw_active <= (genCnt == 2'd3) ? 0 : 1;
+            // Restore the DAC device address for blk_wen because the block write
+            // processing ends by addressing the status/control register instead of the DAC.
+            eth_reg_waddr[3:0] <= `OFF_DAC_CTRL;    // set dac device address
          end
          else begin
             recvState[ST_RECEIVE_FLUSH_START] <= 1;

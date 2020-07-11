@@ -26,6 +26,7 @@
  *     08/23/14    Zihan Chen          Added support for Eth1394
  *     12/02/16    Zihan Chen          Added packet forward from Ethernet
  *     05/03/18    Jie Ying Wu         Added additional fields for velocity
+ *     07/11/20    Peter Kazanzides    Added status/control register at end of block write
  */
 
 // LLC: link layer controller (implemented in this file)
@@ -877,6 +878,9 @@ begin
                     reg_wen <= (rx_active & (rx_tcode==`TC_QWRITE) & (rx_bc_bread == 1'b0));
                     // reg_wen <= (rx_active & (rx_tcode==`TC_QWRITE)); 
                     blk_wen <= (rx_active & ((rx_tcode==`TC_QWRITE) | (rx_tcode==`TC_BWRITE)));
+                    // Restore the DAC device address for blk_wen because the Rev 7+ block write
+                    // processing ends by addressing the status/control register instead of the DAC.
+                    reg_waddr[3:0] <= (rx_tcode == `TC_BWRITE) ? `OFF_DAC_CTRL : reg_waddr[3:0];
                 end
 
                 // -------------------------------------------------------------
