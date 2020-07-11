@@ -51,6 +51,11 @@ module CtrlDout(
     output reg dout_cfg_bidir     // 1 -> new DOUT hardware (bidirectional control)
 );    
 
+initial begin
+  dout_cfg_valid = 0;
+  dout_cfg_bidir = 0;
+end
+
 wire dout_set;           // write to digital output bit (masked by reg_wdata[8:11])             
 assign dout_set = (reg_wen && (reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[7:4] == 4'd0) & (reg_waddr[3:0] == `REG_DIGIOUT)) ? 1'd1 : 1'd0;
 wire dout_set_en[1:4];   // enable signal for each digital output
@@ -103,7 +108,7 @@ begin
       end
       else if ((dir12_read == 1'b1) && (dir34_read == 1'b1)) begin
          // Older version of QLA
-         // dout_cfg_bidir is already set to 0 during reset
+         dout_cfg_bidir <= 1'b0;
          dout_cfg_valid <= 1'b1;
       end
       // Else we keep checking...
