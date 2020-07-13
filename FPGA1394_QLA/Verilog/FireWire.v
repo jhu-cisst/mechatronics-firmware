@@ -138,10 +138,11 @@
 `define SZ_BRESP 16'd192          // block read response base size
 `define SZ_STAT 16'd16            // phy register transfer size
 
-//`define SZ_BBC  16'd576           // block write broadcast packet size
-//                                  // (4 + 1 + 12 + 1) * 32 = 576
-`define SZ_BBC  16'd736           // block write broadcast packet size
-                                  // (4 + 1 + 1 + 16 + 1) * 32 = 736
+// block write broadcast packet size
+//    32*[FW_header (4) + header_CRC (1) + seq (1) + data (N) + data_CRC (1)] = 32*(N+7)
+//    Rev 4-6: N=16 --> SZ_BBC = 16'd736  (should have been N=20, SZ_BBC = 16'd864)
+//    Rev 7:   N=28 --> SZ_BBC = 16'd1120
+`define SZ_BBC  16'd1120
 
 // ack values
 `define ACK_DONE 4'h1             // transaction complete, applies to writes
@@ -1143,8 +1144,11 @@ begin
                 56: buffer <= { 16'hff00, `ADDR_HUB, 3'd0, board_id[3:0], 5'd0 }; 
 
                 //-------- Start broadcast back with sequence -------------
-                // datalen = 4 x (1 + 4 + 4 + 4 + 4 + 4) = 84 bytes
-                88: buffer <= { 16'd84, 16'd0 };
+                // datalen = 4 x (1 + 4 + 4 + 4 + 4 + 4) = 84 bytes (Rev 1-6)
+                //    Seq (1), BoardInfo (4), Pot/Cur (4), Enc (4), Enc Vel/DT (4), Enc Vel/DP/Q1 (4)
+                // datalen = 4 x (1 + 4 + 4 + 4 + 4 + 4 + 4 + 4) = 116 bytes (Rev 7)
+                //    above + Enc Accel Q5 (4), Enc Running (4)
+                88: buffer <= { 16'd116, 16'd0 };
                 
                 // latch header crc, reset crc in preparation for data crc
                 128: begin
@@ -1245,8 +1249,10 @@ begin
                             reg_raddr[7:4] <= reg_raddr[7:4] + 1'b1;
                     end
                     else if (reg_raddr[15:12] == `ADDR_HUB) begin
-                        // 1 board = 21 quadlets (1 seq + 20 data)
-                        if (reg_raddr[4:0] == 5'd20) begin
+                        // Rev 1-6: 1 board = 17 quadlets (1 seq + 16 data)
+                        //                    Should have been 21 quadlets (1 seq + 20 data)
+                        // Rev 7:   1 board = 29 quadlets (1 seq + 28 data)
+                        if (reg_raddr[4:0] == 5'd28) begin
                             reg_raddr[8:5] <= reg_raddr[8:5] + 1'b1;
                             reg_raddr[4:0] <= 5'd0;
                         end
