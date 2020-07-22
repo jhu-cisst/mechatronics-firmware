@@ -138,11 +138,17 @@
 `define SZ_BRESP 16'd192          // block read response base size
 `define SZ_STAT 16'd16            // phy register transfer size
 
-// block write broadcast packet size
+// real-time feedback broadcast packet size, in bits, including Firewire header/CRC
 //    32*[FW_header (4) + header_CRC (1) + seq (1) + data (N) + data_CRC (1)] = 32*(N+7)
 //    Rev 4-6: N=16 --> SZ_BBC = 16'd736  (should have been N=20, SZ_BBC = 16'd864)
 //    Rev 7:   N=28 --> SZ_BBC = 16'd1120
-`define SZ_BBC  16'd1120
+//    `SZ_BWRITE includes FW_header + header_CRC + data_CRC
+parameter[15:0] SZ_BBC = (`SZ_BWRITE + 32*`NUM_BC_READ_QUADS);
+
+// maximum quadlet index for real-time feedback broadcast packet
+parameter[5:0] MAX_BBC_QUAD = (`NUM_BC_READ_QUADS-1);
+// real-time feedback broadcast packet size, in bytes, not include Firewire header/CRC
+parameter[15:0] SZ_BBC_BYTES = (4*`NUM_BC_READ_QUADS);
 
 // ack values
 `define ACK_DONE 4'h1             // transaction complete, applies to writes
@@ -949,7 +955,7 @@ begin
             `TX_TYPE_BBC: begin
                 buffer <= { 16'hffff, rx_tag, 2'd0, `TC_BWRITE, 4'hA };
                 next <= ST_TX_HEAD_BC;
-                numbits <= `SZ_BBC;
+                numbits <= SZ_BBC;
             end
 
             // transmit packet from Ethernet
@@ -1148,7 +1154,7 @@ begin
                 //    Seq (1), BoardInfo (4), Pot/Cur (4), Enc (4), Enc Vel/DT (4), Enc Vel/DP/Q1 (4)
                 // datalen = 4 x (1 + 4 + 4 + 4 + 4 + 4 + 4 + 4) = 116 bytes (Rev 7)
                 //    above + Enc Accel Q5 (4), Enc Running (4)
-                88: buffer <= { 16'd116, 16'd0 };
+                88: buffer <= { SZ_BBC_BYTES, 16'd0 };
                 
                 // latch header crc, reset crc in preparation for data crc
                 128: begin
@@ -1252,7 +1258,7 @@ begin
                         // Rev 1-6: 1 board = 17 quadlets (1 seq + 16 data)
                         //                    Should have been 21 quadlets (1 seq + 20 data)
                         // Rev 7:   1 board = 29 quadlets (1 seq + 28 data)
-                        if (reg_raddr[4:0] == 5'd28) begin
+                        if (reg_raddr[4:0] == MAX_BBC_QUAD) begin
                             reg_raddr[8:5] <= reg_raddr[8:5] + 1'b1;
                             reg_raddr[4:0] <= 5'd0;
                         end

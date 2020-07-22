@@ -34,6 +34,12 @@
 `define NUM_CHANNELS 4             // number of channels on QLA
 `define NUM_PER_CHN_FIELDS 6       // number of per-channel entries in block read
                                    // (4 in Firmware Rev 1-6, 6 in Firmware Rev 7+)
+// Number of quadlets in real-time block read (not including Firewire header and CRC)
+//    Rev 4-6: 16 (should have been 20)
+//    Rev 7:   28
+`define NUM_RT_READ_QUADS (4+`NUM_CHANNELS*`NUM_PER_CHN_FIELDS)
+// Number of quadlets in broadcast real-time block; includes sequence number
+`define NUM_BC_READ_QUADS (1+`NUM_RT_READ_QUADS)
 
 // address space  
 `define ADDR_MAIN     4'h0         // board reg & device reg
@@ -75,7 +81,6 @@
 `define OFF_DOUT_CTRL 4'h8         // dout hi/lo period (16-bits hi, 16-bits lo)
 `define OFF_QTR5_DATA 4'h9         // enc most recent quarter offset
 `define OFF_RUN_DATA  4'hA         // enc running counter offset
-
 
 `define ENC_MIDRANGE 24'h800000    // encoder mid-range value
 
