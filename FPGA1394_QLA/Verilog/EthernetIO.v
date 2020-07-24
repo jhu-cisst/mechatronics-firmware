@@ -1569,7 +1569,7 @@ always @(posedge sysclk) begin
                      dac_local <= 1;
                      eth_reg_wdata <= {1'b0, FireWireQuadlet[30:0]};
                      // MSB is "valid" bit for DAC write (addrMain)
-                     eth_reg_wen <=FireWireQuadlet[31];
+                     eth_reg_wen <= FireWireQuadlet[31];
                   end
                   else begin
                      dac_local <= 0;
@@ -1645,9 +1645,9 @@ always @(posedge sysclk) begin
             recvState[ST_RECEIVE_DMA_FRAME_CRC] <= 1;
             if (isLocal) begin
                if (quadWrite) begin
+                  // maxCountFW==9 for quadlet write
                   eth_reg_wen <= 1;
                   eth_block_wen <= 1;
-                  lreq_trig <= 0;     // Clear lreq_trig in case it was set
                end
             end
             if (isRemote) begin
@@ -1694,6 +1694,7 @@ always @(posedge sysclk) begin
          // consistent with the original implementation (in Firewire.v).
          eth_reg_wen <= 0;    // Clean up from quadlet/block writes
          eth_block_wen <= (blockw_active && (genCnt == 2'd3)) ? 1 : 0;
+         lreq_trig <= 0;      // Clear lreq_trig in case it was set
          genCnt <= genCnt + 2'd1;
          if (blockw_active) begin
             recvState[ST_RECEIVE_DMA_FRAME_CRC] <= 1;
