@@ -165,13 +165,20 @@ assign IO1[8] = 1'bz;
 // hub register module
 // --------------------------------------------------------------------------
 
+wire[15:0] bc_sequence;
+wire[15:0] bc_board_mask;
+wire       bc_request;
+
 HubReg hub(
     .sysclk(sysclk),
     .reg_wen(reg_wen),
     .reg_raddr(reg_raddr),
     .reg_waddr(reg_waddr),
     .reg_rdata(reg_rdata_hub),
-    .reg_wdata(reg_wdata)
+    .reg_wdata(reg_wdata),
+    .sequence(bc_sequence),
+    .board_mask(bc_board_mask),
+    .hub_reg_wen(bc_request)
 );
 
 
@@ -229,7 +236,11 @@ PhyLinkInterface phy(
     .eth_send_len(eth_send_len),
                      
     .lreq_trig(fw_lreq_trig),  // out: phy request trigger
-    .lreq_type(fw_lreq_type)   // out: phy request type
+    .lreq_type(fw_lreq_type),  // out: phy request type
+
+    .rx_bc_sequence(bc_sequence),  // in: broadcast sequence num
+    .rx_bc_fpga(bc_board_mask),    // in: mask of boards involved in broadcast read
+    .rx_bc_bread(bc_request)       // in: 1 -> received broadcast read request
 );
 
 

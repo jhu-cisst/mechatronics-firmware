@@ -1,3 +1,6 @@
+/* -*- Mode: Verilog; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*-   */
+/* ex: set filetype=v softtabstop=4 shiftwidth=4 tabstop=4 cindent expandtab:      */
+
 /*******************************************************************************
  *
  * Copyright(C) 2008-2020 ERC CISST, Johns Hopkins University.
@@ -207,8 +210,13 @@ module PhyLinkInterface(
     output reg[15:0] eth_send_len,   // packet data len
 
     // transmit parameters
-    output reg lreq_trig,         // trigger signal for a phy request
-    output reg[2:0] lreq_type     // type of request to give to the phy
+    output reg lreq_trig,            // trigger signal for a phy request
+    output reg[2:0] lreq_type,       // type of request to give to the phy
+
+    // broadcast related fields
+    input wire[15:0] rx_bc_sequence, // broadcast sequence num
+    input wire[15:0] rx_bc_fpga,     // indicates whether a boards exists
+    input wire rx_bc_bread           // rx broadcast read request flag
 
     // debug
 `ifdef USE_CHIPSCOPE
@@ -286,11 +294,6 @@ module PhyLinkInterface(
     reg[15:0] rx_src;             // source ID field
     reg[15:0] reg_dlen;           // block data length
     reg[47:0] rx_addr_full;       // full 48-bit
-
-    // broadcast related fields
-    reg[15:0] rx_bc_sequence;     // broadcast sequence num
-    reg[15:0] rx_bc_fpga;         // indicates whether a boards exists
-    reg rx_bc_bread;              // rx broadcast read request flag
 
     // real-time read stuff
     // an array of 4 4-bits device address
@@ -395,14 +398,13 @@ end
 
 // -------------------------------------------------------
 // Broadcast Time Counter 
-//   - Trigger: 2 different triggers
-//      - 1: broadcast write command
-//      - 2: special broadcast qwrite serves as bc read request 
+//   - Trigger:
+//      - Special broadcast qwrite serves as bc read request
 //   - Time offset
 //      - 5 us is enough for 1 board to send data
-//      - offset can be based on nodeid or boardid (rotary switch)
+//      - wait for lower numbered boards to send data first
+//      - add 3 us for ACK
 // -------------------------------------------------------
-// counter for initiate block write to controller PC
 reg[31:0] write_counter;
 wire[14:0] write_trig_count;    // 6 bits node_id + 8 bits (256 counts)
 reg write_trig;                 // triggers broadcast board status
@@ -420,21 +422,30 @@ always @ (posedge sysclk) begin
             +  ((d[ 8] + d[ 9] + d[10] + d[11]) + (d[12] + d[13] + d[14] + d[15])));
 end
 
-// assign write_trig_count = eth1394 ? {count[5:0], 8'd0} : {node_id[5:0], 8'd0};
-assign write_trig_count = eth1394 ? {count[5:0], 8'd0} : {write_trig_seq, 8'd0};
+assign write_trig_count = {write_trig_seq, 8'd150};
 
 always @(posedge(sysclk))
 begin
-    if (rx_bc_bread) begin
-        write_counter <= 32'd0;
+    if (rx_bc_bread) begin               // if broadcast read request received
+        write_counter <= 32'd0;          //    reset counter
         write_trig <= 1'b0;
     end
     else begin
-        if (write_counter < (write_trig_count + 150)) begin  // 150 cycle for ACK packet
+        // First, wait (256*write_trig_seq+150) cycles, where each cycle is 20.345 ns.
+        // write_trig_seq is equal to the number of boards in use that have a lower
+        // number than the current board. 150 cycles is added for the ACK packet.
+        // For example, if there is 1 board with a lower number, then the wait
+        // will be for 256*1+150 = 406 cycles, or 8.26 microseconds.
+        // In general, for N lower-numbered boards, wait 256*N+150 = 5.21*N+3.05 microseconds.
+        // Next, if this board is selected, set write_trig, which will cause the
+        // Firewire state machine to set lreq_type == `LREQ_TX_ISO.
+        // Note that write_counter is not updated after write_trig is set, so it remains
+        // at (write_trig_count+1) until the next broadcast read request.
+        if (write_counter < write_trig_count) begin
             write_counter <= write_counter + 1'b1;
             write_trig <= 1'b0;
         end
-        else if ( write_counter == (write_trig_count + 150)) begin
+        else if (write_counter == write_trig_count) begin
             write_counter <= write_counter + 1'b1;
             write_trig <= board_selected;
         end
@@ -469,7 +480,6 @@ begin
             blk_wen <= 0;                          // no block write events
             crc_tx <= 0;                           // not in a transmit state
             rx_active <= 0;                        // clear receive active     
-            rx_bc_bread <= 1'b0;                   // clear broadcast reqd request flag       
             
             // monitor ctl to select next state
             case (ctl)
@@ -750,8 +760,8 @@ begin
                             // rx_dest == 3f is a broadcast command (no ack); was used for testing.
                             // Also, full address of ffffffff000f is used for broadcast read request by PC software.
                             if ((rx_dest[5:0] == 6'd0 || rx_dest[5:0] == 6'h3f) && rx_tcode == `TC_QWRITE && 
-                                rx_addr_full[47:32] == 16'hffff && buffer[31:0] == 32'hffff000f) begin
-                                rx_bc_bread <= 1;          // set rx_bc_bread
+                                (buffer[15:12] == `ADDR_HUB) && (buffer[11:0] == 12'h800)) begin
+                                rx_active <= 1;
                                 bus_id <= rx_src[15:6];    // latch bus_id
                             end
                             // broadcast write commands 
@@ -767,12 +777,6 @@ begin
 
                             // quadlet write normal
                             reg_wdata <= buffer[31:0];    // reg write data
-
-                            // quadlet write bc read start
-                            if (rx_bc_bread) begin
-                                rx_bc_sequence <= buffer[31:16];    // sequence number
-                                rx_bc_fpga <= buffer[15:0];         // fpga board exist
-                            end
 
                             // block read/write
                             reg_dlen <= buffer[31:16];    // block data length
@@ -881,8 +885,7 @@ begin
                     // NOTE: 
                     //   & - bitwise AND
                     //   result is a 1-bit and assigned to reg_wen 
-                    //   NO quadlet write event for bc read request
-                    reg_wen <= (rx_active & (rx_tcode==`TC_QWRITE) & (rx_bc_bread == 1'b0));
+                    reg_wen <= (rx_active & (rx_tcode==`TC_QWRITE));
                     // reg_wen <= (rx_active & (rx_tcode==`TC_QWRITE)); 
                     blk_wen <= (rx_active & ((rx_tcode==`TC_QWRITE) | (rx_tcode==`TC_BWRITE)));
                     // Restore the DAC device address for blk_wen because the Rev 7+ block write

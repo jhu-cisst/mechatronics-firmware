@@ -103,6 +103,10 @@ assign IO1[8] = 1'bz;
 // hub register module
 // --------------------------------------------------------------------------
 
+wire[15:0] bc_sequence;
+wire[15:0] bc_board_mask;
+wire       bc_request;
+
 HubReg hub(
     .sysclk(sysclk),
     .reg_wen(reg_wen),
@@ -143,12 +147,11 @@ PhyLinkInterface phy(
     .reg_wdata(reg_wdata),   // out: write data to external register
 
     .lreq_trig(lreq_trig),   // out: phy request trigger
-    .lreq_type(lreq_type)    // out: phy request type
+    .lreq_type(lreq_type),   // out: phy request type
 
-`ifdef USE_CHIPSCOPE
-    ,
-    .ila_control(control_fw) // inout: ila control
-`endif
+    .rx_bc_sequence(bc_sequence),  // in: broadcast sequence num
+    .rx_bc_fpga(bc_board_mask),    // in: mask of boards involved in broadcast read
+    .rx_bc_bread(bc_request)       // in: 1 -> received broadcast read request
 );
 
 
