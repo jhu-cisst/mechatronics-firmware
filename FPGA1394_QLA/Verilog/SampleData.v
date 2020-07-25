@@ -32,16 +32,6 @@ module SampleData(
     output reg[31:0]  timestamp    // timestamp counter register
     );
 
-reg ts_reset;                  // timestamp counter reset signal
-// Timestamp counts number of clocks between block reads
-always @(posedge clk or posedge ts_reset)
-begin
-    if (ts_reset)
-        timestamp <= 0;
-    else
-        timestamp <= timestamp + 1'b1;
-end
-
 // Number of quadlets in block response:
 //   1 (timestamp) + 3 (global regs) + num_channels*num_offsets
 //     num_channels: 4 (QLA)
@@ -63,9 +53,10 @@ assign blk_data = RT_Feedback[blk_addr];
 // 2) The data are better synchronized.
 // 3) It simplifies the Ethernet/Firewire state machine.
 
-always @(posedge clk or posedge doSample)
+always @(posedge clk)
 begin
-   if (doSample == 1) begin
+   timestamp <= (isBusy && (chan == 4'd1)) ? 32'd0 : timestamp + 1'b1;
+   if (doSample) begin
       chan <= 4'd1;
       isBusy <= 1'd1;
    end
@@ -76,14 +67,12 @@ begin
          RT_Feedback[1] <= reg_status;
          RT_Feedback[2] <= reg_digio;
          RT_Feedback[3] <= reg_temp;
-         ts_reset <= 1;
       end
       if (chan == 4'd5) begin
          isBusy <= 1'd0;
       end
       else begin
          // For chan = 1,2,3,4
-         ts_reset <= 0;
          RT_Feedback[3+chan] <= adc_in;
          RT_Feedback[7+chan] <= enc_pos;
          RT_Feedback[11+chan] <= enc_period;
