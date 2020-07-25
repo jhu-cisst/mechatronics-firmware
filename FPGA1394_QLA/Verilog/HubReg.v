@@ -18,7 +18,7 @@
 
 module HubReg(
     input  wire sysclk,            // system clk
-    input  wire reg_wen,           // hub reg write enable
+    input  wire reg_wen,           // hub memory write enable
     input  wire[15:0] reg_raddr,   // hub reg addr 9-bit
     input  wire[15:0] reg_waddr,   // hub reg addr 9-bit
     output wire[31:0] reg_rdata,   // hub outgoing read data
@@ -29,6 +29,9 @@ module HubReg(
 );
 
 assign hub_reg_wen = (reg_wen & (reg_waddr[15:12]==`ADDR_HUB) && (reg_waddr[11:0]==12'h800));
+
+wire[31:0] reg_rdata_mem;
+assign reg_rdata = (reg_raddr[11:0]==12'h800) ? {sequence, board_mask} : reg_rdata_mem;
 
 always @(posedge(sysclk))
 begin
@@ -51,7 +54,7 @@ hub_mem_gen hub_mem(
     .dina(reg_wdata),
     .clkb(sysclk),
     .addrb(reg_raddr[8:0]),
-    .doutb(reg_rdata)
+    .doutb(reg_rdata_mem)
 );
 
 endmodule

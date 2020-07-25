@@ -96,6 +96,8 @@ module FPGA1394EthQLA
     wire[31:0] reg_rd[0:15];
     wire eth_read_en;           // 1 -> Ethernet is driving reg_raddr to read from board registers
     wire[5:0] node_id;          // 6-bit phy node id
+    wire[3:0] board_id;         // 4-bit board id
+    assign board_id = ~wenid;
 
 //------------------------------------------------------------------------------
 // hardware description
@@ -103,16 +105,27 @@ module FPGA1394EthQLA
 
 BUFG clksysclk(.I(clk1394), .O(sysclk));
 
-// Wires for sampling block read data
+// Wires for sampling block read data (shared between Ethernet and Firewire)
 wire sample_start;        // Start sampling read data
+wire writeHub;            // 1 -> write to hub after sampling
 wire sample_busy;         // 1 -> data sampler has control of bus
 wire[3:0] sample_chan;    // Channel for sampling
 wire[4:0] sample_raddr;   // Address in sample_data buffer
 wire[31:0] sample_rdata;  // Output from sample_data buffer
 wire[31:0] timestamp;     // Timestamp used when sampling
 
+// Manage access to data sampling between Ethernet and Firewire.
+// As with most shared Ethernet/Firewire functionality, it is assumed that
+// only one interface will be receiving packets from the host PC, so this is
+// likely to fail if the host PC sends packets by both Ethernet and Firewire.
+wire fw_sample_start;
 wire eth_sample_start;
-assign sample_start = eth_sample_start & ~sample_busy;
+assign sample_start = (eth_sample_start|fw_sample_start) & ~sample_busy;
+
+wire eth_sample_read;      // 1 -> Ethernet module has control of sample_raddr
+wire[4:0] fw_sample_raddr;
+wire[4:0] eth_sample_raddr;
+assign sample_raddr = eth_sample_read ? eth_sample_raddr : fw_sample_raddr;
 
 assign reg_raddr = sample_busy ? {`ADDR_MAIN, 4'd0, sample_chan, 4'd0} :
                    eth_read_en ? eth_reg_raddr :
@@ -127,17 +140,17 @@ assign blk_wstart = fw_blk_wstart | eth_blk_wstart;
 assign lreq_trig = eth_lreq_trig | fw_lreq_trig;
 assign lreq_type = eth_lreq_trig ? eth_lreq_type : fw_lreq_type;
 
-// Mux routing read data based on read address
-//   See Constants.v for detail
-//     addr[15:12]  main | hub | prom | prom_qla | eth | firewire | dallas
+wire[31:0] reg_rdata_hub;      // reg_rdata_hub is for hub memory
+wire[31:0] reg_rdata_prom;     // reg_rdata_prom is for block reads from PROM
+wire[31:0] reg_rdata_prom_qla; // reads from QLA prom
+wire[31:0] reg_rdata_eth;      // for eth memory access
+wire[31:0] reg_rdata_fw;       // for fw memory access
+wire[31:0] reg_rdata_ds;       // for DS2505 memory access
+wire[31:0] reg_rdata_chan0;    // 'channel 0' is a special axis that contains various board I/Os
 
-// route HubReg data to global reg_rdata
-wire [31:0] reg_rdata_hub;      // reg_rdata_hub is for hub memory
-wire [31:0] reg_rdata_prom;     // reg_rdata_prom is for block reads from PROM
-wire [31:0] reg_rdata_prom_qla; // reads from QLA prom
-wire [31:0] reg_rdata_eth;      // for eth memory access
-wire [31:0] reg_rdata_fw;       // for fw memory access
-wire [31:0] reg_rdata_ds;       // for DS2505 memory access
+// Mux routing read data based on read address
+//   See Constants.v for details
+//     addr[15:12]  main | hub | prom | prom_qla | eth | firewire | dallas
 assign reg_rdata = (reg_raddr[15:12]==`ADDR_HUB) ? (reg_rdata_hub) :
                   ((reg_raddr[15:12]==`ADDR_PROM) ? (reg_rdata_prom) :
                   ((reg_raddr[15:12]==`ADDR_PROM_QLA) ? (reg_rdata_prom_qla) : 
@@ -169,13 +182,24 @@ wire[15:0] bc_sequence;
 wire[15:0] bc_board_mask;
 wire       bc_request;
 
+wire hub_wen;             // 1 -> sampler writing to hub
+wire[4:0] hub_waddr;      // write address from sampler
+wire[31:0] hub_wdata;     // write data from sampler
+
+wire reg_wen_hub;
+assign reg_wen_hub = reg_wen|hub_wen;
+wire[15:0] reg_waddr_hub;
+assign reg_waddr_hub = hub_wen ? {`ADDR_HUB, 3'd0, board_id, hub_waddr} : reg_waddr;
+wire[31:0] reg_wdata_hub;
+assign reg_wdata_hub = hub_wen ? hub_wdata : reg_wdata;
+
 HubReg hub(
     .sysclk(sysclk),
-    .reg_wen(reg_wen),
+    .reg_wen(reg_wen_hub),
     .reg_raddr(reg_raddr),
-    .reg_waddr(reg_waddr),
+    .reg_waddr(reg_waddr_hub),
     .reg_rdata(reg_rdata_hub),
-    .reg_wdata(reg_wdata),
+    .reg_wdata(reg_wdata_hub),
     .sequence(bc_sequence),
     .board_mask(bc_board_mask),
     .hub_reg_wen(bc_request)
@@ -204,9 +228,9 @@ assign eth_send_addr_mux = eth_send_ack ? eth_send_addr : reg_raddr[6:0];
 PhyLinkInterface phy(
     .sysclk(sysclk),         // in: global clk  
     .eth1394(eth1394),       // in: eth1394 mode
-    .board_id(~wenid),       // in: board id (rotary switch)
+    .board_id(board_id),     // in: board id (rotary switch)
     .node_id(node_id),       // out: phy node id
-    
+
     .ctl_ext(ctl),           // bi: phy ctl lines
     .data_ext(data),         // bi: phy data lines
     
@@ -240,7 +264,14 @@ PhyLinkInterface phy(
 
     .rx_bc_sequence(bc_sequence),  // in: broadcast sequence num
     .rx_bc_fpga(bc_board_mask),    // in: mask of boards involved in broadcast read
-    .rx_bc_bread(bc_request)       // in: 1 -> received broadcast read request
+    .rx_bc_bread(bc_request),      // in: 1 -> received broadcast read request
+
+    // Interface for sampling data (for block read)
+    .sample_start(fw_sample_start),   // 1 -> start sampling for block read
+    .sample_busy(sample_busy),        // Sampling in process
+    .sample_raddr(fw_sample_raddr),   // Read address for sampled data
+    .sample_rdata(sample_rdata),      // Sampled data (for block read)
+    .writeHub(writeHub)               // 1 -> write to hub after sampling
 );
 
 
@@ -267,7 +298,7 @@ wire[31:0] ip_address;
 EthernetIO EthernetTransfers(
     .sysclk(sysclk),          // in: global clock
 
-    .board_id(~wenid),        // in: board id (rotary switch)
+    .board_id(board_id),      // in: board id (rotary switch)
     .node_id(node_id),        // in: phy node id
 
     // Interface to KSZ8851
@@ -329,7 +360,8 @@ EthernetIO EthernetTransfers(
     // Interface for sampling data (for block read)
     .sample_start(eth_sample_start),   // 1 -> start sampling for block read
     .sample_busy(sample_busy),         // Sampling in process
-    .sample_raddr(sample_raddr),       // Read address for sampled data
+    .sample_read(eth_sample_read),     // 1 -> reading from sample memory
+    .sample_raddr(eth_sample_raddr),   // Read address for sampled data
     .sample_rdata(sample_rdata),       // Sampled data (for block read)
     .timestamp(timestamp)              // timestamp
 );
@@ -612,9 +644,6 @@ wire[4:1] safety_amp_disable;
 wire pwr_enable_cmd;
 wire[4:1] amp_enable_cmd;
 
-// 'channel 0' is a special axis that contains various board I/Os
-wire[31:0] reg_rdata_chan0;
-
 wire[31:0] reg_status;    // Status register
 wire[31:0] reg_digio;     // Digital I/O register
 wire[15:0] tempsense;     // Temperature sensor
@@ -642,7 +671,7 @@ BoardRegs chan0(
     .mv_faultn(IO1[7]),
     .mv_good(IO2[11]),
     .v_fault(IO1[9]),
-    .board_id(~wenid),
+    .board_id(board_id),
     .temp_sense(tempsense),
     .reg_raddr(reg_raddr),
     .reg_waddr(reg_waddr),
@@ -685,7 +714,13 @@ SampleData sampler(
     .enc_run(reg_run_data),
     .blk_addr(sample_raddr),
     .blk_data(sample_rdata),
-    .timestamp(timestamp)
+    .timestamp(timestamp),
+    .bc_sequence(bc_sequence),
+    .bc_board_mask(bc_board_mask),
+    .writeHub(writeHub),
+    .hub_waddr(hub_waddr),
+    .hub_wdata(hub_wdata),
+    .hub_wen(hub_wen)
 );
 
 // ----------------------------------------------------------------------------

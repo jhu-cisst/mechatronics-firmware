@@ -66,24 +66,42 @@ module FPGA1394QLA
     wire blk_wen;               // block write enable
     wire blk_wstart;            // block write start
     wire[15:0] reg_raddr;       // 16-bit reg read address
+    wire[15:0] fw_reg_raddr;    // 16-bit reg read address from FireWire
     wire[15:0] reg_waddr;       // 16-bit reg write address
     wire[31:0] reg_rdata;       // reg read data
     wire[31:0] reg_wdata;       // reg write data
     wire[31:0] reg_rd[0:15];
+    wire[3:0] board_id;         // 4-bit board id
+    assign board_id = ~wenid;
 
 //------------------------------------------------------------------------------
 // hardware description
 //
-wire[31:0] reg_rdata_hub;       // route HubReg data to global reg_rdata
-wire[31:0] reg_rdata_prom;      // reg_rdata_prom is for block reads from PROM
-wire[31:0] reg_rdata_prom_qla;  // reads from QLA prom
-wire [31:0] reg_rdata_ds;       // for DS2505 memory access
-wire[31:0] reg_rdata_chan0;     // 'channel 0' is a special axis that contains various board I/Os
 
 BUFG clksysclk(.I(clk1394), .O(sysclk));
 
+// Wires for sampling block read data
+wire sample_start;        // Start sampling read data
+wire writeHub;            // 1 -> write to hub after sampling
+wire sample_busy;         // 1 -> data sampler has control of bus
+wire[3:0] sample_chan;    // Channel for sampling
+wire[4:0] sample_raddr;   // Address in sample_data buffer
+wire[31:0] sample_rdata;  // Output from sample_data buffer
+wire[31:0] timestamp;     // Timestamp used when sampling
+
+wire fw_sample_start;
+assign sample_start = fw_sample_start & ~sample_busy;
+
+assign reg_raddr = sample_busy ? {`ADDR_MAIN, 4'd0, sample_chan, 4'd0} : fw_reg_raddr;
+
+wire[31:0] reg_rdata_hub;      // reg_rdata_hub is for hub memory
+wire[31:0] reg_rdata_prom;     // reg_rdata_prom is for block reads from PROM
+wire[31:0] reg_rdata_prom_qla; // reads from QLA prom
+wire[31:0] reg_rdata_ds;       // for DS2505 memory access
+wire[31:0] reg_rdata_chan0;    // 'channel 0' is a special axis that contains various board I/Os
+
 // Mux routing read data based on read address
-//   See Constants.v for detail
+//   See Constants.v for details
 //     addr[15:12]  main | hub | prom | prom_qla | eth | firewire | dallas
 assign reg_rdata = (reg_raddr[15:12]==`ADDR_HUB) ? (reg_rdata_hub) :
                   ((reg_raddr[15:12]==`ADDR_PROM) ? (reg_rdata_prom) :
@@ -107,13 +125,27 @@ wire[15:0] bc_sequence;
 wire[15:0] bc_board_mask;
 wire       bc_request;
 
+wire hub_wen;             // 1 -> sampler writing to hub
+wire[4:0] hub_waddr;      // write address from sampler
+wire[31:0] hub_wdata;     // write data from sampler
+
+wire reg_wen_hub;
+assign reg_wen_hub = reg_wen|hub_wen;
+wire[15:0] reg_waddr_hub;
+assign reg_waddr_hub = hub_wen ? {`ADDR_HUB, 3'd0, board_id, hub_waddr} : reg_waddr;
+wire[31:0] reg_wdata_hub;
+assign reg_wdata_hub = hub_wen ? hub_wdata : reg_wdata;
+
 HubReg hub(
     .sysclk(sysclk),
-    .reg_wen(reg_wen),
+    .reg_wen(reg_wen_hub),
     .reg_raddr(reg_raddr),
-    .reg_waddr(reg_waddr),
+    .reg_waddr(reg_waddr_hub),
     .reg_rdata(reg_rdata_hub),
-    .reg_wdata(reg_wdata)
+    .reg_wdata(reg_wdata_hub),
+    .sequence(bc_sequence),
+    .board_mask(bc_board_mask),
+    .hub_reg_wen(bc_request)
 );
 
 
@@ -132,8 +164,8 @@ icon_prom icon(
 PhyLinkInterface phy(
     .sysclk(sysclk),         // in: global clk  
     .eth1394(eth1394),       // in: eth1394 mode
-    .board_id(~wenid),       // in: board id (rotary switch)
-    
+    .board_id(board_id),     // in: board id (rotary switch)
+
     .ctl_ext(ctl),           // bi: phy ctl lines
     .data_ext(data),         // bi: phy data lines
     
@@ -141,7 +173,7 @@ PhyLinkInterface phy(
     .blk_wen(blk_wen),       // out: block write signal
     .blk_wstart(blk_wstart), // out: block write is starting
 
-    .reg_raddr(reg_raddr),   // out: register address
+    .reg_raddr(fw_reg_raddr),  // out: register address
     .reg_waddr(reg_waddr),   // out: register address
     .reg_rdata(reg_rdata),   // in:  read data to external register
     .reg_wdata(reg_wdata),   // out: write data to external register
@@ -151,7 +183,14 @@ PhyLinkInterface phy(
 
     .rx_bc_sequence(bc_sequence),  // in: broadcast sequence num
     .rx_bc_fpga(bc_board_mask),    // in: mask of boards involved in broadcast read
-    .rx_bc_bread(bc_request)       // in: 1 -> received broadcast read request
+    .rx_bc_bread(bc_request),      // in: 1 -> received broadcast read request
+
+    // Interface for sampling data (for block read)
+    .sample_start(fw_sample_start),   // 1 -> start sampling for block read
+    .sample_busy(sample_busy),        // Sampling in process
+    .sample_raddr(sample_raddr),      // Read address for sampled data
+    .sample_rdata(sample_rdata),      // Sampled data (for block read)
+    .writeHub(writeHub)               // 1 -> write to hub after sampling
 );
 
 
@@ -336,9 +375,6 @@ ClkDivI divtemp(clk40m, clk400k_raw);
 defparam divtemp.div = 100;
 BUFG clktemp(.I(clk400k_raw), .O(clk400k));
 
-// route temperature data into BoardRegs module for readout
-wire[15:0] tempsense;
-
 // tempsense module instantiations
 Max6576 T1(
     .clk400k(clk400k), 
@@ -450,6 +486,10 @@ wire[4:1] amp_enable_cmd;
 wire[31:0] Eth_Result;
 assign  Eth_Result = 32'b0;
 
+wire[31:0] reg_status;    // Status register
+wire[31:0] reg_digio;     // Digital I/O register
+wire[15:0] tempsense;     // Temperature sensor
+
 wire reboot;              // Reboot the FPGA
 
 BoardRegs chan0(
@@ -473,7 +513,7 @@ BoardRegs chan0(
     .mv_faultn(IO1[7]),
     .mv_good(IO2[11]),
     .v_fault(IO1[9]),
-    .board_id(~wenid),
+    .board_id(board_id),
     .temp_sense(tempsense),
     .reg_raddr(reg_raddr),
     .reg_waddr(reg_waddr),
@@ -491,7 +531,38 @@ BoardRegs chan0(
     .safety_amp_disable(safety_amp_disable),
 `endif
     .pwr_enable_cmd(pwr_enable_cmd),
-    .amp_enable_cmd(amp_enable_cmd)
+    .amp_enable_cmd(amp_enable_cmd),
+    .reg_status(reg_status),
+    .reg_digin(reg_digio)
+);
+
+// --------------------------------------------------------------------------
+// Sample data for block read
+// --------------------------------------------------------------------------
+
+SampleData sampler(
+    .clk(sysclk),
+    .doSample(sample_start),
+    .isBusy(sample_busy),
+    .reg_status(reg_status),
+    .reg_digio(reg_digio),
+    .reg_temp({16'd0, tempsense}),
+    .chan(sample_chan),
+    .adc_in(reg_adc_data),
+    .enc_pos(reg_quad_data),
+    .enc_period(reg_perd_data),
+    .enc_qtr1(reg_qtr1_data),
+    .enc_qtr5(reg_qtr5_data),
+    .enc_run(reg_run_data),
+    .blk_addr(sample_raddr),
+    .blk_data(sample_rdata),
+    .timestamp(timestamp),
+    .bc_sequence(bc_sequence),
+    .bc_board_mask(bc_board_mask),
+    .writeHub(writeHub),
+    .hub_waddr(hub_waddr),
+    .hub_wdata(hub_wdata),
+    .hub_wen(hub_wen)
 );
 
 // ----------------------------------------------------------------------------

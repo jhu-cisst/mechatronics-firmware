@@ -216,7 +216,14 @@ module PhyLinkInterface(
     // broadcast related fields
     input wire[15:0] rx_bc_sequence, // broadcast sequence num
     input wire[15:0] rx_bc_fpga,     // indicates whether a boards exists
-    input wire rx_bc_bread           // rx broadcast read request flag
+    input wire rx_bc_bread,          // rx broadcast read request flag
+
+    // Interface for sampling data (for block read)
+    output reg sample_start,         // 1 -> start sampling for block read
+    input wire sample_busy,          // Sampling in process
+    output wire[4:0] sample_raddr,   // Read address for sampled data
+    input wire[31:0] sample_rdata,   // Sampled data (for block read)
+    output reg writeHub              // 1 -> write to Hub after sampling
 
     // debug
 `ifdef USE_CHIPSCOPE
@@ -296,14 +303,16 @@ module PhyLinkInterface(
     reg[47:0] rx_addr_full;       // full 48-bit
 
     // real-time read stuff
-    // an array of 4 4-bits device address
-    // adc enc_pos enc_period enc_freq
-    wire[3:0] dev_addr[0:`NUM_PER_CHN_FIELDS-1];      // order of device addresses for block read
-    reg[2:0] dev_index;           // selects device address from map
-    reg[31:0] timestamp;          // timestamp counter register
-    reg ts_reset;                 // timestamp counter reset signal
     reg data_block;               // flag for block write data being received
     reg dac_local;                // Indicates that DAC entries in block write are for this board_id
+
+    // Read address for sampled data
+    assign sample_raddr = reg_raddr[4:0];
+
+    wire addrMainRead;
+    wire addrMainWrite;
+    assign addrMainRead  = (reg_raddr[15:12] == `ADDR_MAIN) ? 1'd1 : 1'd0;
+    assign addrMainWrite = (reg_waddr[15:12] == `ADDR_MAIN) ? 1'd1 : 1'd0;
 
     // state machine states
     parameter[3:0]
@@ -363,14 +372,6 @@ crc32 mycrc(crc_data, crc_in, crc_2b, crc_4b, crc_8b);
 // for phy requests, this bit distinguishes between register read and write
 assign phy_rw = buffer[12];
 
-// map of device address in order of appearance in block read
-assign dev_addr[0] = `OFF_ADC_DATA;        // adc device address
-assign dev_addr[1] = `OFF_ENC_DATA;        // enc position address
-assign dev_addr[2] = `OFF_PER_DATA;        // enc vel period address
-assign dev_addr[3] = `OFF_QTR1_DATA;       // enc vel last quarter address
-assign dev_addr[4] = `OFF_QTR5_DATA;       // enc vel 5 quarters ago address
-assign dev_addr[5] = `OFF_RUN_DATA;        // enc vel running counter address
-
 // packet module (used to store FireWire packet)
 reg pkt_mem_wen;
 reg [6:0] pkt_mem_waddr;
@@ -384,18 +385,6 @@ pkt_mem_gen pkt_mem(.clka(sysclk),
                     .doutb(eth_send_data)
                     );
    
-// -------------------------------------------------------
-// Timestamp 
-// -------------------------------------------------------
-// timestamp counts number of clocks between block reads
-always @(posedge(sysclk) or posedge(ts_reset))
-begin
-    if (ts_reset)
-        timestamp <= 0;
-    else
-        timestamp <= timestamp + 1'b1;
-end
-
 // -------------------------------------------------------
 // Broadcast Time Counter 
 //   - Trigger:
@@ -461,13 +450,18 @@ end
 always @(posedge(sysclk))
 begin
 
-       // Clear eth_send_req when eth_send_ack asserted
-       if (eth_send_req & eth_send_ack) begin
-          eth_send_req <= 1'b0;
-       end
+    // Clear eth_send_req when eth_send_ack asserted
+    if (eth_send_req & eth_send_ack) begin
+        eth_send_req <= 1'b0;
+    end
 
-        // phy-link state machine
-        case (state)
+    // Clear sample_start when sample_busy asserted
+    if (sample_start && sample_busy) begin
+        sample_start <= 1'd0;
+    end
+
+    // phy-link state machine
+    case (state)
 
         /***********************************************************************
          * idle state, waiting for phy to do something
@@ -480,37 +474,41 @@ begin
             blk_wen <= 0;                          // no block write events
             crc_tx <= 0;                           // not in a transmit state
             rx_active <= 0;                        // clear receive active     
-            
-            // monitor ctl to select next state
-            case (ctl)
-                2'b00: begin 
-                    state <= ST_IDLE;           // stay in monitor state
-                    if (write_trig) begin
-                        lreq_trig <= 1;
-                        lreq_type <= `LREQ_TX_ISO;
-                        tx_type <= `TX_TYPE_BBC;
+
+            // To be safe, we stay in the idle state if the sampler still has control
+            // over the read bus (reg_raddr), which should only be for a few cycles.
+            if (~(sample_start|sample_busy)) begin
+                // monitor ctl to select next state
+                case (ctl)
+                    2'b00: begin
+                        state <= ST_IDLE;           // stay in monitor state
+                        if (write_trig) begin
+                            lreq_trig <= 1;
+                            lreq_type <= `LREQ_TX_ISO;
+                            tx_type <= `TX_TYPE_BBC;
+                        end
+                        else if (eth_send_fw_req) begin
+                            eth_send_fw_ack <= 1;
+                            lreq_trig <= 1;
+                            lreq_type <= `LREQ_TX_ISO;
+                            tx_type <= `TX_TYPE_FWD;
+                            eth_fwpkt_raddr <= 7'h00;
+                            numbits <= (eth_fwpkt_len << 3);
+                        end
+                        else begin
+                            lreq_trig <= 0;
+                        end
                     end
-                    else if (eth_send_fw_req) begin
-                        eth_send_fw_ack <= 1;
-                        lreq_trig <= 1;
-                        lreq_type <= `LREQ_TX_ISO;
-                        tx_type <= `TX_TYPE_FWD;
-                        eth_fwpkt_raddr <= 7'h00;
-                        numbits <= (eth_fwpkt_len << 3);
-                    end
-                    else begin
-                        lreq_trig <= 0;
-                    end
-                end
                 
-                2'b01: state <= ST_RX_D_ON;        // phy data from the bus
-                2'b11: state <= ST_TX;             // phy grants tx request
-                2'b10: begin                       // phy status transfer
-                    st_buff <= {16'b0, data2b};    // clock in status bits
-                    state <= ST_STATUS;            // continue status loop
-                    stcount <= 2;                  // start status bit count
-                end
-            endcase
+                    2'b01: state <= ST_RX_D_ON;        // phy data from the bus
+                    2'b11: state <= ST_TX;             // phy grants tx request
+                    2'b10: begin                       // phy status transfer
+                        st_buff <= {16'b0, data2b};    // clock in status bits
+                        state <= ST_STATUS;            // continue status loop
+                        stcount <= 2;                  // start status bit count
+                        end
+                endcase
+            end
         end
 
 
@@ -622,7 +620,7 @@ begin
                             blk_wstart <= 0;
 
                             // main address: special case
-                            if (reg_waddr[15:12]==`ADDR_MAIN) begin
+                            if (addrMainWrite) begin
                                 // Real-time block write.
                                 // Starting with Rev 7, the first 4 entries are the DAC (same as Rev 1-6),
                                 // but that is followed by the status register (for power control).
@@ -794,7 +792,6 @@ begin
                                 lreq_type <= (phy_rw ? `LREQ_REG_WR : `LREQ_REG_RD);
                                 lreq_trig <= 1;
                             end
-
                             // trigger packet forward if packet is for pc
                             if ((rx_dest[15:0] == eth_fw_addr) && (rx_tcode == `TC_QRESP)) begin
                                eth_send_req <= 1;
@@ -816,7 +813,7 @@ begin
                             data_block <= (rx_tcode==`TC_BWRITE) ? 1'b1 : 1'b0;
                             blk_wstart <= (rx_tcode==`TC_BWRITE) ? 1'b1 : 1'b0;
 
-                            if (reg_waddr[15:12]==`ADDR_MAIN) begin
+                            if (addrMainWrite) begin
                                 // main is special, ignore address in 1394 packet
                                 reg_waddr[7:4] <= 0;    // init channel address
                                 reg_waddr[3:0] <= `OFF_DAC_CTRL;    // set dac device address
@@ -886,11 +883,22 @@ begin
                     //   & - bitwise AND
                     //   result is a 1-bit and assigned to reg_wen 
                     reg_wen <= (rx_active & (rx_tcode==`TC_QWRITE));
-                    // reg_wen <= (rx_active & (rx_tcode==`TC_QWRITE)); 
                     blk_wen <= (rx_active & ((rx_tcode==`TC_QWRITE) | (rx_tcode==`TC_BWRITE)));
                     // Restore the DAC device address for blk_wen because the Rev 7+ block write
                     // processing ends by addressing the status/control register instead of the DAC.
                     reg_waddr[3:0] <= (rx_tcode == `TC_BWRITE) ? `OFF_DAC_CTRL : reg_waddr[3:0];
+
+                    // Start sampling feedback data if a block read from ADDR_MAIN or
+                    // a broadcast read request (quadlet write to ADDR_HUB). Note that sampler
+                    // will enter its busy state (after the next cycle) and take control of reg_raddr
+                    // for a few cycles. If writeHub is set, the sampler will also directly write
+                    // this board's feedback to the Hub memory.
+                    if (rx_active &&
+                        ((addrMainRead && (rx_tcode==`TC_BREAD)) ||
+                         ((reg_waddr[15:0] == {`ADDR_HUB, 12'h800}) && (rx_tcode==`TC_QWRITE)))) begin
+                       sample_start <= 1;
+                       writeHub <= (rx_tcode == `TC_QWRITE) ? 1 : 0;
+                    end
                 end
 
                 // -------------------------------------------------------------
@@ -1078,52 +1086,15 @@ begin
                     crc_ini <= 1;
                 end
 
-                // latch Board 0, data 0 from hub register, 
+                // latch first data quadlet;
                 // restart crc and goto ST_TX_DATA
                 152: begin                                    // quadlet 6 
                     // ----- BRESP Continue -------
-                    if (reg_raddr[15:12]==`ADDR_MAIN) begin
-                        // main keep going special case
-                        buffer <= timestamp;         // latch timestamp
-                        reg_raddr[7:0] <= {4'b0, `REG_STATUS};     // address for status data
-                        ts_reset <= 1'b1;            // set timestamp reset 
-                    end
-                    else begin
-                        // block read from hub, prom, prom_qla
-                        buffer <= reg_rdata;
-                        reg_raddr[7:0] <= reg_raddr[7:0] + 1'b1;
-
-                        // end header for hub, prom, prom_qla
-                        state <= ST_TX_DATA;
-                    end
+                    buffer <= addrMainRead ? sample_rdata : reg_rdata;
+                    reg_raddr[7:0] <= reg_raddr[7:0] + 1'b1;
+                    state <= ST_TX_DATA;
                     crc_ini <= 0;
                 end
-
-                // latch status data, setup address for digital inputs
-                184: begin
-                    buffer <= reg_rdata;             
-                    reg_raddr[7:0] <= {4'b0, `REG_DIGIN};      // 8'h0a: digital inputs
-                    ts_reset <= 1'b0;             // clear timestamp reset
-                end
-
-                // latch digital inputs, setup address for temperature sensors
-                216: begin
-                    buffer <= reg_rdata;             
-                    reg_raddr[7:0] <= {4'b0, `REG_TEMPSNS};      // 8'h05: temperature sensors
-                end
-
-                // latch temperature sensors, go to block data state
-                248: begin
-                    buffer <= reg_rdata;
-                    // start cycling through channels
-                    reg_raddr[7:4] <= 4'h1;        // start from channel 1
-                    reg_raddr[3:0] <= dev_addr[0]; // 1st device address
-                    dev_index <= 1;                // set next dev_index 
-
-                    // end main header
-                    state <= ST_TX_DATA;
-                end
-
             endcase
         end // case: ST_TX_HEAD
         
@@ -1161,10 +1132,6 @@ begin
                 
                 // latch header crc, reset crc in preparation for data crc
                 128: begin
-                    // for hub register
-                    reg_waddr[15:0] <= { `ADDR_HUB, 3'd0, board_id[3:0], 5'd0 };
-                    reg_wen <= 1'b1;
-
                     // crc
                     data <= ~crc_8msb;
                     buffer <= { ~crc_in[23:0], 8'd0 };
@@ -1173,47 +1140,10 @@ begin
 
                 // latch bc_sequence and bc_fpga, send back to PC,  restart crc
                 152: begin
-                    reg_waddr[4:0] <= 4'd0;  // hubreg 
-                    reg_wdata <= { rx_bc_sequence[15:0], rx_bc_fpga[15:0] };
-                    buffer <= { rx_bc_sequence[15:0], rx_bc_fpga[15:0] };
-                    crc_ini <= 0;           // clear crc start bit                    
-                end
-
-                // latch timestamp, setup address for status
-                184: begin
-                    reg_waddr[4:0] <= 4'd1;  // hubreg 
-                    reg_wdata <= timestamp;
-                    buffer <= timestamp;    // latch timestamp
-                    reg_raddr[15:0] <= { `ADDR_MAIN, 8'h0, `REG_STATUS };      // 0: status (See BoardRegs)
-                    ts_reset <= 1;          // reset timestamp counter
-                end
-
-                // latch status data, setup address for digital inputs
-                216: begin
-                    reg_waddr[4:0] <= 4'd2;  // hubreg
-                    reg_wdata <= reg_rdata;
-                    buffer <= reg_rdata;    // latch status
-                    reg_raddr[7:0] <= {4'b0, `REG_DIGIN};      // 8'h0a: digital inputs (See BoardRegs)
-                    ts_reset <= 0;          // clear timestamp reset
-                end
-
-                // latch digital inputs, setup address for temperature sensors
-                248: begin
-                    reg_waddr[4:0] <= 4'd3;  // hubreg
-                    reg_wdata <= reg_rdata;
-                    buffer <= reg_rdata;    // latch digital inputs
-                    reg_raddr[7:0] <= {4'b0, `REG_TEMPSNS};      // 5: temperature sensors (See BoardRegs)
-                end
-
-                // latch temperature sensors, go to block data state
-                280: begin
-                    reg_waddr[4:0] <= 4'd4;   // hubreg
-                    reg_wdata <= reg_rdata;
-                    buffer <= reg_rdata;      // latch temperature
-                    reg_raddr[7:4] <= 4'h1;        // start from channel 1
-                    reg_raddr[3:0] <= dev_addr[0]; // 1st device address
-                    dev_index <= 1;           // start from device 1
-                    state <= ST_TX_DATA;      // goto ST_TX_DATA
+                    buffer <= { rx_bc_sequence, rx_bc_fpga };
+                    crc_ini <= 0;           // clear crc start bit
+                    reg_raddr <= {`ADDR_MAIN, 12'd0 };  // Will actually read from SampleData
+                    state <= ST_TX_DATA;    // goto ST_TX_DATA
                 end
 
             endcase
@@ -1240,24 +1170,10 @@ begin
                 // latch data and update addresses on quadlet boundaries
                 if (count[4:0] == 5'd24) begin
                 
-                    // cache to hubreg, only saves to hub when block broadcast packets
-                    reg_waddr[4:0] <= reg_waddr[4:0] + 1'b1;
-                    reg_wdata <= reg_rdata;
-                    
                     // send to FireWire bus
-                    buffer <= reg_rdata;
+                    buffer <= addrMainRead ? sample_rdata : reg_rdata;
 
-                    if (reg_raddr[15:12] == `ADDR_MAIN) begin
-                        // channel address circularly increments from 1 to `NUM_CHANNELS
-                        if (reg_raddr[7:4] == `NUM_CHANNELS) begin
-                            reg_raddr[7:4] <= 4'h1;
-                            reg_raddr[3:0] <= dev_addr[dev_index];
-                            dev_index <= (dev_index<`NUM_PER_CHN_FIELDS) ? (dev_index+1'b1) : 3'd0;
-                        end
-                        else
-                            reg_raddr[7:4] <= reg_raddr[7:4] + 1'b1;
-                    end
-                    else if (reg_raddr[15:12] == `ADDR_HUB) begin
+                    if (reg_raddr[15:12] == `ADDR_HUB) begin
                         // Rev 1-6: 1 board = 17 quadlets (1 seq + 16 data)
                         //                    Should have been 21 quadlets (1 seq + 20 data)
                         // Rev 7:   1 board = 29 quadlets (1 seq + 28 data)
@@ -1268,6 +1184,10 @@ begin
                         else begin
                             reg_raddr[4:0] <= reg_raddr[4:0] + 1'b1;
                         end
+                    end
+                    // Could consolidate following 3 cases (i.e., always do 10 bit increment)
+                    else if (addrMainRead) begin
+                        reg_raddr[7:0] <= reg_raddr[7:0] + 1'b1;
                     end
                     else if (reg_raddr[15:12] == `ADDR_DATA_BUF) begin
                         reg_raddr[9:0] <= reg_raddr[9:0] + 10'd1;
@@ -1338,7 +1258,7 @@ begin
             state <= ST_IDLE;
         end
 
-        endcase
+    endcase
 end
 
 

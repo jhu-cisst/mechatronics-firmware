@@ -16,7 +16,7 @@
 module SampleData(
     input wire        clk,         // system clock
     input wire        doSample,    // signal to trigger sampling
-    output reg        isBusy,      // 1 -> busy sampling
+    output wire       isBusy,      // 1 -> busy sampling
     input wire[31:0]  reg_status,  // Status register
     input wire[31:0]  reg_digio,   // Digital I/O feedback
     input wire[31:0]  reg_temp,    // Temperature feedback
@@ -29,7 +29,13 @@ module SampleData(
     input wire[31:0]  enc_run,     // Encoder running counter
     input wire[4:0]   blk_addr,    // Address for accessing RT_Feedback
     output wire[31:0] blk_data,    // Currently selected block data
-    output reg[31:0]  timestamp    // timestamp counter register
+    output reg[31:0]  timestamp,   // timestamp counter register
+    input wire[15:0]  bc_sequence, // broadcast sequence number
+    input wire[15:0]  bc_board_mask, // broadcast board mask
+    input wire        writeHub,    // 1 --> write to hub after sampling
+    output reg[4:0]   hub_waddr,   // write address to hub
+    output wire[31:0] hub_wdata,   // write data to hub
+    output reg        hub_wen      // write enable to hub
     );
 
 // Number of quadlets in block response:
@@ -41,7 +47,17 @@ module SampleData(
 
 reg[31:0] RT_Feedback[0:31];
 
+assign hub_wdata = (hub_waddr == 5'd0) ? { bc_sequence, bc_board_mask } : RT_Feedback[hub_waddr-5'd1];
+
+localparam[1:0]
+   SD_IDLE = 2'd0,
+   SD_SAMPLING = 2'd1,
+   SD_WRITE_HUB = 2'd2;
+
+reg [1:0] state;
+
 assign blk_data = RT_Feedback[blk_addr];
+assign isBusy = (state != SD_IDLE);
      
 // -------------------------------------------------------
 // Sample data for block read
@@ -56,31 +72,59 @@ assign blk_data = RT_Feedback[blk_addr];
 always @(posedge clk)
 begin
    timestamp <= (isBusy && (chan == 4'd1)) ? 32'd0 : timestamp + 1'b1;
-   if (doSample) begin
-      chan <= 4'd1;
-      isBusy <= 1'd1;
-   end
-   else if (isBusy) begin
-      chan <= chan + 4'd1;
-      if (chan == 4'd1) begin
-         RT_Feedback[0] <= timestamp;
-         RT_Feedback[1] <= reg_status;
-         RT_Feedback[2] <= reg_digio;
-         RT_Feedback[3] <= reg_temp;
+   case (state)
+
+      SD_IDLE:
+      begin
+         hub_wen <= 0;
+         if (doSample) begin
+            chan <= 4'd1;
+            state <= SD_SAMPLING;
+         end
       end
-      if (chan == 4'd5) begin
-         isBusy <= 1'd0;
+
+      SD_SAMPLING:
+      begin
+         chan <= chan + 4'd1;
+         if (chan == 4'd1) begin
+            RT_Feedback[0] <= timestamp;
+            RT_Feedback[1] <= reg_status;
+            RT_Feedback[2] <= reg_digio;
+            RT_Feedback[3] <= reg_temp;
+         end
+         if (chan == 4'd5) begin
+            if (writeHub) begin
+               state <= SD_WRITE_HUB;
+               hub_waddr <= 5'd0;
+               hub_wen <= 1;
+            end
+            else begin
+               state <= SD_IDLE;
+            end
+         end
+         else begin
+            // For chan = 1,2,3,4
+            RT_Feedback[3+chan] <= adc_in;
+            RT_Feedback[7+chan] <= enc_pos;
+            RT_Feedback[11+chan] <= enc_period;
+            RT_Feedback[15+chan] <= enc_qtr1;
+            RT_Feedback[19+chan] <= enc_qtr5;
+            RT_Feedback[23+chan] <= enc_run;
+         end
       end
-      else begin
-         // For chan = 1,2,3,4
-         RT_Feedback[3+chan] <= adc_in;
-         RT_Feedback[7+chan] <= enc_pos;
-         RT_Feedback[11+chan] <= enc_period;
-         RT_Feedback[15+chan] <= enc_qtr1;
-         RT_Feedback[19+chan] <= enc_qtr5;
-         RT_Feedback[23+chan] <= enc_run;
+
+      SD_WRITE_HUB:
+      begin
+         hub_waddr <= hub_waddr + 5'd1;
+         if (hub_waddr == `NUM_RT_READ_QUADS) begin
+            state <= SD_IDLE;
+         end
       end
-   end
+
+      default:
+         state <= SD_IDLE;
+
+   endcase
 end    
 
 endmodule

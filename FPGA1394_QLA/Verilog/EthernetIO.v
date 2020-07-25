@@ -143,6 +143,7 @@ module EthernetIO(
     // Interface for sampling data (for block read)
     output reg sample_start,         // 1 -> start sampling for block read
     input wire sample_busy,          // Sampling in process
+    output reg sample_read,          // Reading from memory in process
     output wire[4:0] sample_raddr,   // Read address for sampled data
     input wire[31:0] sample_rdata,   // Sampled data (for block read)
     input wire[31:0] timestamp       // Timestamp (for debugging)
@@ -1025,6 +1026,7 @@ always @(posedge sysclk) begin
       eth_block_wen <= 0;
       eth_block_wstart <= 0;
       blockw_active <= 0;
+      sample_read <= 0;
       waitInfo <= WAIT_NONE;
       if (ksz_req) begin
          //****** Access to KSZ8851 registers via Firewire interface ******
@@ -2005,6 +2007,7 @@ always @(posedge sysclk) begin
             `ADDR_MAIN: 
             begin
                fw_count[5:0] <= 6'd0;
+               sample_read <= 1;   // Take control of sample read bus
                sendState[ST_SEND_DMA_PACKETDATA_BLOCK_MAIN] <= 1;
             end
             `ADDR_PROM_QLA, `ADDR_PROM:
@@ -2041,11 +2044,15 @@ always @(posedge sysclk) begin
          `WriteDataSwapped <= (fw_count[0] == 1'b0) ? sample_rdata[31:16]
                                                     : sample_rdata[15:0];
          // Reading 28 quadlets means max count will reach 55
-         fw_count[5:0] <= (fw_count[5:0] == 6'd55) ? 6'd0 :  fw_count[5:0] + 6'd1;
-         if (fw_count[5:0] == 6'd55)
+         if (fw_count[5:0] == 6'd55) begin
             sendState[ST_SEND_DMA_PACKETDATA_CHECKSUM] <= 1;
-         else
+            sample_read <= 0;   // Relinquish control of sample read bus
+            fw_count[5:0] <= 6'd0;
+         end
+         else begin
             sendState[ST_SEND_DMA_PACKETDATA_BLOCK_MAIN] <= 1;
+            fw_count[5:0] <= fw_count[5:0] + 6'd1;
+         end
       end
 
       sendState[ST_SEND_DMA_PACKETDATA_BLOCK_PROM]:
