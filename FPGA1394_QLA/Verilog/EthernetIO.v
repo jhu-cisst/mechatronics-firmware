@@ -146,7 +146,8 @@ module EthernetIO(
     output reg sample_read,          // Reading from memory in process
     output wire[4:0] sample_raddr,   // Read address for sampled data
     input wire[31:0] sample_rdata,   // Sampled data (for block read)
-    input wire[31:0] timestamp       // Timestamp (for debugging)
+    input wire[31:0] timestamp,      // Timestamp (for debugging)
+    output reg writeHub              // 1 -> write to Hub after sampling
 );
 
 reg initOK;            // 1 -> Initialization successful
@@ -979,6 +980,7 @@ always @(posedge sysclk) begin
 
    if (sample_start && sample_busy) begin
       sample_start <= 1'd0;
+      writeHub <= 1'd0;
    end
 
    // Store request to write to KSZ register (from Firewire), in case
@@ -1650,6 +1652,11 @@ always @(posedge sysclk) begin
                   // maxCountFW==9 for quadlet write
                   eth_reg_wen <= 1;
                   eth_block_wen <= 1;
+                  // If broadcast read request, start sampling feedback data
+                  if (eth_reg_waddr == {`ADDR_HUB, 12'h800 }) begin
+                     sample_start <= 1;
+                     writeHub <= 1;
+                  end
                end
             end
             if (isRemote) begin
@@ -2020,7 +2027,6 @@ always @(posedge sysclk) begin
             end
             `ADDR_HUB, `ADDR_ETH, `ADDR_FW:
             begin
-               // TODO: implement read from Hub (for now, abort)
                ethAccessError <= sample_busy ? 1'd1 : ethAccessError;
                eth_read_en <= 1;
                sendState[ST_SEND_DMA_PACKETDATA_BLOCK_PROM] <= 1;

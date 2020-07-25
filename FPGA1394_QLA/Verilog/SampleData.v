@@ -54,10 +54,12 @@ localparam[1:0]
    SD_SAMPLING = 2'd1,
    SD_WRITE_HUB = 2'd2;
 
-reg [1:0] state;
+reg[1:0] state;
 
 assign blk_data = RT_Feedback[blk_addr];
 assign isBusy = (state != SD_IDLE);
+
+reg writeHubSaved;
      
 // -------------------------------------------------------
 // Sample data for block read
@@ -80,6 +82,7 @@ begin
          if (doSample) begin
             chan <= 4'd1;
             state <= SD_SAMPLING;
+            writeHubSaved <= writeHub;
          end
       end
 
@@ -93,10 +96,11 @@ begin
             RT_Feedback[3] <= reg_temp;
          end
          if (chan == 4'd5) begin
-            if (writeHub) begin
+            if (writeHubSaved) begin
                state <= SD_WRITE_HUB;
                hub_waddr <= 5'd0;
                hub_wen <= 1;
+               writeHubSaved <= 0;
             end
             else begin
                state <= SD_IDLE;

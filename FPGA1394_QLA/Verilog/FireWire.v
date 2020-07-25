@@ -455,9 +455,10 @@ begin
         eth_send_req <= 1'b0;
     end
 
-    // Clear sample_start when sample_busy asserted
+    // Clear sample_start (and writeHub) when sample_busy asserted
     if (sample_start && sample_busy) begin
         sample_start <= 1'd0;
+        writeHub <= 1'd0;
     end
 
     // phy-link state machine

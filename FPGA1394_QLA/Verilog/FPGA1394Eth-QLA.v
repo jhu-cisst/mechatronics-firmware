@@ -122,6 +122,10 @@ wire fw_sample_start;
 wire eth_sample_start;
 assign sample_start = (eth_sample_start|fw_sample_start) & ~sample_busy;
 
+wire fw_writeHub;
+wire eth_writeHub;
+assign writeHub = eth_writeHub|fw_writeHub;
+
 wire eth_sample_read;      // 1 -> Ethernet module has control of sample_raddr
 wire[4:0] fw_sample_raddr;
 wire[4:0] eth_sample_raddr;
@@ -271,7 +275,7 @@ PhyLinkInterface phy(
     .sample_busy(sample_busy),        // Sampling in process
     .sample_raddr(fw_sample_raddr),   // Read address for sampled data
     .sample_rdata(sample_rdata),      // Sampled data (for block read)
-    .writeHub(writeHub)               // 1 -> write to hub after sampling
+    .writeHub(fw_writeHub)            // 1 -> write to hub after sampling
 );
 
 
@@ -363,7 +367,8 @@ EthernetIO EthernetTransfers(
     .sample_read(eth_sample_read),     // 1 -> reading from sample memory
     .sample_raddr(eth_sample_raddr),   // Read address for sampled data
     .sample_rdata(sample_rdata),       // Sampled data (for block read)
-    .timestamp(timestamp)              // timestamp
+    .timestamp(timestamp),             // timestamp
+    .writeHub(eth_writeHub)            // 1 -> write to hub after sampling
 );
 
 // --------------------------------------------------------------------------
