@@ -65,14 +65,13 @@ begin
        if (board_mask[curBoard]) begin
           read_index[curIndex] <= curBoard;
           curIndex <= curIndex + 4'd1;
+          // We loop until curIndex is 15; this means that read_index will repeat.
+          // For example, if boards 0, 5, 7 are present, read_index will be:
+          //    (0, 5, 7, 0, 5, 7, 0, 5, 7, 0, 5, 7, 0, 5, 7, 0)
+          if (curIndex == 4'hf)
+             newMask <= 0;
        end
        curBoard <= curBoard + 4'd1;
-       // We loop until curIndex is 15; this means that read_index will repeat.
-       // For example, if boards 0, 5, 7 are present, read_index will be:
-       //    (0, 5, 7, 0, 5, 7, 0, 5, 7, 0, 5, 7, 0, 5, 7, 0)
-       if (curIndex == 4'hf) begin
-          newMask <= 0;
-       end
     end
 end
 

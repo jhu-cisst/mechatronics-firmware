@@ -146,12 +146,12 @@
 //    Rev 4-6: N=16 --> SZ_BBC = 16'd736  (should have been N=20, SZ_BBC = 16'd864)
 //    Rev 7:   N=28 --> SZ_BBC = 16'd1120
 //    `SZ_BWRITE includes FW_header + header_CRC + data_CRC
-parameter[15:0] SZ_BBC = (`SZ_BWRITE + 32*`NUM_BC_READ_QUADS);
+localparam[15:0] SZ_BBC = (`SZ_BWRITE + 32*`NUM_BC_READ_QUADS);
 
 // maximum quadlet index for real-time feedback broadcast packet
-parameter[5:0] MAX_BBC_QUAD = (`NUM_BC_READ_QUADS-1);
+localparam[5:0] MAX_BBC_QUAD = (`NUM_BC_READ_QUADS-1);
 // real-time feedback broadcast packet size, in bytes, not include Firewire header/CRC
-parameter[15:0] SZ_BBC_BYTES = (4*`NUM_BC_READ_QUADS);
+localparam[15:0] SZ_BBC_BYTES = (4*`NUM_BC_READ_QUADS);
 
 // ack values
 `define ACK_DONE 4'h1             // transaction complete, applies to writes
@@ -207,7 +207,7 @@ module PhyLinkInterface(
     input wire eth_send_ack,         // ack from ethernet module
     input wire[6:0] eth_send_addr,   // packet address bus
     output wire[31:0] eth_send_data, // packet data bus
-    output reg[15:0] eth_send_len,   // packet data len
+    output reg[15:0] eth_send_len,   // packet data len (bytes)
 
     // transmit parameters
     output reg lreq_trig,            // trigger signal for a phy request
@@ -372,7 +372,10 @@ crc32 mycrc(crc_data, crc_in, crc_2b, crc_4b, crc_8b);
 // for phy requests, this bit distinguishes between register read and write
 assign phy_rw = buffer[12];
 
-// packet module (used to store FireWire packet)
+// packet module (used to store FireWire packet that will be forwarded to Ethernet)
+// Currently, 128 quadlets (128 x 32), which is less than the maximum possible Firewire
+// packet size of 512 quadlets. This limits the the largest Firewire packet that can be
+// forwarded from Firewire to Ethernet.
 reg pkt_mem_wen;
 reg [6:0] pkt_mem_waddr;
 reg [31:0] pkt_mem_wdata;
