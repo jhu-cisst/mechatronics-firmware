@@ -24,7 +24,6 @@
   <files xmlns="http://www.xilinx.com/XMLSchema">
     <file xil_pn:fileType="FILE_ASY" xil_pn:name="hub_mem_gen.asy" xil_pn:origination="imported"/>
     <file xil_pn:fileType="FILE_VEO" xil_pn:name="hub_mem_gen.veo" xil_pn:origination="imported"/>
-    <file xil_pn:fileType="FILE_USERDOC" xil_pn:name="hub_mem_gen_upgrade.txt" xil_pn:origination="imported"/>
   </files>
 
   <transforms xmlns="http://www.xilinx.com/XMLSchema"/>

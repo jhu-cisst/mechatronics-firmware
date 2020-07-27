@@ -784,7 +784,7 @@ assign DebugData[3]  = { 2'd0, state, 3'd0, eth_send_fw_ack, eth_send_fw_req, re
                          isForward, isInIRQ, sendARP, isUDP, isICMP, isEcho, is_IPv4_Long, is_IPv4_Short};
 assign DebugData[4]  = { RegISR, RegISROther};
 assign DebugData[5]  = { host_fw_addr, FrameCount, fw_count[7:0]};
-assign DebugData[6]  = { 8'h11, maxCountFW[7:0], LengthFW };
+assign DebugData[6]  = { 6'd0, maxCountFW, LengthFW };
 assign DebugData[7]  = { 4'd0, txPktWords, 4'h0, rxPktWords };
 assign DebugData[8]  = { timeSend, timeReceive };
 assign DebugData[9]  = { 6'd0, numPacketInvalid, numPacketValid };
