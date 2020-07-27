@@ -1,7 +1,6 @@
 
 # IP core source files used by both versions of firmware
-set (IPCORE_SOURCE_COMMON "pkt_mem_gen.xco"
-                          "hub_mem_gen.xco"
+set (IPCORE_SOURCE_COMMON "hub_mem_gen.xco"
                           "Dual_port_RAM_32X1024.xco")
 
 # Generate the common IP cores (target name is CoreGenCommon)

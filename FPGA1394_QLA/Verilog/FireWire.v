@@ -198,14 +198,14 @@ module PhyLinkInterface(
     // eth/fw interface
     input wire eth_send_fw_req,   // request from ethernet to send fw pkt
     output reg eth_send_fw_ack,   // ack sent fw pkt
-    output reg[6:0] eth_fwpkt_raddr,  // firewire pkt read addr
+    output reg[8:0] eth_fwpkt_raddr,  // firewire pkt read addr
     input wire[31:0] eth_fwpkt_rdata, // firewire pkt read data
     input wire[15:0] eth_fwpkt_len,   // firewire pkt len in bytes
     input wire[15:0] eth_fw_addr,     // Host (PC) Firewire address (via Ethernet)
 
     output reg eth_send_req,         // request to send ethernet packet
     input wire eth_send_ack,         // ack from ethernet module
-    input wire[6:0] eth_send_addr,   // packet address bus
+    input wire[8:0] eth_send_addr,   // packet address bus
     output wire[31:0] eth_send_data, // packet data bus
     output reg[15:0] eth_send_len,   // packet data len (bytes)
 
@@ -372,14 +372,15 @@ crc32 mycrc(crc_data, crc_in, crc_2b, crc_4b, crc_8b);
 // for phy requests, this bit distinguishes between register read and write
 assign phy_rw = buffer[12];
 
-// packet module (used to store FireWire packet that will be forwarded to Ethernet)
-// Currently, 128 quadlets (128 x 32), which is less than the maximum possible Firewire
-// packet size of 512 quadlets. This limits the the largest Firewire packet that can be
-// forwarded from Firewire to Ethernet.
+// packet module (used to store FireWire packet that will be forwarded to Ethernet).
+// This is 512 quadlets (512 x 32), which is the maximum possible Firewire packet size at 400 Mbits/sec
+// (actually, could add a few quadlets because 512 limit probably does not include header and CRC).
+// This memory is much larger than currently needed (could get by with 128 quadlets), but the FPGA
+// contains more than enough memory primitives.
 reg pkt_mem_wen;
-reg [6:0] pkt_mem_waddr;
+reg [8:0] pkt_mem_waddr;
 reg [31:0] pkt_mem_wdata;
-pkt_mem_gen pkt_mem(.clka(sysclk),
+hub_mem_gen pkt_mem(.clka(sysclk),
                     .wea(pkt_mem_wen),
                     .addra(pkt_mem_waddr),
                     .dina(pkt_mem_wdata),
@@ -496,7 +497,7 @@ begin
                             lreq_trig <= 1;
                             lreq_type <= `LREQ_TX_ISO;
                             tx_type <= `TX_TYPE_FWD;
-                            eth_fwpkt_raddr <= 7'h00;
+                            eth_fwpkt_raddr <= 9'h00;
                             numbits <= (eth_fwpkt_len << 3);
                         end
                         else begin
@@ -579,7 +580,7 @@ begin
                     crc_in <= `CRC_INIT;            // start crc calculation
                     crc_ini <= 0;                   // clear the crc reset flag
                     data_block <= 0;                // clear block write flag
-                    pkt_mem_waddr <= (7'd0 - 7'd2); // set pkt mem addr, dump 2
+                    pkt_mem_waddr <= (9'd0 - 9'd2); // set pkt mem addr, dump 2
                 end
                 default: state <= ST_IDLE;          // null packet or error
             endcase
@@ -608,7 +609,7 @@ begin
                     // store packet
                     if (count[4:0] == 0) begin
                        pkt_mem_wen <= 1'b1;
-                       pkt_mem_waddr <= pkt_mem_waddr + 7'd1;
+                       pkt_mem_waddr <= pkt_mem_waddr + 9'd1;
                        pkt_mem_wdata <= buffer;
                     end
                     else begin

@@ -126,7 +126,7 @@ module EthernetIO(
     // Interface to FireWire module (for sending packets via FireWire)
     output reg eth_send_fw_req,   // request to send firewire packet
     input wire eth_send_fw_ack,   // ack from firewire module
-    input  wire[6:0] eth_fwpkt_raddr,
+    input  wire[8:0] eth_fwpkt_raddr,
     output wire[31:0] eth_fwpkt_rdata,
     output wire[15:0] eth_fwpkt_len,   // eth received fw pkt length
     output reg[15:0] host_fw_addr,     // Firewire address of host (e.g., ffd0)
@@ -136,7 +136,7 @@ module EthernetIO(
     // packet memory via sendAddr and sendData.
     input wire sendReq,              // Send request from FireWire
     output reg sendAck,              // Ack from Ethernet
-    output reg[6:0] sendAddr,        // Address into packet memory
+    output reg[8:0] sendAddr,        // Address into packet memory
     input wire[31:0] sendData,       // Packet data from memory
     input wire[15:0] sendLen,        // Packet size (bytes)
 
@@ -622,7 +622,7 @@ assign isEcho = (isICMP && (PacketBuffer[ID_ICMP_TypeCode] == 16'h0800)) ? 1'd1 
 
 wire[15:0] icmp_data_length;
 // Length of (optional) ICMP data field in bytes: subtract 20 (IPv4 header) and 12 (ICMP header)
-// Note: current implementation does not correctly handle more than 512 bytes.
+// Note: current implementation is limited by memory size (currently, 2048 bytes)
 assign icmp_data_length = IPv4_Length-16'd32;
 
 //**************************** Final Processing Steps **********************************
@@ -809,18 +809,19 @@ assign DebugData[15] = timestamp;
 //      - QLA PROM write block_data_length can be up to 16*4 = 64 bytes
 //        max size in quadlets is (24+64)/4 = 22
 // To summarize, maximum receive size in quadlets is 86.
-// Allocate pow(2,7) = 128 quadlets
 // Note that the broadcast block read (HUB) response is larger than this,
 // but is not received from the host (only sent to the host):
 //      - HUB block_data_length = 16*(4+4*6+1) = 16*29 = 464 quadlets,
 //        assuming no more than 16 boards
+// Anyway, since the FPGA contains abundant RAM primitives, we allocate
+// 512 quadlets (see below).
 
 wire[6:0]  mem_raddr;
 wire[31:0] mem_rdata;
 
-assign mem_raddr = eth_send_fw_ack ? eth_fwpkt_raddr[6:0] :
-                   ((state[ST_SEND] || (retState == ST_SEND)) && sendState[ST_SEND_DMA_ICMP_DATA])  ? fw_count[7:1]
-                                   : reg_raddr[6:0];
+assign mem_raddr = eth_send_fw_ack ? eth_fwpkt_raddr :
+                   ((state[ST_SEND] || (retState == ST_SEND)) && sendState[ST_SEND_DMA_ICMP_DATA])  ? fw_count[9:1]
+                                   : reg_raddr[8:0];
 assign eth_fwpkt_rdata = mem_rdata;
 
 reg[31:0] FireWireQuadlet;   // the current quadlet being read
@@ -834,12 +835,13 @@ assign mem_wen = state[ST_RECEIVE] &&
                  fw_count[0];
 
 // packet module (used to store Ethernet packet that will be forwarded to Firewire)
-// Currently, 128 quadlets (128 x 32), which is less than the maximum possible Firewire
-// packet size of 512 quadlets. This limits the the largest Firewire packet that can be
-// forwarded from Ethernet to Firewire (see note above).
-pkt_mem_gen fw_packet(.clka(sysclk),
+// This is 512 quadlets (512 x 32), which is the maximum possible Firewire packet size at 400 Mbits/sec
+// (actually, could add a few quadlets because 512 limit probably does not include header and CRC).
+// This memory is much larger than currently needed (could get by with 128 quadlets), but the FPGA
+// contains more than enough memory primitives.
+hub_mem_gen fw_packet(.clka(sysclk),
                       .wea(mem_wen),
-                      .addra(fw_count[7:1]),
+                      .addra(fw_count[9:1]),
                       .dina(mem_wdata),
                       .clkb(sysclk),
                       .addrb(mem_raddr),
@@ -1493,7 +1495,7 @@ always @(posedge sysclk) begin
       begin
          state[ST_KSZIO] <= 1;
          // fw_count is in words, icmp_data_length is in bytes
-         if (fw_count[7:0] == icmp_data_length[8:1])
+         if (fw_count[9:0] == icmp_data_length[10:1])
             recvState[ST_RECEIVE_DMA_FRAME_CRC] <= 1;
          else
             recvState[ST_RECEIVE_DMA_ICMP_DATA] <= 1;
@@ -1909,7 +1911,7 @@ always @(posedge sysclk) begin
             if (isForward && !useUDP) begin
                sendState[ST_SEND_DMA_FWD] <= 1;
                sendAck <= 1;
-               sendAddr <= 7'd0;
+               sendAddr <= 9'd0;
                isForward <= 1'd0;
             end
             else if (sendARP) begin
@@ -1933,7 +1935,7 @@ always @(posedge sysclk) begin
             if (isForward) begin
                sendState[ST_SEND_DMA_FWD] <= 1;
                sendAck <= 1;
-               sendAddr <= 7'd0;
+               sendAddr <= 9'd0;
                isForward <= 1'd0;
             end
             else begin
@@ -1958,7 +1960,7 @@ always @(posedge sysclk) begin
                                                  : mem_rdata[15:0];
          fw_count <= fw_count + 10'd1;
          // fw_count is in words, icmp_data_length is in bytes
-         if (fw_count[7:0] == icmp_data_length[8:1])
+         if (fw_count[9:0] == icmp_data_length[10:1])
             sendState[ST_SEND_DMA_STOP] <= 1;
          else
             sendState[ST_SEND_DMA_ICMP_DATA] <= 1;
@@ -2116,7 +2118,7 @@ always @(posedge sysclk) begin
       begin
          fw_count <= fw_count + 10'd1;
          WriteData <= (fw_count[0] == 0) ? {sendData[23:16], sendData[31:24]} : {sendData[7:0], sendData[15:8]};
-         if (fw_count[0] == 1) sendAddr <= sendAddr + 7'd1;
+         if (fw_count[0] == 1) sendAddr <= sendAddr + 9'd1;
          state[ST_KSZIO] <= 1;
          // fw_count is in words, sendLen is in bytes
          if (fw_count == (sendLen[10:1]-10'd1)) begin

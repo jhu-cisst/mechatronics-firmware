@@ -215,18 +215,18 @@ HubReg hub(
 // --------------------------------------------------------------------------
 wire eth_send_fw_req;
 wire eth_send_fw_ack;
-wire[6:0] eth_fwpkt_raddr;
+wire[8:0] eth_fwpkt_raddr;
 wire[31:0] eth_fwpkt_rdata;
 wire[15:0] eth_fwpkt_len;
 wire[15:0] eth_host_fw_addr;
 
 wire eth_send_req;
 wire eth_send_ack;
-wire [6:0] eth_send_addr;
-wire [15:0] eth_send_len;
+wire[8:0]  eth_send_addr;
+wire[15:0] eth_send_len;
 
-wire[6:0] eth_send_addr_mux;
-assign eth_send_addr_mux = eth_send_ack ? eth_send_addr : reg_raddr[6:0];
+wire[8:0] eth_send_addr_mux;
+assign eth_send_addr_mux = eth_send_ack ? eth_send_addr : reg_raddr[8:0];
 
 // phy-link interface
 PhyLinkInterface phy(
