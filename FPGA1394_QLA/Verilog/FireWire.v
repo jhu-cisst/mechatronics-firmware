@@ -1096,7 +1096,7 @@ begin
                 152: begin                                    // quadlet 6 
                     // ----- BRESP Continue -------
                     buffer <= addrMainRead ? sample_rdata : reg_rdata;
-                    reg_raddr[7:0] <= reg_raddr[7:0] + 1'b1;
+                    reg_raddr[11:0] <= reg_raddr[11:0] + 12'd1;
                     state <= ST_TX_DATA;
                     crc_ini <= 0;
                 end
@@ -1190,15 +1190,11 @@ begin
                             reg_raddr[4:0] <= reg_raddr[4:0] + 1'b1;
                         end
                     end
-                    // Could consolidate following 3 cases (i.e., always do 10 bit increment)
-                    else if (addrMainRead) begin
-                        reg_raddr[7:0] <= reg_raddr[7:0] + 1'b1;
-                    end
-                    else if (reg_raddr[15:12] == `ADDR_DATA_BUF) begin
-                        reg_raddr[9:0] <= reg_raddr[9:0] + 10'd1;
-                    end
-                    else begin   // PROM & PROM_QLA // ETH // FW // Dallas (DS2505)
-                        reg_raddr[5:0] <= reg_raddr[5:0] + 1'b1;
+                    // All other memory addresses (MAIN, PROM, PROM_QLA, ...)
+                    // 12-bit address increment, even though Firewire limited to 512 quadlets (9 bits)
+                    // because this way we can support non-zero starting addresses.
+                    else begin
+                        reg_raddr[11:0] <= reg_raddr[11:0] + 12'd1;
                     end
                 end
 

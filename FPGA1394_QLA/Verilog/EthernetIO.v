@@ -233,6 +233,9 @@ reg ethAccessError;    // 1 -> Unable to access internal bus
 reg[9:0] numStateInvalid;   // Number of invalid states (for debugging)
 reg[7:0] numReset;          // Number of times reset called
 
+// maximum quadlet index for real-time feedback broadcast packet
+localparam[5:0] MAX_BBC_QUAD = (`NUM_BC_READ_QUADS-1);
+
 // IER value
 // B15: LCIE link change interrupt enable
 // B14: TXIE transmit interrupt enable
@@ -304,8 +307,8 @@ localparam[3:0]
     ST_SEND_DMA_PACKETDATA_HEADER = 4'd4,
     ST_SEND_DMA_PACKETDATA_QUAD = 4'd5,
     ST_SEND_DMA_PACKETDATA_BLOCK_START = 4'd6,
-    ST_SEND_DMA_PACKETDATA_BLOCK_MAIN = 4'd7,
-    ST_SEND_DMA_PACKETDATA_BLOCK_PROM = 4'd8,
+    ST_SEND_DMA_PACKETDATA_BLOCK_MEM = 4'd7,
+    ST_SEND_DMA_PACKETDATA_BLOCK_HUB = 4'd8,
     ST_SEND_DMA_PACKETDATA_CHECKSUM = 4'd9,
     ST_SEND_DMA_FWD = 4'd10,
     ST_SEND_DMA_ICMP_DATA = 4'd11,
@@ -621,8 +624,8 @@ wire isEcho;
 assign isEcho = (isICMP && (PacketBuffer[ID_ICMP_TypeCode] == 16'h0800)) ? 1'd1 : 1'd0;
 
 wire[15:0] icmp_data_length;
-// Length of (optional) ICMP data field in bytes: subtract 20 (IPv4 header) and 12 (ICMP header)
-// Note: current implementation is limited by memory size (currently, 2048 bytes)
+// Length of (optional) ICMP data field in bytes: subtract 20 (IPv4 header) and 12 (ICMP header).
+// Note that maximum ping data size is 1472 bytes (1500-28) because we do not fragment packets.
 assign icmp_data_length = IPv4_Length-16'd32;
 
 //**************************** Final Processing Steps **********************************
@@ -816,7 +819,7 @@ assign DebugData[15] = timestamp;
 // Anyway, since the FPGA contains abundant RAM primitives, we allocate
 // 512 quadlets (see below).
 
-wire[6:0]  mem_raddr;
+wire[8:0]  mem_raddr;
 wire[31:0] mem_rdata;
 
 assign mem_raddr = eth_send_fw_ack ? eth_fwpkt_raddr :
@@ -2023,35 +2026,22 @@ always @(posedge sysclk) begin
             WriteData <= 16'h0;
          end
          if (fw_count[1:0] == 2'd3) begin
-            fw_count[1:0] <= 2'd0;
+            fw_count <= 10'd0;
 
-            case (fw_dest_offset[15:12])
-            `ADDR_MAIN: 
-            begin
-               fw_count[5:0] <= 6'd0;
-               sample_read <= 1;   // Take control of sample read bus
-               sendState[ST_SEND_DMA_PACKETDATA_BLOCK_MAIN] <= 1;
+            if (addrMain) begin
+               sample_read <= 1;
+               sendState[ST_SEND_DMA_PACKETDATA_BLOCK_MEM] <= 1;
             end
-            `ADDR_PROM_QLA, `ADDR_PROM:
-            begin
-               // Get ready to read data
-               ethAccessError <= sample_busy ? 1'd1 : ethAccessError;
+            else if (addrHub) begin
                eth_read_en <= 1;
-               eth_reg_raddr[7:0] <= 8'd0;  // Just to be sure
-               sendState[ST_SEND_DMA_PACKETDATA_BLOCK_PROM] <= 1;
-            end
-            `ADDR_HUB, `ADDR_ETH, `ADDR_FW:
-            begin
                ethAccessError <= sample_busy ? 1'd1 : ethAccessError;
+               sendState[ST_SEND_DMA_PACKETDATA_BLOCK_HUB] <= 1;
+            end
+            else begin  // all other block reads
                eth_read_en <= 1;
-               sendState[ST_SEND_DMA_PACKETDATA_BLOCK_PROM] <= 1;
+               ethAccessError <= sample_busy ? 1'd1 : ethAccessError;
+               sendState[ST_SEND_DMA_PACKETDATA_BLOCK_MEM] <= 1;
             end
-            default:
-            begin
-               // Abort and let the KSZ8851 chip pad the packet
-               sendState[ST_SEND_DMA_STOP] <= 1;
-            end
-            endcase
          end
          else begin
             fw_count[1:0] <= fw_count[1:0]+2'd1;
@@ -2059,47 +2049,56 @@ always @(posedge sysclk) begin
          end
       end
 
-      sendState[ST_SEND_DMA_PACKETDATA_BLOCK_MAIN]:
+      sendState[ST_SEND_DMA_PACKETDATA_BLOCK_MEM]:
       begin
          state[ST_KSZIO] <= 1;
-         `WriteDataSwapped <= (fw_count[0] == 1'b0) ? sample_rdata[31:16]
-                                                    : sample_rdata[15:0];
-         // Reading 28 quadlets means max count will reach 55
-         if (fw_count[5:0] == 6'd55) begin
-            sendState[ST_SEND_DMA_PACKETDATA_CHECKSUM] <= 1;
-            sample_read <= 0;   // Relinquish control of sample read bus
-            fw_count[5:0] <= 6'd0;
+         fw_count <= fw_count + 10'd1;
+         if (fw_count[0] == 0) begin
+            `WriteDataSwapped <= (addrMain ? sample_rdata[31:16] : eth_reg_rdata[31:16]);
+            // stay in this state
+            sendState[ST_SEND_DMA_PACKETDATA_BLOCK_MEM] <= 1;
          end
          else begin
-            sendState[ST_SEND_DMA_PACKETDATA_BLOCK_MAIN] <= 1;
-            fw_count[5:0] <= fw_count[5:0] + 6'd1;
+            `WriteDataSwapped <= (addrMain ? sample_rdata[15:0] : eth_reg_rdata[15:0]);
+            // 12-bit address increment, even though Firewire limited to 512 quadlets (9 bits)
+            // because this way we can support non-zero starting addresses.
+            eth_reg_raddr[11:0] <= eth_reg_raddr[11:0] + 12'd1;
+            // fw_count is in words and block_data_length is in bytes, but we compare in quadlets
+            if ((fw_count[9:1] + 8'd1) == block_data_length[10:2]) begin
+               sendState[ST_SEND_DMA_PACKETDATA_CHECKSUM] <= 1;
+               eth_read_en <= 0;   // we are done
+               sample_read <= 0;   // Relinquish control of sample read bus
+            end
+            else
+               sendState[ST_SEND_DMA_PACKETDATA_BLOCK_MEM] <= 1;
          end
       end
 
-      sendState[ST_SEND_DMA_PACKETDATA_BLOCK_PROM]:
+      sendState[ST_SEND_DMA_PACKETDATA_BLOCK_HUB]:
       begin
-         state[ST_KSZIO] <= 1;
+         fw_count <= fw_count + 10'd1;
          if (fw_count[0] == 0) begin
-            fw_count[0] <= 1;
-            WriteData <= {eth_reg_rdata[23:16], eth_reg_rdata[31:24]};
+            `WriteDataSwapped <= eth_reg_rdata[31:16];
             // stay in this state
-            sendState[ST_SEND_DMA_PACKETDATA_BLOCK_PROM] <= 1;
+            sendState[ST_SEND_DMA_PACKETDATA_BLOCK_HUB] <= 1;
          end
          else begin
-            fw_count[0] <= 0;
-            WriteData <= {eth_reg_rdata[7:0], eth_reg_rdata[15:8]};
-            eth_reg_raddr[5:0] <= eth_reg_raddr[5:0] + 6'd1;
-            // eth_reg_raddr increments quadlets (32-bits), whereas block_data_length
-            // is in bytes (8-bits). Note that maximum PROM read is 256 bytes,
-            // or 64 quadlets. The second term below takes care of the overflow
-            // case in the first term.
-            if (((eth_reg_raddr[5:0] + 6'd1) == block_data_length[7:2]) ||
-                (eth_reg_raddr[5:0] == 6'h3f)) begin
+            `WriteDataSwapped <= eth_reg_rdata[15:0];
+            // Rev 7: 1 board = 29 quadlets (1 seq + 28 data)
+            if (eth_reg_raddr[4:0] == MAX_BBC_QUAD) begin
+               eth_reg_raddr[8:5] <= eth_reg_raddr[8:5] + 1'b1;
+               eth_reg_raddr[4:0] <= 5'd0;
+            end
+            else begin
+                eth_reg_raddr[4:0] <= eth_reg_raddr[4:0] + 1'b1;
+            end
+            // fw_count is in words and block_data_length is in bytes, but we compare in quadlets
+            if ((fw_count[9:1] + 8'd1) == block_data_length[10:2]) begin
                sendState[ST_SEND_DMA_PACKETDATA_CHECKSUM] <= 1;
-               eth_read_en <= 0; // we are done
+               eth_read_en <= 0;   // we are done
             end
             else
-               sendState[ST_SEND_DMA_PACKETDATA_BLOCK_PROM] <= 1;
+               sendState[ST_SEND_DMA_PACKETDATA_BLOCK_HUB] <= 1;
          end
       end
 
@@ -2117,7 +2116,7 @@ always @(posedge sysclk) begin
       sendState[ST_SEND_DMA_FWD]:
       begin
          fw_count <= fw_count + 10'd1;
-         WriteData <= (fw_count[0] == 0) ? {sendData[23:16], sendData[31:24]} : {sendData[7:0], sendData[15:8]};
+         `WriteDataSwapped <= (fw_count[0] == 0) ? sendData[31:16] : sendData[15:0];
          if (fw_count[0] == 1) sendAddr <= sendAddr + 9'd1;
          state[ST_KSZIO] <= 1;
          // fw_count is in words, sendLen is in bytes
