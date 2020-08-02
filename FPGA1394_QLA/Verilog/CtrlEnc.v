@@ -21,7 +21,7 @@ module CtrlEnc(
     input  wire sysclk,           // global clock
     input  wire[1:`NUM_CHANNELS] enc_a,  // set of quadrature encoder inputs
     input  wire[1:`NUM_CHANNELS] enc_b,
-    input  wire[15:0] reg_raddr_chan,  // register file read addr from outside
+    input  wire[3:0] reg_raddr_chan,  // register file read addr from outside
     input  wire[15:0] reg_waddr,  // register file write addr from outside
     input  wire[31:0] reg_wdata,  // incoming register file data
     input  wire reg_wen,          // write enable signal from outside world

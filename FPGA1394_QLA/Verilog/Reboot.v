@@ -15,7 +15,7 @@ module Reboot(
   input wire reboot
   );
 
-reg[15:0] RebootProgram[0:6];
+reg[15:0] RebootProgram[0:7];
 initial begin
    RebootProgram[0] = 16'hffff;   // dummy word
    RebootProgram[1] = 16'haa99;   // sync word
@@ -24,6 +24,7 @@ initial begin
    RebootProgram[4] = 16'h000e;   // IPROG
    RebootProgram[5] = 16'h2000;   // NOP
    RebootProgram[6] = 16'hffff;   // dummy word
+   RebootProgram[7] = 16'hffff;   // dummy word
 end
 
 reg[2:0] count;
@@ -54,7 +55,7 @@ always @(posedge clk)
 begin
    if (reboot) begin
       count <= (count == 3'd6) ? count : count + 3'd1;
-      write <= (count == 3'd6) ? 0 : 1;
+      write <= (count == 3'd6) ? 1'b0 : 1'b1;
    end
    else begin
       count <= 4'd0;

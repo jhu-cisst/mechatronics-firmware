@@ -34,10 +34,10 @@ module CtrlDac(
     // regfile ctrl/addr/data
     input wire reg_wen,            // register write enable
     input wire blk_wen,            // register write enable (end-of-block)
-    input wire[15:0] reg_raddr,    // register read address
+    input wire[3:0] reg_rchan,     // register read channel (reg_raddr[7:4])
     input wire[15:0] reg_waddr,    // register write address
     output wire[31:0] reg_rdata,   // outgoing register data
-    input wire[31:0] reg_wdata,    // incoming register data
+    input wire[15:0] reg_wdata,    // incoming register data
     
     // output dac value
     output wire[15:0] dac1,        // register dac1 command current
@@ -91,7 +91,7 @@ assign data = (busy ? data_nop : data_wru);
 
 // shortcuts for command words nop and write/update
 assign data_nop = { 8'h00, `DAC_CMD_NOP, 4'h0, `DAC_VAL_INIT };
-assign data_wru = { 8'h00, `DAC_CMD_WRU, 4'h0, reg_wdata[15:0] };
+assign data_wru = { 8'h00, `DAC_CMD_WRU, 4'h0, reg_wdata };
 assign dac_word = mem_data[addr_dac];
 
 // register file (memory) interface
@@ -103,7 +103,7 @@ begin
 end
 
 // copy of register file that doesn't get overwritten with NOPs
-assign reg_rdata = mem_copy[reg_raddr[7:4]-1'b1];
+assign reg_rdata = mem_copy[reg_rchan-1'b1];
 always @(posedge(sysclk))
 begin
     if (reg_wen && reg_waddr[15:12]==`ADDR_MAIN && reg_waddr[3:0]==`OFF_DAC_CTRL && ~busy)

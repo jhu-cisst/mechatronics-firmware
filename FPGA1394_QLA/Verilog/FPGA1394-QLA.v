@@ -110,6 +110,14 @@ assign reg_rdata = (reg_raddr[15:12]==`ADDR_HUB) ? (reg_rdata_hub) :
                   ((reg_raddr[15:12]==`ADDR_DATA_BUF) ? (reg_rdata_databuf) :
                   ((reg_raddr[7:4]==4'd0) ? reg_rdata_chan0 : reg_rd[reg_raddr[3:0]])))));
 
+// Unused channel offsets
+assign reg_rd[`OFF_UNUSED_02] = 32'd0;
+assign reg_rd[`OFF_UNUSED_03] = 32'd0;
+assign reg_rd[`OFF_UNUSED_11] = 32'd0;
+assign reg_rd[`OFF_UNUSED_12] = 32'd0;
+assign reg_rd[`OFF_UNUSED_13] = 32'd0;
+assign reg_rd[`OFF_UNUSED_14] = 32'd0;
+assign reg_rd[`OFF_UNUSED_15] = 32'd0;
 
 // 1394 phy low reset, never reset
 assign reset_phy = 1'b1; 
@@ -265,10 +273,10 @@ CtrlDac dac(
     .csel(IO1[22]),
     .reg_wen(reg_wen),
     .blk_wen(blk_wen),
-    .reg_raddr(reg_raddr),
+    .reg_rchan(reg_raddr[7:4]),
     .reg_waddr(reg_waddr),
     .reg_rdata(reg_rdac),
-    .reg_wdata(reg_wdata),
+    .reg_wdata(reg_wdata[15:0]),
     .dac1(cur_cmd[1]),
     .dac2(cur_cmd[2]),
     .dac3(cur_cmd[3]),

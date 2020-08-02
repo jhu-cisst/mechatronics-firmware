@@ -69,18 +69,23 @@
 `define REG_DEBUG    4'd15         // Debug register for testing 
 
 // device register file offsets from channel base
-// For additional fields, please see dev_addr in FireWire.v to send back data in the correct slot
-`define OFF_ADC_DATA 4'h0          // adc data register offset (pot + cur)
-`define OFF_DAC_CTRL 4'h1          // dac control register offset
-`define OFF_POT_CTRL 4'h2          // pot control register offset
-`define OFF_POT_DATA 4'h3          // pot data register offset
-`define OFF_ENC_LOAD 4'h4          // enc data preload offset
-`define OFF_ENC_DATA 4'h5          // enc quadrature register offset
-`define OFF_PER_DATA 4'h6          // enc period register offset
+// For additional fields, please update SampleData.v to send back data in the correct slot
+`define OFF_ADC_DATA  4'h0         // adc data register offset (pot + cur)
+`define OFF_DAC_CTRL  4'h1         // dac control register offset
+`define OFF_UNUSED_02 4'h2         // (was pot control register offset)
+`define OFF_UNUSED_03 4'h3         // (was pot data register offset)
+`define OFF_ENC_LOAD  4'h4         // enc data preload offset
+`define OFF_ENC_DATA  4'h5         // enc quadrature register offset
+`define OFF_PER_DATA  4'h6         // enc period register offset
 `define OFF_QTR1_DATA 4'h7         // enc previous quarter offset
 `define OFF_DOUT_CTRL 4'h8         // dout hi/lo period (16-bits hi, 16-bits lo)
 `define OFF_QTR5_DATA 4'h9         // enc most recent quarter offset
 `define OFF_RUN_DATA  4'hA         // enc running counter offset
+`define OFF_UNUSED_11 4'hB
+`define OFF_UNUSED_12 4'hC
+`define OFF_UNUSED_13 4'hD
+`define OFF_UNUSED_14 4'hE
+`define OFF_UNUSED_15 4'hF
 
 `define ENC_MIDRANGE 24'h800000    // encoder mid-range value
 

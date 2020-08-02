@@ -28,12 +28,12 @@ module HubReg(
     output wire       hub_reg_wen  // broadcast request received (write to register)
 );
 
-wire hub_reg_addr;
+wire hub_reg_waddr;
 // Hub register address space is 0x1800 - 0x1803
-assign hub_reg_addr = (reg_waddr[15:12]==`ADDR_HUB) && (reg_waddr[11:2] == 10'b1000000000);
+assign hub_reg_waddr = (reg_waddr[15:12]==`ADDR_HUB) && (reg_waddr[11:2] == 10'b1000000000);
 
 // Currently, only writable register is at 0x1800
-assign hub_reg_wen = (reg_wen && hub_reg_addr && (reg_waddr[1:0] == 2'd0));
+assign hub_reg_wen = (reg_wen && hub_reg_waddr && (reg_waddr[1:0] == 2'd0));
 
 // read_index maintains an ordered list of boards in use, so that it is no longer necessary
 // for the PC to read the entire hub memory.
@@ -42,8 +42,12 @@ reg[3:0] curIndex;
 reg[3:0] curBoard;
 reg newMask;
 
+wire hub_reg_raddr;
+// Hub register address space is 0x1800 - 0x1803
+assign hub_reg_raddr = (reg_raddr[15:12]==`ADDR_HUB) && (reg_raddr[11:2] == 10'b1000000000);
+
 wire[31:0] reg_rdata_mem;
-assign reg_rdata = !hub_reg_addr ? reg_rdata_mem :
+assign reg_rdata = !hub_reg_raddr ? reg_rdata_mem :
                    (reg_raddr[1:0] == 2'b00) ? {sequence, board_mask} :
                    (reg_raddr[1:0] == 2'b01) ? { read_index[ 0], read_index[ 1], read_index[ 2], read_index[ 3],
                                                  read_index[ 4], read_index[ 5], read_index[ 6], read_index[ 7] } :
@@ -59,7 +63,7 @@ begin
         curIndex <= 4'd0;
         curBoard <= 4'd0;
         // Avoid board_mask==0 because that will infinite loop
-        newMask <= (reg_wdata[15:0] == 16'd0) ? 0 : 1;
+        newMask <= (reg_wdata[15:0] == 16'd0) ? 1'b0 : 1'b1;
     end
     else if (newMask) begin
        if (board_mask[curBoard]) begin

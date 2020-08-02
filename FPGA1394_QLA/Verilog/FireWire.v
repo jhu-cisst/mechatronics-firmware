@@ -141,18 +141,6 @@
 `define SZ_BRESP 16'd192          // block read response base size
 `define SZ_STAT 16'd16            // phy register transfer size
 
-// real-time feedback broadcast packet size, in bits, including Firewire header/CRC
-//    32*[FW_header (4) + header_CRC (1) + seq (1) + data (N) + data_CRC (1)] = 32*(N+7)
-//    Rev 4-6: N=16 --> SZ_BBC = 16'd736  (should have been N=20, SZ_BBC = 16'd864)
-//    Rev 7:   N=28 --> SZ_BBC = 16'd1120
-//    `SZ_BWRITE includes FW_header + header_CRC + data_CRC
-localparam[15:0] SZ_BBC = (`SZ_BWRITE + 32*`NUM_BC_READ_QUADS);
-
-// maximum quadlet index for real-time feedback broadcast packet
-localparam[5:0] MAX_BBC_QUAD = (`NUM_BC_READ_QUADS-1);
-// real-time feedback broadcast packet size, in bytes, not include Firewire header/CRC
-localparam[15:0] SZ_BBC_BYTES = (4*`NUM_BC_READ_QUADS);
-
 // ack values
 `define ACK_DONE 4'h1             // transaction complete, applies to writes
 `define ACK_PEND 4'h2             // transaction pending, applies to reads
@@ -231,7 +219,6 @@ module PhyLinkInterface(
     inout[35:0] ila_control       // ila control module
 `endif
 );
-
 
     // -------------------------------------------------------------------------
     // registered outputs
@@ -334,6 +321,18 @@ module PhyLinkInterface(
         ST_TX_DONE2 = 15;         // tx state, phy regains phy-link bus
 
 
+
+    // real-time feedback broadcast packet size, in bits, including Firewire header/CRC
+    //    32*[FW_header (4) + header_CRC (1) + seq (1) + data (N) + data_CRC (1)] = 32*(N+7)
+    //    Rev 4-6: N=16 --> SZ_BBC = 16'd736  (should have been N=20, SZ_BBC = 16'd864)
+    //    Rev 7:   N=28 --> SZ_BBC = 16'd1120
+    //    `SZ_BWRITE includes FW_header + header_CRC + data_CRC
+    localparam[15:0] SZ_BBC = (`SZ_BWRITE + 32*`NUM_BC_READ_QUADS);
+
+    // maximum quadlet index for real-time feedback broadcast packet
+    localparam[5:0] MAX_BBC_QUAD = (`NUM_BC_READ_QUADS-1);
+    // real-time feedback broadcast packet size, in bytes, not include Firewire header/CRC
+    localparam[15:0] SZ_BBC_BYTES = (4*`NUM_BC_READ_QUADS);
 
 // -----------------------------------------------------------------------------
 // hardware description
@@ -655,7 +654,7 @@ begin
                                         reg_waddr[7:4] <= reg_waddr[7:4] + 4'd1;
                                     // only respond to bit 27-24 == board_id (bc mode)
                                     if (buffer[27:24] == board_id) begin
-                                        dac_local <= (reg_waddr[7:4] == 4'd0) ? 1 : dac_local;
+                                        dac_local <= (reg_waddr[7:4] == 4'd0) ? 1'b1 : dac_local;
                                         reg_wdata <= {1'b0, buffer[30:0]};       // data to write
                                         reg_wen <= (buffer[31] & rx_active);     // check valid bit
                                     end
@@ -902,7 +901,7 @@ begin
                         ((addrMainRead && (rx_tcode==`TC_BREAD)) ||
                          ((reg_waddr[15:0] == {`ADDR_HUB, 12'h800}) && (rx_tcode==`TC_QWRITE)))) begin
                        sample_start <= 1;
-                       writeHub <= (rx_tcode == `TC_QWRITE) ? 1 : 0;
+                       writeHub <= (rx_tcode == `TC_QWRITE) ? 1'b1 : 1'b0;
                     end
                 end
 
