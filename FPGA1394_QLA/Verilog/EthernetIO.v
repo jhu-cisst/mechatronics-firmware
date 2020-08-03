@@ -1093,9 +1093,6 @@ always @(posedge sysclk) begin
       end
       else begin
          ETH_RSTn <= 0;
-         Cur_WRn <= Init_WRn;
-         Cur_RDn <= Init_RDn;
-         Cur_CMD <= Init_CMD;
          initOK <= 0;
          ethFrameError <= 0;
          ethIPv4Error <= 0;
@@ -2085,6 +2082,34 @@ always @(posedge sysclk) begin
    state[ST_WAVEFORM_OUTPUT_INIT]:
    begin
       state[ST_WAVEFORM_OUTPUT_EXECUTE] <= 1;
+      if (isDMA && isWrite)
+          txPktWords <= txPktWords + 12'd1;
+   end
+
+   state[ST_WAVEFORM_OUTPUT_EXECUTE]:
+   begin
+      if (ShiftCnt != 4'd0) begin
+         state[ST_WAVEFORM_OUTPUT_EXECUTE] <= 1;
+      end
+      else begin
+         // All done, return to previous (or next) state
+         state[retState] <= 1;
+      end
+   end
+
+   endcase // case (1'b1)
+
+end
+
+
+always @(posedge sysclk)
+  begin
+   if (state[ST_RESET_ASSERT]) begin
+      Cur_WRn <= Init_WRn;
+      Cur_RDn <= Init_RDn;
+      Cur_CMD <= Init_CMD;
+   end      
+   else if (state[ST_WAVEFORM_OUTPUT_INIT]) begin
       case ({isDMA, isWrite})
       2'b00: begin   // Register Read
              ShiftCnt <= 4'd9;
@@ -2113,41 +2138,28 @@ always @(posedge sysclk) begin
              Cur_RDn <= DMA_Write_RDn;
              Cur_CMD <= DMA_Write_CMD;
              SDReg <= WriteData;
-             txPktWords <= txPktWords + 12'd1;
              end
       endcase
    end
-
-   state[ST_WAVEFORM_OUTPUT_EXECUTE]:
-   begin
-      if (ShiftCnt != 4'd0) begin
-         state[ST_WAVEFORM_OUTPUT_EXECUTE] <= 1;
-         Cur_WRn <= Cur_WRn << 1;
-         Cur_RDn <= Cur_RDn << 1;
-         Cur_CMD <= Cur_CMD << 1;
-         ShiftCnt <= ShiftCnt - 4'd1;
-         // If CMD high and WRn is going to transition high to low
-         // on this cycle, then write address to the bus
-         // (currently done in ST_WAVEFORM_OUTPUT_INIT).
-         //if ((Cur_CMD[9:8] == 2'b11) && (Cur_WRn[9:8] == 2'b10))
-         //   SDReg <= Addr16;  // Addr16 is output of address translator
-         // If writing and CMD is going to transition low on
-         // this cycle, then write data to the bus (Register Read)
-         if (isWrite && (Cur_CMD[9:8] == 2'b10))
-            SDReg <= WriteData;
-         // If reading and RDn is going to transition high on
-         // next cycle, then read data from the bus
-         else if (~isWrite && (Cur_RDn[8:7] == 2'b01))
-            eth_data <= SD;
-      end
-      else begin
-         // All done, return to previous (or next) state
-         state[retState] <= 1;
-      end
+   else if (ShiftCnt != 4'd0) begin
+      Cur_WRn <= Cur_WRn << 1;
+      Cur_RDn <= Cur_RDn << 1;
+      Cur_CMD <= Cur_CMD << 1;
+      ShiftCnt <= ShiftCnt - 4'd1;
+      // If CMD high and WRn is going to transition high to low
+      // on this cycle, then write address to the bus
+      // (currently done in ST_WAVEFORM_OUTPUT_INIT).
+      //if ((Cur_CMD[9:8] == 2'b11) && (Cur_WRn[9:8] == 2'b10))
+      //   SDReg <= Addr16;  // Addr16 is output of address translator
+      // If writing and CMD is going to transition low on
+      // this cycle, then write data to the bus (Register Read)
+      if (isWrite && (Cur_CMD[9:8] == 2'b10))
+         SDReg <= WriteData;
+      // If reading and RDn is going to transition high on
+      // next cycle, then read data from the bus
+      else if (~isWrite && (Cur_RDn[8:7] == 2'b01))
+         eth_data <= SD;
    end
-
-   endcase // case (1'b1)
-
 end
 
 endmodule
