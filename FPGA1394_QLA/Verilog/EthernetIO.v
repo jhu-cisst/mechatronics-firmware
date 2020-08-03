@@ -289,14 +289,15 @@ localparam[3:0]
     ST_RECEIVE_FRAME_LENGTH = 4'd2,
     ST_RECEIVE_ENABLE_DMA = 4'd3,
     ST_RECEIVE_DMA_ETHERNET_HEADERS = 4'd4,
-    ST_RECEIVE_DMA_FIREWIRE_PACKET = 4'd5,
-    ST_RECEIVE_DMA_FRAME_CRC = 4'd6,
-    ST_RECEIVE_FLUSH_START = 4'd7,
-    ST_RECEIVE_FLUSH_WAIT = 4'd8,
-    ST_RECEIVE_DMA_ICMP_DATA = 4'd9;
+    ST_RECEIVE_DMA_FIREWIRE_HEADER = 4'd5,
+    ST_RECEIVE_DMA_FIREWIRE_DATA = 4'd6,
+    ST_RECEIVE_DMA_FRAME_CRC = 4'd7,
+    ST_RECEIVE_FLUSH_START = 4'd8,
+    ST_RECEIVE_FLUSH_WAIT = 4'd9,
+    ST_RECEIVE_DMA_ICMP_DATA = 4'd10;
 
 // Receive state (one-hot encoding)
-reg[9:0] recvState = (10'd1 << ST_RECEIVE_FRAME_COUNT);
+reg[10:0] recvState = (11'd1 << ST_RECEIVE_FRAME_COUNT);
 
 // send states
 localparam[3:0]
@@ -348,6 +349,9 @@ wire quadWrite;
 wire blockRead;
 wire blockWrite;
 
+wire addrMain;
+wire addrHub;
+
 reg FrameValid;
 reg isEthMulticast;
 reg isEthBroadcast;
@@ -392,7 +396,6 @@ reg[15:0] RegISR;      // 16-bit ISR register
 reg[15:0] RegISROther; // Unexpected ISR value (for debugging)
 reg[7:0] FrameCount;   // Number of received frames
 reg[9:0] fw_count;     // Counts words in FireWire packets (max is 1024 words, or 2048 bytes)
-reg blockw_active;     // Indicates that block write is active
 reg dac_local;         // Indicates that DAC entries in block write are for this board_id
 reg[11:0] txPktWords;  // Num of words sent
 reg[11:0] rxPktWords;  // Num of words in receive queue
@@ -833,9 +836,9 @@ wire[31:0] mem_wdata;
 assign mem_wdata = {FireWireQuadlet[31:16], `ReadDataSwapped};
 
 wire mem_wen;   // memory write enable
-assign mem_wen = state[ST_RECEIVE] &&
-                 (recvState[ST_RECEIVE_DMA_ICMP_DATA] | recvState[ST_RECEIVE_DMA_FIREWIRE_PACKET]) &&
-                 fw_count[0];
+assign mem_wen = state[ST_RECEIVE] && fw_count[0] &&
+                 (recvState[ST_RECEIVE_DMA_ICMP_DATA] | recvState[ST_RECEIVE_DMA_FIREWIRE_HEADER] |
+                  recvState[ST_RECEIVE_DMA_FIREWIRE_DATA]);
 
 // packet module (used to store Ethernet packet that will be forwarded to Firewire)
 // This is 512 quadlets (512 x 32), which is the maximum possible Firewire packet size at 400 Mbits/sec
@@ -940,19 +943,35 @@ assign reg_rdata = (reg_raddr[7] == 0) ? mem_rdata :
                    (reg_raddr[6:5] == 2'b10) ? {PacketBuffer[{reg_raddr[4:0],1'b1}], PacketBuffer[{reg_raddr[4:0],1'b0}]} :
                                                {10'd0, ReplyIndex[{reg_raddr[4:0],1'b1}], 10'd0, ReplyIndex[{reg_raddr[4:0],1'b0}]};
 
+// Copy of received Firewire header for easier access
+reg[31:0] FireWireHeader[0:3];
+
 // Data from Firewire packet header
 // Quadlet 0
-reg[3:0] fw_tcode;            // FireWire transaction code
-reg[5:0] fw_tl;               // FireWire transaction label
-reg[3:0] fw_pri;              // FireWire priority field
-reg[9:0] dest_bus_id;         // FireWire destination bus (first 10 bits)
-reg[5:0] dest_node_id;        // FireWire destination node (last 6 bits)
+wire[3:0] fw_tcode;            // FireWire transaction code
+wire[5:0] fw_tl;               // FireWire transaction label
+wire[3:0] fw_pri;              // FireWire priority field
+wire[9:0] dest_bus_id;         // FireWire destination bus (first 10 bits)
+wire[5:0] dest_node_id;        // FireWire destination node (last 6 bits)
 // Quadlet 1
-reg[15:0] fw_src_id;          // FireWire source id
+wire[15:0] fw_src_id;          // FireWire source id
 // Quadlet 2
-reg[15:0] fw_dest_offset;     // FireWire destination offset (only lowest 16 bits used)
+wire[15:0] fw_dest_offset;     // FireWire destination offset (only lowest 16 bits used)
 // Quadlet 3
-reg[15:0] block_data_length;  // Data length (in bytes) for block read/write requests
+wire[15:0] block_data_length;  // Data length (in bytes) for block read/write requests
+
+assign fw_tl = FireWireHeader[0][15:10];
+assign fw_tcode = FireWireHeader[0][7:4];
+assign fw_pri = FireWireHeader[0][3:0];
+assign dest_bus_id = FireWireHeader[0][31:22];
+assign dest_node_id = FireWireHeader[0][21:16];
+assign fw_src_id = FireWireHeader[1][31:16];
+assign fw_dest_offset = FireWireHeader[2][15:0];
+assign block_data_length = FireWireHeader[3][31:16];
+
+// Valid destination address: check if dest_bus_id is FFC (i.e., all 1)
+wire valid_dest_id;
+assign valid_dest_id = (dest_bus_id == 10'h3FF) ? 1'd1 : 1'd0;
 
 
 wire isFwBroadcast = (dest_node_id == 6'h3f) ? 1'd1 : 1'd0;
@@ -975,9 +994,6 @@ assign blockWrite = (fw_tcode == `TC_BWRITE) ? 1'd1 : 1'd0;
 
 assign addrMain = (fw_dest_offset[15:12] == `ADDR_MAIN) ? 1'd1 : 1'd0;
 assign addrHub = (fw_dest_offset[15:12] == `ADDR_HUB) ? 1'd1 : 1'd0;
-assign addrPROM = (fw_dest_offset[15:12] == `ADDR_PROM) ? 1'd1 : 1'd0;
-assign addrQLA  = (fw_dest_offset[15:12] == `ADDR_PROM_QLA) ? 1'd1 : 1'd0;
-
 
 // -------------------------------------------------------
 // Ethernet state machine
@@ -1043,7 +1059,6 @@ always @(posedge sysclk) begin
       eth_reg_wen <= 0;
       eth_block_wen <= 0;
       eth_block_wstart <= 0;
-      blockw_active <= 0;
       sample_read <= 0;
       waitInfo <= WAIT_NONE;
       if (ksz_req) begin
@@ -1449,7 +1464,7 @@ always @(posedge sysclk) begin
             else if (ARP_Done)
               recvState[ST_RECEIVE_DMA_FRAME_CRC] <= 1;
             else if (UDP_Done || Frame_Raw)
-              recvState[ST_RECEIVE_DMA_FIREWIRE_PACKET] <= 1;
+              recvState[ST_RECEIVE_DMA_FIREWIRE_HEADER] <= 1;
             else
               recvState[ST_RECEIVE_DMA_ETHERNET_HEADERS] <= 1;
          end
@@ -1511,105 +1526,107 @@ always @(posedge sysclk) begin
             FireWireQuadlet[15:0] <= `ReadDataSwapped;
       end
 
-      recvState[ST_RECEIVE_DMA_FIREWIRE_PACKET]:
+      // Read Firewire header; also handles quadlet read/write
+      recvState[ST_RECEIVE_DMA_FIREWIRE_HEADER]:
       begin
          state[ST_KSZIO] <= 1;
          fw_count <= fw_count + 10'd1;
 
-         // Read FireWire packet, byteswap to make it easier to work with;
-         // might need to byteswap again if sending it out via FireWire.
+         // Read FireWire packet, byteswap to make it easier to work with
+         if (fw_count[0] == 0) begin
+            FireWireQuadlet[31:16] <= `ReadDataSwapped;
+         end
+         else begin
+            FireWireQuadlet[15:0] <= `ReadDataSwapped;
+            if (fw_count[3] == 0)
+               FireWireHeader[fw_count[2:1]] <= {FireWireQuadlet[31:16], `ReadDataSwapped};
+         end
+
+         if ((fw_count == 10'd2) && !valid_dest_id) begin
+            // Invalid destination address (first 10 bits are not FFC), flush packet
+            ethDestError <= 1;
+            recvState[ST_RECEIVE_FLUSH_START] <= 1;
+         end
+         else if ((fw_count == 10'd7) && quadRead) begin
+            // Done with quadlet read
+            recvState[ST_RECEIVE_DMA_FRAME_CRC] <= 1;
+         end
+         else if (fw_count == 10'd8 && quadWrite && isLocal) begin
+            // Stay in this state (to read CRC)
+            recvState[ST_RECEIVE_DMA_FIREWIRE_HEADER] <= 1;
+            eth_reg_waddr <= fw_dest_offset;
+            eth_reg_wdata <= FireWireQuadlet;
+            // Special case: write to FireWire PHY register
+            if (addrMain && (fw_dest_offset[11:0] == {8'h0, `REG_PHYCTRL})) begin
+               // check the RW bit to determine access type (bit 12, after byte-swap)
+               lreq_type <= (FireWireQuadlet[12] ? `LREQ_REG_WR : `LREQ_REG_RD);
+               lreq_trig <= 1;
+            end
+            eth_reg_wen <= 1;
+            eth_block_wen <= 1;
+            // If broadcast read request, start sampling feedback data
+            if (fw_dest_offset == {`ADDR_HUB, 12'h800 }) begin
+               sample_start <= 1;
+               writeHub <= 1;
+            end
+         end
+         else if (fw_count == 10'd9) begin
+            if (quadWrite|blockRead) begin
+               // Done with quadlet write and block read
+               recvState[ST_RECEIVE_DMA_FRAME_CRC] <= 1;
+               // Set sample_start to trigger sampling data for block read.
+               // Just needs to be early enough that sampling is finished before we access it
+               // in ST_SEND_DMA_PACKETDATA_BLOCK_MAIN.
+               sample_start <= blockRead&isLocal&addrMain;
+            end
+            else if (blockWrite) begin
+               // Done with block write header
+               recvState[ST_RECEIVE_DMA_FIREWIRE_DATA] <= 1;
+               // Set and clear eth_block_wstart before starting local block write
+               eth_block_wstart <= isLocal;
+               eth_reg_waddr[15:12] <= fw_dest_offset[15:12];
+               if (addrMain) begin
+                  eth_reg_waddr[7:4] <= 4'd1;  // start with channel 1
+                  eth_reg_waddr[3:0] <= `OFF_DAC_CTRL;
+               end
+               else begin
+                  eth_reg_waddr[11:0] <= fw_dest_offset[11:0];
+               end
+            end
+            else begin   // not quadRead, quadWrite, blockRead or blockWrite
+               // Could note this as an error
+               recvState[ST_RECEIVE_FLUSH_START] <= 1;
+            end
+         end
+         else begin
+            recvState[ST_RECEIVE_DMA_FIREWIRE_HEADER] <= 1;
+         end
+      end
+
+      // Following is only for block write, fw_count==10 on entry
+      recvState[ST_RECEIVE_DMA_FIREWIRE_DATA]:
+      begin
+         state[ST_KSZIO] <= 1;
+         fw_count <= fw_count + 10'd1;
+
+         // Read FireWire packet, byteswap to make it easier to work with
          if (fw_count[0] == 0)
             FireWireQuadlet[31:16] <= `ReadDataSwapped;
          else
             FireWireQuadlet[15:0] <= `ReadDataSwapped;
 
-         // Following handles state transitions, incrementing fw_count and local quadlet
-         // and block writes.
-         // Note that isLocal, quadWrite, and blockWrite are not valid right away,
-         // but will be valid for the counts that are used below.
-         // All FireWire packets have a CRC at the end, so we are sure to process the last data packet.
-         // Note that we do not check the FireWire CRC because we assume that the Ethernet
-         // checksum has already guaranteed that the data is valid.
+         // Could instead check against block_data_length
+         if (fw_count == maxCountFW) begin
+            recvState[ST_RECEIVE_DMA_FRAME_CRC] <= 1;
+         end
+         else begin
+            recvState[ST_RECEIVE_DMA_FIREWIRE_DATA] <= 1;
+         end
 
-         if (fw_count == 10'd2) begin
-            // Save important fields from Quadlet 0
-            fw_tl <= FireWireQuadlet[15:10];
-            fw_tcode <= FireWireQuadlet[7:4];
-            fw_pri <= FireWireQuadlet[3:0];
-            dest_bus_id <= FireWireQuadlet[31:22];
-            dest_node_id <= FireWireQuadlet[21:16];
-         end
-         else if (fw_count == 10'd4) begin
-            // Save important fields from Quadlet 1
-            fw_src_id <= FireWireQuadlet[31:16];
-         end
-         else if (fw_count == 10'd6) begin
-            // Save important fields from Quadlet 2
-            fw_dest_offset <= FireWireQuadlet[15:0];
-         end
-         else if (fw_count == 10'd8) begin
-            // Does not hurt to update block_data_length, even if not a block read/write
-            block_data_length <= FireWireQuadlet[31:16];
-            if (isLocal) begin
-               if (quadWrite) begin
-                  eth_reg_waddr <= fw_dest_offset;
-                  eth_reg_wdata <= FireWireQuadlet;
-                  // Special case: write to FireWire PHY register
-                  if (addrMain && (fw_dest_offset[11:0] == {8'h0, `REG_PHYCTRL})) begin
-                     // check the RW bit to determine access type (bit 12, after byte-swap)
-                     lreq_type <= (FireWireQuadlet[12] ? `LREQ_REG_WR : `LREQ_REG_RD);
-                     lreq_trig <= 1;
-                  end
-               end
-               else if (blockWrite) begin
-                  // Set and clear eth_block_wstart before starting block write
-                  // (arbitrarily chose to set it at fw_count==8).
-                  eth_block_wstart <= 1;
-               end
-               else if (blockRead && addrMain) begin
-                  // Set and clear sample_start to trigger sampling data for block read
-                  // (arbitrarily chose to set it at fw_count==8; just needs to be early enough that
-                  // sampling is finished before we access it in ST_SEND_DMA_PACKETDATA_BLOCK_MAIN).
-                  sample_start <= 1;
-               end
-            end
-         end
-         else if (fw_count == 10'd11) begin
-            // Following only required if (isLocal && blockWrite)
+         if (isLocal && (fw_count[0] == 0)) begin
+            // Handle local block write on even counts
             eth_block_wstart <= 0;
-         end
-         else if (fw_count == 10'd12) begin
-            if (isLocal && blockWrite) begin
-               // First quadlet of block write data
-               eth_reg_waddr[15:12] <= fw_dest_offset[15:12];
-               if (addrMain) begin
-                  eth_reg_waddr[7:4] <= 4'd1;  // start with channel 1
-                  eth_reg_waddr[3:0] <= `OFF_DAC_CTRL;
-                  // only respond to bit 27-24 == board_id
-                  if (FireWireQuadlet[27:24] == board_id) begin
-                     dac_local <= 1;
-                     eth_reg_wdata <= {1'b0, FireWireQuadlet[30:0]};
-                     // MSB is "valid" bit for DAC write (addrMain)
-                     eth_reg_wen <= FireWireQuadlet[31];
-                  end
-                  else begin
-                     dac_local <= 0;
-                  end
-               end
-               else begin
-                  eth_reg_waddr[11:0] <= fw_dest_offset[11:0];
-                  eth_reg_wdata <= FireWireQuadlet;
-                  eth_reg_wen <= 1'b1;
-               end
-               blockw_active <= 1;
-               genCnt <= 2'd0;
-            end
-         end
-
-         // Remaining contents of block write (for fw_count > 12, even counts only)
-         // Note that blockw_active is only non-zero when (isLocal && blockWrite)
-         // so we do not need to check those.
-         if (blockw_active && (fw_count[0] == 0)) begin
+            genCnt <= 2'd0;
             if (addrMain) begin
                // Real-time block write.
                // Starting with Rev 7, the first 4 entries are the DAC (same as Rev 1-6),
@@ -1617,19 +1634,7 @@ always @(posedge sysclk) begin
                // Note that for broadcast write, the packet will have data for all boards;
                // thus, we check for consecutive DAC entries that match our board_id and
                // assume that the next entry is the status register for this board.
-               if (eth_reg_waddr[7:4] == `NUM_CHANNELS) begin
-                  // Status write
-                  eth_reg_waddr[7:0] <= 8'd0;
-                  if (dac_local) begin
-                     // Write status register. Note that we only write the lowest 20 bits,
-                     // so that we do not accidentally make other changes, such as requesting
-                     // an FPGA reboot.
-                     eth_reg_wdata <= {12'd0, FireWireQuadlet[19:0]};
-                     eth_reg_wen <= 1;
-                  end
-                  dac_local <= 0;
-               end
-               else begin
+               if (eth_reg_waddr[7:4] != `NUM_CHANNELS) begin
                   // DAC write
                   if (eth_reg_waddr[7:4] == 4'd0) begin
                      // Restart with DAC channel 1
@@ -1650,51 +1655,40 @@ always @(posedge sysclk) begin
                   else
                      dac_local <= 0;
                end
+               else begin
+                  // Status write
+                  eth_reg_waddr[7:0] <= 8'd0;
+                  if (dac_local) begin
+                     // Write status register. Note that we only write the lowest 20 bits,
+                     // so that we do not accidentally make other changes, such as requesting
+                     // an FPGA reboot.
+                     eth_reg_wdata <= {12'd0, FireWireQuadlet[19:0]};
+                     eth_reg_wen <= 1;
+                  end
+                  dac_local <= 0;
+               end
             end
             else begin
-               eth_reg_waddr <= eth_reg_waddr + 16'd1;
+               // All other local block writes (except addrMain)
+               eth_reg_waddr[11:0] <= eth_reg_waddr[11:0] + 12'd1;
                eth_reg_wdata <= FireWireQuadlet;
                eth_reg_wen <= 1'b1;
             end
-         end
-
-         if (fw_count == maxCountFW) begin
-            // normal completion
-            FireWirePacketFresh <= 1;
-            useUDP <= isUDP;
-            // Allow reading of FireWire CRC
-            recvState[ST_RECEIVE_DMA_FRAME_CRC] <= 1;
-            if (isLocal) begin
-               if (quadWrite) begin
-                  // maxCountFW==9 for quadlet write
-                  eth_reg_wen <= 1;
-                  eth_block_wen <= 1;
-                  // If broadcast read request, start sampling feedback data
-                  if (eth_reg_waddr == {`ADDR_HUB, 12'h800 }) begin
-                     sample_start <= 1;
-                     writeHub <= 1;
-                  end
-               end
-            end
-            if (isRemote) begin
-               // Request to forward pkt
-               eth_send_fw_req <= 1;
-               timeForwardToFw <= 16'd0;
-               host_fw_addr <= fw_src_id;
-            end
-         end
-         else if ((fw_count == 10'd2) && (FireWireQuadlet[31:22] != 10'h3FF)) begin
-            // Invalid destination address (first 10 bits are not FFC), flush packet
-            ethDestError <= 1;
-            recvState[ST_RECEIVE_FLUSH_START] <= 1;
-         end
-         else begin
-            recvState[ST_RECEIVE_DMA_FIREWIRE_PACKET] <= 1;
          end
       end
 
       recvState[ST_RECEIVE_DMA_FRAME_CRC]:
       begin
+         FireWirePacketFresh <= 1;
+         useUDP <= isUDP;
+         if (isRemote) begin
+            // Request to forward pkt
+            eth_send_fw_req <= 1;
+            timeForwardToFw <= 16'd0;
+            host_fw_addr <= fw_src_id;
+         end
+         // Note that we do not check the FireWire CRC because we assume that the Ethernet
+         // checksum has already guaranteed that the data is valid.
          // FrameCRC_High <= `ReadDataSwapped;
          // We can read the second word to get the 4-byte CRC, but flushing the
          // packet works better. We decrement rxPktWords by 1, but that
@@ -1719,12 +1713,11 @@ always @(posedge sysclk) begin
          // is asserted 60 ns (3 clks) after the falling edge of eth_reg_wen, which is
          // consistent with the original implementation (in Firewire.v).
          eth_reg_wen <= 0;    // Clean up from quadlet/block writes
-         eth_block_wen <= (blockw_active && (genCnt == 2'd3)) ? 1 : 0;
+         eth_block_wen <= (genCnt == 2'd3) ? 1'b1 : 1'b0;
          lreq_trig <= 0;      // Clear lreq_trig in case it was set
          genCnt <= genCnt + 2'd1;
-         if (blockw_active) begin
+         if (blockWrite && isLocal && (genCnt != 2'd3)) begin
             recvState[ST_RECEIVE_DMA_FRAME_CRC] <= 1;
-            blockw_active <= (genCnt == 2'd3) ? 0 : 1;
             // Restore the DAC device address for blk_wen because the block write
             // processing ends by addressing the status/control register instead of the DAC.
             eth_reg_waddr[3:0] <= `OFF_DAC_CTRL;    // set dac device address
@@ -1737,6 +1730,7 @@ always @(posedge sysclk) begin
 
       recvState[ST_RECEIVE_FLUSH_START]:
       begin
+         eth_block_wen <= 0;  // clean up from block write
          // Increment counters
          numIPv4 <= numIPv4 + {9'd0, isIPv4};
          numARP <= numARP + {9'd0, isARP};
