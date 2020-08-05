@@ -102,7 +102,7 @@ module EthernetIO(
 
     // Register interface to Ethernet memory space and IP address register
     input  wire[15:0] reg_raddr,
-    output wire[31:0] reg_rdata,
+    output reg[31:0] reg_rdata,
     input  wire[31:0] reg_wdata,
     input  wire ip_reg_wen,
     output wire[31:0] ip_address,
@@ -747,7 +747,8 @@ assign is_ip_unassigned = (ip_address == IP_UNASSIGNED) ? 1'd1 : 1'd0;
 
 // Request a local write to be performed (quadWrite or blockWrite)
 reg writeRequestPending;
-reg writeRequest;
+reg writeRequestBlock;
+reg writeRequestQuad;
 
 // ----------------------------------------
 // Whether packet is being forwarded (to Ethernet) from FireWire receiver
@@ -757,7 +758,8 @@ reg isForward;
 wire[31:0] DebugData[0:15];
 assign DebugData[0]  = "0GBD";  // DBG0 byte-swapped
 assign DebugData[1]  = timestamp;
-assign DebugData[2]  = {5'd0, ethUDPError, ethAccessError, ethIPv4Error, 2'd0, node_id, eth_status};
+assign DebugData[2]  = { writeRequestQuad, writeRequestBlock, writeRequestPending, 2'd0, ethUDPError, ethAccessError, ethIPv4Error,
+                         2'd0, node_id, eth_status};
 assign DebugData[3]  = { state[7:0], eth_send_fw_ack, eth_send_fw_req, retState,
                          sample_start, sample_busy, isLocal, isRemote, FireWirePacketFresh, isEthBroadcast, isEthMulticast, ~ETH_IRQn,
                          isForward, isInIRQ, sendARP, isUDP, isICMP, isEcho, is_IPv4_Long, is_IPv4_Short};
@@ -774,6 +776,10 @@ assign DebugData[13] = { 8'd0, numReset, 6'd0, numStateInvalid };
 assign DebugData[14] = { timeForwardToFw, timeForwardFromFw };
 assign DebugData[15] = timestamp;
 
+// For debugging block write. Note that in the current implementation, this buffer can
+// only be written via the Ethernet interface, but it can be read via Ethernet or Firewire.
+// The address range is 4090-409f.
+reg[31:0] DebugBuffer[0:15];
 
 // Firewire packets received from host:
 //    - 16 bytes (4 quadlets) for quadlet read request
@@ -800,7 +806,7 @@ wire[31:0] mem_rdata;
 reg[8:0] local_raddr;
 
 assign mem_raddr = eth_send_fw_ack ? eth_fwpkt_raddr :
-                   writeRequest ? local_raddr :
+                   writeRequestBlock ? local_raddr :
                    (state[ST_SEND_DMA_ICMP_DATA] || (retState == ST_SEND_DMA_ICMP_DATA))  ? fw_count[9:1]
                                    : reg_raddr[8:0];
 assign eth_fwpkt_rdata = mem_rdata;
@@ -903,19 +909,38 @@ end
 reg[4:0] progIndex;    // Index into program (program counter)
 
 // Following data is accessible via block read from address `ADDR_ETH (0x4000)
-//    Maximum block read size is 64 quadlets (implementation choice)
-//    4000 - 407f (128 quadlets) FireWire packet
+//    4000 - 407f (128 quadlets) FireWire packet (first 128 quadlets only)
 //    4080 - 408f (16 quadlets) Debug data
+//    4090 - 409f (16 quadlets) Debug buffer (R/W)
 //    40a0 - 40bf (32 quadlets) InitProgram
 //    40c0 - 40df (32 quadlets) PacketBuffer (64 words)
 //    40e0 - 40ff (32 quadlets) ReplyIndex (64 words)
 // Note that full address decoding is not done, so other addresses will work too
 // (for example, 4f80-4f9f will also give Debug data)
-assign reg_rdata = (reg_raddr[7] == 0) ? mem_rdata :
-                   (reg_raddr[6:4] == 3'b000) ? DebugData[reg_raddr[3:0]] :
-                   (reg_raddr[6:5] == 2'b01) ? {6'd0, InitProgram[reg_raddr[4:0]]} :
-                   (reg_raddr[6:5] == 2'b10) ? {PacketBuffer[{reg_raddr[4:0],1'b1}], PacketBuffer[{reg_raddr[4:0],1'b0}]} :
-                                               {10'd0, ReplyIndex[{reg_raddr[4:0],1'b1}], 10'd0, ReplyIndex[{reg_raddr[4:0],1'b0}]};
+always @(*)
+begin
+   if (reg_raddr[7] == 0)
+      reg_rdata = mem_rdata;
+   else begin
+      case (reg_raddr[6:5])
+      2'b00:
+         reg_rdata = (reg_raddr[4]==0) ? DebugData[reg_raddr[3:0]] : DebugBuffer[reg_raddr[3:0]];
+      2'b01:
+         reg_rdata = {6'd0, InitProgram[reg_raddr[4:0]]};
+      2'b10:
+         reg_rdata = {PacketBuffer[{reg_raddr[4:0],1'b1}], PacketBuffer[{reg_raddr[4:0],1'b0}]};
+      2'b11:
+         reg_rdata = {10'd0, ReplyIndex[{reg_raddr[4:0],1'b1}], 10'd0, ReplyIndex[{reg_raddr[4:0],1'b0}]};
+      endcase
+   end
+end
+
+// Following is only for debugging
+always @(posedge sysclk)
+begin
+   if (eth_reg_wen && (eth_reg_waddr[15:12] == `ADDR_ETH) && (eth_reg_waddr[7:4] == 4'b1001))
+      DebugBuffer[eth_reg_waddr[3:0]] <= eth_reg_wdata;
+end
 
 // Data from Firewire packet header
 // Quadlet 0
@@ -970,7 +995,13 @@ always @(posedge sysclk) begin
       // Now, we can access the packet memory.
       // This assumes that another Ethernet packet is not
       // received before we finish the local write request.
-      writeRequest <= 1'b1;
+      writeRequestPending <= 1'b0;
+      writeRequestBlock <= 1'b1;
+   end
+
+   if (eth_block_wen) begin
+      writeRequestQuad <= 1'b0;
+      writeRequestBlock <= 1'b0;
    end
 
    // Measure time to forward packet via Firewire
@@ -981,10 +1012,6 @@ always @(posedge sysclk) begin
    if (sample_start && sample_busy) begin
       sample_start <= 1'd0;
       writeHub <= 1'd0;
-   end
-
-   if (writeRequest && eth_block_wen) begin
-      writeRequest <= 0;
    end
 
    // Store request to write to KSZ register (from Firewire), in case
@@ -1104,7 +1131,8 @@ always @(posedge sysclk) begin
          isEthBroadcast <= 0;
          RegISROther <= 16'd0;
          writeRequestPending <= 0;
-         writeRequest <= 0;
+         writeRequestBlock <= 0;
+         writeRequestQuad <= 0;
          isForward <= 0;
          numPacketValid <= 16'd0;
          numPacketInvalid <= 10'd0;
@@ -1486,7 +1514,8 @@ always @(posedge sysclk) begin
          // (isLocal and isRemote are both true for broadcast packets).
          // This is not an issue for quadlet writes because we cache the data
          // in fw_quadlet_data so we do not need to access packet memory.
-         writeRequest <= isLocal&(quadWrite|(~isRemote&blockWrite));
+         writeRequestQuad <= isLocal&quadWrite;
+         writeRequestBlock <= isLocal&(~isRemote)&blockWrite;
          if (isRemote) begin
             // Request to forward pkt
             eth_send_fw_req <= 1;
@@ -2008,35 +2037,34 @@ begin
    BW_IDLE:
    begin
       bwCnt <= 2'd0;
-      if (writeRequest) begin
+      if (writeRequestQuad) begin
          eth_reg_waddr <= fw_dest_offset;
-         if (quadWrite) begin
-            eth_reg_wdata <= fw_quadlet_data;
-            // Special case: write to FireWire PHY register
-            if (addrMain && (fw_dest_offset[11:0] == {8'h0, `REG_PHYCTRL})) begin
-               // check the RW bit to determine access type (bit 12, after byte-swap)
-               lreq_type <= (fw_quadlet_data[12] ? `LREQ_REG_WR : `LREQ_REG_RD);
-               lreq_trig <= 1;
-            end
-            eth_reg_wen <= 1;
-            eth_block_wen <= 1;
+         eth_reg_wdata <= fw_quadlet_data;
+         // Special case: write to FireWire PHY register
+         if (addrMain && (fw_dest_offset[11:0] == {8'h0, `REG_PHYCTRL})) begin
+            // check the RW bit to determine access type (bit 12, after byte-swap)
+            lreq_type <= (fw_quadlet_data[12] ? `LREQ_REG_WR : `LREQ_REG_RD);
+            lreq_trig <= 1;
          end
-         else if (blockWrite) begin
-            bwState <= BW_WSTART;
-            // Assert eth_block_wstart for 80 ns before starting local block write
-            // (same timing as in Firewire module)
-            eth_block_wstart <= 1;
-            // Set up for writing
-            local_raddr <= 9'd5;   // block write data starts at quadlet 5
-            eth_reg_waddr[15:12] <= fw_dest_offset[15:12];
-            if (addrMain) begin
-               eth_reg_waddr[7:4] <= 4'd1;  // start with channel 1
-               eth_reg_waddr[3:0] <= `OFF_DAC_CTRL;
-               dac_local <= 1;
-            end
-            else begin
-               eth_reg_waddr[11:0] <= fw_dest_offset[11:0];
-            end
+         eth_reg_wen <= 1;
+         eth_block_wen <= 1;
+      end
+      else if (writeRequestBlock) begin
+         bwState <= BW_WSTART;
+         // Assert eth_block_wstart for 80 ns before starting local block write
+         // (same timing as in Firewire module)
+         eth_block_wstart <= 1;
+         // Set up for writing
+         eth_reg_waddr <= fw_dest_offset;
+         local_raddr <= 9'd5;   // block write data starts at quadlet 5
+         eth_reg_waddr[15:12] <= fw_dest_offset[15:12];
+         if (addrMain) begin
+            eth_reg_waddr[7:4] <= 4'd0;  // will start with channel 1
+            eth_reg_waddr[3:0] <= `OFF_DAC_CTRL;
+            dac_local <= 1;
+         end
+         else begin
+            eth_reg_waddr[11:0] <= fw_dest_offset[11:0] - 12'd1;
          end
       end
       else begin
@@ -2053,17 +2081,13 @@ begin
       if (bwCnt == 2'd3) begin
          eth_block_wstart <= 0;
          bwState <= BW_WRITE;
-         bwCnt <= 2'd0;
-      end
-      else begin
-         bwCnt <= bwCnt + 2'd1;
+         // bwCnt will be set to 0 (overflow)
       end
    end
 
    BW_WRITE:
    begin
       local_raddr <= local_raddr + 9'd1;
-      bwCnt <= 2'd0;
       if (addrMain) begin
          // Real-time block write.
          // Starting with Rev 7, the first 4 entries are the DAC (same as Rev 1-6),
@@ -2120,8 +2144,9 @@ begin
    begin
       // hold reg_wen low for 60 nsec (3 cycles)
       bwCnt <= bwCnt + 2'd1;
+      eth_reg_wen <= 1'b0;
       if (bwCnt == 2'd3) begin
-         eth_reg_wen <= 1'b0;
+         // bwCnt will be set to 0 (overflow)
          // block_data_length is in bytes
          if (local_raddr == (block_data_length[10:2] + 9'd5))
             bwState <= BW_BLK_WEN;
@@ -2133,15 +2158,16 @@ begin
    BW_BLK_WEN:
    begin
       // Wait 60 nsec before asserting eth_block_wen
-      // It will get cleared in the BW_IDLE state
       bwCnt <= bwCnt + 2'd1;
-      if (bwCnt == 2'd3) begin
+      if (bwCnt == 2'd3)
          eth_block_wen <= 1'b1;
+      // Asserting eth_block_wen will cause writeRequestBlock to be cleared
+      if (~writeRequestBlock)
          bwState <= BW_IDLE;
-      end
       // Restore the DAC device address for blk_wen because the block write
       // processing ends by addressing the status/control register instead of the DAC.
-      eth_reg_waddr[3:0] <= `OFF_DAC_CTRL;    // set dac device address
+      if (addrMain)
+         eth_reg_waddr[3:0] <= `OFF_DAC_CTRL;    // set dac device address
    end
 
    default:
@@ -2150,7 +2176,7 @@ begin
       bwState <= BW_IDLE;
    end
 
-   endcase // case (lwState)
+   endcase // case (bwState)
 end
 
 // Following handles KSZ I/O
