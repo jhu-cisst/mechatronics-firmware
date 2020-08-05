@@ -281,20 +281,19 @@ localparam[5:0]
     ST_SEND_DMA_PACKETDATA_QUAD = 6'd22,
     ST_SEND_DMA_PACKETDATA_BLOCK_START = 6'd23,
     ST_SEND_DMA_PACKETDATA_BLOCK_MEM = 6'd24,
-    ST_SEND_DMA_PACKETDATA_BLOCK_HUB = 6'd25,
-    ST_SEND_DMA_PACKETDATA_CHECKSUM = 6'd26,
-    ST_SEND_DMA_FWD = 6'd27,
-    ST_SEND_DMA_ICMP_DATA = 6'd28,
-    ST_SEND_DMA_STOP = 6'd29,
-    ST_SEND_TXQ_ENQUEUE = 6'd30,
-    ST_SEND_TXQ_ENQUEUE_WAIT = 6'd31,
-    ST_SEND_END = 6'd32,
+    ST_SEND_DMA_PACKETDATA_CHECKSUM = 6'd25,
+    ST_SEND_DMA_FWD = 6'd26,
+    ST_SEND_DMA_ICMP_DATA = 6'd27,
+    ST_SEND_DMA_STOP = 6'd28,
+    ST_SEND_TXQ_ENQUEUE = 6'd29,
+    ST_SEND_TXQ_ENQUEUE_WAIT = 6'd30,
+    ST_SEND_END = 6'd31,
     // KSZIO states
-    ST_WAVEFORM_OUTPUT_INIT = 6'd33,       // set up read/write waveforms
-    ST_WAVEFORM_OUTPUT_EXECUTE = 6'd34;    // generate read/write waveforms
+    ST_WAVEFORM_OUTPUT_INIT = 6'd32,       // set up read/write waveforms
+    ST_WAVEFORM_OUTPUT_EXECUTE = 6'd33;    // generate read/write waveforms
 
 // Current state (one-hot encoding)
-reg[34:0] state = (35'd1 << ST_RESET_ASSERT);
+reg[33:0] state = (34'd1 << ST_RESET_ASSERT);
 // State to return to after ST_KSZIO
 reg[5:0] retState = ST_IDLE;
 
@@ -320,7 +319,6 @@ wire blockRead;
 wire blockWrite;
 
 wire addrMain;
-wire addrHub;
 
 reg FrameValid;
 reg isEthMulticast;
@@ -977,7 +975,6 @@ assign blockRead = (fw_tcode == `TC_BREAD) ? 1'd1 : 1'd0;
 assign blockWrite = (fw_tcode == `TC_BWRITE) ? 1'd1 : 1'd0;
 
 assign addrMain = (fw_dest_offset[15:12] == `ADDR_MAIN) ? 1'd1 : 1'd0;
-assign addrHub = (fw_dest_offset[15:12] == `ADDR_HUB) ? 1'd1 : 1'd0;
 
 // -------------------------------------------------------
 // Ethernet state machine
@@ -1036,9 +1033,9 @@ always @(posedge sysclk) begin
    end
 
    //******************** State Machine ********************
-   state <= 35'd0;
+   state <= 34'd0;
 
-   if (state == 35'd0) begin
+   if (state == 34'd0) begin
       // Should never happen, except for programming errors
       numStateInvalid <= numStateInvalid + 10'd1;
       state[ST_IDLE] <= 1;
@@ -1831,11 +1828,6 @@ always @(posedge sysclk) begin
             sample_read <= 1;
             retState <= ST_SEND_DMA_PACKETDATA_BLOCK_MEM;
          end
-         else if (addrHub) begin
-            eth_read_en <= 1;
-            ethAccessError <= sample_busy ? 1'd1 : ethAccessError;
-            retState <= ST_SEND_DMA_PACKETDATA_BLOCK_HUB;
-         end
          else begin  // all other block reads
             eth_read_en <= 1;
             ethAccessError <= sample_busy ? 1'd1 : ethAccessError;
@@ -1870,34 +1862,6 @@ always @(posedge sysclk) begin
          end
          else
             retState <= ST_SEND_DMA_PACKETDATA_BLOCK_MEM;
-      end
-   end
-
-   state[ST_SEND_DMA_PACKETDATA_BLOCK_HUB]:
-   begin
-      fw_count <= fw_count + 10'd1;
-      if (fw_count[0] == 0) begin
-         `WriteDataSwapped <= eth_reg_rdata[31:16];
-         // stay in this state
-         retState <= ST_SEND_DMA_PACKETDATA_BLOCK_HUB;
-      end
-      else begin
-         `WriteDataSwapped <= eth_reg_rdata[15:0];
-         // Rev 7: 1 board = 29 quadlets (1 seq + 28 data)
-         if (eth_reg_raddr[4:0] == MAX_BBC_QUAD) begin
-            eth_reg_raddr[8:5] <= eth_reg_raddr[8:5] + 1'b1;
-            eth_reg_raddr[4:0] <= 5'd0;
-         end
-         else begin
-             eth_reg_raddr[4:0] <= eth_reg_raddr[4:0] + 1'b1;
-         end
-         // fw_count is in words and block_data_length is in bytes, but we compare in quadlets
-         if ((fw_count[9:1] + 8'd1) == block_data_length[10:2]) begin
-            retState <= ST_SEND_DMA_PACKETDATA_CHECKSUM;
-            eth_read_en <= 0;   // we are done
-         end
-         else
-            retState <= ST_SEND_DMA_PACKETDATA_BLOCK_HUB;
       end
    end
 

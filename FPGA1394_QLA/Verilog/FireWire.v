@@ -1173,28 +1173,11 @@ begin
                 
                 // latch data and update addresses on quadlet boundaries
                 if (count[4:0] == 5'd24) begin
-                
                     // send to FireWire bus
                     buffer <= addrMainRead ? sample_rdata : reg_rdata;
-
-                    if (reg_raddr[15:12] == `ADDR_HUB) begin
-                        // Rev 1-6: 1 board = 17 quadlets (1 seq + 16 data)
-                        //                    Should have been 21 quadlets (1 seq + 20 data)
-                        // Rev 7:   1 board = 29 quadlets (1 seq + 28 data)
-                        if (reg_raddr[4:0] == MAX_BBC_QUAD) begin
-                            reg_raddr[8:5] <= reg_raddr[8:5] + 1'b1;
-                            reg_raddr[4:0] <= 5'd0;
-                        end
-                        else begin
-                            reg_raddr[4:0] <= reg_raddr[4:0] + 1'b1;
-                        end
-                    end
-                    // All other memory addresses (MAIN, PROM, PROM_QLA, ...)
                     // 12-bit address increment, even though Firewire limited to 512 quadlets (9 bits)
                     // because this way we can support non-zero starting addresses.
-                    else begin
-                        reg_raddr[11:0] <= reg_raddr[11:0] + 12'd1;
-                    end
+                    reg_raddr[11:0] <= reg_raddr[11:0] + 12'd1;
                 end
 
                 if (count == (numbits-16'd32)) begin

@@ -82,9 +82,49 @@ end
 wire hub_mem_wen;
 assign hub_mem_wen = (reg_wen & (reg_waddr[15:12]==`ADDR_HUB) && (reg_waddr[11:9]==3'd0));
 
-wire[8:0] read_addr;
-assign read_addr = { read_index[reg_raddr[8:5]], reg_raddr[4:0] };
+// Number of quadlets per entry (29)
+localparam[8:0] NUM_QUADS = `NUM_BC_READ_QUADS;
+// Offset to skip to next entry (32-29 = 3)
+localparam[8:0] QUAD_OFFSET = (9'd32-`NUM_BC_READ_QUADS);
 
+//*************************** Read address translation ********************************
+//
+// The following code allows the Firewire and Ethernet modules to sequentially address
+// Hub memory, rather than having to read the precise number of quadlets for each board
+// (currently 29) and then skip to the next board.
+//
+// The implementation assumes that the hub read will start at address 0. It should actually
+// work for any start address up to the number of quadlets per board (29), but there is no
+// reason to start at any address other than 0. It also assumes that reg_waddr[15:12] will
+// remain equal to `ADDR_HUB (1) throughout the block read operation.
+
+// Multiple of number of quadlets per entry (e.g., 29, 58, 87, ...)
+reg[8:0] multNQ;
+// Offset to add to reg_raddr
+reg[8:0] offset;
+
+always @(posedge sysclk)
+begin
+   if (reg_raddr[15:12] == `ADDR_HUB) begin
+      if (reg_raddr[8:0] == multNQ) begin
+         multNQ <= multNQ + NUM_QUADS;
+         offset <= offset + QUAD_OFFSET;
+      end
+   end
+   else begin
+      multNQ <= NUM_QUADS;
+      offset <= 9'd0;
+   end
+end
+
+wire[8:0] reg_raddr_offset;
+assign reg_raddr_offset = (reg_raddr[8:0] == multNQ) ? { reg_raddr[8:0] + offset + QUAD_OFFSET }
+                                                     : { reg_raddr[8:0] + offset };
+
+wire[8:0] read_addr;
+assign read_addr = { read_index[reg_raddr_offset[8:5]], reg_raddr_offset[4:0] };
+
+//********************************* Hub memory **************************************
 // NOTE
 //   port a: write port
 //   port b: read port
