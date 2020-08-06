@@ -279,21 +279,20 @@ localparam[5:0]
     ST_SEND_DMA_ETHERNET_HEADERS = 6'd20,
     ST_SEND_DMA_PACKETDATA_HEADER = 6'd21,
     ST_SEND_DMA_PACKETDATA_QUAD = 6'd22,
-    ST_SEND_DMA_PACKETDATA_BLOCK_START = 6'd23,
-    ST_SEND_DMA_PACKETDATA_BLOCK_MEM = 6'd24,
-    ST_SEND_DMA_PACKETDATA_CHECKSUM = 6'd25,
-    ST_SEND_DMA_FWD = 6'd26,
-    ST_SEND_DMA_ICMP_DATA = 6'd27,
-    ST_SEND_DMA_STOP = 6'd28,
-    ST_SEND_TXQ_ENQUEUE = 6'd29,
-    ST_SEND_TXQ_ENQUEUE_WAIT = 6'd30,
-    ST_SEND_END = 6'd31,
+    ST_SEND_DMA_PACKETDATA_BLOCK = 6'd23,
+    ST_SEND_DMA_PACKETDATA_CHECKSUM = 6'd24,
+    ST_SEND_DMA_FWD = 6'd25,
+    ST_SEND_DMA_ICMP_DATA = 6'd26,
+    ST_SEND_DMA_STOP = 6'd27,
+    ST_SEND_TXQ_ENQUEUE = 6'd28,
+    ST_SEND_TXQ_ENQUEUE_WAIT = 6'd29,
+    ST_SEND_END = 6'd30,
     // KSZIO states
-    ST_WAVEFORM_OUTPUT_INIT = 6'd32,       // set up read/write waveforms
-    ST_WAVEFORM_OUTPUT_EXECUTE = 6'd33;    // generate read/write waveforms
+    ST_WAVEFORM_OUTPUT_INIT = 6'd31,       // set up read/write waveforms
+    ST_WAVEFORM_OUTPUT_EXECUTE = 6'd32;    // generate read/write waveforms
 
 // Current state (one-hot encoding)
-reg[33:0] state = (34'd1 << ST_RESET_ASSERT);
+reg[32:0] state = (33'd1 << ST_RESET_ASSERT);
 // State to return to after ST_KSZIO
 reg[5:0] retState = ST_IDLE;
 
@@ -714,13 +713,17 @@ assign ip_address = {PacketBuffer[ID_Rep_IPv4_Address1][7:0], PacketBuffer[ID_Re
                      PacketBuffer[ID_Rep_IPv4_Address0][7:0], PacketBuffer[ID_Rep_IPv4_Address0][15:8]};
 
 //**************************** Firewire Reply Header ***********************************
-wire[15:0] Firewire_Header_Reply[0:5];
+wire[15:0] Firewire_Header_Reply[0:9];
 assign Firewire_Header_Reply[0] = {fw_src_id[7:0], fw_src_id[15:8]};                      // quadlet 0: dest-id
 assign Firewire_Header_Reply[1] = {quadRead ? `TC_QRESP : `TC_BRESP, 4'd0, fw_tl, 2'd0};  // quadlet 0: tcode
 assign Firewire_Header_Reply[2] = {dest_bus_id[1:0], node_id, dest_bus_id[9:2]};          // src-id
 assign Firewire_Header_Reply[3] = 16'd0;   // rcode, reserved
 assign Firewire_Header_Reply[4] = 16'd0;   // reserved
 assign Firewire_Header_Reply[5] = 16'd0;
+assign Firewire_Header_Reply[6] = {block_data_length[7:0], block_data_length[15:8]};      // data_length
+assign Firewire_Header_Reply[7] = 16'd0;   // extended_tcode (0)
+assign Firewire_Header_Reply[8] = 16'd0;   // header_CRC
+assign Firewire_Header_Reply[9] = 16'd0;   // header_CRC
 
 //******************************** Debug Counters *************************************
 
@@ -1033,9 +1036,9 @@ always @(posedge sysclk) begin
    end
 
    //******************** State Machine ********************
-   state <= 34'd0;
+   state <= 33'd0;
 
-   if (state == 34'd0) begin
+   if (state == 33'd0) begin
       // Should never happen, except for programming errors
       numStateInvalid <= numStateInvalid + 10'd1;
       state[ST_IDLE] <= 1;
@@ -1107,6 +1110,7 @@ always @(posedge sysclk) begin
    // When done, it returns to ST_IDLE.
 
    // Assert the reset and wait 10 ms before removing it.
+   // (For the first time, we could skip asserting the reset because it is already asserted)
    state[ST_RESET_ASSERT]:
    begin
       if (initCount == 21'd491520) begin  // 10 ms (49.152 MHz sysclk)
@@ -1767,25 +1771,30 @@ always @(posedge sysclk) begin
 
    // Send first 6 words (3 quadlets), which are nearly identical between quadlet read response
    // and block read response (only difference is tcode).
+   // For block read response, send an additional 4 words (2 quadlets), which are block data length
+   // and header CRC.
    state[ST_SEND_DMA_PACKETDATA_HEADER]:
    begin
       state[ST_WAVEFORM_OUTPUT_INIT] <= 1;
-      WriteData <= Firewire_Header_Reply[fw_count[2:0]];
-      if (fw_count[2:0] == 3'd5) begin
-         fw_count[2:0] <= 3'd0;
+      WriteData <= Firewire_Header_Reply[fw_count[3:0]];
+      if ((fw_count[3:0] == 4'd5) && quadRead) begin
+         fw_count <= 10'd0;
          eth_reg_raddr <= fw_dest_offset;
-         if (quadRead) begin
-            // Get ready to read data from the board.
-            ethAccessError <= sample_busy ? 1'd1 : ethAccessError;
-            eth_read_en <= 1;
-            retState <= ST_SEND_DMA_PACKETDATA_QUAD;
-         end
-         else  // blockRead
-            retState <= ST_SEND_DMA_PACKETDATA_BLOCK_START;
+         // Get ready to read data from the board.
+         ethAccessError <= sample_busy ? 1'd1 : ethAccessError;
+         eth_read_en <= 1;
+         retState <= ST_SEND_DMA_PACKETDATA_QUAD;
+      end
+      else if (fw_count[3:0] == 4'd9) begin  // block read
+         fw_count <= 10'd0;
+         sample_read <= addrMain;
+         eth_read_en <= ~addrMain;
+         ethAccessError <= (~addrMain&sample_busy) ? 1'd1 : ethAccessError;
+         retState <= ST_SEND_DMA_PACKETDATA_BLOCK;
       end
       else begin
          // stay in this state
-         fw_count[2:0] <= fw_count[2:0]+3'd1;
+         fw_count <= fw_count + 10'd1;
          retState <= ST_SEND_DMA_PACKETDATA_HEADER;
       end
    end
@@ -1794,13 +1803,13 @@ always @(posedge sysclk) begin
    begin
       state[ST_WAVEFORM_OUTPUT_INIT] <= 1;
       if (fw_count[0] == 0) begin
-         WriteData <= {eth_reg_rdata[23:16], eth_reg_rdata[31:24]};
+         `WriteDataSwapped <= eth_reg_rdata[31:16];
          fw_count[0] <= 1;
          // stay in this state
          retState <= ST_SEND_DMA_PACKETDATA_QUAD;
       end
       else begin
-         WriteData <= {eth_reg_rdata[7:0], eth_reg_rdata[15:8]};
+         `WriteDataSwapped <= eth_reg_rdata[15:0];
          // Stop accessing FPGA registers
          eth_read_en <= 0;
          fw_count[0] <= 0;
@@ -1808,46 +1817,14 @@ always @(posedge sysclk) begin
       end
    end
 
-   // All block reads start with length, extended_tcode, and header_CRC
-   state[ST_SEND_DMA_PACKETDATA_BLOCK_START]:
-   begin
-      state[ST_WAVEFORM_OUTPUT_INIT] <= 1;
-      if (fw_count[1:0] == 2'd0) begin
-         WriteData <= {block_data_length[7:0], block_data_length[15:8]};    // data_length
-      end
-      else begin
-         //1:  WriteData <= 16'h0;     // extended_tcode (0)
-         //2:  WriteData <= 16'h0;     // header_CRC
-         //3:  WriteData <= 16'h0;     // header_CRC
-         WriteData <= 16'h0;
-      end
-      if (fw_count[1:0] == 2'd3) begin
-         fw_count <= 10'd0;
-
-         if (addrMain) begin
-            sample_read <= 1;
-            retState <= ST_SEND_DMA_PACKETDATA_BLOCK_MEM;
-         end
-         else begin  // all other block reads
-            eth_read_en <= 1;
-            ethAccessError <= sample_busy ? 1'd1 : ethAccessError;
-            retState <= ST_SEND_DMA_PACKETDATA_BLOCK_MEM;
-         end
-      end
-      else begin
-         fw_count[1:0] <= fw_count[1:0]+2'd1;
-         retState <= ST_SEND_DMA_PACKETDATA_BLOCK_START;
-      end
-   end
-
-   state[ST_SEND_DMA_PACKETDATA_BLOCK_MEM]:
+   state[ST_SEND_DMA_PACKETDATA_BLOCK]:
    begin
       state[ST_WAVEFORM_OUTPUT_INIT] <= 1;
       fw_count <= fw_count + 10'd1;
       if (fw_count[0] == 0) begin
          `WriteDataSwapped <= (addrMain ? sample_rdata[31:16] : eth_reg_rdata[31:16]);
          // stay in this state
-         retState <= ST_SEND_DMA_PACKETDATA_BLOCK_MEM;
+         retState <= ST_SEND_DMA_PACKETDATA_BLOCK;
       end
       else begin
          `WriteDataSwapped <= (addrMain ? sample_rdata[15:0] : eth_reg_rdata[15:0]);
@@ -1861,7 +1838,7 @@ always @(posedge sysclk) begin
             sample_read <= 0;   // Relinquish control of sample read bus
          end
          else
-            retState <= ST_SEND_DMA_PACKETDATA_BLOCK_MEM;
+            retState <= ST_SEND_DMA_PACKETDATA_BLOCK;
       end
    end
 
