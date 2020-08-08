@@ -391,7 +391,7 @@ assign sample_raddr = sfw_count[5:1];
 // reply packets.
 
 // Following are word offsets into PacketBuffer
-localparam[5:0]
+localparam[4:0]
    ID_Packet_Begin      = 0,
    ID_Frame_Begin       = ID_Packet_Begin,   // ********* FrameHeader [length=7] *********
    ID_Frame_destMac0    = ID_Frame_Begin,    // Destination (FPGA) MAC address
@@ -436,12 +436,19 @@ localparam[5:0]
    ID_ARP_fpgaIP0       = ID_ARP_Begin+12,   // Target (FPGA) IP address (MSW)
    ID_ARP_fpgaIP1       = ID_ARP_Begin+13,   // Target (FPGA) IP address (LSW)
    ID_ARP_End           = ID_ARP_Begin+13,   // ******** End of ARP Header (30) *********
-   ID_Csum_Begin        = ID_ARP_End+1,      // ***** Frame Checksum (31) [length=2] ****
-   ID_Frame_Checksum0   = ID_Csum_Begin,     // Ethernet frame checksum (MSW)
-   ID_Frame_Checksum1   = ID_Csum_Begin+1,   // Ethernet frame checksum (LSW)
-   ID_Csum_End          = ID_Csum_Begin+1,   // ***** End of Frame Checksum (32) ********
-   ID_Packet_End        = ID_Csum_End,       // ****** End of Packet Data (32) **********
-   ID_Reply_Begin       = ID_Packet_End+1,   // ****** Start of Reply Data (33) *********
+   ID_Packet_End        = ID_ARP_End;        // ****** End of Packet Data (30) **********
+   // The Frame checksum is not actually read
+   //ID_Csum_Begin        = ID_ARP_End+1,      // ***** Frame Checksum (31) [length=2] ****
+   //ID_Frame_Checksum0   = ID_Csum_Begin,     // Ethernet frame checksum (MSW)
+   //ID_Frame_Checksum1   = ID_Csum_Begin+1,   // Ethernet frame checksum (LSW)
+   //ID_Csum_End          = ID_Csum_Begin+1,   // ***** End of Frame Checksum (32) ********
+   //ID_Packet_End        = ID_Csum_End;        // ****** End of Packet Data (32) **********
+
+reg[15:0] PacketBuffer[0:31];
+
+// Following is data that is used when constructing the Reply packet
+localparam[3:0]
+   ID_Reply_Begin       = 0,                 // ****** Start of Reply Data (0) *********
    ID_Rep_Zero          = ID_Reply_Begin,    // Value of 0 for generic use
    ID_Rep_fpgaMac0      = ID_Reply_Begin+1,  // FPGA MAC address (FA61)
    ID_Rep_fpgaMac1      = ID_Reply_Begin+2,  // FPGA MAC address (0E13)
@@ -457,30 +464,30 @@ localparam[5:0]
    ID_Rep_UDP_hostPort  = ID_Reply_Begin+12, // UDP port on host (ID_UDP_hostPort)
    ID_Rep_UDP_Length    = ID_Reply_Begin+13, // UDP Reply Length
    ID_Rep_ARP_Oper      = ID_Reply_Begin+14, // ARP reply operation = 2
-   ID_Reply_End         = ID_Reply_Begin+14; // ******** End of all data (46) ***********
+   ID_Rep_Unused        = ID_Reply_Begin+15, // unused
+   ID_Reply_End         = ID_Reply_Begin+15; // ******** End of all data (14) ***********
 
-reg[15:0] PacketBuffer[0:63];
+reg[15:0] ReplyBuffer[0:15];
 
 integer i;
 initial begin
    for (i = ID_Packet_Begin; i <= ID_Packet_End; i=i+1) PacketBuffer[i] = 16'd0;
-   PacketBuffer[ID_Rep_Zero]          = 16'd0;
-   PacketBuffer[ID_Rep_fpgaMac0]      = 16'hFA61;
-   PacketBuffer[ID_Rep_fpgaMac1]      = 16'h0E13;
-   PacketBuffer[ID_Rep_fpgaMac2]      = 16'h9400;   // board_num updated in ST_RESET_WAIT
-   PacketBuffer[ID_Rep_Frame_Length]  = 16'd0;      // updated in ST_SEND_DMA_BYTECOUNT
-   PacketBuffer[ID_Rep_IPv4_Word0]    = {4'd4, 4'd5, 6'd0, 2'd0};  // 0x4500
-   PacketBuffer[ID_Rep_IPv4_Length]   = 16'd0;      // updated in ST_SEND_DMA_BYTECOUNT
-   PacketBuffer[ID_Rep_IPv4_Flags]    = {3'b010, 13'd0};  // 0x4000
-   PacketBuffer[ID_Rep_IPv4_Prot]     = {8'd64, 8'd17};   // TTL=64; Prot updated in ST_SEND_DMA_BYTECOUNT
-   PacketBuffer[ID_Rep_IPv4_Address0] = IP_UNASSIGNED[31:16];  // updated when IP address assigned
-   PacketBuffer[ID_Rep_IPv4_Address1] = IP_UNASSIGNED[15:0];   // updated when IP address assigned
-   PacketBuffer[ID_Rep_UDP_fpgaPort]  = 16'd1394;
-   PacketBuffer[ID_Rep_UDP_hostPort]  = 16'd0;      // Needs to be updated
-   PacketBuffer[ID_Rep_UDP_Length]    = 16'd0;      // updated in ST_SEND_DMA_BYTECOUNT
-   PacketBuffer[ID_Rep_ARP_Oper]      = 16'h0002;   // ARP Operation (OPER): 2 for reply
-   // Fill in unused part of packet buffer
-   for (i=ID_Reply_End+1; i < 64; i=i+1) PacketBuffer[i] = 16'd0;
+   ReplyBuffer[ID_Rep_Zero]          = 16'd0;
+   ReplyBuffer[ID_Rep_fpgaMac0]      = 16'hFA61;
+   ReplyBuffer[ID_Rep_fpgaMac1]      = 16'h0E13;
+   ReplyBuffer[ID_Rep_fpgaMac2]      = 16'h9400;   // board_num updated in ST_RESET_WAIT
+   ReplyBuffer[ID_Rep_Frame_Length]  = 16'd0;      // updated in ST_SEND_DMA_BYTECOUNT
+   ReplyBuffer[ID_Rep_IPv4_Word0]    = {4'd4, 4'd5, 6'd0, 2'd0};  // 0x4500
+   ReplyBuffer[ID_Rep_IPv4_Length]   = 16'd0;      // updated in ST_SEND_DMA_BYTECOUNT
+   ReplyBuffer[ID_Rep_IPv4_Flags]    = {3'b010, 13'd0};  // 0x4000
+   ReplyBuffer[ID_Rep_IPv4_Prot]     = {8'd64, 8'd17};   // TTL=64; Prot updated in ST_SEND_DMA_BYTECOUNT
+   ReplyBuffer[ID_Rep_IPv4_Address0] = IP_UNASSIGNED[31:16];  // updated when IP address assigned
+   ReplyBuffer[ID_Rep_IPv4_Address1] = IP_UNASSIGNED[15:0];   // updated when IP address assigned
+   ReplyBuffer[ID_Rep_UDP_fpgaPort]  = 16'd1394;
+   ReplyBuffer[ID_Rep_UDP_hostPort]  = 16'd0;      // Needs to be updated
+   ReplyBuffer[ID_Rep_UDP_Length]    = 16'd0;      // updated in ST_SEND_DMA_BYTECOUNT
+   ReplyBuffer[ID_Rep_ARP_Oper]      = 16'h0002;   // ARP Operation (OPER): 2 for reply
+   ReplyBuffer[ID_Rep_Unused]        = 16'd0;
 end
 
 reg[5:0] recvCnt;                // Index into PacketBuffer
@@ -634,7 +641,7 @@ assign Any_Error = IPv4_Error|UDP_Error|ARP_Error|Frame_Error;
 
 //******************************* Reply packets *****************************************
 // The reply packets can mostly be constructed by returning data from the incoming packets
-// (in PacketBuffer), augmented with a few extra data items that have been added to PacketBuffer
+// (in PacketBuffer), augmented with a few extra data items that have been added to ReplyBuffer
 // (see entries following ID_Reply_Begin).
 // Unlike the received packets (PacketBuffer), it is better to avoid overlap.
 
@@ -650,66 +657,69 @@ localparam[5:0]
    ICMP_Reply_Begin   = 6'd35,   // Offset to ICMP Header (words) [length=6]
    ICMP_Reply_End     = 6'd40;
 
-// The following array contains the indices (into PacketBuffer) that are used to construct
-// the reply packets.
+// The following array contains the indices (into PacketBuffer or ReplyBuffer) that are used
+//  to construct the reply packets.
 reg[5:0] ReplyIndex[0:63];
 
+localparam isPacket = 1'b0;
+localparam isReply  = 2'b10;
+
 initial begin
-   ReplyIndex[Frame_Reply_Begin]    = ID_Frame_srcMac0;
-   ReplyIndex[Frame_Reply_Begin+1]  = ID_Frame_srcMac1;
-   ReplyIndex[Frame_Reply_Begin+2]  = ID_Frame_srcMac2;
-   ReplyIndex[Frame_Reply_Begin+3]  = ID_Rep_fpgaMac0;
-   ReplyIndex[Frame_Reply_Begin+4]  = ID_Rep_fpgaMac1;
-   ReplyIndex[Frame_Reply_Begin+5]  = ID_Rep_fpgaMac2;
-   ReplyIndex[Frame_Reply_Begin+6]  = ID_Rep_Frame_Length;
+   ReplyIndex[Frame_Reply_Begin]    = {isPacket, ID_Frame_srcMac0};
+   ReplyIndex[Frame_Reply_Begin+1]  = {isPacket, ID_Frame_srcMac1};
+   ReplyIndex[Frame_Reply_Begin+2]  = {isPacket, ID_Frame_srcMac2};
+   ReplyIndex[Frame_Reply_Begin+3]  = {isReply,  ID_Rep_fpgaMac0};
+   ReplyIndex[Frame_Reply_Begin+4]  = {isReply,  ID_Rep_fpgaMac1};
+   ReplyIndex[Frame_Reply_Begin+5]  = {isReply,  ID_Rep_fpgaMac2};
+   ReplyIndex[Frame_Reply_Begin+6]  = {isReply,  ID_Rep_Frame_Length};
 
-   ReplyIndex[IPv4_Reply_Begin]     = ID_Rep_IPv4_Word0;
-   ReplyIndex[IPv4_Reply_Begin+1]   = ID_Rep_IPv4_Length;
-   ReplyIndex[IPv4_Reply_Begin+2]   = ID_Rep_Zero;       // Identification
-   ReplyIndex[IPv4_Reply_Begin+3]   = ID_Rep_IPv4_Flags;
-   ReplyIndex[IPv4_Reply_Begin+4]   = ID_Rep_IPv4_Prot;
-   ReplyIndex[IPv4_Reply_Begin+5]   = ID_Rep_Zero;       // Header checksum
-   ReplyIndex[IPv4_Reply_Begin+6]   = ID_Rep_IPv4_Address0;
-   ReplyIndex[IPv4_Reply_Begin+7]   = ID_Rep_IPv4_Address1;
-   ReplyIndex[IPv4_Reply_Begin+8]   = ID_IPv4_hostIP0;
-   ReplyIndex[IPv4_Reply_Begin+9]   = ID_IPv4_hostIP1;
+   ReplyIndex[IPv4_Reply_Begin]     = {isReply,  ID_Rep_IPv4_Word0};
+   ReplyIndex[IPv4_Reply_Begin+1]   = {isReply,  ID_Rep_IPv4_Length};
+   ReplyIndex[IPv4_Reply_Begin+2]   = {isReply,  ID_Rep_Zero};       // Identification
+   ReplyIndex[IPv4_Reply_Begin+3]   = {isReply,  ID_Rep_IPv4_Flags};
+   ReplyIndex[IPv4_Reply_Begin+4]   = {isReply,  ID_Rep_IPv4_Prot};
+   ReplyIndex[IPv4_Reply_Begin+5]   = {isReply,  ID_Rep_Zero};       // Header checksum
+   ReplyIndex[IPv4_Reply_Begin+6]   = {isReply,  ID_Rep_IPv4_Address0};
+   ReplyIndex[IPv4_Reply_Begin+7]   = {isReply,  ID_Rep_IPv4_Address1};
+   ReplyIndex[IPv4_Reply_Begin+8]   = {isPacket, ID_IPv4_hostIP0};
+   ReplyIndex[IPv4_Reply_Begin+9]   = {isPacket, ID_IPv4_hostIP1};
 
-   ReplyIndex[UDP_Reply_Begin]      = ID_Rep_UDP_fpgaPort;
-   ReplyIndex[UDP_Reply_Begin+1]    = ID_Rep_UDP_hostPort;
-   ReplyIndex[UDP_Reply_Begin+2]    = ID_Rep_UDP_Length;
-   ReplyIndex[UDP_Reply_Begin+3]    = ID_Rep_Zero;       // Checksum
+   ReplyIndex[UDP_Reply_Begin]      = {isReply,  ID_Rep_UDP_fpgaPort};
+   ReplyIndex[UDP_Reply_Begin+1]    = {isReply,  ID_Rep_UDP_hostPort};
+   ReplyIndex[UDP_Reply_Begin+2]    = {isReply,  ID_Rep_UDP_Length};
+   ReplyIndex[UDP_Reply_Begin+3]    = {isReply,  ID_Rep_Zero};       // Checksum
 
-   ReplyIndex[ARP_Reply_Begin]      = ID_ARP_HTYPE;
-   ReplyIndex[ARP_Reply_Begin+1]    = ID_ARP_PTYPE;
-   ReplyIndex[ARP_Reply_Begin+2]    = ID_ARP_HLEN_PLEN;
-   ReplyIndex[ARP_Reply_Begin+3]    = ID_Rep_ARP_Oper;
-   ReplyIndex[ARP_Reply_Begin+4]    = ID_Rep_fpgaMac0;
-   ReplyIndex[ARP_Reply_Begin+5]    = ID_Rep_fpgaMac1;
-   ReplyIndex[ARP_Reply_Begin+6]    = ID_Rep_fpgaMac2;
-   ReplyIndex[ARP_Reply_Begin+7]    = ID_Rep_IPv4_Address0;
-   ReplyIndex[ARP_Reply_Begin+8]    = ID_Rep_IPv4_Address1;
-   ReplyIndex[ARP_Reply_Begin+9]    = ID_ARP_srcMac0;
-   ReplyIndex[ARP_Reply_Begin+10]   = ID_ARP_srcMac1;
-   ReplyIndex[ARP_Reply_Begin+11]   = ID_ARP_srcMac2;
-   ReplyIndex[ARP_Reply_Begin+12]   = ID_ARP_hostIP0;
-   ReplyIndex[ARP_Reply_Begin+13]   = ID_ARP_hostIP1;
+   ReplyIndex[ARP_Reply_Begin]      = {isPacket, ID_ARP_HTYPE};
+   ReplyIndex[ARP_Reply_Begin+1]    = {isPacket, ID_ARP_PTYPE};
+   ReplyIndex[ARP_Reply_Begin+2]    = {isPacket, ID_ARP_HLEN_PLEN};
+   ReplyIndex[ARP_Reply_Begin+3]    = {isReply,  ID_Rep_ARP_Oper};
+   ReplyIndex[ARP_Reply_Begin+4]    = {isReply,  ID_Rep_fpgaMac0};
+   ReplyIndex[ARP_Reply_Begin+5]    = {isReply,  ID_Rep_fpgaMac1};
+   ReplyIndex[ARP_Reply_Begin+6]    = {isReply,  ID_Rep_fpgaMac2};
+   ReplyIndex[ARP_Reply_Begin+7]    = {isReply,  ID_Rep_IPv4_Address0};
+   ReplyIndex[ARP_Reply_Begin+8]    = {isReply,  ID_Rep_IPv4_Address1};
+   ReplyIndex[ARP_Reply_Begin+9]    = {isPacket, ID_ARP_srcMac0};
+   ReplyIndex[ARP_Reply_Begin+10]   = {isPacket, ID_ARP_srcMac1};
+   ReplyIndex[ARP_Reply_Begin+11]   = {isPacket, ID_ARP_srcMac2};
+   ReplyIndex[ARP_Reply_Begin+12]   = {isPacket, ID_ARP_hostIP0};
+   ReplyIndex[ARP_Reply_Begin+13]   = {isPacket, ID_ARP_hostIP1};
 
-   ReplyIndex[ICMP_Reply_Begin]     = ID_Rep_Zero;
-   ReplyIndex[ICMP_Reply_Begin+1]   = ID_Rep_Zero;       // ICMP checksum
-   ReplyIndex[ICMP_Reply_Begin+2]   = ID_ICMP_Begin+2;
-   ReplyIndex[ICMP_Reply_Begin+3]   = ID_ICMP_Begin+3;
-   ReplyIndex[ICMP_Reply_Begin+4]   = ID_ICMP_Begin+4;
-   ReplyIndex[ICMP_Reply_Begin+5]   = ID_ICMP_Begin+5;
+   ReplyIndex[ICMP_Reply_Begin]     = {isReply,  ID_Rep_Zero};
+   ReplyIndex[ICMP_Reply_Begin+1]   = {isReply,  ID_Rep_Zero};       // ICMP checksum
+   ReplyIndex[ICMP_Reply_Begin+2]   = {isPacket, ID_ICMP_Begin+2};
+   ReplyIndex[ICMP_Reply_Begin+3]   = {isPacket, ID_ICMP_Begin+3};
+   ReplyIndex[ICMP_Reply_Begin+4]   = {isPacket, ID_ICMP_Begin+4};
+   ReplyIndex[ICMP_Reply_Begin+5]   = {isPacket, ID_ICMP_Begin+5};
 
    // Fill in rest of buffer
-   for (i=ICMP_Reply_End+1; i < 64; i=i+1) ReplyIndex[i] = ID_Rep_Zero;
+   for (i=ICMP_Reply_End+1; i < 64; i=i+1) ReplyIndex[i] = {isReply, ID_Rep_Zero};
 end
 
 reg[5:0] replyCnt;                 // Counter for ReplyIndex
 
 // For IP Address register (BoardRegs)
-assign ip_address = {PacketBuffer[ID_Rep_IPv4_Address1][7:0], PacketBuffer[ID_Rep_IPv4_Address1][15:8],
-                     PacketBuffer[ID_Rep_IPv4_Address0][7:0], PacketBuffer[ID_Rep_IPv4_Address0][15:8]};
+assign ip_address = {ReplyBuffer[ID_Rep_IPv4_Address1][7:0], ReplyBuffer[ID_Rep_IPv4_Address1][15:8],
+                     ReplyBuffer[ID_Rep_IPv4_Address0][7:0], ReplyBuffer[ID_Rep_IPv4_Address0][15:8]};
 
 //**************************** Firewire Reply Header ***********************************
 wire[15:0] Firewire_Header_Reply[0:9];
@@ -915,7 +925,7 @@ reg[4:0] progIndex;    // Index into program (program counter)
 //    4080 - 408f (16 quadlets) Debug data
 //    4090 - 409f (16 quadlets) Debug buffer (R/W)
 //    40a0 - 40bf (32 quadlets) InitProgram
-//    40c0 - 40df (32 quadlets) PacketBuffer (64 words)
+//    40c0 - 40df (32 quadlets) PacketBuffer/ReplyBuffer (64 words)
 //    40e0 - 40ff (32 quadlets) ReplyIndex (64 words)
 // Note that full address decoding is not done, so other addresses will work too
 // (for example, 4f80-4f9f will also give Debug data)
@@ -930,7 +940,8 @@ begin
       2'b01:
          reg_rdata = {6'd0, InitProgram[reg_raddr[4:0]]};
       2'b10:
-         reg_rdata = {PacketBuffer[{reg_raddr[4:0],1'b1}], PacketBuffer[{reg_raddr[4:0],1'b0}]};
+         reg_rdata = (reg_raddr[4]==0) ? {PacketBuffer[{reg_raddr[3:0],1'b1}], PacketBuffer[{reg_raddr[3:0],1'b0}]} :
+                                         {ReplyBuffer[{reg_raddr[2:0],1'b1}],  ReplyBuffer[{reg_raddr[2:0],1'b0}]};
       2'b11:
          reg_rdata = {10'd0, ReplyIndex[{reg_raddr[4:0],1'b1}], 10'd0, ReplyIndex[{reg_raddr[4:0],1'b0}]};
       endcase
@@ -1032,8 +1043,8 @@ always @(posedge sysclk) begin
    // Write to IP address register
    if (ip_reg_wen) begin
       // Following is equivalent to: ip_address <= reg_wdata;
-      PacketBuffer[ID_Rep_IPv4_Address0] <= {reg_wdata[7:0], reg_wdata[15:8] };
-      PacketBuffer[ID_Rep_IPv4_Address1] <= {reg_wdata[23:16], reg_wdata[31:24] };
+      ReplyBuffer[ID_Rep_IPv4_Address0] <= {reg_wdata[7:0], reg_wdata[15:8] };
+      ReplyBuffer[ID_Rep_IPv4_Address1] <= {reg_wdata[23:16], reg_wdata[31:24] };
    end
 
    //******************** State Machine ********************
@@ -1154,7 +1165,7 @@ always @(posedge sysclk) begin
       if (initCount == 21'h1FFFFF) begin
          initCount <= 21'd0;
          InitProgram[0][3:0] <= board_id;
-         PacketBuffer[ID_Rep_fpgaMac2][3:0] <= board_id;
+         ReplyBuffer[ID_Rep_fpgaMac2][3:0] <= board_id;
          isDMA <= 0;
          isWrite <= 0;
          RegAddr <= `ETH_ADDR_CIDER;   // Read Chip ID
@@ -1426,8 +1437,8 @@ always @(posedge sysclk) begin
             // cache entry for this board, in which case we just assign
             //  the IP address, as long as it is not a broadcast address
             //  (we only check whether the last byte is 255).
-            PacketBuffer[ID_Rep_IPv4_Address0] <= PacketBuffer[ID_IPv4_destIP0];
-            PacketBuffer[ID_Rep_IPv4_Address1] <= PacketBuffer[ID_IPv4_destIP1];
+            ReplyBuffer[ID_Rep_IPv4_Address0] <= PacketBuffer[ID_IPv4_destIP0];
+            ReplyBuffer[ID_Rep_IPv4_Address1] <= PacketBuffer[ID_IPv4_destIP1];
          end
          else if ((ip_address != IPv4_fpgaIP) && !isEthBroadcast && !isEthMulticast) begin
             // If IP assigned, but not equal, we process the packet anyway,
@@ -1443,7 +1454,7 @@ always @(posedge sysclk) begin
          // but that would require a much larger PacketBuffer. Also, even separating ARP and UDP in PacketBuffer
          // would not handle the (unlikely) case where an invalid UDP packet is received prior to the request to
          // forward a packet from FireWire.
-         PacketBuffer[ID_Rep_UDP_hostPort] <= PacketBuffer[ID_UDP_hostPort];
+         ReplyBuffer[ID_Rep_UDP_hostPort] <= PacketBuffer[ID_UDP_hostPort];
       end
    end
 
@@ -1547,8 +1558,8 @@ always @(posedge sysclk) begin
       //       by a broadcast write to register `REG_IPADDR (11).
       if (isARP && isARPValid && is_ip_unassigned) begin
          // If our IP address not yet set, update it
-         PacketBuffer[ID_Rep_IPv4_Address0] <= PacketBuffer[ID_ARP_fpgaIP0];
-         PacketBuffer[ID_Rep_IPv4_Address1] <= PacketBuffer[ID_ARP_fpgaIP1];
+         ReplyBuffer[ID_Rep_IPv4_Address0] <= PacketBuffer[ID_ARP_fpgaIP0];
+         ReplyBuffer[ID_Rep_IPv4_Address1] <= PacketBuffer[ID_ARP_fpgaIP1];
       end
    end
 
@@ -1633,37 +1644,37 @@ always @(posedge sysclk) begin
    begin
       if (isForward && !useUDP) begin
          // Forwarding raw data from FireWire
-         PacketBuffer[ID_Rep_Frame_Length] <= sendLen;
+         ReplyBuffer[ID_Rep_Frame_Length] <= sendLen;
       end
       else if (isForward && useUDP) begin
          // Forwarding data from FireWire
-         PacketBuffer[ID_Rep_Frame_Length] <= 16'h0800; // IPv4 EtherType
-         PacketBuffer[ID_Rep_IPv4_Length] <= 16'd28 + sendLen;
-         PacketBuffer[ID_Rep_IPv4_Prot][7:0] <= 8'd17;  // UDP protocol
-         PacketBuffer[ID_Rep_UDP_Length] <= 16'd8 + sendLen;
+         ReplyBuffer[ID_Rep_Frame_Length] <= 16'h0800; // IPv4 EtherType
+         ReplyBuffer[ID_Rep_IPv4_Length] <= 16'd28 + sendLen;
+         ReplyBuffer[ID_Rep_IPv4_Prot][7:0] <= 8'd17;  // UDP protocol
+         ReplyBuffer[ID_Rep_UDP_Length] <= 16'd8 + sendLen;
       end
       else if (sendARP) begin
-         PacketBuffer[ID_Rep_Frame_Length] <= 16'h0806; // ARP EtherType
+         ReplyBuffer[ID_Rep_Frame_Length] <= 16'h0806; // ARP EtherType
       end
       else if (isEcho) begin
          // Echo (ICMP) response
-         PacketBuffer[ID_Rep_Frame_Length] <= 16'h0800;   // IPv4 EtherType
-         PacketBuffer[ID_Rep_IPv4_Length] <= IPv4_Length; // Same length as request
-         PacketBuffer[ID_Rep_IPv4_Prot][7:0] <= 8'd1;     // ICMP protocol
+         ReplyBuffer[ID_Rep_Frame_Length] <= 16'h0800;   // IPv4 EtherType
+         ReplyBuffer[ID_Rep_IPv4_Length] <= IPv4_Length; // Same length as request
+         ReplyBuffer[ID_Rep_IPv4_Prot][7:0] <= 8'd1;     // ICMP protocol
       end
       else if (useUDP) begin
-         PacketBuffer[ID_Rep_Frame_Length] <= 16'h0800; // IPv4 EtherType (UDP or ICMP)
-         PacketBuffer[ID_Rep_IPv4_Length] <= quadRead ? 16'd48 : (16'd52 + block_data_length);
-         PacketBuffer[ID_Rep_IPv4_Prot][7:0] <= 8'd17;  // UDP protocol
+         ReplyBuffer[ID_Rep_Frame_Length] <= 16'h0800; // IPv4 EtherType (UDP or ICMP)
+         ReplyBuffer[ID_Rep_IPv4_Length] <= quadRead ? 16'd48 : (16'd52 + block_data_length);
+         ReplyBuffer[ID_Rep_IPv4_Prot][7:0] <= 8'd17;  // UDP protocol
          // UDP Length:
          //   Quadlet read response: 8 (UDP header) + 20 (data)
          //   Block read response: 8 (UDP header) + 24 + block_data_length
-         PacketBuffer[ID_Rep_UDP_Length] <= quadRead ? 16'd28 : (16'd32 + block_data_length);
+         ReplyBuffer[ID_Rep_UDP_Length] <= quadRead ? 16'd28 : (16'd32 + block_data_length);
       end
       else begin
          // Local raw packet
          // Quadlet read response (20) or block read response (24 + block_data_length)
-         PacketBuffer[ID_Rep_Frame_Length] <= quadRead ? 16'd20 : (16'd24 + block_data_length);
+         ReplyBuffer[ID_Rep_Frame_Length] <= quadRead ? 16'd20 : (16'd24 + block_data_length);
       end
       // Send request
       sendDMAreq <= 1;
@@ -1882,7 +1893,9 @@ begin
    begin
       sfw_count <= 10'd0;
       if (sendTransition) replyCnt <= replyCnt + 6'd1;
-      `SDRegDWRSwapped <= PacketBuffer[ReplyIndex[replyCnt]];
+      `SDRegDWRSwapped <= (ReplyIndex[replyCnt][5]==isPacket) ?
+                             PacketBuffer[ReplyIndex[replyCnt][4:0]] :
+                             ReplyBuffer[ReplyIndex[replyCnt][3:0]];
       if (replyCnt == Frame_Reply_End) begin
          if (isForward && !useUDP) begin
             nextSendState <= ST_SEND_DMA_FWD;
