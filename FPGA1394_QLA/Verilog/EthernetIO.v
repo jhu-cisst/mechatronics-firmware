@@ -1558,33 +1558,30 @@ reg[5:0] recvCnt;       // Index into PacketBuffer
 reg[1:0] skipCnt;       // For skipping first 3 words in RXQ
 reg[9:0] rfw_count;     // Counts words in FireWire packets (max is 1024 words, or 2048 bytes)
 
-// Counter used for I/O processing. Each state (except IDLE) is entered with recvIO==0
-// and transitions to the next state and/or increments its counter when recvIO==4.
-//   - recvIO==0, DRDn=0, wait
-//   - recvIO==1, DRDn=0, wait
-//   - recvIO==2, DRDn=0, read data
-//   - recvIO==3, DRDn=0, use data
-//   - recvIO==4, DRDn=1, transition to next state
-reg[2:0] recvIO;
+// Shift register for I/O control. The register is shifted left with each clock, with the left-most
+// bit placed on the right (shift and rotate). Each state (except IDLE) is entered with
+// recvCtrl==5'b00001 and goes through the following sequence:
+//   00001   (DRDn=0), wait
+//   00010   (DRDn=0), wait
+//   00100   (DRDn=0), read data (dataReady=1)
+//   01000   (DRDn=0), use data (dataValid=1)
+//   10000   (DRDn=1), transition to next state
+reg[4:0] recvCtrl = 5'b00001;
 
-// Pattern:  0 0 0 0 1
-assign DRDn = recvIO[2];
-// Maybe use a shift register instead
-// recvCtrl = 0 0 0 1
-// recvCtrl <= (recvCtrl << 1) | recvCtrl[3];
-// recvCtrl <= { recvCtrl[2:0], recvCtrl[3] };
+assign DRDn = recvCtrl[4];
 // We sample the data after two cycles
 wire dataReady;
-assign dataReady = (recvIO == 3'd2) ? 1'b1 : 1'b0;
+assign dataReady = recvCtrl[2];
 // We use the data after three cycles
 wire dataValid;
-assign dataValid = (recvIO == 3'd3) ? 1'b1 : 1'b0;
-// Transition to next state when recvIO==4, so that we enter each new state with
-// recvIO==0. Note that nextRecvState must be set before recvTransition -- usually
+assign dataValid = recvCtrl[3];
+
+// Transition to next state when recvCtrl=10000, so that we enter each new state with
+// recvCtrl=00001. Note that nextRecvState must be set before recvTransition -- usually
 // it is set when dataValid, though it can be set earlier if the next state transition
 // does not depend on the data read from the KSZ8851.
 wire recvTransition;
-assign recvTransition = ((recvState != ST_RECEIVE_DMA_IDLE) && recvIO[2]) ? 1'b1 : 1'b0;
+assign recvTransition = recvCtrl[4];
 
 always @(posedge sysclk)
 begin
@@ -1626,9 +1623,9 @@ begin
       ReplyBuffer[ID_Rep_IPv4_Address1] <= {reg_wdata[23:16], reg_wdata[31:24] };
    end
 
-   // Counter that cycles 0, 1, 2, 3, 4 (stays at 4 in idle state)
-   recvIO <= ((recvState == ST_RECEIVE_DMA_IDLE) && !recvDMAreq) ? 3'd4 :
-             (recvIO == 3'd4) ? 3'd0 : (recvIO + 3'd1);
+   // Left shift and rotate recvCtrl when not in IDLE state
+   recvCtrl <= ((recvState == ST_RECEIVE_DMA_IDLE) && !recvDMAreq) ? 5'b00001 :
+               { recvCtrl[3:0], recvCtrl[4] };
 
    if (recvTransition) begin
       recvState <= nextRecvState;
@@ -1643,6 +1640,7 @@ begin
       rfw_count <= 10'd0;
       skipCnt <= 2'd3;  // Skip first 3 words in packet when receiving
                         // ignore(1) + status(1) + byte-count(1)
+      nextRecvState <= ST_RECEIVE_DMA_IDLE;
       if (state[ST_RESET_ASSERT]) begin
          // Would be cleaner to have a "reset request" instead of
          // checking state[ST_RESET_ASSERT].
@@ -1866,34 +1864,29 @@ parameter[3:0]
 
 reg[3:0] sendState = ST_SEND_DMA_IDLE;
 reg[3:0] nextSendState = ST_SEND_DMA_IDLE;
-reg[1:0] sendCnt;
 reg[7:0] numSendStateInvalid;
 
 reg[9:0] sfw_count;     // Counts words in FireWire packets (max is 1024 words, or 2048 bytes)
 
-// Pattern: 0 0 1
-assign DWRn = sendCnt[1];
-
-// sendCnt==2 in the IDLE state
-// When entering a state, sendCnt==2 (DWRn inactive)
+// sendCtrl==100 in the IDLE state.
+// When entering a state, sendCtrl==100 (DWRn inactive)
 //    Writing data (via SDRegDWR) will coincide with falling edge of DWRn
-// Transition to next state (or increment sfw_count or replyCnt) when sendCnt==1
+// Transition to next state (or increment sfw_count or replyCnt) when sendCtrl==010
 //    (with rising edge of DWRn)
-// Note that sendCnt[0] is equivalent to (sendCnt == 2'd1) because the only
-//    valid values are 2'b00 (0), 2'b01 (1) and 2'b10 (2).
+reg [2:0] sendCtrl = 3'b100;
+assign DWRn = sendCtrl[2];
+
 wire   sendTransition;
-assign sendTransition = sendCnt[0];
-// 1 cycle before the transition (i.e., sendCnt == 2'd0)
+assign sendTransition = sendCtrl[1];
+// 1 cycle before the transition
 wire sendPreTransition;
-assign sendPreTransition = ~(sendCnt[0]|sendCnt[1]);
+assign sendPreTransition = sendCtrl[0];
 
 always @(posedge sysclk)
 begin
 
    // Counter that cycles 0, 1, 2 (stays at 2 in idle state)
-   sendCnt <= (sendState == ST_SEND_DMA_IDLE) ? 2'd2 :
-              sendCnt[1] ? 2'd0 :
-              sendCnt[0] ? 2'd2 : 2'd1;
+   sendCtrl <= (sendState == ST_SEND_DMA_IDLE) ? 3'b100 : {sendCtrl[1:0], sendCtrl[2] };
 
    if (sendTransition) begin
       sendState <= nextSendState;
