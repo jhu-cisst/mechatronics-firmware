@@ -152,7 +152,6 @@ module EthernetIO(
 
 reg initOK;            // 1 -> Initialization successful
 reg isWrite;           // 0 -> Read, 1 -> Write
-reg isDMA;             // 1 -> DMA mode active (only used for testing)
 reg isWord;            // 0 -> Byte, 1 -> Word
 reg[7:0] RegAddr;      // Register address (N/A for DMA mode)
 reg[15:0] WriteData;   // Data to be written to chip (N/A for read)
@@ -195,40 +194,24 @@ reg[31:0] ksz_wdata;  // Cached register for KSZ I/O request
 // (note: eth_data is declared above, as parameter)
 //reg[7:0]  eth_addr;     // I/O register address (0-0xFF)
 
-// Following are for generating waveforms for WRn, RDn and CMD
-localparam[9:0]
-   Init_WRn      = 10'b1111111111,
-   Init_RDn      = 10'b1111111111,
-   Init_CMD      = 10'b0000000000,
-   Read_WRn      = 10'b1001111111,    // all 10 bits
-   Read_RDn      = 10'b1111100001,
-   Read_CMD      = 10'b1111000000,
-   Write_WRn     = 10'b1001100111,    // first 8 bits
-   Write_RDn     = 10'b1111111111,
-   Write_CMD     = 10'b1111000000,
-   DMA_Read_WRn  = 10'b1111111111,    // first 5 bits
-   DMA_Read_RDn  = 10'b0000111111,
-   DMA_Read_CMD  = 10'b0000000000,
-   DMA_Write_WRn = 10'b1001111111,    // first 4 bits
-   DMA_Write_RDn = 10'b1111111111,
-   DMA_Write_CMD = 10'b0000000000;
-
-reg[9:0] Cur_WRn;
-reg[9:0] Cur_RDn;
-reg[9:0] Cur_CMD;
-reg[3:0] ShiftCnt;
-
 reg recvDMAreq;     // 1 -> Request DMA write
 reg sendDMAreq;     // 1 -> Request DMA write
 reg isDMARead;      // 1 -> DMA Read process should have control
 reg isDMAWrite;     // 1 -> DMA Write process should have control
 
-wire DRDn;          // Output from DMA Read process
-wire DWRn;          // Output from DMA Write process
+reg[2:0] RWcnt;     // Counter used for reading/write KSZ8851
 
-assign ETH_WRn = isDMARead ? 1'b1 : (isDMAWrite ? DWRn : Cur_WRn[9]);
-assign ETH_RDn = isDMARead ? DRDn : (isDMAWrite ? 1'b1 : Cur_RDn[9]);
-assign ETH_CMD = (isDMAWrite|isDMARead) ? 1'b0 : Cur_CMD[9];
+// Register Read/Write from/to KSZ8851
+reg Reg_RDn;
+reg Reg_WRn;
+reg Reg_CMD;
+// DMA Read/Write from/to KSZ8851
+wire DMA_RDn;          // Output from DMA Read process
+wire DMA_WRn;          // Output from DMA Write process
+
+assign ETH_WRn = isDMARead ? 1'b1    : (isDMAWrite ? DMA_WRn : Reg_WRn);
+assign ETH_RDn = isDMARead ? DMA_RDn : (isDMAWrite ? 1'b1 : Reg_RDn);
+assign ETH_CMD = (isDMAWrite|isDMARead) ? 1'b0 : Reg_CMD;
 
 reg[20:0] initCount;
 
@@ -289,8 +272,8 @@ localparam[4:0]
     ST_SEND_TXQ_ENQUEUE_WAIT = 5'd19,
     ST_SEND_END = 5'd20,
     // KSZIO states
-    ST_WAVEFORM_OUTPUT_INIT = 5'd21,       // set up read/write waveforms
-    ST_WAVEFORM_OUTPUT_EXECUTE = 5'd22;    // generate read/write waveforms
+    ST_WAVEFORM_ADDR = 5'd21,    // write the address to the KSZ8851
+    ST_WAVEFORM_DATA = 5'd22;    // read/write data from/to the KSZ8851
 
 // Current state (one-hot encoding)
 reg[22:0] state = (23'd1 << ST_RESET_ASSERT);
@@ -336,10 +319,11 @@ reg useUDP;
 
 // Non-zero initial values
 initial begin
+   //ETH_RSTn = 1'd1;
+   Reg_RDn = 1'b1;
+   Reg_WRn = 1'b1;
+   Reg_CMD = 1'b0;
    isWord = 1'd1;
-   Cur_WRn = Init_WRn;
-   Cur_RDn = Init_RDn;
-   Cur_CMD = Init_CMD;
 end
 
 // Ethernet status:
@@ -987,10 +971,11 @@ always @(posedge sysclk) begin
 
    state[ST_IDLE]:
    begin
-      isDMA <= 0;
       isWord <= 1;       // all transfers are word
       isInIRQ <= 0;
+      recvDMAreq <= 0;
       sendDMAreq <= 0;
+      RWcnt <= 3'd0;
       waitInfo <= WAIT_NONE;
       if (ksz_req) begin
          //****** Access to KSZ8851 registers via Firewire interface ******
@@ -1011,12 +996,14 @@ always @(posedge sysclk) begin
             state[ST_RESET_ASSERT] <= 1;
          end
          else begin
-            isDMA <= ksz_wdata[27];
             isWrite <= ksz_wdata[25];
             isWord <= ksz_wdata[24];
             RegAddr <= ksz_wdata[23:16];
             WriteData <= ksz_wdata[15:0];
-            state[ST_WAVEFORM_OUTPUT_INIT] <= 1;
+            if (ksz_wdata[27])
+               state[ST_WAVEFORM_DATA] <= 1;  // DMA
+            else
+               state[ST_WAVEFORM_ADDR] <= 1;  // Register
             retState <= ST_IDLE;
          end
       end
@@ -1024,7 +1011,7 @@ always @(posedge sysclk) begin
          // If an interrupt transition to ST_IRQ_HANDLER
          isWrite <= 0;
          RegAddr <= `ETH_ADDR_ISR;
-         state[ST_WAVEFORM_OUTPUT_INIT] <= 1;
+         state[ST_WAVEFORM_ADDR] <= 1;
          retState <= ST_IRQ_HANDLER;
          timeNotIdle <= 16'd0;
       end
@@ -1080,10 +1067,9 @@ always @(posedge sysclk) begin
          initCount <= 21'd0;
          InitProgram[0][3:0] <= board_id;
          ReplyBuffer[ID_Rep_fpgaMac2][3:0] <= board_id;
-         isDMA <= 0;
          isWrite <= 0;
          RegAddr <= `ETH_ADDR_CIDER;   // Read Chip ID
-         state[ST_WAVEFORM_OUTPUT_INIT] <= 1;
+         state[ST_WAVEFORM_ADDR] <= 1;
          retState <= ST_INIT_CHECK_CHIPID;
       end
       else begin
@@ -1114,7 +1100,7 @@ always @(posedge sysclk) begin
       WriteData <= InitProgram[progIndex][`OR_BIT] ? (ReadData|InitProgram[progIndex][`DATA_BITS])
                                                    : InitProgram[progIndex][`DATA_BITS];
       progIndex <= progIndex + 5'd1;
-      state[ST_WAVEFORM_OUTPUT_INIT] <= 1;
+      state[ST_WAVEFORM_ADDR] <= 1;
       if (progIndex == 5'd16) begin
          initOK <= 1;
          retState <= ST_IDLE;
@@ -1160,14 +1146,14 @@ always @(posedge sysclk) begin
       isWrite <= 1;
       RegAddr <= `ETH_ADDR_IER;
       WriteData <= 16'd0;
-      state[ST_WAVEFORM_OUTPUT_INIT] <= 1;
+      state[ST_WAVEFORM_ADDR] <= 1;
       retState <= ST_IRQ_DISPATCH;
    end
 
    state[ST_IRQ_DISPATCH]:
    begin
       isWrite <= 1;
-      state[ST_WAVEFORM_OUTPUT_INIT] <= 1;
+      state[ST_WAVEFORM_ADDR] <= 1;
       if (RegISR[15] == 1'b1) begin
          // Handle link change (TBD)
          RegAddr <= `ETH_ADDR_ISR;
@@ -1225,7 +1211,7 @@ always @(posedge sysclk) begin
       if (isWrite) begin
          isWrite <= 0;
          RegAddr <= `ETH_ADDR_RXFCTR;
-         state[ST_WAVEFORM_OUTPUT_INIT] <= 1;
+         state[ST_WAVEFORM_ADDR] <= 1;
          retState <= ST_RECEIVE_FRAME_COUNT;
       end
       else begin
@@ -1236,7 +1222,7 @@ always @(posedge sysclk) begin
          else begin
             // isWrite already 0
             RegAddr <= `ETH_ADDR_RXFHSR;
-            state[ST_WAVEFORM_OUTPUT_INIT] <= 1;
+            state[ST_WAVEFORM_ADDR] <= 1;
             retState <= ST_RECEIVE_FRAME_STATUS;
          end
       end
@@ -1274,7 +1260,7 @@ always @(posedge sysclk) begin
          isEthMulticast <= ReadData[6];
          isWrite <= 0;
          RegAddr <= `ETH_ADDR_RXFHBCR;
-         state[ST_WAVEFORM_OUTPUT_INIT] <= 1;
+         state[ST_WAVEFORM_ADDR] <= 1;
          retState <= ST_RECEIVE_FRAME_LENGTH;
          numPacketValid <= numPacketValid + 16'd1;
       end
@@ -1292,7 +1278,7 @@ always @(posedge sysclk) begin
           isWrite <= 1;
           RegAddr <= `ETH_ADDR_RXFDPR;
           WriteData <= 16'h5000;
-          state[ST_WAVEFORM_OUTPUT_INIT] <= 1;
+          state[ST_WAVEFORM_ADDR] <= 1;
           retState <= ST_RECEIVE_ENABLE_DMA;
       end
    end
@@ -1303,7 +1289,7 @@ always @(posedge sysclk) begin
       isWrite <= 1;
       RegAddr <= `ETH_ADDR_RXQCR;
       WriteData <= {ETH_VALUE_RXQCR[15:4],1'b1,ETH_VALUE_RXQCR[2:0]};
-      state[ST_WAVEFORM_OUTPUT_INIT] <= 1;
+      state[ST_WAVEFORM_ADDR] <= 1;
       retState <= ST_RECEIVE_DMA_REQUEST;
    end
 
@@ -1346,7 +1332,7 @@ always @(posedge sysclk) begin
       isWrite <= 1;
       RegAddr <= `ETH_ADDR_RXQCR;
       WriteData <= {ETH_VALUE_RXQCR[15:4],1'b0,ETH_VALUE_RXQCR[2:1],1'b1};
-      state[ST_WAVEFORM_OUTPUT_INIT] <= 1;
+      state[ST_WAVEFORM_ADDR] <= 1;
       retState <= ST_RECEIVE_FLUSH_WAIT;
    end
 
@@ -1371,7 +1357,7 @@ always @(posedge sysclk) begin
             else begin
                // isWrite is already 0
                RegAddr <= `ETH_ADDR_RXFHSR;
-               state[ST_WAVEFORM_OUTPUT_INIT] <= 1;
+               state[ST_WAVEFORM_ADDR] <= 1;
                retState <= ST_RECEIVE_FRAME_STATUS;
             end
          end
@@ -1379,7 +1365,7 @@ always @(posedge sysclk) begin
       end
       else begin
          // RegAddr is already set to RXQCR
-         state[ST_WAVEFORM_OUTPUT_INIT] <= 1;
+         state[ST_WAVEFORM_ADDR] <= 1;
          retState <= ST_RECEIVE_FLUSH_WAIT;
          waitInfo <= WAIT_FLUSH;
       end
@@ -1403,7 +1389,7 @@ always @(posedge sysclk) begin
       isWrite <= 1;
       RegAddr <= `ETH_ADDR_RXQCR;
       WriteData <= {ETH_VALUE_RXQCR[15:4],1'b1,ETH_VALUE_RXQCR[2:0]};
-      state[ST_WAVEFORM_OUTPUT_INIT] <= 1;
+      state[ST_WAVEFORM_ADDR] <= 1;
       retState <= ST_SEND_DMA_REQUEST;
    end
 
@@ -1462,7 +1448,7 @@ always @(posedge sysclk) begin
          waitInfo <= WAIT_NONE;
          isForward <= 1'd0;
          // Disable DMA transfers
-         state[ST_WAVEFORM_OUTPUT_INIT] <= 1;
+         state[ST_WAVEFORM_ADDR] <= 1;
          RegAddr <= `ETH_ADDR_RXQCR;
          WriteData <= {ETH_VALUE_RXQCR[15:4],1'b0,ETH_VALUE_RXQCR[2:0]};
          retState <= ST_SEND_TXQ_ENQUEUE;
@@ -1479,7 +1465,7 @@ always @(posedge sysclk) begin
       // For now, wait for the frame to be transmitted. According to the datasheet,
       // "the software should wait for the bit to be cleared before setting up another
       // new TX frame," so this check could be moved elsewhere for efficiency.
-      state[ST_WAVEFORM_OUTPUT_INIT] <= 1;
+      state[ST_WAVEFORM_ADDR] <= 1;
       retState <= ST_SEND_TXQ_ENQUEUE_WAIT;
    end
 
@@ -1488,7 +1474,7 @@ always @(posedge sysclk) begin
       isWrite <= 0;
       // RegAddr is already set to TXQCR
       // Wait for bit 0 in Register TXQCR (0x80) to be cleared
-      state[ST_WAVEFORM_OUTPUT_INIT] <= 1;
+      state[ST_WAVEFORM_ADDR] <= 1;
       if ((isWrite == 0) && (ReadData[0] == 1'b0))
          retState <= ST_SEND_END;
       else
@@ -1505,7 +1491,7 @@ always @(posedge sysclk) begin
          else begin
             isWrite <= 0;
             RegAddr <= `ETH_ADDR_RXFHSR;
-            state[ST_WAVEFORM_OUTPUT_INIT] <= 1;
+            state[ST_WAVEFORM_ADDR] <= 1;
             retState <= ST_RECEIVE_FRAME_STATUS;
          end
       end
@@ -1516,24 +1502,57 @@ always @(posedge sysclk) begin
    end
 
    //******************* States for I/O to/from KSZ8851 **********************
-   // There are two states: ST_WAVEFORM_OUTPUT_INIT and ST_WAVEFORM_OUTPUT_EXECUTE.
-   // Many other states call ST_WAVEFORM_OUTPUT_INIT.
-   // ST_WAVEFORM_OUTPUT_EXECUTE transitions to whatever state is in retState,
-   // which usually is the calling state.
+   // There are two states: ST_WAVEFORM_ADDR and ST_WAVEFORM_DATA.
+   // ST_WAVEFORM_ADDR writes the address to the bus; it is the same regardless of
+   //    whether reading or writing from a register. It is not used for DMA transfers.
+   // ST_WAVEFORM_DATA writes the data to the bus (isWrite) or reads from the bus
+   //    (!isWrite), then transitions to whatever state is in retState, which
+   //    usually is the calling state.
+   // DMA transfers do not use these states, but rather use separate state machines.
+   // ST_WAVEFORM_DATA should work for DMA transfers requested by the host via ksz_req.
 
-   state[ST_WAVEFORM_OUTPUT_INIT]:
+   state[ST_WAVEFORM_ADDR]:
    begin
-      state[ST_WAVEFORM_OUTPUT_EXECUTE] <= 1;
+      SDReg <= Addr16;
+      RWcnt <= RWcnt + 3'd1;
+      Reg_RDn <= 1'b1;
+      Reg_WRn <= RWcnt[0]^~RWcnt[1];  // 1001
+      Reg_CMD <= 1'b1;
+      if (RWcnt == 3'd3) begin
+         state[ST_WAVEFORM_DATA] <= 1;
+         RWcnt <= 3'd0;
+      end
+      else
+         state[ST_WAVEFORM_ADDR] <= 1;
    end
 
-   state[ST_WAVEFORM_OUTPUT_EXECUTE]:
+   state[ST_WAVEFORM_DATA]:
    begin
-      if (ShiftCnt != 4'd0) begin
-         state[ST_WAVEFORM_OUTPUT_EXECUTE] <= 1;
+      RWcnt <= RWcnt + 3'd1;
+      Reg_CMD <= 1'b0;
+      if (isWrite) begin
+         SDReg <= WriteData;
+         Reg_RDn <= 1'b1;
+         Reg_WRn <= RWcnt[0]^~RWcnt[1];  // 1001
+         if (RWcnt == 3'd3) begin
+            state[retState] <= 1;
+            RWcnt <= 3'd0;
+         end
+         else
+            state[ST_WAVEFORM_DATA] <= 1;
       end
       else begin
-         // All done, return to previous (or next) state
-         state[retState] <= 1;
+         Reg_RDn <= ~RWcnt[1]&(RWcnt[0]^~RWcnt[2]);  // 100001
+         Reg_WRn <= 1'b1;
+         if (RWcnt == 3'd4) begin
+            eth_data <= SD;
+         end
+         if (RWcnt == 3'd5) begin
+            state[retState] <= 1;
+            RWcnt <= 3'd0;
+         end
+         else
+            state[ST_WAVEFORM_DATA] <= 1;
       end
    end
 
@@ -1561,14 +1580,14 @@ reg[9:0] rfw_count;     // Counts words in FireWire packets (max is 1024 words, 
 // Shift register for I/O control. The register is shifted left with each clock, with the left-most
 // bit placed on the right (shift and rotate). Each state (except IDLE) is entered with
 // recvCtrl==5'b00001 and goes through the following sequence:
-//   00001   (DRDn=0), wait
-//   00010   (DRDn=0), wait
-//   00100   (DRDn=0), read data (dataReady=1)
-//   01000   (DRDn=0), use data (dataValid=1)
-//   10000   (DRDn=1), transition to next state
+//   00001   (DMA_RDn=0), wait
+//   00010   (DMA_RDn=0), wait
+//   00100   (DMA_RDn=0), read data (dataReady=1)
+//   01000   (DMA_RDn=0), use data (dataValid=1)
+//   10000   (DMA_RDn=1), transition to next state
 reg[4:0] recvCtrl = 5'b00001;
 
-assign DRDn = recvCtrl[4];
+assign DMA_RDn = recvCtrl[4];
 // We sample the data after two cycles
 wire dataReady;
 assign dataReady = recvCtrl[2];
@@ -1869,12 +1888,12 @@ reg[7:0] numSendStateInvalid;
 reg[9:0] sfw_count;     // Counts words in FireWire packets (max is 1024 words, or 2048 bytes)
 
 // sendCtrl==100 in the IDLE state.
-// When entering a state, sendCtrl==100 (DWRn inactive)
-//    Writing data (via SDRegDWR) will coincide with falling edge of DWRn
+// When entering a state, sendCtrl==100 (DMA_WRn inactive)
+//    Writing data (via SDRegDWR) will coincide with falling edge of DMA_WRn
 // Transition to next state (or increment sfw_count or replyCnt) when sendCtrl==010
-//    (with rising edge of DWRn)
+//    (with rising edge of DMA_WRn)
 reg [2:0] sendCtrl = 3'b100;
-assign DWRn = sendCtrl[2];
+assign DMA_WRn = sendCtrl[2];
 
 wire   sendTransition;
 assign sendTransition = sendCtrl[1];
@@ -1885,7 +1904,7 @@ assign sendPreTransition = sendCtrl[0];
 always @(posedge sysclk)
 begin
 
-   // Counter that cycles 0, 1, 2 (stays at 2 in idle state)
+   // Shift register for sequencing DMA send operations
    sendCtrl <= (sendState == ST_SEND_DMA_IDLE) ? 3'b100 : {sendCtrl[1:0], sendCtrl[2] };
 
    if (sendTransition) begin
@@ -2119,7 +2138,6 @@ begin
       icmp_read_en <= 0;
       sendAck <= 0;
       // If an odd number of words, first send a dummy word (not sure if this is necessary).
-      // Note that ST_SEND_DMA_WAVEFORM increments txPktWords.
       if (txPktWords[0]) begin
          SDRegDWR <= 16'd0;
          // we are done
@@ -2302,67 +2320,6 @@ begin
    end
 
    endcase // case (bwState)
-end
-
-// Following handles KSZ I/O
-always @(posedge sysclk)
-begin
-   if (state[ST_RESET_ASSERT]) begin
-      Cur_WRn <= Init_WRn;
-      Cur_RDn <= Init_RDn;
-      Cur_CMD <= Init_CMD;
-   end      
-   else if (state[ST_WAVEFORM_OUTPUT_INIT]) begin
-      case ({isDMA, isWrite})
-      2'b00: begin   // Register Read
-             ShiftCnt <= 4'd9;
-             Cur_WRn <= Read_WRn;
-             Cur_RDn <= Read_RDn;
-             Cur_CMD <= Read_CMD;
-             SDReg <= Addr16;
-             end
-      2'b01: begin   // Register Write
-             ShiftCnt <= 4'd7;
-             Cur_WRn <=  Write_WRn;
-             Cur_RDn <=  Write_RDn;
-             Cur_CMD <=  Write_CMD;
-             SDReg <= Addr16;
-             end
-      2'b10: begin   // DMA Read
-             ShiftCnt <= 4'd4;
-             Cur_WRn <= DMA_Read_WRn;
-             Cur_RDn <= DMA_Read_RDn;
-             Cur_CMD <= DMA_Read_CMD;
-             //rxPktWords <= rxPktWords - 12'd1;
-             end
-      2'b11: begin   // DMA Write
-             ShiftCnt <= 4'd3;
-             Cur_WRn <= DMA_Write_WRn;
-             Cur_RDn <= DMA_Write_RDn;
-             Cur_CMD <= DMA_Write_CMD;
-             SDReg <= WriteData;
-             end
-      endcase
-   end
-   else if (ShiftCnt != 4'd0) begin
-      Cur_WRn <= Cur_WRn << 1;
-      Cur_RDn <= Cur_RDn << 1;
-      Cur_CMD <= Cur_CMD << 1;
-      ShiftCnt <= ShiftCnt - 4'd1;
-      // If CMD high and WRn is going to transition high to low
-      // on this cycle, then write address to the bus
-      // (currently done in ST_WAVEFORM_OUTPUT_INIT).
-      //if ((Cur_CMD[9:8] == 2'b11) && (Cur_WRn[9:8] == 2'b10))
-      //   SDReg <= Addr16;  // Addr16 is output of address translator
-      // If writing and CMD is going to transition low on
-      // this cycle, then write data to the bus (Register Read)
-      if (isWrite && (Cur_CMD[9:8] == 2'b10))
-         SDReg <= WriteData;
-      // If reading and RDn is going to transition high on
-      // next cycle, then read data from the bus
-      else if (~isWrite && (Cur_RDn[8:7] == 2'b01))
-         eth_data <= SD;
-   end
 end
 
 endmodule
