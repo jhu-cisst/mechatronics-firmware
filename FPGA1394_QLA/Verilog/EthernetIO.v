@@ -202,9 +202,9 @@ reg isDMAWrite;     // 1 -> DMA Write process should have control
 reg[2:0] RWcnt;     // Counter used for reading/write KSZ8851
 
 // Register Read/Write from/to KSZ8851
-reg Reg_RDn;
-reg Reg_WRn;
-reg Reg_CMD;
+wire Reg_RDn;
+wire Reg_WRn;
+wire Reg_CMD;
 // DMA Read/Write from/to KSZ8851
 wire DMA_RDn;          // Output from DMA Read process
 wire DMA_WRn;          // Output from DMA Write process
@@ -320,9 +320,6 @@ reg useUDP;
 // Non-zero initial values
 initial begin
    //ETH_RSTn = 1'd1;
-   Reg_RDn = 1'b1;
-   Reg_WRn = 1'b1;
-   Reg_CMD = 1'b0;
    isWord = 1'd1;
 end
 
@@ -936,6 +933,13 @@ assign blockWrite = (fw_tcode == `TC_BWRITE) ? 1'd1 : 1'd0;
 
 assign addrMain = (fw_dest_offset[15:12] == `ADDR_MAIN) ? 1'd1 : 1'd0;
 
+// Reg_CMD is 0 except when writing address to the KSZ8851
+assign Reg_CMD = state[ST_WAVEFORM_ADDR];
+// Reg_WRn is sequenced 1001 for writing address or data; held at 1 when reading data
+assign Reg_WRn = (Reg_CMD|isWrite) ? RWcnt[0]^~RWcnt[1] : 1'b1;
+// Reg_RDn is sequenced 100001 for reading data; held at 1 when writing address or data
+assign Reg_RDn = (Reg_CMD|isWrite) ? 1'b1 :~RWcnt[1]&(RWcnt[0]^~RWcnt[2]);
+
 // -------------------------------------------------------
 // Ethernet state machine
 // -------------------------------------------------------
@@ -1515,9 +1519,6 @@ always @(posedge sysclk) begin
    begin
       SDReg <= Addr16;
       RWcnt <= RWcnt + 3'd1;
-      Reg_RDn <= 1'b1;
-      Reg_WRn <= RWcnt[0]^~RWcnt[1];  // 1001
-      Reg_CMD <= 1'b1;
       if (RWcnt == 3'd3) begin
          state[ST_WAVEFORM_DATA] <= 1;
          RWcnt <= 3'd0;
@@ -1529,11 +1530,8 @@ always @(posedge sysclk) begin
    state[ST_WAVEFORM_DATA]:
    begin
       RWcnt <= RWcnt + 3'd1;
-      Reg_CMD <= 1'b0;
       if (isWrite) begin
          SDReg <= WriteData;
-         Reg_RDn <= 1'b1;
-         Reg_WRn <= RWcnt[0]^~RWcnt[1];  // 1001
          if (RWcnt == 3'd3) begin
             state[retState] <= 1;
             RWcnt <= 3'd0;
@@ -1542,8 +1540,6 @@ always @(posedge sysclk) begin
             state[ST_WAVEFORM_DATA] <= 1;
       end
       else begin
-         Reg_RDn <= ~RWcnt[1]&(RWcnt[0]^~RWcnt[2]);  // 100001
-         Reg_WRn <= 1'b1;
          if (RWcnt == 3'd4) begin
             eth_data <= SD;
          end
