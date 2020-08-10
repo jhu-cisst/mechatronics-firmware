@@ -250,33 +250,32 @@ localparam[4:0]
     // reset/init states
     ST_RESET_ASSERT = 5'd1,         // assert reset (low) -- 10 msec
     ST_RESET_WAIT = 5'd2,           // wait after bringing reset high -- 50 msec
-    ST_INIT_CHECK_CHIPID = 5'd3,    // Read chip ID
-    ST_INIT_RUN_PROGRAM = 5'd4,
+    ST_INIT_RUN_PROGRAM = 5'd3,
     // interrupt handler states
-    ST_IRQ_HANDLER = 5'd5,
-    ST_IRQ_DISPATCH = 5'd6,
+    ST_IRQ_HANDLER = 5'd4,
+    ST_IRQ_DISPATCH = 5'd5,
     // receive states
-    ST_RECEIVE_FRAME_COUNT = 5'd7,
-    ST_RECEIVE_FRAME_STATUS = 5'd8,
-    ST_RECEIVE_FRAME_LENGTH = 5'd9,
-    ST_RECEIVE_ENABLE_DMA = 5'd10,
-    ST_RECEIVE_DMA_REQUEST = 5'd11,
-    ST_RECEIVE_DMA_WAIT = 5'd12,
-    ST_RECEIVE_FLUSH_START = 5'd13,
-    ST_RECEIVE_FLUSH_WAIT = 5'd14,
+    ST_RECEIVE_FRAME_COUNT = 5'd6,
+    ST_RECEIVE_FRAME_STATUS = 5'd7,
+    ST_RECEIVE_FRAME_LENGTH = 5'd8,
+    ST_RECEIVE_ENABLE_DMA = 5'd9,
+    ST_RECEIVE_DMA_REQUEST = 5'd10,
+    ST_RECEIVE_DMA_WAIT = 5'd11,
+    ST_RECEIVE_FLUSH_START = 5'd12,
+    ST_RECEIVE_FLUSH_WAIT = 5'd13,
     // send states
-    ST_SEND_ENABLE_DMA = 5'd15,
-    ST_SEND_DMA_REQUEST = 5'd16,
-    ST_SEND_DMA_WAIT = 5'd17,
-    ST_SEND_TXQ_ENQUEUE = 5'd18,
-    ST_SEND_TXQ_ENQUEUE_WAIT = 5'd19,
-    ST_SEND_END = 5'd20,
+    ST_SEND_ENABLE_DMA = 5'd14,
+    ST_SEND_DMA_REQUEST = 5'd15,
+    ST_SEND_DMA_WAIT = 5'd16,
+    ST_SEND_TXQ_ENQUEUE = 5'd17,
+    ST_SEND_TXQ_ENQUEUE_WAIT = 5'd18,
+    ST_SEND_END = 5'd19,
     // KSZIO states
-    ST_WAVEFORM_ADDR = 5'd21,    // write the address to the KSZ8851
-    ST_WAVEFORM_DATA = 5'd22;    // read/write data from/to the KSZ8851
+    ST_WAVEFORM_ADDR = 5'd20,    // write the address to the KSZ8851
+    ST_WAVEFORM_DATA = 5'd21;    // read/write data from/to the KSZ8851
 
 // Current state (one-hot encoding)
-reg[22:0] state = (23'd1 << ST_RESET_ASSERT);
+reg[21:0] state = (22'd1 << ST_RESET_ASSERT);
 // State to return to after ST_KSZIO
 reg[4:0] retState = ST_IDLE;
 
@@ -801,17 +800,25 @@ localparam CMD_WRITE = 1'd1,
 `define ADDR_BITS 23:16
 `define DATA_BITS 15:0
 
-reg[25:0] InitProgram[0:16];
+// Some useful indices
+localparam[4:0]
+   ID_CHIP_ID = 5'd0,
+   ID_MAC_LOW = 5'd1,
+   ID_INIT_DONE = 5'd17;
+
+reg[25:0] InitProgram[0:17];
 
 initial begin
+    // Read Chip ID
+    InitProgram[0] = {CMD_READ, ~CMD_OR, `ETH_ADDR_CIDER, 16'd0 };
     // Set MAC address (4 LSB below should be set to board_id)
-    InitProgram[0] = {CMD_WRITE, ~CMD_OR, `ETH_ADDR_MARL, 12'h940, 4'd0};
-    InitProgram[1] = {CMD_WRITE, ~CMD_OR, `ETH_ADDR_MARM, 16'h0E13};
-    InitProgram[2] = {CMD_WRITE, ~CMD_OR, `ETH_ADDR_MARH, 16'hFA61};
+    InitProgram[1] = {CMD_WRITE, ~CMD_OR, `ETH_ADDR_MARL, 12'h940, 4'd0};
+    InitProgram[2] = {CMD_WRITE, ~CMD_OR, `ETH_ADDR_MARM, 16'h0E13};
+    InitProgram[3] = {CMD_WRITE, ~CMD_OR, `ETH_ADDR_MARH, 16'hFA61};
     // Enable QMU transmit frame data pointer auto increment
-    InitProgram[3] = {CMD_WRITE, ~CMD_OR, `ETH_ADDR_TXFDPR, 16'h4000};
+    InitProgram[4] = {CMD_WRITE, ~CMD_OR, `ETH_ADDR_TXFDPR, 16'h4000};
     // Enable QMU ICMP/UDP/TCP/IP checksum, transmit flow control, padding, and CRC
-    InitProgram[4] = {CMD_WRITE, ~CMD_OR, `ETH_ADDR_TXCR, 16'h01EE};
+    InitProgram[5] = {CMD_WRITE, ~CMD_OR, `ETH_ADDR_TXCR, 16'h01EE};
     // B14: Enable QMU receive frame data pointer auto increment
     // B12: Decrease write data valid sample time to 4 nS (max)
     // B11: Set Little Endian (0) or Big Endian (1)-- currently, Little Endian.
@@ -826,38 +833,38 @@ initial begin
     // convenient to keep the KSZ8851 in Little Endian mode.
     // Note, however, that Ethernet and FireWire are both Big Endian, so some byte-swapping
     // is needed.
-    InitProgram[5] = {CMD_WRITE, ~CMD_OR, `ETH_ADDR_RXFDPR, 16'h5000};
+    InitProgram[6] = {CMD_WRITE, ~CMD_OR, `ETH_ADDR_RXFDPR, 16'h5000};
     // Configure receive frame threshold for 1 frame
-    InitProgram[6] = {CMD_WRITE, ~CMD_OR, `ETH_ADDR_RXFCTR, 16'h0001};
+    InitProgram[7] = {CMD_WRITE, ~CMD_OR, `ETH_ADDR_RXFCTR, 16'h0001};
     // 7: enable UDP, TCP, and IP checksums
     // C: enable MAC address filtering, enable flow control (for receive in full duplex mode)
     // E: enable broadcast, multicast, and unicast
     // Bit 4 = 0, Bit 1 = 0, Bit 11 = 1, Bit 8 = 0 (hash perfect, default)
-    InitProgram[7] = {CMD_WRITE, ~CMD_OR, `ETH_ADDR_RXCR1, 16'h7CE0};
+    InitProgram[8] = {CMD_WRITE, ~CMD_OR, `ETH_ADDR_RXCR1, 16'h7CE0};
     // Enable UDP checksums; pass packets with 0 checksum
-    InitProgram[8] = {CMD_WRITE, ~CMD_OR, `ETH_ADDR_RXCR2, 16'h001C};
+    InitProgram[9] = {CMD_WRITE, ~CMD_OR, `ETH_ADDR_RXCR2, 16'h001C};
     // Following are hard-coded values for which hash register to use and which bit to set
     // for multicast address FB:61:0E:13:19:FF. This is obtained by computing the CRC for
     // this MAC address and then using the first two (most significant) bits to determine
     // the register and the next four bits to determine which bit to set.
     // See code in mainEth1394.cpp.
-    InitProgram[9] = {CMD_WRITE, ~CMD_OR, `ETH_ADDR_MAHTR1, 16'h0008};
+    InitProgram[10] = {CMD_WRITE, ~CMD_OR, `ETH_ADDR_MAHTR1, 16'h0008};
     // RXQCR value
     // B5: RXFCTE enable QMU frame count threshold (1)
     // B4: ADRFE  auto-dequeue
     // Not enabling auto-dequeue because we flush packet
     // instead of reading to end.
-    InitProgram[10] = {CMD_WRITE, ~CMD_OR, `ETH_ADDR_RXQCR, ETH_VALUE_RXQCR};
+    InitProgram[11] = {CMD_WRITE, ~CMD_OR, `ETH_ADDR_RXQCR, ETH_VALUE_RXQCR};
     // Clear all pending interrupts
-    InitProgram[11] = {CMD_WRITE, ~CMD_OR, `ETH_ADDR_ISR, 16'hFFFF};
+    InitProgram[12] = {CMD_WRITE, ~CMD_OR, `ETH_ADDR_ISR, 16'hFFFF};
     // Enable receive interrupts
-    InitProgram[12] = {CMD_WRITE, ~CMD_OR, `ETH_ADDR_IER, ETH_VALUE_IER};
+    InitProgram[13] = {CMD_WRITE, ~CMD_OR, `ETH_ADDR_IER, ETH_VALUE_IER};
     // Enable transmit
-    InitProgram[13] = {CMD_READ, ~CMD_OR, `ETH_ADDR_TXCR, 16'd0};
-    InitProgram[14] = {CMD_WRITE, CMD_OR, `ETH_ADDR_TXCR, 15'd0, 1'd1};
+    InitProgram[14] = {CMD_READ, ~CMD_OR, `ETH_ADDR_TXCR, 16'd0};
+    InitProgram[15] = {CMD_WRITE, CMD_OR, `ETH_ADDR_TXCR, 15'd0, 1'd1};
     // Enable receive
-    InitProgram[15] = {CMD_READ, ~CMD_OR, `ETH_ADDR_RXCR1, 16'd0};
-    InitProgram[16] = {CMD_WRITE, CMD_OR, `ETH_ADDR_RXCR1, 15'd0, 1'd1};
+    InitProgram[16] = {CMD_READ, ~CMD_OR, `ETH_ADDR_RXCR1, 16'd0};
+    InitProgram[17] = {CMD_WRITE, CMD_OR, `ETH_ADDR_RXCR1, 15'd0, 1'd1};
 end
 
 reg[4:0] progIndex;    // Index into program (program counter)
@@ -960,9 +967,9 @@ always @(posedge sysclk) begin
    end
 
    //******************** State Machine ********************
-   state <= 23'd0;
+   state <= 22'd0;
 
-   if (state == 23'd0) begin
+   if (state == 22'd0) begin
       // Should never happen, except for programming errors
       numStateInvalid <= numStateInvalid + 10'd1;
       state[ST_IDLE] <= 1;
@@ -1069,12 +1076,10 @@ always @(posedge sysclk) begin
    begin
       if (initCount == 21'h1FFFFF) begin
          initCount <= 21'd0;
-         InitProgram[0][3:0] <= board_id;
+         InitProgram[ID_MAC_LOW][3:0] <= board_id;
          ReplyBuffer[ID_Rep_fpgaMac2][3:0] <= board_id;
-         isWrite <= 0;
-         RegAddr <= `ETH_ADDR_CIDER;   // Read Chip ID
-         state[ST_WAVEFORM_ADDR] <= 1;
-         retState <= ST_INIT_CHECK_CHIPID;
+         progIndex <= 5'd0;
+         state[ST_INIT_RUN_PROGRAM] <= 1;
       end
       else begin
          initCount <= initCount + 21'd1;
@@ -1084,19 +1089,6 @@ always @(posedge sysclk) begin
 
    //*************** States for initializing Ethernet ******************
 
-   state[ST_INIT_CHECK_CHIPID]:
-   begin
-      if (ReadData[15:4] == 12'h887) begin
-         // Chip ID is ok, go to next state
-         progIndex <= 5'd0;
-         state[ST_INIT_RUN_PROGRAM] <= 1;
-      end
-      else begin
-         initOK <= 0;
-         state[ST_IDLE] <= 1;
-      end
-   end
-
    state[ST_INIT_RUN_PROGRAM]:
    begin
       isWrite <= InitProgram[progIndex][`WRITE_BIT];
@@ -1104,8 +1096,12 @@ always @(posedge sysclk) begin
       WriteData <= InitProgram[progIndex][`OR_BIT] ? (ReadData|InitProgram[progIndex][`DATA_BITS])
                                                    : InitProgram[progIndex][`DATA_BITS];
       progIndex <= progIndex + 5'd1;
-      state[ST_WAVEFORM_ADDR] <= 1;
-      if (progIndex == 5'd16) begin
+      // Check Chip ID; if not correct (887x) go to ST_IDLE without setting initOK
+      if ((progIndex == ID_CHIP_ID+1) && (ReadData[15:4] != 12'h887))
+         state[ST_IDLE] <= 1;
+      else
+         state[ST_WAVEFORM_ADDR] <= 1;
+      if (progIndex == ID_INIT_DONE) begin
          initOK <= 1;
          retState <= ST_IDLE;
       end
