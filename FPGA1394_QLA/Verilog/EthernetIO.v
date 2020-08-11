@@ -1132,6 +1132,17 @@ always @(posedge sysclk) begin
          // forward packet from FireWire
          isForward <= 1;
          timeNotIdle <= 16'd0;
+         if (!useUDP) begin
+            // Forwarding raw data from FireWire
+            ReplyBuffer[ID_Rep_Frame_Length] <= sendLen;
+         end
+         else begin
+            // Forwarding data from FireWire
+            ReplyBuffer[ID_Rep_Frame_Length] <= 16'h0800; // IPv4 EtherType
+            ReplyBuffer[ID_Rep_IPv4_Length] <= 16'd28 + sendLen;
+            ReplyBuffer[ID_Rep_IPv4_Prot][7:0] <= 8'd17;  // UDP protocol
+            ReplyBuffer[ID_Rep_UDP_Length] <= 16'd8 + sendLen;
+         end
          runPC <= ID_ENABLE_DMA_SEND;
          state[ST_RUN_PROGRAM_EXECUTE] <= 1;
       end
@@ -1387,7 +1398,7 @@ always @(posedge sysclk) begin
 
    state[ST_RECEIVE_DMA_REQUEST]:
    begin
-      // Send request
+      // set request flag
       recvDMAreq <= 1;
       waitInfo <= WAIT_RECEIVE_DMA;
       state[ST_RECEIVE_DMA_WAIT] <= 1;
@@ -1428,6 +1439,29 @@ always @(posedge sysclk) begin
       if (ReadData[0] == 1'b0) begin
          timeReceive <= timeNotIdle;
          if ((FireWirePacketFresh && (quadRead || blockRead) && isLocal) || sendARP || isEcho) begin
+            if (sendARP) begin
+               ReplyBuffer[ID_Rep_Frame_Length] <= 16'h0806; // ARP EtherType
+            end
+            else if (isEcho) begin
+               // Echo (ICMP) response
+               ReplyBuffer[ID_Rep_Frame_Length] <= 16'h0800;   // IPv4 EtherType
+               ReplyBuffer[ID_Rep_IPv4_Length] <= IPv4_Length; // Same length as request
+               ReplyBuffer[ID_Rep_IPv4_Prot][7:0] <= 8'd1;     // ICMP protocol
+            end
+            else if (useUDP) begin
+               ReplyBuffer[ID_Rep_Frame_Length] <= 16'h0800; // IPv4 EtherType (UDP or ICMP)
+               ReplyBuffer[ID_Rep_IPv4_Length] <= quadRead ? 16'd48 : (16'd52 + block_data_length);
+               ReplyBuffer[ID_Rep_IPv4_Prot][7:0] <= 8'd17;  // UDP protocol
+               // UDP Length:
+               //   Quadlet read response: 8 (UDP header) + 20 (data)
+               //   Block read response: 8 (UDP header) + 24 + block_data_length
+               ReplyBuffer[ID_Rep_UDP_Length] <= quadRead ? 16'd28 : (16'd32 + block_data_length);
+            end
+            else begin
+               // Local raw packet
+               // Quadlet read response (20) or block read response (24 + block_data_length)
+               ReplyBuffer[ID_Rep_Frame_Length] <= quadRead ? 16'd20 : (16'd24 + block_data_length);
+            end
             runPC <= ID_ENABLE_DMA_SEND;
             state[ST_RUN_PROGRAM_EXECUTE] <= 1;
          end
@@ -1463,41 +1497,7 @@ always @(posedge sysclk) begin
 
    state[ST_SEND_DMA_REQUEST]:
    begin
-      if (isForward && !useUDP) begin
-         // Forwarding raw data from FireWire
-         ReplyBuffer[ID_Rep_Frame_Length] <= sendLen;
-      end
-      else if (isForward && useUDP) begin
-         // Forwarding data from FireWire
-         ReplyBuffer[ID_Rep_Frame_Length] <= 16'h0800; // IPv4 EtherType
-         ReplyBuffer[ID_Rep_IPv4_Length] <= 16'd28 + sendLen;
-         ReplyBuffer[ID_Rep_IPv4_Prot][7:0] <= 8'd17;  // UDP protocol
-         ReplyBuffer[ID_Rep_UDP_Length] <= 16'd8 + sendLen;
-      end
-      else if (sendARP) begin
-         ReplyBuffer[ID_Rep_Frame_Length] <= 16'h0806; // ARP EtherType
-      end
-      else if (isEcho) begin
-         // Echo (ICMP) response
-         ReplyBuffer[ID_Rep_Frame_Length] <= 16'h0800;   // IPv4 EtherType
-         ReplyBuffer[ID_Rep_IPv4_Length] <= IPv4_Length; // Same length as request
-         ReplyBuffer[ID_Rep_IPv4_Prot][7:0] <= 8'd1;     // ICMP protocol
-      end
-      else if (useUDP) begin
-         ReplyBuffer[ID_Rep_Frame_Length] <= 16'h0800; // IPv4 EtherType (UDP or ICMP)
-         ReplyBuffer[ID_Rep_IPv4_Length] <= quadRead ? 16'd48 : (16'd52 + block_data_length);
-         ReplyBuffer[ID_Rep_IPv4_Prot][7:0] <= 8'd17;  // UDP protocol
-         // UDP Length:
-         //   Quadlet read response: 8 (UDP header) + 20 (data)
-         //   Block read response: 8 (UDP header) + 24 + block_data_length
-         ReplyBuffer[ID_Rep_UDP_Length] <= quadRead ? 16'd28 : (16'd32 + block_data_length);
-      end
-      else begin
-         // Local raw packet
-         // Quadlet read response (20) or block read response (24 + block_data_length)
-         ReplyBuffer[ID_Rep_Frame_Length] <= quadRead ? 16'd20 : (16'd24 + block_data_length);
-      end
-      // Send request
+      // Set request flag
       sendDMAreq <= 1;
       waitInfo <= WAIT_SEND_DMA;
       state[ST_SEND_DMA_WAIT] <= 1;
@@ -2037,7 +2037,7 @@ begin
             sendAck <= 1;
             sendAddr <= 9'd0;
          end
-         else if (sendARP) begin
+         else if (sendARP && !isForward) begin
             if (sendTransition) replyCnt <= ARP_Reply_Begin;
             nextSendState <= ST_SEND_DMA_ETHERNET_HEADERS;
          end
@@ -2104,11 +2104,15 @@ begin
          nextSendState <= ST_SEND_DMA_PACKETDATA_QUAD;
       end
       else if (sfw_count[3:0] == 4'd9) begin  // block read
-         sample_read <= addrMain;
-         eth_read_en <= ~addrMain;
-         ethAccessError <= (~addrMain&sample_busy) ? 1'd1 : ethAccessError;
-         if (sendTransition) sfw_count <= 10'd0;
-         nextSendState <= ST_SEND_DMA_PACKETDATA_BLOCK;
+         if (blockRead) begin
+            sample_read <= addrMain;
+            eth_read_en <= ~addrMain;
+            ethAccessError <= (~addrMain&sample_busy) ? 1'd1 : ethAccessError;
+            if (sendTransition) sfw_count <= 10'd0;
+            nextSendState <= ST_SEND_DMA_PACKETDATA_BLOCK;
+         end
+         else  // Should not happen
+            nextSendState <= ST_SEND_DMA_PACKETDATA_CHECKSUM;
       end
       else begin
          // stay in this state
