@@ -227,6 +227,8 @@ reg ethAccessError;    // 1 -> Unable to access internal bus
 reg[9:0] numStateInvalid;   // Number of invalid states (for debugging)
 reg[7:0] numReset;          // Number of times reset called
 
+reg resetActive;       // Indicates that reset is active
+
 localparam[31:0] IP_UNASSIGNED = 32'hffffffff;
 
 // maximum quadlet index for real-time feedback broadcast packet
@@ -244,7 +246,17 @@ localparam[15:0] ETH_VALUE_IER = 16'h2000;
 // Not enabling auto-dequeue because we flush packet
 // instead of reading to end.
 localparam[15:0] ETH_VALUE_RXQCR = 16'h0020;
-   
+
+// RXCR1 value
+// 7: enable UDP, TCP, and IP checksums
+// C: enable MAC address filtering, enable flow control (for receive in full duplex mode)
+// E: enable broadcast, multicast, and unicast
+// Bit 4 = 0, Bit 1 = 0, Bit 11 = 1, Bit 8 = 0 (hash perfect, default)
+localparam[15:0] ETH_VALUE_RXCR1 = 16'h7CE0;
+
+// Enable QMU ICMP/UDP/TCP/IP checksum, transmit flow control, padding, and CRC
+localparam[15:0] ETH_VALUE_TXCR = 16'h01EE;
+
 localparam[4:0]
     ST_IDLE = 5'd0,
     // reset/init states
@@ -689,6 +701,7 @@ reg[9:0] numIPv4;            // Number of IPv4 packets received
 reg[9:0] numUDP;             // Number of UDP packets received
 reg[9:0] numARP;             // Number of ARP packets received
 reg[9:0] numICMP;            // Number of ICMP packets received
+reg[7:0] numPacketSent;      // Number of packets sent to host PC
 
 reg[9:0] numPacketError;     // Number of packet errors (Frame, IPv4 or UDP error)
 reg[9:0] numIPv4Mismatch;    // Number of IPv4 packets with different IP address
@@ -722,7 +735,7 @@ assign DebugData[3]  = { state[7:0], eth_send_fw_ack, eth_send_fw_req, 1'b0, ret
                          sample_start, sample_busy, isLocal, isRemote, FireWirePacketFresh, isEthBroadcast, isEthMulticast, ~ETH_IRQn,
                          isForward, isInIRQ, sendARP, isUDP, isICMP, isEcho, is_IPv4_Long, is_IPv4_Short};
 assign DebugData[4]  = { RegISR, RegISROther};
-assign DebugData[5]  = { host_fw_addr, FrameCount, rfw_count[7:0]};
+assign DebugData[5]  = { host_fw_addr, FrameCount, numPacketSent};
 assign DebugData[6]  = { 6'd0, maxCountFW, LengthFW };
 assign DebugData[7]  = { sendState, txPktWords, nextSendState, rxPktWords };
 assign DebugData[8]  = { timeSend, timeReceive };
@@ -800,26 +813,21 @@ reg FireWirePacketFresh;   // 1 -> FireWirePacket data is valid (fresh)
 //    RunProgram:  handles runtime access (i.e., in response to packets received)
 //
 // The instruction length is 26 bits, defined as follows:
-//    Write  Or   Addr    Data
+//   Write  Mod   Addr    Data
 //     25    24  23:16    15:0
 //
 // Bit 25:     Write (1) or Read (0)
-// Bit 24:     OR flag (for InitProgram); ST_IRQ_DISPATCH flag (for RunProgram)
+// Bit 24:     Mod flag: Used to indicate special processing
 // Bits 23:16  Address of register to read or write
 // Bits 15:0   Data to write to register; for Read commands, the 5 LSB indicate
 //             the next state
 //
-// InitProgram specifics:
-//   - The OR flag indicates that the result of the last register read should be
-//     OR'ed with the Data field before being written to the register; it is ignored
-//     for read commands.
-//
 // RunProgram specifics:
-//   - The OR flag is used to indicate that the system should branch to the
+//   - The Mod flag is used to indicate that the system should branch to the
 //     ST_IRQ_DISPATCH state. This is only needed for Write commands because the
 //     Read commands already indicate the next state.
 //
-// The microcode does not include any branching statements (other than using the OR
+// The microcode does not include any branching statements (other than using the Mod
 // flag to indicate a branch to ST_IRQ_DISPATCH), but branches can be initiated external
 // to the program by changing the program counter (e.g., runPC for RunProgram).
 //
@@ -830,23 +838,22 @@ reg FireWirePacketFresh;   // 1 -> FireWirePacket data is valid (fresh)
 localparam CMD_WRITE = 1'd1,  // Write to register
            CMD_READ  = 1'd0,  // Read from register
            CMD_NOP   = 1'd0,  // No operation
-           CMD_OR    = 1'd1,  // OR with last read value (InitProgram only)
            CMD_BRA   = 1'd1;  // Special-case branch (RunProgram only)
 
 `define WRITE_BIT 25
-`define OR_BIT 24
+`define MOD_BIT 24
 `define ADDR_BITS 23:16
 `define DATA_BITS 15:0
 `define NEXT_BITS 4:0
 
 // Program for initializing
-reg[25:0] InitProgram[0:17];
+reg[25:0] InitProgram[0:15];
 
 // Some useful indices
-localparam[4:0]
-   ID_CHIP_ID = 5'd0,
-   ID_MAC_LOW = 5'd1,
-   ID_INIT_DONE = 5'd17;
+localparam[3:0]
+   ID_CHIP_ID = 4'd0,
+   ID_MAC_LOW = 4'd1,
+   ID_INIT_DONE = 4'd15;
 
 initial begin
     // Read Chip ID
@@ -857,8 +864,7 @@ initial begin
     InitProgram[3] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_MARH, 16'hFA61};
     // Enable QMU transmit frame data pointer auto increment
     InitProgram[4] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_TXFDPR, 16'h4000};
-    // Enable QMU ICMP/UDP/TCP/IP checksum, transmit flow control, padding, and CRC
-    InitProgram[5] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_TXCR, 16'h01EE};
+    InitProgram[5] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_TXCR, ETH_VALUE_TXCR};
     // B14: Enable QMU receive frame data pointer auto increment
     // B12: Decrease write data valid sample time to 4 nS (max)
     // B11: Set Little Endian (0) or Big Endian (1)-- currently, Little Endian.
@@ -880,7 +886,7 @@ initial begin
     // C: enable MAC address filtering, enable flow control (for receive in full duplex mode)
     // E: enable broadcast, multicast, and unicast
     // Bit 4 = 0, Bit 1 = 0, Bit 11 = 1, Bit 8 = 0 (hash perfect, default)
-    InitProgram[8] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_RXCR1, 16'h7CE0};
+    InitProgram[8] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_RXCR1, ETH_VALUE_RXCR1};
     // Enable UDP checksums; pass packets with 0 checksum
     InitProgram[9] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_RXCR2, 16'h001C};
     // Following are hard-coded values for which hash register to use and which bit to set
@@ -900,14 +906,12 @@ initial begin
     // Enable receive interrupts
     InitProgram[13] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_IER, ETH_VALUE_IER};
     // Enable transmit
-    InitProgram[14] = {CMD_READ, CMD_NOP, `ETH_ADDR_TXCR, 11'd0, ST_INIT_PROGRAM_EXECUTE};
-    InitProgram[15] = {CMD_WRITE, CMD_OR, `ETH_ADDR_TXCR, 15'd0, 1'd1};
+    InitProgram[14] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_TXCR, ETH_VALUE_TXCR[15:1], 1'd1};
     // Enable receive
-    InitProgram[16] = {CMD_READ, CMD_NOP, `ETH_ADDR_RXCR1, 11'd0, ST_INIT_PROGRAM_EXECUTE};
-    InitProgram[ID_INIT_DONE] = {CMD_WRITE, CMD_OR, `ETH_ADDR_RXCR1, 15'd0, 1'd1};
+    InitProgram[ID_INIT_DONE] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_RXCR1, ETH_VALUE_RXCR1[15:1], 1'd1};
 end
 
-reg[4:0] initPC;    // Program counter for InitProgram
+reg[3:0] initPC;    // Program counter for InitProgram
 
 reg[25:0] RunProgram[0:15];
 
@@ -957,7 +961,7 @@ reg[3:0] runPC;    // Program counter for RunProgram
 //    4000 - 407f (128 quadlets) FireWire packet (first 128 quadlets only)
 //    4080 - 408f (16 quadlets) Debug data
 //    4090 - 409f (16 quadlets) Debug buffer (R/W)
-//    40a0 - 40bf (32 quadlets) InitProgram
+//    40a0 - 40bf (32 quadlets) InitProgram/RunProgram
 //    40c0 - 40df (32 quadlets) PacketBuffer/ReplyBuffer (64 words)
 //    40e0 - 40ff (32 quadlets) ReplyIndex (64 words)
 // Note that full address decoding is not done, so other addresses will work too
@@ -971,7 +975,7 @@ begin
       2'b00:
          reg_rdata = (reg_raddr[4]==0) ? DebugData[reg_raddr[3:0]] : DebugBuffer[reg_raddr[3:0]];
       2'b01:
-         reg_rdata = {6'd0, InitProgram[reg_raddr[4:0]]};
+         reg_rdata = (reg_raddr[4]==0) ? {6'd0, InitProgram[reg_raddr[3:0]]} : {6'd0, RunProgram[reg_raddr[3:0]]};
       2'b10:
          reg_rdata = (reg_raddr[4]==0) ? {PacketBuffer[{reg_raddr[3:0],1'b1}], PacketBuffer[{reg_raddr[3:0],1'b0}]} :
                                          {ReplyBuffer[{reg_raddr[2:0],1'b1}],  ReplyBuffer[{reg_raddr[2:0],1'b0}]};
@@ -1050,6 +1054,21 @@ always @(posedge sysclk) begin
       ksz_wdata <= fw_reg_wdata;
    end
 
+   if (resetActive) begin
+      FrameValid <= 0;
+      isEthMulticast <= 0;
+      isEthBroadcast <= 0;
+      RegISROther <= 16'd0;
+      isForward <= 0;
+      numPacketValid <= 16'd0;
+      numPacketInvalid <= 10'd0;
+      numIPv4 <= 10'd0;
+      numUDP <= 10'd0;
+      numARP <= 10'd0;
+      numICMP <= 10'd0;
+      numPacketSent <= 8'd0;
+   end
+
    //******************** State Machine ********************
    state <= 22'd0;
 
@@ -1068,6 +1087,7 @@ always @(posedge sysclk) begin
    begin
       isWord <= 1;       // all transfers are word
       isInIRQ <= 0;
+      resetActive <= 0;
       recvDMAreq <= 0;
       sendDMAreq <= 0;
       RWcnt <= 3'd0;
@@ -1138,17 +1158,7 @@ always @(posedge sysclk) begin
       else begin
          ETH_RSTn <= 0;
          initOK <= 0;
-         FrameValid <= 0;
-         isEthMulticast <= 0;
-         isEthBroadcast <= 0;
-         RegISROther <= 16'd0;
-         isForward <= 0;
-         numPacketValid <= 16'd0;
-         numPacketInvalid <= 10'd0;
-         numIPv4 <= 10'd0;
-         numUDP <= 10'd0;
-         numARP <= 10'd0;
-         numICMP <= 10'd0;
+         resetActive <= 1;
          initCount <= initCount + 21'd1;
          state[ST_RESET_ASSERT] <= 1;
       end
@@ -1176,9 +1186,8 @@ always @(posedge sysclk) begin
    begin
       isWrite <= InitProgram[initPC][`WRITE_BIT];
       RegAddr <= InitProgram[initPC][`ADDR_BITS];
-      WriteData <= InitProgram[initPC][`OR_BIT] ? (ReadData|InitProgram[initPC][`DATA_BITS])
-                                                   : InitProgram[initPC][`DATA_BITS];
-      initPC <= initPC + 5'd1;
+      WriteData <= InitProgram[initPC][`DATA_BITS];
+      initPC <= initPC + 4'd1;
       state[ST_WAVEFORM_ADDR] <= 1;
 
       if (initPC == ID_INIT_DONE) begin
@@ -1214,7 +1223,7 @@ always @(posedge sysclk) begin
       else
          state[ST_WAVEFORM_ADDR] <= 1;
 
-      if (RunProgram[runPC][`OR_BIT])
+      if (RunProgram[runPC][`MOD_BIT])
          retState <= ST_IRQ_DISPATCH;
       else if (runPC == ID_ENABLE_DMA_RECV)
          retState <= ST_RECEIVE_DMA_REQUEST;
@@ -1269,7 +1278,7 @@ always @(posedge sysclk) begin
          // Handle receive
          isInIRQ <= 1;
          runPC <= ID_CLEAR_INTERRUPT;
-         RunProgram[ID_CLEAR_INTERRUPT][`OR_BIT] <= 1'b0;
+         RunProgram[ID_CLEAR_INTERRUPT][`MOD_BIT] <= 1'b0;
          RunProgram[ID_CLEAR_INTERRUPT][`ADDR_BITS] <= `ETH_ADDR_ISR;
          RunProgram[ID_CLEAR_INTERRUPT][`DATA_BITS] <= 16'h2000;
          RegISR[13] <= 1'b0;     // clear ISR receive IRQ bit
@@ -1277,7 +1286,7 @@ always @(posedge sysclk) begin
       else if (RegISR[15] == 1'b1) begin
          // Handle link change (TBD)
          runPC <= ID_CLEAR_INTERRUPT;
-         RunProgram[ID_CLEAR_INTERRUPT][`OR_BIT] <= 1'b1;
+         RunProgram[ID_CLEAR_INTERRUPT][`MOD_BIT] <= 1'b1;
          RunProgram[ID_CLEAR_INTERRUPT][`ADDR_BITS] <= `ETH_ADDR_ISR;
          RunProgram[ID_CLEAR_INTERRUPT][`DATA_BITS] <= 16'h8000;
          RegISR[15] <= 1'b0;       // Clear RegISR
@@ -1286,7 +1295,7 @@ always @(posedge sysclk) begin
          // These interrupts are not handled and are disabled, so clear them
          // if they somehow occurred.
          runPC <= ID_CLEAR_INTERRUPT;
-         RunProgram[ID_CLEAR_INTERRUPT][`OR_BIT] <= 1'b1;
+         RunProgram[ID_CLEAR_INTERRUPT][`MOD_BIT] <= 1'b1;
          RunProgram[ID_CLEAR_INTERRUPT][`ADDR_BITS] <= `ETH_ADDR_ISR;
          RunProgram[ID_CLEAR_INTERRUPT][`DATA_BITS] <= RegISR&16'b0100101101000000;
          RegISR <= RegISR&16'b1011010010111111;    // Clear RegISR bits
@@ -1295,7 +1304,7 @@ always @(posedge sysclk) begin
          // These interrupts are also not handled and are disabled, but are
          // cleared differently (by writing to PMECR)
          runPC <= ID_CLEAR_INTERRUPT;
-         RunProgram[ID_CLEAR_INTERRUPT][`OR_BIT] <= 1'b1;
+         RunProgram[ID_CLEAR_INTERRUPT][`MOD_BIT] <= 1'b1;
          RunProgram[ID_CLEAR_INTERRUPT][`ADDR_BITS] <= `ETH_ADDR_PMECR;
          RunProgram[ID_CLEAR_INTERRUPT][`DATA_BITS] <= RegISR&16'h003c;
          RegISR    <= RegISR&16'hffc3;    // Clear RegISR bits
@@ -1519,9 +1528,12 @@ always @(posedge sysclk) begin
       // Wait for bit 0 in Register TXQCR (0x80) to be cleared.
       // According to the datasheet, "the software should wait for the bit to be cleared before
       // setting up another new TX frame," so this check could be moved elsewhere for efficiency.
-      if (ReadData[0] == 1'b0)
+      if (ReadData[0] == 1'b0) begin
          state[ST_SEND_END] <= 1;
+         waitInfo <= WAIT_NONE;
+      end
       else begin
+         waitInfo <= WAIT_FLUSH;
          runPC <= ID_TXQ_READ;  // Check again
          state[ST_RUN_PROGRAM_EXECUTE] <= 1;
       end
@@ -1529,6 +1541,7 @@ always @(posedge sysclk) begin
 
    state[ST_SEND_END]:
    begin
+      numPacketSent <= numPacketSent + 8'd1;
       if (isInIRQ) begin
          timeSend <= timeNotIdle;
          if (FrameCount == 8'd0) begin
@@ -1696,9 +1709,7 @@ begin
       skipCnt <= 2'd3;  // Skip first 3 words in packet when receiving
                         // ignore(1) + status(1) + byte-count(1)
       nextRecvState <= ST_RECEIVE_DMA_IDLE;
-      if (state[ST_RESET_ASSERT]) begin
-         // Would be cleaner to have a "reset request" instead of
-         // checking state[ST_RESET_ASSERT].
+      if (resetActive) begin
          FireWirePacketFresh <= 0;
          writeRequestBlock <= 0;
          writeRequestQuad <= 0;
@@ -1958,9 +1969,7 @@ begin
       icmp_read_en <= 0;
       txPktWords <= 12'd0;
       sfw_count <= 10'd0;
-      if (state[ST_RESET_ASSERT]) begin
-         // Would be cleaner to have a "reset request" instead of
-         // checking state[ST_RESET_ASSERT].
+      if (resetActive) begin
          ethAccessError <= 0;
       end
       if (sendDMAreq) begin
