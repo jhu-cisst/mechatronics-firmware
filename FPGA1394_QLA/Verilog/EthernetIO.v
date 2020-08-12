@@ -289,9 +289,22 @@ localparam[4:0]
 
 // Current state (one-hot encoding)
 reg[21:0] state = (22'd1 << ST_RESET_ASSERT);
+// Current state (not one-hot)
+reg[4:0] stateIndex = ST_RESET_ASSERT;
+// For error checking
+reg[21:0] testState;
+// Next state
 reg[4:0] nextState;
-// State to return to after ST_KSZIO
+reg[21:0] nextStateVector;
+// State to return to after ST_WAVEFORM_DATA
 reg[4:0] retState = ST_IDLE;
+
+// Following indicates an error in the one-hot state encoding, i.e., either no bits
+// are set or more than one bit is set. Note that testState is assigned in the
+// always block that also sets nextState.
+wire stateError;
+assign stateError  = (state == 22'd0) || (testState != 22'd0) ? 1'b1 : 1'b0;
+reg[31:0] errorStateInfo;
 
 // Debugging support
 assign eth_io_isIdle = state[ST_IDLE];
@@ -746,7 +759,7 @@ assign DebugData[11] = { 6'd0, numICMP, 6'd0, numARP };
 assign DebugData[12] = { 6'd0, numIPv4Mismatch, 6'd0, numPacketError };
 assign DebugData[13] = { numSendStateInvalid, numReset, 6'd0, numStateInvalid };
 assign DebugData[14] = { timeForwardToFw, timeForwardFromFw };
-assign DebugData[15] = timestamp;
+assign DebugData[15] = errorStateInfo;
 
 // For debugging block write. Note that in the current implementation, this buffer can
 // only be written via the Ethernet interface, but it can be read via Ethernet or Firewire.
@@ -1040,26 +1053,35 @@ assign Reg_RDn = (Reg_CMD|isWrite) ? 1'b1 :~RWcnt[1]&(RWcnt[0]^~RWcnt[2]);
 // Ethernet top-level state machine
 //
 // This design uses two always blocks:
-//   1) Combinatorial, to set nextState
+//   1) Combinatorial, to set nextState (and testState)
 //   2) Sequential, to update state based on nextState and set outputs.
 //
 // -------------------------------------------------------------
 
-// Combinatorial always block to set nextState
+// Combinatorial always block to set nextState. Also sets testState for error checking.
 always @(*)
 begin
+
+   // Default value of nextState. This should get reassigned below,
+   // unless there is an error (i.e., if no bits in state are set).
+   nextState = ST_IDLE;
+
+   // Following is for error checking (i.e., to check if more than 1 bit
+   // in state is set).
+   testState = state;
 
    case (1'b1)
 
    state[ST_IDLE]:
    begin
+      testState[ST_IDLE] = 0;
       if (ksz_req) begin
          if (ksz_wdata[26])
             nextState = ST_RESET_ASSERT;
          else
             nextState = ksz_wdata[27] ? ST_WAVEFORM_DATA : ST_WAVEFORM_ADDR;
       end
-      else if (initOK & (~ETH_IRQn|sendReq)) begin
+      else if (~ETH_IRQn|sendReq) begin
          nextState = ST_RUN_PROGRAM_EXECUTE;
       end
       else
@@ -1069,22 +1091,26 @@ begin
    //******************* RESET STATES ***********************
    state[ST_RESET_ASSERT]:
    begin
+      testState[ST_RESET_ASSERT] = 0;
       // 10 ms (49.152 MHz sysclk)
       nextState = (initCount == 21'd491520) ? ST_RESET_WAIT : ST_RESET_ASSERT;
    end
 
    state[ST_RESET_WAIT]:
    begin
+      testState[ST_RESET_WAIT] = 0;
       nextState = (initCount == 21'h1FFFFF) ? ST_INIT_PROGRAM_EXECUTE : ST_RESET_WAIT;
    end
 
    state[ST_INIT_PROGRAM_EXECUTE]:
    begin
+      testState[ST_INIT_PROGRAM_EXECUTE] = 0;
       nextState = ST_WAVEFORM_ADDR;
    end
 
    state[ST_INIT_CHECK_CHIPID]:
    begin
+      testState[ST_INIT_CHECK_CHIPID] = 0;
       nextState = (ReadData[15:4] == 12'h887) ? ST_INIT_PROGRAM_EXECUTE : ST_IDLE;
    end
 
@@ -1092,17 +1118,22 @@ begin
 
    state[ST_RUN_PROGRAM_EXECUTE]:
    begin
+      testState[ST_RUN_PROGRAM_EXECUTE] = 0;
       // runPC should never equal ID_PROG_UNUSED
       nextState = (runPC == ID_PROG_UNUSED) ? ST_IDLE : ST_WAVEFORM_ADDR;
    end
 
    //********************* IRQ STATES *************************
 
-   state[ST_IRQ_HANDLER],
-   state[ST_IRQ_DISPATCH],
-   state[ST_RECEIVE_FRAME_STATUS],
-   state[ST_RECEIVE_FRAME_LENGTH]:
+   state[ST_IRQ_HANDLER]:
    begin
+      testState[ST_IRQ_HANDLER] = 0;
+      nextState = ST_RUN_PROGRAM_EXECUTE;
+   end
+
+   state[ST_IRQ_DISPATCH]:
+   begin
+      testState[ST_IRQ_DISPATCH] = 0;
       nextState = ST_RUN_PROGRAM_EXECUTE;
    end
 
@@ -1110,21 +1141,37 @@ begin
 
    state[ST_RECEIVE_FRAME_COUNT]:
    begin
+      testState[ST_RECEIVE_FRAME_COUNT] = 0;
       nextState = (ReadData[15:8] == 0) ? ST_IRQ_DISPATCH : ST_RUN_PROGRAM_EXECUTE;
+   end
+
+   state[ST_RECEIVE_FRAME_STATUS]:
+   begin
+      testState[ST_RECEIVE_FRAME_STATUS] = 0;
+      nextState = ST_RUN_PROGRAM_EXECUTE;
+   end
+
+   state[ST_RECEIVE_FRAME_LENGTH]:
+   begin
+      testState[ST_RECEIVE_FRAME_LENGTH] = 0;
+      nextState = ST_RUN_PROGRAM_EXECUTE;
    end
 
    state[ST_RECEIVE_DMA_REQUEST]:
    begin
+      testState[ST_RECEIVE_DMA_REQUEST] = 0;
       nextState = ST_RECEIVE_DMA_WAIT;
    end
 
    state[ST_RECEIVE_DMA_WAIT]:
    begin
+      testState[ST_RECEIVE_DMA_WAIT] = 0;
       nextState = ~(recvDMAreq|isDMARead) ? ST_RUN_PROGRAM_EXECUTE : ST_RECEIVE_DMA_WAIT;
    end
 
    state[ST_RECEIVE_FLUSH_WAIT]:
    begin
+      testState[ST_RECEIVE_FLUSH_WAIT] = 0;
       if (ReadData[0] == 1'b0) begin
          if ((FireWirePacketFresh && (quadRead || blockRead) && isLocal) || sendARP || isEcho) begin
             nextState = ST_RUN_PROGRAM_EXECUTE;
@@ -1143,21 +1190,25 @@ begin
 
    state[ST_SEND_DMA_REQUEST]:
    begin
+      testState[ST_SEND_DMA_REQUEST] = 0;
       nextState = ST_SEND_DMA_WAIT;
    end
 
    state[ST_SEND_DMA_WAIT]:
    begin
+      testState[ST_SEND_DMA_WAIT] = 0;
       nextState = ~(sendDMAreq|isDMAWrite) ? ST_RUN_PROGRAM_EXECUTE : ST_SEND_DMA_WAIT;
    end
 
    state[ST_SEND_TXQ_ENQUEUE_WAIT]:
    begin
+      testState[ST_SEND_TXQ_ENQUEUE_WAIT] = 0;
       nextState = (ReadData[0] == 1'b0) ? ST_SEND_END : ST_RUN_PROGRAM_EXECUTE;
    end
 
    state[ST_SEND_END]:
    begin
+      testState[ST_SEND_END] = 0;
       if (isInIRQ)
          nextState = (FrameCount == 8'd0) ? ST_IRQ_DISPATCH : ST_RUN_PROGRAM_EXECUTE;
       else
@@ -1166,15 +1217,20 @@ begin
 
    state[ST_WAVEFORM_ADDR]:
    begin
+      testState[ST_WAVEFORM_ADDR] = 0;
       nextState = (RWcnt == 3'd3) ? ST_WAVEFORM_DATA : ST_WAVEFORM_ADDR;
    end
 
    state[ST_WAVEFORM_DATA]:
    begin
+      testState[ST_WAVEFORM_DATA] = 0;
       nextState = ((isWrite && (RWcnt == 3'd3)) || (RWcnt == 3'd5)) ? retState : ST_WAVEFORM_DATA;
    end
 
    endcase // case (1'b1)
+
+   nextStateVector <= (22'd1 << nextState);
+
 end
 
 always @(posedge sysclk) begin
@@ -1209,13 +1265,15 @@ always @(posedge sysclk) begin
    end
 
    //******************** State Machine ********************
-   state <= 22'd0;
-   state[nextState] <= 1;
+   //state <= 22'd0;
+   //state[nextState] <= 1;
+   state <= nextStateVector;
+   stateIndex <= nextState;
 
-   if (state == 22'd0) begin
-      // Should never happen, except for programming errors
+   if (stateError) begin
+      // Should never happen, except for programming errors or glitches
       numStateInvalid <= numStateInvalid + 10'd1;
-      state[ST_IDLE] <= 1;
+      errorStateInfo <= {nextState, stateIndex, state};
    end
 
    timeNotIdle <= eth_io_isIdle ? timeNotIdle : timeNotIdle + 16'd1;
@@ -1255,12 +1313,12 @@ always @(posedge sysclk) begin
             retState <= ST_IDLE;
          end
       end
-      else if (initOK & ~ETH_IRQn) begin
+      else if (~ETH_IRQn) begin
          // If an interrupt transition to ST_RUN_PROGRAM_EXECUTE
          runPC <= ID_READ_INTERRUPT;
          timeNotIdle <= 16'd0;
       end
-      else if (initOK & sendReq) begin
+      else if (sendReq) begin
          // forward packet from FireWire
          isForward <= 1;
          timeNotIdle <= 16'd0;
