@@ -200,6 +200,7 @@ reg isDMARead;      // 1 -> DMA Read process should have control
 reg isDMAWrite;     // 1 -> DMA Write process should have control
 
 reg[2:0] RWcnt;     // Counter used for reading/write KSZ8851
+reg[2:0] lastRWcnt;
 
 // Register Read/Write from/to KSZ8851
 wire Reg_RDn;
@@ -289,6 +290,7 @@ localparam[4:0]
 
 // Current state (one-hot encoding)
 reg[21:0] state = (22'd1 << ST_RESET_ASSERT);
+reg[21:0] lastState;
 // Current state (not one-hot)
 reg[4:0] stateIndex = ST_RESET_ASSERT;
 // For error checking
@@ -756,7 +758,7 @@ assign DebugData[8]  = { timeSend, timeReceive };
 assign DebugData[9]  = { 6'd0, numPacketInvalid, numPacketValid };
 assign DebugData[10] = { 6'd0, numUDP, 6'd0, numIPv4 };
 assign DebugData[11] = { 6'd0, numICMP, 6'd0, numARP };
-assign DebugData[12] = { 6'd0, numIPv4Mismatch, 6'd0, numPacketError };
+assign DebugData[12] = { runPCsaved, 2'd0, numIPv4Mismatch, 6'd0, numPacketError };
 assign DebugData[13] = { numSendStateInvalid, numReset, 6'd0, numStateInvalid };
 assign DebugData[14] = { timeForwardToFw, timeForwardFromFw };
 assign DebugData[15] = errorStateInfo;
@@ -970,6 +972,7 @@ initial begin
 end
 
 reg[3:0] runPC;    // Program counter for RunProgram
+reg[3:0] runPCsaved;
 
 // Following data is accessible via block read from address `ADDR_ETH (0x4000)
 //    4000 - 407f (128 quadlets) FireWire packet (first 128 quadlets only)
@@ -1265,18 +1268,30 @@ always @(posedge sysclk) begin
    end
 
    //******************** State Machine ********************
-   //state <= 22'd0;
-   //state[nextState] <= 1;
-   state <= nextStateVector;
-   stateIndex <= nextState;
+
+   timeNotIdle <= eth_io_isIdle ? timeNotIdle : timeNotIdle + 16'd1;
 
    if (stateError) begin
       // Should never happen, except for programming errors or glitches
       numStateInvalid <= numStateInvalid + 10'd1;
       errorStateInfo <= {nextState, stateIndex, state};
+      runPCsaved <= runPC;
+      // Go back and try again. We restore lastState because it was the
+      // last error-free state. We also restore RWcnt because the determination
+      // of nextState can depend on it. It can also depend on ReadData (which should
+      // not have changed) and initCount (used only during initialization).
+      state <= lastState;
+      RWcnt <= lastRWcnt;
+      // Note that the state machine is skipped this cycle
    end
+   else begin
 
-   timeNotIdle <= eth_io_isIdle ? timeNotIdle : timeNotIdle + 16'd1;
+   //state <= 22'd0;
+   //state[nextState] <= 1;
+   lastState <= state;
+   lastRWcnt <= RWcnt;
+   state <= nextStateVector;
+   stateIndex <= nextState;
 
    // One-hot state machine implementation
    case (1'b1)
@@ -1721,6 +1736,8 @@ always @(posedge sysclk) begin
    end
 
    endcase // case (1'b1)
+
+   end // else: !if(stateError)
 
 end
 
