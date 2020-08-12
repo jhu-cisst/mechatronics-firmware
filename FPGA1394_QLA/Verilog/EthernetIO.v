@@ -289,6 +289,7 @@ localparam[4:0]
 
 // Current state (one-hot encoding)
 reg[21:0] state = (22'd1 << ST_RESET_ASSERT);
+reg[4:0] nextState;
 // State to return to after ST_KSZIO
 reg[4:0] retState = ST_IDLE;
 
@@ -736,7 +737,7 @@ assign DebugData[3]  = { state[7:0], eth_send_fw_ack, eth_send_fw_req, 1'b0, ret
                          isForward, isInIRQ, sendARP, isUDP, isICMP, isEcho, is_IPv4_Long, is_IPv4_Short};
 assign DebugData[4]  = { RegISR, RegISROther};
 assign DebugData[5]  = { host_fw_addr, FrameCount, numPacketSent};
-assign DebugData[6]  = { 6'd0, maxCountFW, LengthFW };
+assign DebugData[6]  = { 1'b0, nextState, maxCountFW, LengthFW };
 assign DebugData[7]  = { sendState, txPktWords, nextSendState, rxPktWords };
 assign DebugData[8]  = { timeSend, timeReceive };
 assign DebugData[9]  = { 6'd0, numPacketInvalid, numPacketValid };
@@ -1035,9 +1036,147 @@ assign Reg_WRn = (Reg_CMD|isWrite) ? RWcnt[0]^~RWcnt[1] : 1'b1;
 // Reg_RDn is sequenced 100001 for reading data; held at 1 when writing address or data
 assign Reg_RDn = (Reg_CMD|isWrite) ? 1'b1 :~RWcnt[1]&(RWcnt[0]^~RWcnt[2]);
 
-// -------------------------------------------------------
-// Ethernet state machine
-// -------------------------------------------------------
+// -------------------------------------------------------------
+// Ethernet top-level state machine
+//
+// This design uses two always blocks:
+//   1) Combinatorial, to set nextState
+//   2) Sequential, to update state based on nextState and set outputs.
+//
+// -------------------------------------------------------------
+
+// Combinatorial always block to set nextState
+always @(*)
+begin
+
+   case (1'b1)
+
+   state[ST_IDLE]:
+   begin
+      if (ksz_req) begin
+         if (ksz_wdata[26])
+            nextState = ST_RESET_ASSERT;
+         else
+            nextState = ksz_wdata[27] ? ST_WAVEFORM_DATA : ST_WAVEFORM_ADDR;
+      end
+      else if (initOK & (~ETH_IRQn|sendReq)) begin
+         nextState = ST_RUN_PROGRAM_EXECUTE;
+      end
+      else
+         nextState = ST_IDLE;
+   end
+
+   //******************* RESET STATES ***********************
+   state[ST_RESET_ASSERT]:
+   begin
+      // 10 ms (49.152 MHz sysclk)
+      nextState = (initCount == 21'd491520) ? ST_RESET_WAIT : ST_RESET_ASSERT;
+   end
+
+   state[ST_RESET_WAIT]:
+   begin
+      nextState = (initCount == 21'h1FFFFF) ? ST_INIT_PROGRAM_EXECUTE : ST_RESET_WAIT;
+   end
+
+   state[ST_INIT_PROGRAM_EXECUTE]:
+   begin
+      nextState = ST_WAVEFORM_ADDR;
+   end
+
+   state[ST_INIT_CHECK_CHIPID]:
+   begin
+      nextState = (ReadData[15:4] == 12'h887) ? ST_INIT_PROGRAM_EXECUTE : ST_IDLE;
+   end
+
+   //********************* RUN PROGRAM ************************
+
+   state[ST_RUN_PROGRAM_EXECUTE]:
+   begin
+      // runPC should never equal ID_PROG_UNUSED
+      nextState = (runPC == ID_PROG_UNUSED) ? ST_IDLE : ST_WAVEFORM_ADDR;
+   end
+
+   //********************* IRQ STATES *************************
+
+   state[ST_IRQ_HANDLER],
+   state[ST_IRQ_DISPATCH],
+   state[ST_RECEIVE_FRAME_STATUS],
+   state[ST_RECEIVE_FRAME_LENGTH]:
+   begin
+      nextState = ST_RUN_PROGRAM_EXECUTE;
+   end
+
+   //******************* RECEIVE STATES ***********************
+
+   state[ST_RECEIVE_FRAME_COUNT]:
+   begin
+      nextState = (ReadData[15:8] == 0) ? ST_IRQ_DISPATCH : ST_RUN_PROGRAM_EXECUTE;
+   end
+
+   state[ST_RECEIVE_DMA_REQUEST]:
+   begin
+      nextState = ST_RECEIVE_DMA_WAIT;
+   end
+
+   state[ST_RECEIVE_DMA_WAIT]:
+   begin
+      nextState = ~(recvDMAreq|isDMARead) ? ST_RUN_PROGRAM_EXECUTE : ST_RECEIVE_DMA_WAIT;
+   end
+
+   state[ST_RECEIVE_FLUSH_WAIT]:
+   begin
+      if (ReadData[0] == 1'b0) begin
+         if ((FireWirePacketFresh && (quadRead || blockRead) && isLocal) || sendARP || isEcho) begin
+            nextState = ST_RUN_PROGRAM_EXECUTE;
+         end
+         else begin
+            if (FrameCount == 8'd0)
+               nextState = ST_IRQ_DISPATCH;
+            else
+               nextState = ST_RUN_PROGRAM_EXECUTE;
+         end
+      end
+      else begin
+         nextState = ST_RUN_PROGRAM_EXECUTE;
+      end
+   end
+
+   state[ST_SEND_DMA_REQUEST]:
+   begin
+      nextState = ST_SEND_DMA_WAIT;
+   end
+
+   state[ST_SEND_DMA_WAIT]:
+   begin
+      nextState = ~(sendDMAreq|isDMAWrite) ? ST_RUN_PROGRAM_EXECUTE : ST_SEND_DMA_WAIT;
+   end
+
+   state[ST_SEND_TXQ_ENQUEUE_WAIT]:
+   begin
+      nextState = (ReadData[0] == 1'b0) ? ST_SEND_END : ST_RUN_PROGRAM_EXECUTE;
+   end
+
+   state[ST_SEND_END]:
+   begin
+      if (isInIRQ)
+         nextState = (FrameCount == 8'd0) ? ST_IRQ_DISPATCH : ST_RUN_PROGRAM_EXECUTE;
+      else
+         nextState = ST_IDLE;
+   end
+
+   state[ST_WAVEFORM_ADDR]:
+   begin
+      nextState = (RWcnt == 3'd3) ? ST_WAVEFORM_DATA : ST_WAVEFORM_ADDR;
+   end
+
+   state[ST_WAVEFORM_DATA]:
+   begin
+      nextState = ((isWrite && (RWcnt == 3'd3)) || (RWcnt == 3'd5)) ? retState : ST_WAVEFORM_DATA;
+   end
+
+   endcase // case (1'b1)
+end
+
 always @(posedge sysclk) begin
 
    // Store request to write to KSZ register (from Firewire), in case
@@ -1071,6 +1210,7 @@ always @(posedge sysclk) begin
 
    //******************** State Machine ********************
    state <= 22'd0;
+   state[nextState] <= 1;
 
    if (state == 22'd0) begin
       // Should never happen, except for programming errors
@@ -1107,25 +1247,17 @@ always @(posedge sysclk) begin
          // but now it will only work in the IDLE state.
          ksz_req <= 0;
          eth_error <= ksz_wdata[28] ? 1'd0 : eth_error;
-         if (ksz_wdata[26]) begin   // if reset
-            state[ST_RESET_ASSERT] <= 1;
-         end
-         else begin
+         if (!ksz_wdata[26]) begin   // if not reset
             isWrite <= ksz_wdata[25];
             isWord <= ksz_wdata[24];
             RegAddr <= ksz_wdata[23:16];
             WriteData <= ksz_wdata[15:0];
-            if (ksz_wdata[27])
-               state[ST_WAVEFORM_DATA] <= 1;  // DMA
-            else
-               state[ST_WAVEFORM_ADDR] <= 1;  // Register
             retState <= ST_IDLE;
          end
       end
       else if (initOK & ~ETH_IRQn) begin
          // If an interrupt transition to ST_RUN_PROGRAM_EXECUTE
          runPC <= ID_READ_INTERRUPT;
-         state[ST_RUN_PROGRAM_EXECUTE] <= 1;
          timeNotIdle <= 16'd0;
       end
       else if (initOK & sendReq) begin
@@ -1144,10 +1276,6 @@ always @(posedge sysclk) begin
             ReplyBuffer[ID_Rep_UDP_Length] <= 16'd8 + sendLen;
          end
          runPC <= ID_ENABLE_DMA_SEND;
-         state[ST_RUN_PROGRAM_EXECUTE] <= 1;
-      end
-      else begin
-         state[ST_IDLE] <= 1;
       end
    end
 
@@ -1164,14 +1292,12 @@ always @(posedge sysclk) begin
          ETH_RSTn <= 1;   // Remove the reset
          initCount <= 21'd0;
          numReset <= numReset + 8'd1;
-         state[ST_RESET_WAIT] <= 1;
       end
       else begin
          ETH_RSTn <= 0;
          initOK <= 0;
          resetActive <= 1;
          initCount <= initCount + 21'd1;
-         state[ST_RESET_ASSERT] <= 1;
       end
    end
 
@@ -1183,11 +1309,9 @@ always @(posedge sysclk) begin
          InitProgram[ID_MAC_LOW][3:0] <= board_id;
          ReplyBuffer[ID_Rep_fpgaMac2][3:0] <= board_id;
          initPC <= ID_CHIP_ID;
-         state[ST_INIT_PROGRAM_EXECUTE] <= 1;
       end
       else begin
          initCount <= initCount + 21'd1;
-         state[ST_RESET_WAIT] <= 1;
       end
    end
 
@@ -1199,7 +1323,6 @@ always @(posedge sysclk) begin
       RegAddr <= InitProgram[initPC][`ADDR_BITS];
       WriteData <= InitProgram[initPC][`DATA_BITS];
       initPC <= initPC + 4'd1;
-      state[ST_WAVEFORM_ADDR] <= 1;
 
       if (initPC == ID_INIT_DONE) begin
          initOK <= 1;
@@ -1213,11 +1336,6 @@ always @(posedge sysclk) begin
 
    state[ST_INIT_CHECK_CHIPID]:
    begin
-      // Check Chip ID; if not correct (887x) go to ST_IDLE without setting initOK
-      if (ReadData[15:4] != 12'h887)
-         state[ST_IDLE] <= 1;
-      else
-         state[ST_INIT_PROGRAM_EXECUTE] <= 1;
    end
 
    //*************** State for the run-time program ******************
@@ -1228,11 +1346,6 @@ always @(posedge sysclk) begin
       RegAddr <= RunProgram[runPC][`ADDR_BITS];
       WriteData <= RunProgram[runPC][`DATA_BITS];
       runPC <= runPC + 4'd1;
-
-      if (runPC == ID_PROG_UNUSED)  // should not happen
-         state[ST_IDLE] <= 1;
-      else
-         state[ST_WAVEFORM_ADDR] <= 1;
 
       if (RunProgram[runPC][`MOD_BIT])
          retState <= ST_IRQ_DISPATCH;
@@ -1279,8 +1392,6 @@ always @(posedge sysclk) begin
          // Record unexpected interrupt
          RegISROther <= ReadData;
       end
-      // Return to program
-      state[ST_RUN_PROGRAM_EXECUTE] <= 1;
    end
 
    state[ST_IRQ_DISPATCH]:
@@ -1326,8 +1437,6 @@ always @(posedge sysclk) begin
          // Enable interrupts
          runPC <= ID_ENABLE_INTERRUPT;
       end
-      // Return to program
-      state[ST_RUN_PROGRAM_EXECUTE] <= 1;
    end
 
    //*************** States for receiving Ethernet packets ******************
@@ -1343,10 +1452,6 @@ always @(posedge sysclk) begin
    state[ST_RECEIVE_FRAME_COUNT]:
    begin
       FrameCount <= ReadData[15:8];
-      if (ReadData[15:8] == 0)
-         state[ST_IRQ_DISPATCH] <= 1;
-      else
-         state[ST_RUN_PROGRAM_EXECUTE] <= 1;
    end
 
    state[ST_RECEIVE_FRAME_STATUS]:
@@ -1381,7 +1486,6 @@ always @(posedge sysclk) begin
          isEthMulticast <= ReadData[6];
          numPacketValid <= numPacketValid + 16'd1;
       end
-      state[ST_RUN_PROGRAM_EXECUTE] <= 1;
    end
 
    state[ST_RECEIVE_FRAME_LENGTH]:
@@ -1393,7 +1497,6 @@ always @(posedge sysclk) begin
       else begin
          rxPktWords <= ((ReadData[11:0]+12'd3)>>1)&12'hffe;
       end
-      state[ST_RUN_PROGRAM_EXECUTE] <= 1;
    end
 
    state[ST_RECEIVE_DMA_REQUEST]:
@@ -1401,7 +1504,6 @@ always @(posedge sysclk) begin
       // set request flag
       recvDMAreq <= 1;
       waitInfo <= WAIT_RECEIVE_DMA;
-      state[ST_RECEIVE_DMA_WAIT] <= 1;
    end
 
    state[ST_RECEIVE_DMA_WAIT]:
@@ -1411,7 +1513,6 @@ always @(posedge sysclk) begin
       // Then, when isDMARead==0, go to next state
       if (recvDMAreq&isDMARead) begin
          recvDMAreq <= 0;
-         state[ST_RECEIVE_DMA_WAIT] <= 1;
       end
       else if (~(recvDMAreq|isDMARead)) begin
          waitInfo <= WAIT_NONE;
@@ -1421,10 +1522,6 @@ always @(posedge sysclk) begin
          numICMP <= numICMP + {9'd0, isICMP};
          numUDP <= numUDP + {9'd0, isUDP};
          runPC <= ID_FLUSH_FRAME;
-         state[ST_RUN_PROGRAM_EXECUTE] <= 1;
-      end
-      else begin
-         state[ST_RECEIVE_DMA_WAIT] <= 1;
       end
    end
 
@@ -1463,22 +1560,16 @@ always @(posedge sysclk) begin
                ReplyBuffer[ID_Rep_Frame_Length] <= quadRead ? 16'd20 : (16'd24 + block_data_length);
             end
             runPC <= ID_ENABLE_DMA_SEND;
-            state[ST_RUN_PROGRAM_EXECUTE] <= 1;
          end
          else begin
-            if (FrameCount == 8'd0) begin
-               state[ST_IRQ_DISPATCH] <= 1;
-            end
-            else begin
+            if (FrameCount != 8'd0) begin
                runPC <= ID_READ_FRAME_STATUS;
-               state[ST_RUN_PROGRAM_EXECUTE] <= 1;
             end
          end
          waitInfo <= WAIT_NONE;
       end
       else begin
          runPC <= ID_READ_CMD_REG;  // Check again
-         state[ST_RUN_PROGRAM_EXECUTE] <= 1;
          waitInfo <= WAIT_FLUSH;
       end
    end
@@ -1500,7 +1591,6 @@ always @(posedge sysclk) begin
       // Set request flag
       sendDMAreq <= 1;
       waitInfo <= WAIT_SEND_DMA;
-      state[ST_SEND_DMA_WAIT] <= 1;
    end
 
    state[ST_SEND_DMA_WAIT]:
@@ -1510,16 +1600,11 @@ always @(posedge sysclk) begin
       // Then, when isDMAWrite==0, go to next state
       if (sendDMAreq&isDMAWrite) begin
          sendDMAreq <= 0;
-         state[ST_SEND_DMA_WAIT] <= 1;
       end
       else if (~(sendDMAreq|isDMAWrite)) begin
          waitInfo <= WAIT_NONE;
          isForward <= 1'd0;
          runPC <= ID_DISABLE_DMA;
-         state[ST_RUN_PROGRAM_EXECUTE] <= 1;
-      end
-      else begin
-         state[ST_SEND_DMA_WAIT] <= 1;
       end
    end
 
@@ -1529,13 +1614,11 @@ always @(posedge sysclk) begin
       // According to the datasheet, "the software should wait for the bit to be cleared before
       // setting up another new TX frame," so this check could be moved elsewhere for efficiency.
       if (ReadData[0] == 1'b0) begin
-         state[ST_SEND_END] <= 1;
          waitInfo <= WAIT_NONE;
       end
       else begin
          waitInfo <= WAIT_FLUSH;
          runPC <= ID_TXQ_READ;  // Check again
-         state[ST_RUN_PROGRAM_EXECUTE] <= 1;
       end
    end
 
@@ -1544,17 +1627,11 @@ always @(posedge sysclk) begin
       numPacketSent <= numPacketSent + 8'd1;
       if (isInIRQ) begin
          timeSend <= timeNotIdle;
-         if (FrameCount == 8'd0) begin
-            state[ST_IRQ_DISPATCH] <= 1;
-         end
-         else begin
+         if (FrameCount != 8'd0)
             runPC <= ID_READ_FRAME_STATUS;
-            state[ST_RUN_PROGRAM_EXECUTE] <= 1;
-         end
       end
       else begin
          timeForwardFromFw <= timeNotIdle;
-         state[ST_IDLE] <= 1;
       end
    end
 
@@ -1571,37 +1648,17 @@ always @(posedge sysclk) begin
    state[ST_WAVEFORM_ADDR]:
    begin
       SDReg <= Addr16;
-      RWcnt <= RWcnt + 3'd1;
-      if (RWcnt == 3'd3) begin
-         state[ST_WAVEFORM_DATA] <= 1;
-         RWcnt <= 3'd0;
-      end
-      else
-         state[ST_WAVEFORM_ADDR] <= 1;
+      RWcnt <= (RWcnt == 3'd3) ? 3'd0 : RWcnt + 3'd1;
    end
 
    state[ST_WAVEFORM_DATA]:
    begin
-      RWcnt <= RWcnt + 3'd1;
+      RWcnt <= ((isWrite && (RWcnt == 3'd3)) || (RWcnt == 3'd5)) ? 3'd0 : RWcnt + 3'd1;
       if (isWrite) begin
          SDReg <= WriteData;
-         if (RWcnt == 3'd3) begin
-            state[retState] <= 1;
-            RWcnt <= 3'd0;
-         end
-         else
-            state[ST_WAVEFORM_DATA] <= 1;
       end
-      else begin
-         if (RWcnt == 3'd4) begin
-            eth_data <= SD;
-         end
-         if (RWcnt == 3'd5) begin
-            state[retState] <= 1;
-            RWcnt <= 3'd0;
-         end
-         else
-            state[ST_WAVEFORM_DATA] <= 1;
+      else if (RWcnt == 3'd4) begin
+         eth_data <= SD;
       end
    end
 
