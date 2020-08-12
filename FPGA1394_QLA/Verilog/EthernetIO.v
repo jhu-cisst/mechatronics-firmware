@@ -866,7 +866,7 @@ initial begin
     InitProgram[4] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_TXFDPR, 16'h4000};
     InitProgram[5] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_TXCR, ETH_VALUE_TXCR};
     // B14: Enable QMU receive frame data pointer auto increment
-    // B12: Decrease write data valid sample time to 4 nS (max)
+    // B12: Decrease write data valid sample time to 4 nS (max) -- currently not set
     // B11: Set Little Endian (0) or Big Endian (1)-- currently, Little Endian.
     // According to KSZ8851 Step-by-Step Programmer's Guide, in Little Endian mode,
     // registers are:
@@ -879,7 +879,7 @@ initial begin
     // convenient to keep the KSZ8851 in Little Endian mode.
     // Note, however, that Ethernet and FireWire are both Big Endian, so some byte-swapping
     // is needed.
-    InitProgram[6] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_RXFDPR, 16'h5000};
+    InitProgram[6] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_RXFDPR, 16'h4000};
     // Configure receive frame threshold for 1 frame
     InitProgram[7] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_RXFCTR, 16'h0001};
     // 7: enable UDP, TCP, and IP checksums
@@ -941,8 +941,8 @@ initial begin
     RunProgram[ID_READ_FRAME_COUNT]  = {CMD_READ,  CMD_NOP, `ETH_ADDR_RXFCTR, 11'd0, ST_RECEIVE_FRAME_COUNT};
     RunProgram[ID_READ_FRAME_STATUS] = {CMD_READ,  CMD_NOP, `ETH_ADDR_RXFHSR, 11'd0, ST_RECEIVE_FRAME_STATUS};
     RunProgram[ID_READ_FRAME_LENGTH] = {CMD_READ,  CMD_NOP, `ETH_ADDR_RXFHBCR, 11'd0, ST_RECEIVE_FRAME_LENGTH};
-    // Set QMU RXQ frame pointer to 0, also decrease write sample time
-    RunProgram[ID_SET_FRAME_POINTER] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_RXFDPR, 16'h5000};
+    // Set QMU RXQ frame pointer to 0 (not decreasing write sample time)
+    RunProgram[ID_SET_FRAME_POINTER] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_RXFDPR, 16'h4000};
     RunProgram[ID_ENABLE_DMA_RECV]   = {CMD_WRITE, CMD_NOP, `ETH_ADDR_RXQCR, ETH_VALUE_RXQCR[15:4],1'b1,ETH_VALUE_RXQCR[2:0]};
     // Flush the rest of the packet: Clear DMA bit (bit 3) and set flush bit (bit 0)
     RunProgram[ID_FLUSH_FRAME]       = {CMD_WRITE, CMD_NOP, `ETH_ADDR_RXQCR, ETH_VALUE_RXQCR[15:4],1'b0,ETH_VALUE_RXQCR[2:1],1'b1};
@@ -1081,7 +1081,7 @@ always @(posedge sysclk) begin
    timeNotIdle <= eth_io_isIdle ? timeNotIdle : timeNotIdle + 16'd1;
 
    // One-hot state machine implementation
-   case (1'b1)  // synthesis parallel_case
+   case (1'b1)
 
    state[ST_IDLE]:
    begin
