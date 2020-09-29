@@ -1,0 +1,1 @@
+ngdbuild -intstyle ise -dd _ngo -nt timestamp -i -p xc6slx45-fgg484-2 FIR_FC_1500.ngc FIR_FC_1500.ngd  

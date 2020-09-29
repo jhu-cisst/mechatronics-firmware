@@ -1,0 +1,49 @@
+Release 14.7 ngdbuild P.20131013 (nt64)
+Copyright (c) 1995-2013 Xilinx, Inc.  All rights reserved.
+
+Command Line: C:\Xilinx\14.7\ISE_DS\ISE\bin\nt64\unwrapped\ngdbuild.exe
+-intstyle ise -dd _ngo -nt timestamp -i -p xc6slx45-fgg484-2 FIR_FC_1500.ngc
+FIR_FC_1500.ngd
+
+Reading NGO file
+"C:/Users/maxwe/Desktop/SMARTS/mechatronics-firmware-feature-udp/FPGA1394_QLA/ip
+core_dir/FIR_FC_1500.ngc" ...
+Gathering constraint information from source properties...
+Done.
+
+Resolving constraint associations...
+Checking Constraint Associations...
+Done...
+
+Checking expanded design ...
+WARNING:NgdBuild:452 - logical net 'blk00000001/blk000000e0/sig00000229' has no
+   driver
+WARNING:NgdBuild:452 - logical net 'blk00000001/blk000000e0/sig0000022a' has no
+   driver
+WARNING:NgdBuild:452 - logical net 'blk00000001/blk000000e0/sig0000022b' has no
+   driver
+WARNING:NgdBuild:452 - logical net 'blk00000001/blk000000e0/sig0000022d' has no
+   driver
+WARNING:NgdBuild:452 - logical net 'blk00000001/blk000000e0/sig0000022e' has no
+   driver
+WARNING:NgdBuild:452 - logical net 'blk00000001/blk000000e0/sig0000022f' has no
+   driver
+
+Partition Implementation Status
+-------------------------------
+
+  No Partitions were found in this design.
+
+-------------------------------
+
+NGDBUILD Design Results Summary:
+  Number of errors:     0
+  Number of warnings:   6
+
+Total memory usage is 4406492 kilobytes
+
+Writing NGD file "FIR_FC_1500.ngd" ...
+Total REAL time to NGDBUILD completion:  2 sec
+Total CPU time to NGDBUILD completion:   2 sec
+
+Writing NGDBUILD log file "FIR_FC_1500.bld"...
