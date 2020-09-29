@@ -27,7 +27,8 @@ module CtrlAdc(
     output wire[15:0] pot2,        // pot axis 2
     output wire[15:0] pot3,        // pot axis 3
     output wire[15:0] pot4,        // pot axis 4
-    output wire       pot_ready    // new pot data available
+    output wire       pot_ready,   // new pot data available
+	 output wire data_valid
 );
 
 
@@ -42,7 +43,7 @@ module CtrlAdc(
 // assign miso to local miso wire
 assign miso_pot = miso[1:4];
 assign miso_cur = miso[5:8];
-
+assign data_valid = potval_tvalid || curval_tvalid;
 // pot feedback module
 Ltc1864x4 adc_pot(
     .clk(clkadc),
@@ -53,7 +54,8 @@ Ltc1864x4 adc_pot(
     .OutReady(pot_ready),
     .sclk(sclk[1]),
     .conv(conv[1]),
-    .miso(miso_pot)
+    .miso(miso_pot),
+	 .data_tvalid(potval_tvalid)
 );
 
 // cur feedback module
@@ -66,7 +68,8 @@ Ltc1864x4 adc_cur(
     .OutReady(cur_ready),
     .sclk(sclk[2]),
     .conv(conv[2]),
-    .miso(miso_cur)
+    .miso(miso_cur),
+	 .data_tvalid(curval_tvalid)
 );
 
 endmodule
