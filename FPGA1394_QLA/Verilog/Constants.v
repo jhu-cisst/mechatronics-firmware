@@ -8,7 +8,8 @@
  * Purpose: Global constants e.g. device address
  * 
  * Revision history
- *     10/26/13    Zihan Chen    Initial revision
+ *     10/26/13    Zihan Chen          Initial revision
+ *     07/31/20    Stefan Kohlgrueber  Revised to support digital control
  */
  
  /**************************************************************
@@ -44,6 +45,7 @@
 `define ADDR_FW       4'h5         // firewire packet address space
 `define ADDR_DS       4'h6         // Dallas 1-wire memory (dV instrument)
 `define ADDR_DATA_BUF 4'h7         // Data buffer address space
+`define ADDR_CTRL     4'h8         // closed-loop control
 
 // channel 0 (board) registers
 `define REG_STATUS   4'd0          // board id (8), fault (8), enable/masks (16)
@@ -64,17 +66,33 @@
 
 // device register file offsets from channel base
 // For additional fields, please see dev_addr in FireWire.v to send back data in the correct slot
-`define OFF_ADC_DATA 4'h0          // adc data register offset (pot + cur)
-`define OFF_DAC_CTRL 4'h1          // dac control register offset
-`define OFF_POT_CTRL 4'h2          // pot control register offset
-`define OFF_POT_DATA 4'h3          // pot data register offset
-`define OFF_ENC_LOAD 4'h4          // enc data preload offset
-`define OFF_ENC_DATA 4'h5          // enc quadrature register offset
-`define OFF_PER_DATA 4'h6          // enc period register offset
+`define OFF_ADC_DATA  4'h0         // adc data register offset (pot + cur)
+`define OFF_CMD_CUR   4'h1         // commanded current bits //SK- XXX: was OFF_DAC_CTRL before change
+`define OFF_POT_CTRL  4'h2         // pot control register offset
+`define OFF_POT_DATA  4'h3         // pot data register offset
+`define OFF_ENC_LOAD  4'h4         // enc data preload offset
+`define OFF_ENC_DATA  4'h5         // enc quadrature register offset
+`define OFF_PER_DATA  4'h6         // enc period register offset
 `define OFF_QTR1_DATA 4'h7         // enc previous quarter offset
 `define OFF_DOUT_CTRL 4'h8         // dout hi/lo period (16-bits hi, 16-bits lo)
 `define OFF_QTR5_DATA 4'h9         // enc most recent quarter offset
 `define OFF_RUN_DATA  4'hA         // enc running counter offset
+`define OFF_DAC_VOLT  4'hB         // dac bits actually sent //SK - XXX
+
+
+// Controller register fields, as there is not a sufficient amount to include them in the main fields
+`define OFF_CO_CMD_FB               4'h0  // conversion offsets bits to amps for cur_cmd (high 16 bits) and cur_fb (low 16 bits) //SK - XXX
+`define OFF_CTRL_CURR_Kp_KiT        4'h1  // Kp and Ki*T both *2^N_shift for CL current PID controller //SK - XXX
+`define OFF_CTRL_CURR_KdT           4'h2  // Kd/T *2^N_shift for CL current PID controller //SK - XXX
+
+`define OFF_CTRL_POS_Kp_KiT         4'h3  // Kp and Ki*T both *2^N_shift for CL position PID controller //SK - XXX
+`define OFF_CTRL_POS_KdT_CF_OUT     4'h4  // Kd/T *2^N_shift for CL position PID controller and output conversion factor //SK - XXX
+`define OFF_OUT_POS_CMD             4'h5  // Commanded position value
+
+`define OFF_OUT_POS_OUT             4'h6  // PID_Pos output, solely intended for debugging
+`define OFF_CTRL_SHIFTS             4'h7  // [31] = POSITION CONTORL ENABLE, [23:0] reserved for the shifts of the controller gains
+                                          // [23:20] N_shift_Cur_Kp, [19:16] N_shift_Cur_KiT, [15:12] N_shift_Cur_KdT,
+                                          // [11: 8] N_shift_Pos_Kp, [ 7: 4] N_shift_Pos_KiT, [ 3: 0] N_shift_Pos_KdT,
 
 
 `define ENC_MIDRANGE 24'h800000    // encoder mid-range value

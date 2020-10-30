@@ -790,7 +790,7 @@ begin
                             if (reg_waddr[15:12]==`ADDR_MAIN) begin
                                 // main is special, ignore address in 1394 packet
                                 reg_waddr[7:4] <= 0;    // init channel address
-                                reg_waddr[3:0] <= `OFF_DAC_CTRL;    // set dac device address
+                                reg_waddr[3:0] <= `OFF_CMD_CUR;    // set dac device address
                             end
                             else begin
                                 // block write to hub, prom, prom_qla

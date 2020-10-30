@@ -13,6 +13,7 @@
  *     10/27/13    Zihan Chen          Minor, set preload to 24'h800000 (`ENC_MIDRANGE)
  *     04/07/17    Jie Ying Wu         Minor change to clock frequency for velocity estimation
  *     05/01/18    Jie Ying Wu         Form update for flexible number of channels
+ *     07/31/20    Stefan Kohlgrueber  Added enc_data 1...4 for direct access by closed loop controller module
  */
 
 `include "Constants.v"
@@ -30,7 +31,11 @@ module CtrlEnc(
     output wire[31:0] reg_perd_data,
     output wire[31:0] reg_qtr1_data,
     output wire[31:0] reg_qtr5_data,
-    output wire[31:0] reg_run_data
+    output wire[31:0] reg_run_data,
+    output wire[24:0] enc_data1,
+    output wire[24:0] enc_data2,
+    output wire[24:0] enc_data3,
+    output wire[24:0] enc_data4
 );    
     
 // -------------------------------------------------------------------------
@@ -65,6 +70,11 @@ assign reg_perd_data = perd_data[reg_raddr_chan];
 assign reg_qtr1_data = qtr1_data[reg_raddr_chan];
 assign reg_qtr5_data = qtr5_data[reg_raddr_chan];
 assign reg_run_data = run_data[reg_raddr_chan];
+
+assign enc_data1 = quad_data[1];
+assign enc_data2 = quad_data[2];
+assign enc_data3 = quad_data[3];
+assign enc_data4 = quad_data[4];
 
 //--------------------------------------------------------------------------
 // hardware description

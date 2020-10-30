@@ -13,6 +13,7 @@
  *     02/29/12    Zihan Chen
  *     08/29/18    Peter Kazanzides    Added DS2505 module
  *     01/22/20    Peter Kazanzides    Removed global reset
+ *     07/31/20    Stefan Kohlgrueber  Revised to support digital control
  */
 
 `timescale 1ns / 1ps
@@ -34,8 +35,8 @@ module FPGA1394QLA
     output wire      reset_phy,
 
     // serial interface
-    input wire 	     RxD,
-    input wire 	     RTS,
+    input wire       RxD,
+    input wire       RTS,
     output wire      TxD,
 
     // debug I/Os
@@ -203,17 +204,129 @@ CtrlAdc adc(
 wire[31:0] reg_adc_data;
 assign reg_adc_data = {pot_fb[reg_raddr[7:4]], cur_fb[reg_raddr[7:4]]};
 
-assign reg_rd[`OFF_ADC_DATA] = reg_adc_data;
+//assign reg_rd[`OFF_ADC_DATA] = reg_adc_data; //SK commented 27.07.2020 - replaced by CTRL assignment
+
+//if reg_raddr[15:12]==`ADDR_CTRL, write field 0 (OFF_CMD_CUR) of ADDR_CTRL, else (ADDR_MAIN), write field 0 of ADDR_MAIN (ADC)
+//assign reg_rd[`OFF_ADC_DATA] = (reg_raddr[15:12]==`ADDR_CTRL) ? reg_rCtrlCurr : reg_adc_data;
 
 // --------------------------------------------------------------------------
-// dacs
+// current controller //SK: XXX - whole section new
+// --------------------------------------------------------------------------
+
+//Reading back the commanded current value form the controller block
+wire[31:0] reg_rCtrlCurr; //reg_rdata output of CtrlCurr module block
+
+// old version without ADDR_CTRL space:
+//assign reg_rd[`OFF_CMD_CUR] = (reg_raddr[3:0]  ==`OFF_CMD_CUR) ? reg_rCtrlCurr : 32'h0;
+//assign reg_rd[`OFF_CO_CMD_FB] = (reg_raddr[3:0]  ==`OFF_CO_CMD_FB) ? reg_rCtrlCurr : 32'h0;
+//assign reg_rd[`OFF_CTRL_CURR_Kp_KiT] = (reg_raddr[3:0]  ==`OFF_CTRL_CURR_Kp_KiT) ? reg_rCtrlCurr : 32'h0;
+//assign reg_rd[`OFF_CTRL_CURR_KdT] = (reg_raddr[3:0]  ==`OFF_CTRL_CURR_KdT) ? reg_rCtrlCurr : 32'h0;
+
+//field 0 of ADDR_MAIN or ADDR_CTRL
+assign reg_rd[`OFF_CO_CMD_FB] =  (reg_raddr[15:12] == `ADDR_CTRL)   ?
+                                 (reg_raddr[ 3: 0] == `OFF_CO_CMD_FB) ? reg_rCtrlCurr : 32'h0
+                                 :
+                                 (reg_raddr[15:12] == `ADDR_MAIN)   ?
+                                    (reg_raddr[ 3: 0] == `OFF_ADC_DATA) ? reg_adc_data : 32'h0
+                                    : 32'h0;
+//field 1 of ADDR_MAIN or ADDR_CTRL
+assign reg_rd[`OFF_CTRL_CURR_Kp_KiT] = (reg_raddr[15:12] == `ADDR_CTRL)   ?
+                                 (reg_raddr[ 3: 0] == `OFF_CTRL_CURR_Kp_KiT) ? reg_rCtrlCurr : 32'h0 //reg_rCtrlCurr has the Kp and KiT internally
+                                 :
+                                 (reg_raddr[15:12] == `ADDR_MAIN)   ?
+                                    (reg_raddr[ 3: 0] == `OFF_CMD_CUR) ? reg_rCtrlCurr : 32'h0 //reg_rCtrlCurr has the commanded current cur_cmd internally
+                                    : 32'h0;
+
+//field 2 of ADDR_MAIN or ADDR_CTRL
+assign reg_rd[`OFF_CTRL_CURR_KdT] = (reg_raddr[15:12] == `ADDR_CTRL)   ?
+                                 (reg_raddr[ 3: 0] == `OFF_CTRL_CURR_KdT) ? reg_rCtrlCurr : 32'h0
+                                 :
+                                 (reg_raddr[15:12] == `ADDR_MAIN)   ?
+                                    (reg_raddr[ 3: 0] == `OFF_POT_CTRL) ? 32'h0 : 32'h0 //POT_CTRL does not have a wire yet
+                                    : 32'h0;
+
+//field 3 of ADDR_MAIN or ADDR_CTRL
+assign reg_rd[`OFF_CTRL_POS_Kp_KiT] = (reg_raddr[15:12] == `ADDR_CTRL)   ?
+                                 (reg_raddr[ 3: 0] == `OFF_CTRL_POS_Kp_KiT) ? reg_rCtrlCurr : 32'h0
+                                 :
+                                 (reg_raddr[15:12] == `ADDR_MAIN)   ?
+                                    (reg_raddr[ 3: 0] == `OFF_POT_DATA) ? pot_fb[reg_raddr[7:4]] : 32'h0
+                                    : 32'h0;
+
+//field 4 of ADDR_MAIN or ADDR_CTRL
+assign reg_rd[`OFF_CTRL_POS_KdT_CF_OUT] = (reg_raddr[15:12] == `ADDR_CTRL)   ?
+                                 (reg_raddr[ 3: 0] == `OFF_CTRL_POS_KdT_CF_OUT) ? reg_rCtrlCurr : 32'h0
+                                 :
+                                 (reg_raddr[15:12] == `ADDR_MAIN)   ?
+                                    (reg_raddr[ 3: 0] == `OFF_ENC_LOAD) ? reg_preload : 32'h0
+                                    : 32'h0;
+
+//field 5 of ADDR_MAIN or ADDR_CTRL
+assign reg_rd[`OFF_OUT_POS_CMD] = (reg_raddr[15:12] == `ADDR_CTRL)   ?
+                                 (reg_raddr[ 3: 0] == `OFF_OUT_POS_CMD) ? reg_rCtrlCurr : 32'h0
+                                 :
+                                 (reg_raddr[15:12] == `ADDR_MAIN)   ?
+                                    (reg_raddr[ 3: 0] == `OFF_ENC_DATA) ? reg_quad_data : 32'h0
+                                    : 32'h0;
+//field 6 of ADDR_MAIN or ADDR_CTRL
+assign reg_rd[`OFF_OUT_POS_OUT] = (reg_raddr[15:12] == `ADDR_CTRL)   ?
+                                 (reg_raddr[ 3: 0] == `OFF_OUT_POS_OUT) ? reg_rCtrlCurr : 32'h0
+                                 :
+                                 (reg_raddr[15:12] == `ADDR_MAIN)   ?
+                                    (reg_raddr[ 3: 0] == `OFF_PER_DATA) ? reg_perd_data : 32'h0
+                                    : 32'h0;
+
+//field 7 of ADDR_MAIN or ADDR_CTRL
+assign reg_rd[`OFF_CTRL_SHIFTS] = (reg_raddr[15:12] == `ADDR_CTRL)   ?
+                                 (reg_raddr[ 3: 0] == `OFF_CTRL_SHIFTS) ? reg_rCtrlCurr : 32'h0
+                                 :
+                                 (reg_raddr[15:12] == `ADDR_MAIN)   ?
+                                    (reg_raddr[ 3: 0] == `OFF_QTR1_DATA) ? reg_qtr1_data : 32'h0
+                                    : 32'h0;
+
+//outputs
+wire[15:0] cur_cmd[1:4];  //current commanded value
+wire[15:0] cur_cont[1:4]; //current controller output
+wire       cont_out_ready; //controller values available
+
+//Instantiation
+Controller_block CtrlCur(
+   .clk(sysclk),              // clock
+   .val_ready(cur_fb_wen),    // ADC values available (longer than 1 clk cycle!)
+   .reg_wdata(reg_wdata),     // incoming register data
+   .reg_waddr(reg_waddr),     // register write address
+   .reg_wen(reg_wen),         // register write enable
+   //.reg_rdata(reg_rcmd),    // outgoing register data
+   .reg_rdata(reg_rCtrlCurr),    // outgoing register data
+   .reg_raddr(reg_raddr),     // register read address
+   .bits_cmd1(cur_cmd[1]),    // output for safety check
+   .bits_cmd2(cur_cmd[2]),
+   .bits_cmd3(cur_cmd[3]),
+   .bits_cmd4(cur_cmd[4]),
+   .bits_fb1(cur_fb[1]),      // ADC values
+   .bits_fb2(cur_fb[2]),
+   .bits_fb3(cur_fb[3]),
+   .bits_fb4(cur_fb[4]),
+   .enc_fb1(enc_fb[1]),       // ENC values
+   .enc_fb2(enc_fb[2]),
+   .enc_fb3(enc_fb[3]),
+   .enc_fb4(enc_fb[4]),
+   .cont_out1(cur_cont[1]),   // controller output
+   .cont_out2(cur_cont[2]),
+   .cont_out3(cur_cont[3]),
+   .cont_out4(cur_cont[4]),
+   .out_ready(cont_out_ready) //flag to show new values ready (AND of 4 separate ready-flags being '1' for 1 clock cycle only when new controller values have been calculated every 8.667us)
+);
+
+
+// --------------------------------------------------------------------------
+// dacs //SK: XXX - cut away some ports and added them to the controller
 // --------------------------------------------------------------------------
 
 // local wire for dac
 wire[31:0] reg_rdac;
-assign reg_rd[`OFF_DAC_CTRL] = reg_rdac;   // dac reads
+assign reg_rd[`OFF_DAC_VOLT] = reg_rdac;   // dac reads // SK: XXX changed from 'OFF_DAC_CTRL and from reg_rdac
 
-wire[15:0] cur_cmd[1:4];
 
 // the dac controller manages access to the dacs
 CtrlDac dac(
@@ -221,16 +334,13 @@ CtrlDac dac(
     .sclk(IO1[21]),
     .mosi(IO1[20]),
     .csel(IO1[22]),
-    .reg_wen(reg_wen),
-    .blk_wen(blk_wen),
+    .val_ready(cont_out_ready),
+    .cont_val1(cur_cont[1]),
+    .cont_val2(cur_cont[2]),
+    .cont_val3(cur_cont[3]),
+    .cont_val4(cur_cont[4]),
     .reg_raddr(reg_raddr),
-    .reg_waddr(reg_waddr),
-    .reg_rdata(reg_rdac),
-    .reg_wdata(reg_wdata),
-    .dac1(cur_cmd[1]),
-    .dac2(cur_cmd[2]),
-    .dac3(cur_cmd[3]),
-    .dac4(cur_cmd[4])
+    .reg_rdata(reg_rdac)
 );
 
 
@@ -244,6 +354,8 @@ wire[31:0] reg_perd_data;
 wire[31:0] reg_qtr1_data;
 wire[31:0] reg_qtr5_data;
 wire[31:0] reg_run_data;
+
+wire[24:0] enc_fb[1:4];
 
 // encoder controller: the thing that manages encoder reads and preloads
 CtrlEnc enc(
@@ -259,13 +371,17 @@ CtrlEnc enc(
     .reg_perd_data(reg_perd_data),
     .reg_qtr1_data(reg_qtr1_data),
     .reg_qtr5_data(reg_qtr5_data),
-    .reg_run_data(reg_run_data)
+    .reg_run_data(reg_run_data),
+    .enc_data1(enc_fb[1]),
+    .enc_data2(enc_fb[2]),
+    .enc_data3(enc_fb[3]),
+    .enc_data4(enc_fb[4])
 );
 
-assign reg_rd[`OFF_ENC_LOAD] = reg_preload;      // preload
-assign reg_rd[`OFF_ENC_DATA] = reg_quad_data;    // quadrature
-assign reg_rd[`OFF_PER_DATA] = reg_perd_data;    // period
-assign reg_rd[`OFF_QTR1_DATA] = reg_qtr1_data;   // last quarter cycle 
+//assign reg_rd[`OFF_ENC_LOAD] = reg_preload;      // preload // SK - commented on 28.07.2020 - replaced by entry the CTRL section field 4
+//assign reg_rd[`OFF_ENC_DATA] = reg_quad_data;    // quadrature // SK - commented on 03.08.2020 - replaced by entry the CTRL section field 5
+//assign reg_rd[`OFF_PER_DATA] = reg_perd_data;    // period // SK - commented on 09.08.2020 - replaced by entry the CTRL section field 6
+//assign reg_rd[`OFF_QTR1_DATA] = reg_qtr1_data;   // last quarter cycle  // SK - commented on 11.08.2020 - replaced by entry the CTRL section field 7
 assign reg_rd[`OFF_QTR5_DATA] = reg_qtr5_data;   // quarter cycle 5 edges ago
 assign reg_rd[`OFF_RUN_DATA] = reg_run_data;     // running counter
 

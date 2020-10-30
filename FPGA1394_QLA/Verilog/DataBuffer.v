@@ -8,8 +8,9 @@
  * This module implements a data collection buffer.
  *
  * Revision history
- *      3/9/20      Shi Xin Sun       Initial Revision
- *     3/16/20      Peter Kazanzides  Adapted for QLA     
+ *      3/9/20      Shi Xin Sun           Initial Revision
+ *      3/16/20     Peter Kazanzides      Adapted for QLA
+ *      5/28/20     Stefan Kohlgrueber    Corrections for operation for all channels
  */
 
 `include "Constants.v"
@@ -34,18 +35,16 @@ reg       collecting = 0;
 reg       buf_wr = 0;
 reg[9:0]  buf_wr_addr = 10'h000;
 reg[31:0] buf_wr_data;
+reg       cur_fb_wen_last = 0;
 
 // Note that the data collection bit (30) is used to start/stop data collection.
 wire cur_cmd_wen;    // Write enable for commanded current
 // Write the command current to the buffer when:
 //   1) Collection bit set (reg_wdata[30]), but not already collecting
 //   2) Collection in process and writing current to the correct channel
-assign cur_cmd_wen = reg_wen && (reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[3:0]==`OFF_DAC_CTRL) &&
-                     ((!collecting && reg_wdata[30])) || (collecting && (reg_waddr[7:4] == chan));
+assign cur_cmd_wen = reg_wen && (reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[3:0]==`OFF_CMD_CUR) &&
+                     (((!collecting && reg_wdata[30])) || (collecting && (reg_waddr[7:4] == chan)));
 
-// Following used in case cur_cmd_wen and cur_fb_wen happen at same time
-reg       cur_cmd_wen_dly = 0;
-reg[15:0] cur_cmd_dly = 16'd0;
 
 wire[31:0] mem_read;
 // Read data: flags (2 bits), current write address (10 bits), channel (4 bits), data (16 bits)
@@ -69,44 +68,40 @@ Dual_port_RAM_32X1024 Dual_port_RAM_32X1024(
 
 always @(posedge clk)
 begin
-    cur_cmd_wen_dly <= cur_cmd_wen;
-    if (cur_cmd_wen) begin
-        collecting <= reg_wdata[30];
-        if (!collecting && reg_wdata[30]) begin
-           // If data collection just started, set channel and reset buffer address
-           chan <= reg_waddr[7:4];
-           buf_wr_addr <= 10'd0;
-        end
-        cur_cmd_dly <= reg_wdata[15:0];
-    end
-    else if (collecting) begin
-        buf_wr_addr <= buf_wr ? buf_wr_addr+1 : buf_wr_addr;
-    end
-end
+   if (cur_cmd_wen) begin              //if new cmd values which fit criteria
+      if (!collecting && reg_wdata[30]) begin      //rising edge collecting
+         chan <= reg_waddr[7:4];       //update channel
+         buf_wr_addr <= 10'd0;         //reset address
+         buf_wr_data <= {2'd1, 10'd0, reg_waddr[7:4], reg_wdata[15:0]}; //SK
+         buf_wr <= 1;
+      end
+      else if (collecting && reg_wdata[30]) begin  // collecting, but not first time
+         chan <= chan;
+         buf_wr_data <= {2'd1, 10'd0, reg_waddr[7:4], reg_wdata[15:0]}; //SK
+         buf_wr <= 1;
+         buf_wr_addr <= buf_wr_addr+1;
+      end
 
-always @(*)
-begin
-    if (collecting) begin     
-        case ({cur_fb_wen, cur_cmd_wen, cur_cmd_wen_dly})
-          3'b100,
-          3'b110  : begin
-                    buf_wr <= cur_fb_wen;
-                    buf_wr_data <= {2'd3, 10'd0, chan, cur_fb};
-                    end
-          3'b010  : begin
-                    buf_wr <= cur_cmd_wen;
-                    buf_wr_data <= {2'd1, 10'd0, reg_waddr[7:4], reg_wdata[15:0]};
-                    end
-          3'b001  : begin
-                    buf_wr <= cur_cmd_wen_dly;
-                    buf_wr_data <= {2'd2, 10'd0, chan, cur_cmd_dly};
-                    end
-          default : begin
-                    buf_wr <= 0;
-                    buf_wr_data <= 32'h00000000;
-                    end
-        endcase
-    end
+      collecting <= reg_wdata[30];        //update collecting
+
+   end                  // if no commanded value is available
+   else if (collecting && cur_fb_wen == 1 && cur_fb_wen_last == 0) begin   // if feedback current value available
+      chan <= chan;
+      buf_wr_data <= {2'd3, 10'd0, chan, cur_fb};
+      buf_wr <= 1;
+      buf_wr_addr <= buf_wr_addr+1;
+      collecting <= collecting;
+   end
+   else begin
+      chan <= chan;
+      buf_wr_data <= {reg_wdata[31:30], 10'd0, reg_waddr[7:4],16'd5};
+      buf_wr <= 0; // if new commanded value or fb value is available, don't store anything.
+      buf_wr_addr <= buf_wr_addr;
+      collecting <= collecting;
+   end
+
+   cur_fb_wen_last <= cur_fb_wen; //update ADC edge detection flag for next cycle
+
 end
 
 endmodule

@@ -23,8 +23,8 @@
  *     10/26/11    Paul Thienphrapa    Initial revision
  */
 
-`define SEQN_INIT 9'h100      // 9-bit counter init (from 256 to rollover)
-`define SEQN_WORD 5'b11111    // command word boundary (every 64th count)
+`define SEQN_INIT 9'h100      // 9-bit counter init (from 256 to rollover) --> count from 256 to 512
+`define SEQN_WORD 5'b11111    // command word boundary (every 64th count) --> used to set the word_edge
 `define SEQN_DONE 9'h1ff      // final value of count sequence
 
 module LTC2601x4(
@@ -62,9 +62,9 @@ assign sclk = seqn[0];
 assign mosi = data[31];
 assign busy = ~csel;
 
-assign addr = seqn[7:6] + word_edge;
-assign flush = ((seqn[5:1]==5'b01111) ? 1'b1 : 1'b0);
-assign word_edge = ((seqn[5:1]==`SEQN_WORD) ? 1'b1 : 1'b0);
+assign addr = seqn[7:6] + word_edge; //seqn[7:6] increase every 64th time
+assign flush = ((seqn[5:1]==5'b01111) ? 1'b1 : 1'b0); // if [5:1] is 15 (every 64nd sclk = every 128th clk) --> then 1, else 0
+assign word_edge = ((seqn[5:1]==`SEQN_WORD) ? 1'b1 : 1'b0); // 2 sclks before seqn[7:6] is incrased by one, the seqn[5:1] is 5'b11111
 
 // state machine
 always @(posedge(clkin))
@@ -92,7 +92,7 @@ begin
     ST_LOOP: begin
         seqn <= seqn + 1'b1;             // counter, also creates sclk
         if (sclk == 1'b1) begin          // update data on falling sclk
-            data <= (word_edge ? word : (data<<1));
+            data <= (word_edge ? word : (data<<1)); //if every counter reached the threshold (every 64th time), a new value is loaded, otherwise serially shift out
         end
         if (seqn == `SEQN_DONE) begin    // transfer complete
             csel <= trig;                // finalize transfer, if necessary

@@ -14,6 +14,7 @@
  *
  * Revision history
  *     10/31/11    Paul Thienphrapa    Initial revision - Happy Halloween!
+ *     07/31/20    Stefan Kohlgrueber  Revised to support digital current control
  */
 
 // device register file offset
@@ -22,33 +23,35 @@
 // dac SPI commands 
 `define DAC_CMD_WRU 4'h3           // dac write and update command
 `define DAC_CMD_NOP 4'hF           // dac nop command
-`define DAC_VAL_INIT 16'h8000      // dac init (zero) value
+`define DAC_VAL_INIT 16'h8000      // dac init (zero) value --> 2^15 --> no current
 
 module CtrlDac(
     // globals
     input wire sysclk,             // global input clock
+    // data inputs
+    input wire[15:0] cont_val1,    // controller output CH1
+    input wire[15:0] cont_val2,    // controller output CH2
+    input wire[15:0] cont_val3,    // controller output CH3
+    input wire[15:0] cont_val4,    // controller output CH4
     // spi
     output wire sclk,              // serial clock
     output wire mosi,              // serial data out
     output wire csel,              // serial chip select
     // regfile ctrl/addr/data
-    input wire reg_wen,            // register write enable
-    input wire blk_wen,            // register write enable (end-of-block)
+    input wire val_ready,          // register write enable (end-of-block) //SK: XXX - was blk_wen earlier
     input wire[15:0] reg_raddr,    // register read address
-    input wire[15:0] reg_waddr,    // register write address
-    output wire[31:0] reg_rdata,   // outgoing register data
-    input wire[31:0] reg_wdata,    // incoming register data
-    
-    // output dac value
-    output wire[15:0] dac1,        // register dac1 command current
-    output wire[15:0] dac2,        // register dac2 command current 
-    output wire[15:0] dac3,        // register dac3 command current
-    output wire[15:0] dac4         // register dac4 command current
+    output wire[31:0] reg_rdata    // outgoing register data
 );
 
     // -------------------------------------------------------------------------
     // local wires and registers
     //
+    reg[15:0] cont_val[1:4];        // controller values
+    reg[15:0] cont_val_copy[1:4];   // controller values copy
+
+    // Timing
+    reg val_ready_now;              // new state for edge detection
+    reg val_ready_last;             // old state for edge detection
 
     reg trig;                      // used trigger an spi transaction
     wire busy;                     // busy signal from the dac module
@@ -56,8 +59,18 @@ module CtrlDac(
     wire[3:0] addr;                // final memory address to write to
     wire[3:0] addr_dac;            // memory address originating from dac
     wire[31:0] data;               // final memory data value to write
+    wire[31:0] data1;              // final memory data value to write
+    wire[31:0] data2;              // final memory data value to write
+    wire[31:0] data3;              // final memory data value to write
+    wire[31:0] data4;              // final memory data value to write
+
     wire[31:0] data_nop;           // shortcut for nop command word
     wire[31:0] data_wru;           // shortcut for write/update command word
+    wire[31:0] data_wru1;          // shortcut for write/update command word
+    wire[31:0] data_wru2;          // shortcut for write/update command word
+    wire[31:0] data_wru3;          // shortcut for write/update command word
+    wire[31:0] data_wru4;          // shortcut for write/update command word
+
     wire[31:0] dac_word;           // command word going into dac module
 
     reg[31:0] mem_data[0:`NUM_CHANNELS-1]; // register file for dac bitstreams
@@ -66,6 +79,9 @@ module CtrlDac(
     integer i;
     initial begin                  // for simulation, but synthesizes too
         for (i=0; i<`NUM_CHANNELS; i=i+1) mem_data[i] = 32'h00f08000;
+
+        val_ready_now = 0;
+        val_ready_last = 0;
     end
 
 //------------------------------------------------------------------------------
@@ -85,43 +101,59 @@ LTC2601x4 dac(
     .flush(flush)
 );
 
-// select firewire or NOP data depending on if spi transfer in progress
-assign addr = (busy ? addr_dac : reg_waddr[7:4]-1'b1);
-assign data = (busy ? data_nop : data_wru);
-
 // shortcuts for command words nop and write/update
-assign data_nop = { 8'h00, `DAC_CMD_NOP, 4'h0, `DAC_VAL_INIT };
-assign data_wru = { 8'h00, `DAC_CMD_WRU, 4'h0, reg_wdata[15:0] };
-assign dac_word = mem_data[addr_dac];
+assign data_nop  = { 8'h00, `DAC_CMD_NOP, 4'h0, `DAC_VAL_INIT};
+assign data_wru1 = { 8'h00, `DAC_CMD_WRU, 4'h0, cont_val1};
+assign data_wru2 = { 8'h00, `DAC_CMD_WRU, 4'h0, cont_val2};
+assign data_wru3 = { 8'h00, `DAC_CMD_WRU, 4'h0, cont_val3};
+assign data_wru4 = { 8'h00, `DAC_CMD_WRU, 4'h0, cont_val4};
 
-// register file (memory) interface
+// select firewire or NOP data depending on if spi transfer in progress
+assign data1 = (busy ? data_nop : data_wru1);
+assign data2 = (busy ? data_nop : data_wru2);
+assign data3 = (busy ? data_nop : data_wru3);
+assign data4 = (busy ? data_nop : data_wru4);
+
+//DAC handling
+assign dac_word = mem_data[addr_dac]; //word is sent based on address given by  LTC2601x4.
+
+//actualize whenever the new values are ready, IF NOT BUSY
 always @(posedge(sysclk))
 begin
-    // write selected register with firewire or NOP data source
-    if ((reg_wen && reg_waddr[15:12]==`ADDR_MAIN && reg_waddr[3:0]==`OFF_DAC_CTRL && ~busy) || flush)
-        mem_data[addr] <= data;
+   val_ready_now = val_ready; //fetching of ready status --> val_ready is the blk_wen input --> rename
+
+   if ((val_ready_last==0 && val_ready_now==1 && ~busy)) begin //edge detection for availability of controller output values XXX "|| flush" removed!
+      //if (~busy || flush) begin //update values
+         mem_data[0] <= data1; //update value
+         mem_data[1] <= data2; //update value
+         mem_data[2] <= data3; //update value
+         mem_data[3] <= data4; //update value
+      //end
+   end
+   val_ready_last = val_ready_now; // update value for next clock cycle
 end
 
-// copy of register file that doesn't get overwritten with NOPs
+always @(posedge(sysclk))
+begin
+   if (val_ready_last==0 && val_ready_now==1 && ~busy) begin //edge detection for availability of controller output values
+      //if(~busy) begin
+         mem_copy[0] <= data1; //update value
+         mem_copy[1] <= data2; //update value
+         mem_copy[2] <= data3; //update value
+         mem_copy[3] <= data4; //update value
+      //end
+   end
+end
+
+always @(posedge(sysclk))
+begin
+    trig <= val_ready; //no need to check if value is available as the val_ready is set high by the controller when cont_out was just calculated
+end
+
+// word sent to ADC
+assign dac_word = mem_data[addr_dac]; //used from code --> probably the addr_dac is counted up by LTC2601x4 automatically.
+
+//to read back dac values
 assign reg_rdata = mem_copy[reg_raddr[7:4]-1'b1];
-always @(posedge(sysclk))
-begin
-    if (reg_wen && reg_waddr[15:12]==`ADDR_MAIN && reg_waddr[3:0]==`OFF_DAC_CTRL && ~busy)
-        mem_copy[addr] <= data;
-end
-
-// delay trigger (blk_wen) by a clock to allow quadlet data to be stored into
-//   mem_data, as blk_wen and reg_wen become active at the same time
-always @(posedge(sysclk))
-begin
-    trig <= (blk_wen & (reg_waddr[15:12]==`ADDR_MAIN) & (reg_waddr[3:0]==`OFF_DAC_CTRL));
-end
-
-
-// connect mem_cop to dac(1-4)
-assign dac1 = mem_copy[0][15:0];
-assign dac2 = mem_copy[1][15:0];
-assign dac3 = mem_copy[2][15:0];
-assign dac4 = mem_copy[3][15:0];
 
 endmodule

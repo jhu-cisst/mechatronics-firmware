@@ -2,6 +2,10 @@
 Verilog source code for the Xilinx Spartan 6 on the FPGA1394 board
 ==================================================================
 
+WARNING: This branch is only for QLA boards that have been modified to use
+         digital current control rather than analog current control.
+         DO NOT USE UNLESS YOU REALLY KNOW WHAT YOU ARE DOING.
+
 The FPGA1394_QLA subdirectory is the source code for the FPGA1394 board paired
 with the QLA. Currently, the QLA is the only supported companion board, but
 support for other boards could be added in different sub-directories. In that

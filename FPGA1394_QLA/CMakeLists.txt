@@ -44,6 +44,8 @@ set (VERILOG_SOURCE_COMMON "${VERILOG_SOURCE_DIR}/ClkDiv.v"
 
 # Verilog source files for Rev 1 firmware
 set (VERILOG_SOURCE_REV1 ${VERILOG_SOURCE_COMMON}
+                         "${VERILOG_SOURCE_DIR}/CtrlCur.v"
+                         "${VERILOG_SOURCE_DIR}/PID_Controller.v"
                          "${VERILOG_SOURCE_DIR}/FPGA1394-QLA.v")
 
 # Verilog source files for Rev 2 firmware
