@@ -496,6 +496,7 @@ assign reg_rd[`OFF_DOUT_CTRL] = reg_rdout;
 // DOUT hardware configuration
 wire dout_config_valid;
 wire dout_config_bidir;
+wire dout_config_reset;
 wire[3:0] dout;
 wire dir12_cd;
 wire dir34_cd;
@@ -537,7 +538,8 @@ CtrlDout cdout(
     .dir12_reg(dir12_cd),
     .dir34_reg(dir34_cd),
     .dout_cfg_valid(dout_config_valid),
-    .dout_cfg_bidir(dout_config_bidir)
+    .dout_cfg_bidir(dout_config_bidir),
+    .dout_cfg_reset(dout_config_reset)
 );
 
 // --------------------------------------------------------------------------
@@ -671,6 +673,7 @@ BoardRegs chan0(
     .dout(dout),
     .dout_cfg_valid(dout_config_valid),
     .dout_cfg_bidir(dout_config_bidir),
+    .dout_cfg_reset(dout_config_reset),
     .pwr_enable(IO1[32]),
     .relay_on(IO1[31]),
     .eth1394(eth1394),

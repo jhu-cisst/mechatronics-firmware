@@ -47,9 +47,10 @@ module CtrlDout(
     input  wire dir34_read,       // direction control for channels 3-4 (QLA Rev 1.4+)
     output reg  dir12_reg,        // direction control for channels 1-2 (QLA Rev 1.4+)
     output reg  dir34_reg,        // direction control for channels 3-4 (QLA Rev 1.4+)
-    output reg dout_cfg_valid,    // 1 -> DOUT configuration valid
-    output reg dout_cfg_bidir     // 1 -> new DOUT hardware (bidirectional control)
-);    
+    output reg  dout_cfg_valid,   // 1 -> DOUT configuration valid
+    output reg  dout_cfg_bidir,   // 1 -> new DOUT hardware (bidirectional control)
+    input  wire dout_cfg_reset    // 1 -> reset dout_cfg_valid
+);
 
 initial begin
   dout_cfg_valid = 0;
@@ -94,24 +95,44 @@ DoutPWM DoutPWM4(sysclk, reg_rd[4], dout_ctrl_en[4], reg_wdata, dout_set_en[4], 
 // we also need to invert the dout signals for backward compatibility with the older QLA version, which inverted
 // the DOUT signals in hardware (due to the MOSFET).
 //
-// Note that QLA Rev 1.4+ allows the DOUT pins to be used as inputs, but this is not currently supported by the firmware.
+// Note that QLA Rev 1.4+ allows the DOUT pins to be used as inputs, but this is not currently supported by the firmware,
+// except that the DS2505 module can set ds_enable to take over DOUT3 and DIR34 for the 1-wire interface.
+
+// Following counter used during initialization to detect DOUT configuration
+// (12 bits --> about 80 usec)
+reg[11:0] dout_cfg_cnt;
+
+reg  wasOldQLA;
+reg  wasNewQLA;
+wire isOldQLA;
+wire isNewQLA;
+// dir12_read==0 && dir34_read==0  --> New QLA (Rev 1.4+)
+// dir12_read==1 && dir34_read==1  --> Old QLA
+assign isOldQLA = dir12_read&dir34_read;
+assign isNewQLA = ~(dir12_read|dir34_read);
 
 always @(posedge(sysclk))
 begin
-   if (!dout_cfg_valid) begin
-      if ((dir12_read == 1'b0) && (dir34_read == 1'b0)) begin
-         // If QLA Rev 1.4 detected, start driving outputs
-         dout_cfg_bidir <= 1'b1;
-         dir12_reg <= 1'b1;
-         dir34_reg <= 1'b1;
+   if (dout_cfg_reset) begin
+      dout_cfg_valid <= 1'b0;
+      dout_cfg_bidir <= 1'b0;
+      dout_cfg_cnt <= 12'd0;
+   end
+   else if (!dout_cfg_valid) begin
+      wasOldQLA <= isOldQLA;
+      wasNewQLA <= isNewQLA;
+      // Increment counter only when isOldQLA or isNewQLA is consistent with previous state
+      dout_cfg_cnt <= ((wasOldQLA&isOldQLA)|(wasNewQLA&isNewQLA)) ? (dout_cfg_cnt + 12'd1) : 12'd0;
+
+      if (dout_cfg_cnt == 12'hfff) begin
+         dout_cfg_bidir <= isNewQLA;
          dout_cfg_valid <= 1'b1;
+         if (isNewQLA) begin
+            // If QLA Rev 1.4+ detected, start driving outputs
+            dir12_reg <= 1'b1;
+            dir34_reg <= 1'b1;
+         end
       end
-      else if ((dir12_read == 1'b1) && (dir34_read == 1'b1)) begin
-         // Older version of QLA
-         dout_cfg_bidir <= 1'b0;
-         dout_cfg_valid <= 1'b1;
-      end
-      // Else we keep checking...
    end
 end
 

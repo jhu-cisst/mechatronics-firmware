@@ -35,6 +35,7 @@ module BoardRegs(
     input  wire[4:1] dout,          // digital outputs
     input  wire dout_cfg_valid,     // digital output configuration valid
     input  wire dout_cfg_bidir,     // whether digital outputs are bidirectional (also need to be inverted)
+    output reg  dout_cfg_reset,     // reset dout_cfg_valid
     output reg pwr_enable,          // enable motor power
     output reg relay_on,            // enable relay for safety loop-through
     output reg eth1394,             // 0: firewire mode 1: ethernet-1394 mode
@@ -172,6 +173,8 @@ always @(posedge(sysclk))
             reboot <= reg_wdata[21] ? reg_wdata[20] : 1'b0;
             // mask reg_wdata[23] with [22] for eth1394 mode
             eth1394 <= reg_wdata[23] ? reg_wdata[22] : eth1394;
+            // use reg_wdata[24] to reset dout_cfg_valid
+            dout_cfg_reset <= reg_wdata[24];
         end
         `REG_PHYCTRL: phy_ctrl <= reg_wdata[15:0];
         `REG_PHYDATA: phy_data <= reg_wdata[15:0];
@@ -208,6 +211,8 @@ always @(posedge(sysclk))
         // Disable axes when wdog timeout or safety amp disable. Note the minor efficiency gain
         // below by combining safety_amp_disable with !wdog_timeout.
         reg_disable[3:0] <= reg_disable[3:0] | (wdog_timeout ? 4'b1111 : safety_amp_disable[4:1]);
+        // Turn off dout_cfg_reset in case it was previously set
+        dout_cfg_reset <= 1'b0;
     end
 end
 
