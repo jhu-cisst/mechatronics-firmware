@@ -139,7 +139,8 @@
 `define SZ_QRESP 16'd160          // quadlet read response size
 `define SZ_BWRITE 16'd192         // block write packet base size
 `define SZ_BRESP 16'd192          // block read response base size
-`define SZ_STAT 16'd16            // phy register transfer size
+`define SZ_STAT  16'd4            // phy status transfer size (bits)
+`define SZ_REG_STAT 16'd16        // phy register transfer size (bits)
 
 // ack values
 `define ACK_DONE 4'h1             // transaction complete, applies to writes
@@ -156,6 +157,13 @@
 `define TX_TYPE_BBC   4'd6        // for block write broadcast
 `define TX_TYPE_FWD   4'd7        // for 1394 pkt forward from eth port
 
+// PHY status bit masks.
+// Note that in the Firewire documentation, these are the 4 LSB, but we
+// left shift them into the status buffer (st_buff) when reading.
+`define ARB_RESET_GAP   2'd3
+`define SUBACTION_GAP   2'd2
+`define BUS_RESET_START 2'd1
+`define PHY_INTERRUPT   2'd0
 
 // other
 `define CRC_INIT -32'd1           // initial value to start new crc calculation
@@ -196,6 +204,8 @@ module PhyLinkInterface(
     input wire[8:0] eth_send_addr,   // packet address bus
     output wire[31:0] eth_send_data, // packet data bus
     output reg[15:0] eth_send_len,   // packet data len (bytes)
+
+    output reg fw_bus_reset,         // 1 -> Firewire bus reset is in process
 
     // transmit parameters
     output reg lreq_trig,            // trigger signal for a phy request
@@ -484,7 +494,7 @@ begin
             if (~(sample_start|sample_busy)) begin
                 // monitor ctl to select next state
                 case (ctl)
-                    2'b00: begin
+                    `CTL_PHY_IDLE: begin
                         state <= ST_IDLE;           // stay in monitor state
                         if (write_trig) begin
                             lreq_trig <= 1;
@@ -504,12 +514,12 @@ begin
                         end
                     end
                 
-                    2'b01: state <= ST_RX_D_ON;        // phy data from the bus
-                    2'b11: state <= ST_TX;             // phy grants tx request
-                    2'b10: begin                       // phy status transfer
-                        st_buff <= {16'b0, data2b};    // clock in status bits
-                        state <= ST_STATUS;            // continue status loop
-                        stcount <= 2;                  // start status bit count
+                    `CTL_PHY_RECV: state <= ST_RX_D_ON;  // phy data from the bus
+                    `CTL_PHY_GRNT: state <= ST_TX;       // phy grants tx request
+                    `CTL_PHY_STAT: begin                 // phy status transfer
+                        st_buff <= {14'b0, data2b};      // clock in status bits
+                        state <= ST_STATUS;              // continue status loop
+                        stcount <= 2;                    // start status bit count
                         end
                 endcase
             end
@@ -525,32 +535,41 @@ begin
             // do status transfer until complete or interrupted by data RX
             case (ctl)
 
-                2'b01: state <= ST_RX_D_ON;        // interrupt by RX bus data
-                2'b11: state <= ST_IDLE;           // undefined, back to idle
+                `CTL_PHY_RECV: state <= ST_RX_D_ON;  // interrupt by RX bus data
+                `CTL_PHY_GRNT: state <= ST_IDLE;     // undefined, back to idle
                 // -------------------------------------------------------------
                 // normal status transfer
                 //
-                2'b10: begin
-                    st_buff <= st_buff << 2;       // shift over previous bits
-                    st_buff[1:0] <= data2b;        // clock in 2 new bits
+                `CTL_PHY_STAT: begin
+                    st_buff <= {st_buff[13:0], data2b};  // shift in 2 new bits
                     stcount <= stcount + 2'd2;     // count transferred bits
                     state <= ST_STATUS;            // loop in this state
                 end
                 // -------------------------------------------------------------
                 // status transfer complete
                 //
-                2'b00: begin
+                `CTL_PHY_IDLE: begin
 
                     state <= ST_IDLE;              // go back to idle state
 
-                    // save phy register into register file
                     if (stcount == `SZ_STAT) begin
+                        // update bus reset bit
+                        fw_bus_reset <= st_buff[`BUS_RESET_START];
+                    end
+                    // save phy register into register file
+                    else if (stcount == `SZ_REG_STAT) begin
                         reg_waddr <= { `ADDR_MAIN, 4'd0, 4'd0, `REG_PHYDATA };
                         reg_wdata <= { 16'd0, st_buff };
                         reg_wen <= 1;
                         // save node id if register zero
-                        if (st_buff[11:8] == 0)
+                        if (st_buff[11:8] == 0) begin
                             fw_node_id <= st_buff[7:2];
+                            fw_bus_reset <= 1'b0;
+                        end
+                        else begin
+                            // update bus reset bit
+                            fw_bus_reset <= st_buff[12+`BUS_RESET_START];
+                        end
                     end
                 end
 
@@ -569,6 +588,7 @@ begin
         ST_RX_D_ON:
         begin
             // wait out data-on until data RX starts (or null packet indicated)
+            // 01 --> CTL_PHY_RECV
             case ({data[0], ctl})
                 3'b101: state <= ST_RX_D_ON;        // loop in data-on state
                 3'b001: begin                       // receiving data packet
@@ -596,7 +616,7 @@ begin
                 // -------------------------------------------------------------
                 // normal receive loop
                 //
-                2'b01:
+                `CTL_PHY_RECV:
                 begin
                     // loop in this state while ctl value tells us to
                     state <= ST_RX_DATA;
@@ -873,7 +893,7 @@ begin
                 // -------------------------------------------------------------
                 // receive complete, prepare for response actions (e.g. ack)
                 //
-                2'b00:
+                `CTL_PHY_IDLE:
                 begin
                     // next state, go back to idle
                     state <= ST_IDLE;

@@ -141,6 +141,8 @@ module EthernetIO(
     input wire[31:0] sendData,       // Packet data from memory
     input wire[15:0] sendLen,        // Packet size (bytes)
 
+    input wire fw_bus_reset,         // Firewire bus reset in process
+
     // Interface for sampling data (for block read)
     output reg sample_start,         // 1 -> start sampling for block read
     input wire sample_busy,          // Sampling in process
@@ -232,6 +234,14 @@ reg[7:0] numReset;          // Number of times reset called
 
 reg resetRequest;      // 1 -> reset requested (e.g., when Ethernet cable unplugged)
 reg resetActive;       // Indicates that reset is active
+
+// Firewire bus generation. Incremented each time fw_bus_reset is cleared.
+reg[7:0] fw_bus_gen;
+
+always @(negedge fw_bus_reset)
+begin
+    fw_bus_gen <= fw_bus_gen + 8'd1;
+end
 
 localparam[31:0] IP_UNASSIGNED = 32'hffffffff;
 
@@ -718,8 +728,8 @@ reg[15:0] numPacketValid;    // Number of valid Ethernet frames received
 reg[9:0]  numPacketInvalid;  // Number of invalid Ethernet frames received
 reg[9:0] numIPv4;            // Number of IPv4 packets received
 reg[9:0] numUDP;             // Number of UDP packets received
-reg[9:0] numARP;             // Number of ARP packets received
-reg[9:0] numICMP;            // Number of ICMP packets received
+reg[7:0] numARP;             // Number of ARP packets received
+reg[7:0] numICMP;            // Number of ICMP packets received
 reg[7:0] numPacketSent;      // Number of packets sent to host PC
 
 reg[9:0] numPacketError;     // Number of packet errors (Frame, IPv4 or UDP error)
@@ -762,8 +772,8 @@ assign DebugData[7]  = { sendState, txPktWords, nextSendState, rxPktWords };
 assign DebugData[8]  = { timeSend, timeReceive };
 assign DebugData[9]  = { 1'd0, runPC, numPacketInvalid, numPacketValid };
 assign DebugData[10] = { 6'd0, numUDP, 6'd0, numIPv4 };
-assign DebugData[11] = { 6'd0, numICMP, 6'd0, numARP };
-assign DebugData[12] = { 1'd0, runPCsaved, numIPv4Mismatch, 6'd0, numPacketError };
+assign DebugData[11] = { 8'd0, numICMP, fw_bus_gen, numARP };
+assign DebugData[12] = { fw_bus_reset, runPCsaved, numIPv4Mismatch, 6'd0, numPacketError };
 assign DebugData[13] = { numSendStateInvalid, numReset, 6'd0, numStateInvalid };
 assign DebugData[14] = { timeForwardToFw, timeForwardFromFw };
 assign DebugData[15] = errorStateInfo;
@@ -1265,8 +1275,8 @@ always @(posedge sysclk) begin
       numPacketInvalid <= 10'd0;
       numIPv4 <= 10'd0;
       numUDP <= 10'd0;
-      numARP <= 10'd0;
-      numICMP <= 10'd0;
+      numARP <= 8'd0;
+      numICMP <= 8'd0;
       numPacketSent <= 8'd0;
    end
 
@@ -1589,8 +1599,8 @@ always @(posedge sysclk) begin
          waitInfo <= WAIT_NONE;
          // Increment counters
          numIPv4 <= numIPv4 + {9'd0, isIPv4};
-         numARP <= numARP + {9'd0, isARP};
-         numICMP <= numICMP + {9'd0, isICMP};
+         numARP <= numARP + {7'd0, isARP};
+         numICMP <= numICMP + {7'd0, isICMP};
          numUDP <= numUDP + {9'd0, isUDP};
          runPC <= ID_FLUSH_FRAME;
       end

@@ -184,9 +184,6 @@ assign ETH_CSn = 0;         // Always select
 // By default, R45 is not populated, so driving this pin has no effect.
 assign ETH_8n = 1;          // 16-bit bus
 
-// IO1[8] is not used on QLA
-assign IO1[8] = 1'bz;
-
 // --------------------------------------------------------------------------
 // hub register module
 // --------------------------------------------------------------------------
@@ -234,6 +231,8 @@ wire eth_send_ack;
 wire[8:0]  eth_send_addr;
 wire[15:0] eth_send_len;
 
+wire fw_bus_reset;
+
 wire[8:0] eth_send_addr_mux;
 assign eth_send_addr_mux = eth_send_ack ? eth_send_addr : reg_raddr[8:0];
 
@@ -271,7 +270,10 @@ PhyLinkInterface phy(
     .eth_send_addr(eth_send_addr_mux),
     .eth_send_data(reg_rdata_fw),
     .eth_send_len(eth_send_len),
-                     
+
+    // Signal indicating bus reset in process
+    .fw_bus_reset(fw_bus_reset),
+
     .lreq_trig(fw_lreq_trig),  // out: phy request trigger
     .lreq_type(fw_lreq_type),  // out: phy request type
 
@@ -369,6 +371,9 @@ EthernetIO EthernetTransfers(
     .sendAddr(eth_send_addr),
     .sendData(reg_rdata_fw),
     .sendLen(eth_send_len),
+
+    // Signal from Firewire indicating bus reset in process
+    .fw_bus_reset(fw_bus_reset),
 
     // Interface for sampling data (for block read)
     .sample_start(eth_sample_start),   // 1 -> start sampling for block read
@@ -688,6 +693,7 @@ BoardRegs chan0(
     .mv_faultn(IO1[7]),
     .mv_good(IO2[11]),
     .v_fault(IO1[9]),
+    .io1_8(IO1[8]),
     .board_id(board_id),
     .temp_sense(tempsense),
     .reg_raddr(reg_raddr),

@@ -122,9 +122,6 @@ assign reg_rd[`OFF_UNUSED_15] = 32'd0;
 // 1394 phy low reset, never reset
 assign reset_phy = 1'b1; 
 
-// IO1[8] is not used on QLA
-assign IO1[8] = 1'bz;
-
 // --------------------------------------------------------------------------
 // hub register module
 // --------------------------------------------------------------------------
@@ -524,6 +521,7 @@ BoardRegs chan0(
     .mv_faultn(IO1[7]),
     .mv_good(IO2[11]),
     .v_fault(IO1[9]),
+    .io1_8(IO1[8]),
     .board_id(board_id),
     .temp_sense(tempsense),
     .reg_raddr(reg_raddr),
