@@ -131,10 +131,10 @@ NET  "wenid[3]"   LOC = "P5"      | IOSTANDARD = "LVCMOS33" | PULLUP;
 ################################################################################
 # Soft JTAG (shared with Serial Interface)
 ################################################################################
-# NET  "SOFT-TCK"   LOC = "B20"     | IOSTANDARD = "LVCMOS33" | PULLUP;
-# NET  "SOFT-TDI"   LOC = "B21"     | IOSTANDARD = "LVCMOS33" | PULLUP;
-# NET  "SOFT-TDO"   LOC = "A21"     | IOSTANDARD = "LVCMOS33" | PULLUP;
-# NET  "SOFT-TMS"   LOC = "A20"     | IOSTANDARD = "LVCMOS33" | PULLUP;
+# NET  "SOFT_TCK"   LOC = "B20"     | IOSTANDARD = "LVCMOS33" | PULLUP;
+# NET  "SOFT_TDI"   LOC = "B21"     | IOSTANDARD = "LVCMOS33" | PULLUP;
+# NET  "SOFT_TDO"   LOC = "A21"     | IOSTANDARD = "LVCMOS33" | PULLUP;
+# NET  "SOFT_TMS"   LOC = "A20"     | IOSTANDARD = "LVCMOS33" | PULLUP;
 
 # NET  "DEBUG[0]"   LOC = "A20"     | IOSTANDARD = "LVCMOS33";
 # NET  "DEBUG[1]"   LOC = "B20"     | IOSTANDARD = "LVCMOS33";

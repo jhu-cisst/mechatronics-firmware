@@ -562,14 +562,10 @@ begin
                         reg_wdata <= { 16'd0, st_buff };
                         reg_wen <= 1;
                         // save node id if register zero
-                        if (st_buff[11:8] == 0) begin
+                        if (st_buff[11:8] == 0)
                             fw_node_id <= st_buff[7:2];
-                            fw_bus_reset <= 1'b0;
-                        end
-                        else begin
-                            // update bus reset bit
-                            fw_bus_reset <= st_buff[12+`BUS_RESET_START];
-                        end
+                        // update bus reset bit
+                        fw_bus_reset <= st_buff[12+`BUS_RESET_START];
                     end
                 end
 
