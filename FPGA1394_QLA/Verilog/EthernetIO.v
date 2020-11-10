@@ -394,15 +394,17 @@ reg[11:0] rxPktWords;  // Num of words in receive queue
 reg[1:0] genCnt;       // Generic counter
 
 wire[9:0] maxCountFW;  // Maximum count (of words) when reading FireWire packets
-// Subtract 4 words for UDP header (nBytes/2-4-1); otherwise, just subtract 1 word
+// Maximum count, in words, is (nBytes/2-1), assuming nBytes is an even number
+//   - Subtract 4 words for UDP header
+//   - Subtract 1 word for FwCtrl
 // Following assumes that UDP_Length is an even number.
 // Note that IEEE-1394 specification indicates that maximum asynchronous packet size is
 //  2048 bytes (1024 words, 512 quadlets) at 400 Mbits/sec.
-assign maxCountFW = isUDP ? (UDP_Length[10:1]-10'd5) : (Eth_EtherType[10:1]-10'd1);
+assign maxCountFW = isUDP ? (UDP_Length[10:1]-10'd6) : (Eth_EtherType[10:1]-10'd2);
 
 wire[15:0] LengthFW;   // Firewire packet length in bytes
-// Subtract 8 bytes for UDP header
-assign LengthFW = isUDP ? UDP_Length-8'd8 : Eth_EtherType;
+// Subtract 8 bytes for UDP header and 2 bytes for FwCtrl
+assign LengthFW = isUDP ? (UDP_Length-8'd10) : (Eth_EtherType-8'd2);
 
 assign eth_fwpkt_len = LengthFW;
 
@@ -446,6 +448,7 @@ localparam[4:0]
    ID_UDP_Length        = ID_UDP_Begin+2,    // UDP Length
    ID_UDP_Checksum      = ID_UDP_Begin+3,    // UDP Checksum
    ID_UDP_End           = ID_UDP_Begin+3,    // ******** End of UDP Header (20) *********
+   ID_FwCtrl            = ID_UDP_End+1,      // Firewire Control word, Raw or UDP (21)
    ID_ICMP_Begin        = ID_IPv4_End+1,     // ****** ICMP Header (17) [length=6] ******
    ID_ICMP_TypeCode     = ID_ICMP_Begin,     // ICMP Type (8) and Code (0)
    ID_ICMP_End          = ID_ICMP_Begin+5,   // ******** End of ICMP Header (22) ********
@@ -627,6 +630,12 @@ wire[15:0] icmp_data_length;
 // Note that maximum ping data size is 1472 bytes (1500-28) because we do not fragment packets.
 assign icmp_data_length = IPv4_Length-16'd32;
 
+//**************************** Firewire Control Word ************************************
+// The Raw or UDP header is followed by one control word, which includes the expected Firewire
+// generation.
+wire [15:0] fw_ctrl;
+assign fw_ctrl = PacketBuffer[ID_FwCtrl];
+
 //******************************* Reply packets *****************************************
 // The reply packets can mostly be constructed by returning data from the incoming packets
 // (in PacketBuffer), augmented with a few extra data items that have been added to ReplyBuffer
@@ -765,7 +774,7 @@ assign DebugData[3]  = { state[7:0], eth_send_fw_ack, eth_send_fw_req, linkStatu
                          FireWirePacketFresh, isEthBroadcast, isEthMulticast, ~ETH_IRQn,
                          isForward, isInIRQ, sendARP, isUDP,
                          isICMP, isEcho, is_IPv4_Long, is_IPv4_Short};
-assign DebugData[4]  = { RegISR, RegISROther};
+assign DebugData[4]  = { fw_ctrl, RegISROther};
 assign DebugData[5]  = { host_fw_addr, FrameCount, numPacketSent};
 assign DebugData[6]  = { 1'b0, nextState, maxCountFW, LengthFW };
 assign DebugData[7]  = { sendState, txPktWords, nextSendState, rxPktWords };
@@ -1873,18 +1882,10 @@ begin
       if (dataReady) PacketBuffer[recvCnt] <= `SDSwapped;
 
       if (dataValid) begin
-         if (recvCnt == ID_Frame_End) begin
-            if (!(isRaw|isIPv4|isARP)) begin
-               ethFrameError <= 1'd1;
-               numPacketError <= numPacketError + 10'd1;
-               nextRecvState <= ST_RECEIVE_DMA_IDLE;
-            end
-            else if (isRaw) begin
-               nextRecvState <= ST_RECEIVE_DMA_FIREWIRE_PACKET;
-            end
-            else begin
-               nextRecvState <= ST_RECEIVE_DMA_ETHERNET_HEADERS;
-            end
+         if ((recvCnt == ID_Frame_End) && !(isRaw|isIPv4|isARP)) begin
+            ethFrameError <= 1'd1;
+            numPacketError <= numPacketError + 10'd1;
+            nextRecvState <= ST_RECEIVE_DMA_IDLE;
          end
          else if ((recvCnt == ID_ARP_End) && isARP) begin
             // Update IP address in response to valid ARP packet.
@@ -1936,8 +1937,11 @@ begin
                // would not handle the (unlikely) case where an invalid UDP packet is received prior to the request to
                // forward a packet from FireWire.
                ReplyBuffer[ID_Rep_UDP_hostPort] <= PacketBuffer[ID_UDP_hostPort];
-               nextRecvState <= ST_RECEIVE_DMA_FIREWIRE_PACKET;
+               nextRecvState <= ST_RECEIVE_DMA_ETHERNET_HEADERS;
             end
+         end
+         else if ((recvCnt == ID_FwCtrl) && (isUDP||isRaw)) begin
+            nextRecvState <= ST_RECEIVE_DMA_FIREWIRE_PACKET;
          end
          else if ((recvCnt == ID_ICMP_End) && isICMP) begin
             nextRecvState <= ST_RECEIVE_DMA_ICMP_DATA;
@@ -1951,6 +1955,7 @@ begin
          skipCnt <= (skipCnt == 2'd0) ? 2'd0 : skipCnt - 2'd1;
          recvCnt <= (skipCnt != 2'd0) ? ID_Frame_Begin :
                     ((recvCnt == ID_Frame_End) && isARP) ? ID_ARP_Begin :
+                    ((recvCnt == ID_Frame_End) && isRaw) ? ID_FwCtrl :
                     recvCnt + 6'd1;
       end
    end
