@@ -372,6 +372,16 @@ reg isEthBroadcast;
 // a valid raw Ethernet frame is received).
 reg useUDP;
 
+// Whether Firewire packet was dropped, rather than being forwarded,
+// due to Firewire bus reset or mismatch on bus generation number.
+reg fwPacketDropped;
+
+// Whether to send a response packet with just ExtraData.
+// This is done when a (remote) packet is dropped and it is not
+// a broadcast packet (i.e., not also local).
+wire sendExtra;
+assign sendExtra = fwPacketDropped&(~isFwBroadcast);
+
 // Non-zero initial values
 initial begin
    //ETH_RSTn = 1'd1;
@@ -647,8 +657,12 @@ assign icmp_data_length = IPv4_Length-16'd32;
 //**************************** Firewire Control Word ************************************
 // The Raw or UDP header is followed by one control word, which includes the expected Firewire
 // generation.
-wire [15:0] fw_ctrl;
+wire[15:0] fw_ctrl;
 assign fw_ctrl = PacketBuffer[ID_FwCtrl];
+wire noForwardFlag;
+assign noForwardFlag = fw_ctrl[8];
+wire[7:0] host_fw_bus_gen;
+assign host_fw_bus_gen = fw_ctrl[7:0];
 
 //******************************* Reply packets *****************************************
 // The reply packets can mostly be constructed by returning data from the incoming packets
@@ -781,8 +795,8 @@ reg isForward;
 // Extra data sent to PC with every Firewire packet
 // -----------------------------------------------
 wire[15:0] ExtraData[0:3];
-assign ExtraData[0] = {7'd0, fw_bus_reset, fw_bus_gen};
-assign ExtraData[1] = fw_ctrl;       // {numStateInvalid[7:0], numPacketError[7:0]}
+assign ExtraData[0] = {6'd0, fwPacketDropped, fw_bus_reset, fw_bus_gen};
+assign ExtraData[1] = {numStateInvalid[7:0], numPacketError[7:0]};
 assign ExtraData[2] = timeReceive;
 assign ExtraData[3] = timeNotIdle;
 
@@ -1077,10 +1091,9 @@ assign isLocal = (dest_node_id == node_id) || isFwBroadcast;
 
 // assign isRemote = (dest_node_id != node_id) && ~(isEthMulticast||isEthBroadcast);
 // Remote write if not addressing this board (note that this check includes Firewire broadcast)
-// and if LSB of Firewire PRI field is set. This latter check is a non-standard use of the
-// Firewire PRI field, but is supported by the PC software interface (UDP and PCAP).
+// and if noForwardFlag is false.
 // Also, note that some packets (e.g., Firewire broadcast) may set both isLocal and isRemote.
-assign isRemote = (dest_node_id != node_id) && (fw_pri[0] != 1'd1);
+assign isRemote = (dest_node_id != node_id) && (!noForwardFlag);
 
 assign quadRead = (fw_tcode == `TC_QREAD) ? 1'd1 : 1'd0;
 assign quadWrite = (fw_tcode == `TC_QWRITE) ? 1'd1 : 1'd0;
@@ -1651,28 +1664,33 @@ always @(posedge sysclk) begin
       //   - else go to idle state
       if (ReadData[0] == 1'b0) begin
          timeReceive <= timeNotIdle;
-         if ((FireWirePacketFresh && (quadRead || blockRead) && isLocal) || sendARP || isEcho) begin
-            if (sendARP) begin
-               ReplyBuffer[ID_Rep_Frame_Length] <= 16'h0806; // ARP EtherType
-            end
-            else if (isEcho) begin
-               // Echo (ICMP) response
-               ReplyBuffer[ID_Rep_Frame_Length] <= 16'h0800;   // IPv4 EtherType
-               ReplyBuffer[ID_Rep_IPv4_Length] <= IPv4_Length; // Same length as request
-               ReplyBuffer[ID_Rep_IPv4_Prot][7:0] <= 8'd1;     // ICMP protocol
-            end
-            else if (useUDP) begin
+         if (sendARP) begin
+            ReplyBuffer[ID_Rep_Frame_Length] <= 16'h0806; // ARP EtherType
+            runPC <= ID_ENABLE_DMA_SEND;
+         end
+         else if (isEcho) begin
+            // Echo (ICMP) response
+            ReplyBuffer[ID_Rep_Frame_Length] <= 16'h0800;   // IPv4 EtherType
+            ReplyBuffer[ID_Rep_IPv4_Length] <= IPv4_Length; // Same length as request
+            ReplyBuffer[ID_Rep_IPv4_Prot][7:0] <= 8'd1;     // ICMP protocol
+            runPC <= ID_ENABLE_DMA_SEND;
+         end
+         else if ((FireWirePacketFresh && (quadRead || blockRead) && (isLocal || sendExtra))) begin
+            if (useUDP) begin
                ReplyBuffer[ID_Rep_Frame_Length] <= 16'h0800; // IPv4 EtherType (UDP or ICMP)
-               ReplyBuffer[ID_Rep_IPv4_Length] <= quadRead ? (`IPv4_UDP_EXTRA_SIZE + `FW_QRESP_SIZE)
-                                                           : (`IPv4_UDP_EXTRA_SIZE + `FW_BRESP_SIZE) + block_data_length;
+               ReplyBuffer[ID_Rep_IPv4_Length] <= sendExtra ? `IPv4_UDP_EXTRA_SIZE :
+                                                   quadRead ? (`IPv4_UDP_EXTRA_SIZE + `FW_QRESP_SIZE)
+                                                            : (`IPv4_UDP_EXTRA_SIZE + `FW_BRESP_SIZE) + block_data_length;
                ReplyBuffer[ID_Rep_IPv4_Prot][7:0] <= 8'd17;  // UDP protocol
-               ReplyBuffer[ID_Rep_UDP_Length] <= quadRead ? (`UDP_EXTRA_SIZE + `FW_QRESP_SIZE)
-                                                          : (`UDP_EXTRA_SIZE + `FW_BRESP_SIZE) + block_data_length;
+               ReplyBuffer[ID_Rep_UDP_Length] <= sendExtra ? `UDP_EXTRA_SIZE :
+                                                  quadRead ? (`UDP_EXTRA_SIZE + `FW_QRESP_SIZE)
+                                                           : (`UDP_EXTRA_SIZE + `FW_BRESP_SIZE) + block_data_length;
             end
             else begin
                // Local raw packet
-               ReplyBuffer[ID_Rep_Frame_Length] <= quadRead ? (`FW_QRESP_SIZE + `FW_EXTRA_SIZE)
-                                                            : (`FW_BRESP_SIZE + `FW_EXTRA_SIZE) + block_data_length;
+               ReplyBuffer[ID_Rep_Frame_Length] <= sendExtra ? `FW_EXTRA_SIZE :
+                                                    quadRead ? (`FW_QRESP_SIZE + `FW_EXTRA_SIZE)
+                                                             : (`FW_BRESP_SIZE + `FW_EXTRA_SIZE) + block_data_length;
             end
             runPC <= ID_ENABLE_DMA_SEND;
          end
@@ -1885,6 +1903,7 @@ begin
       nextRecvState <= ST_RECEIVE_DMA_IDLE;
       if (resetActive) begin
          FireWirePacketFresh <= 0;
+         fwPacketDropped <= 0;
          writeRequestBlock <= 0;
          writeRequestQuad <= 0;
          writeRequestPending <= 0;
@@ -1897,7 +1916,8 @@ begin
       end
       if (recvDMAreq) begin
          isDMARead <= 1;
-         FireWirePacketFresh <= 1'd0;
+         FireWirePacketFresh <= 0;
+         fwPacketDropped <= 0;
          recvState <= ST_RECEIVE_DMA_ETHERNET_HEADERS;
       end
    end
@@ -2066,9 +2086,16 @@ begin
             writeRequestBlock <= isLocal&(~isRemote)&blockWrite;
             if (isRemote) begin
                // Request to forward pkt
-               eth_send_fw_req <= 1;
-               timeForwardToFw <= 16'd0;
-               host_fw_addr <= fw_src_id;
+               // We drop the packet if Firewire bus is in reset or if bus generation number
+               // specified in packet does not match.
+               if (fw_bus_reset || (host_fw_bus_gen != fw_bus_gen)) begin
+                  fwPacketDropped <= 1;
+               end
+               else begin
+                  eth_send_fw_req <= 1;
+                  timeForwardToFw <= 16'd0;
+                  host_fw_addr <= fw_src_id;
+               end
             end
          end
          else begin
@@ -2179,14 +2206,16 @@ begin
          SDRegDWR <= 16'd14 + IPv4_Length;
       end
       else if (useUDP) begin
-         SDRegDWR <= quadRead ? (`ETH_FRAME_SIZE + `IPv4_UDP_EXTRA_SIZE + `FW_QRESP_SIZE)
-                              : (`ETH_FRAME_SIZE + `IPv4_UDP_EXTRA_SIZE + `FW_BRESP_SIZE) + block_data_length;
+         SDRegDWR <= sendExtra ? (`ETH_FRAME_SIZE + `IPv4_UDP_EXTRA_SIZE) :
+                      quadRead ? (`ETH_FRAME_SIZE + `IPv4_UDP_EXTRA_SIZE + `FW_QRESP_SIZE)
+                               : (`ETH_FRAME_SIZE + `IPv4_UDP_EXTRA_SIZE + `FW_BRESP_SIZE) + block_data_length;
       end
       else begin
          // Byte count for local raw packet
          // (block_data_length must be a multiple of 4)
-         SDRegDWR <= quadRead ? (`ETH_FRAME_SIZE + `FW_QRESP_SIZE + `FW_EXTRA_SIZE)
-                              : (`ETH_FRAME_SIZE + `FW_BRESP_SIZE + `FW_EXTRA_SIZE) + block_data_length;
+         SDRegDWR <= sendExtra ? (`ETH_FRAME_SIZE + `FW_EXTRA_SIZE) :
+                      quadRead ? (`ETH_FRAME_SIZE + `FW_QRESP_SIZE + `FW_EXTRA_SIZE)
+                               : (`ETH_FRAME_SIZE + `FW_BRESP_SIZE + `FW_EXTRA_SIZE) + block_data_length;
       end
       nextSendState <= ST_SEND_DMA_ETHERNET_HEADERS;
       replyCnt <= Frame_Reply_Begin;
@@ -2210,7 +2239,7 @@ begin
          end
          else if (!(isUDP || isEcho || isForward)) begin
             // Raw packet
-            nextSendState <= ST_SEND_DMA_PACKETDATA_HEADER;
+            nextSendState <= sendExtra ? ST_SEND_DMA_EXTRA : ST_SEND_DMA_PACKETDATA_HEADER;
          end
          else begin
             nextSendState <= ST_SEND_DMA_ETHERNET_HEADERS;
@@ -2227,7 +2256,7 @@ begin
             sendAddr <= 9'd0;
          end
          else begin
-            nextSendState <= ST_SEND_DMA_PACKETDATA_HEADER;
+            nextSendState <= sendExtra ? ST_SEND_DMA_EXTRA : ST_SEND_DMA_PACKETDATA_HEADER;
          end
       end
       else if (replyCnt == ARP_Reply_End) begin
@@ -2352,7 +2381,7 @@ begin
    ST_SEND_DMA_EXTRA:
    begin
       if (sendTransition) xcnt <= xcnt + 2'd1;
-      SDRegDWR <= ExtraData[xcnt];
+      `SDRegDWRSwapped <= ExtraData[xcnt];
       nextSendState <= (xcnt == 2'd3) ? ST_SEND_DMA_FINISH : ST_SEND_DMA_EXTRA;
    end
 
