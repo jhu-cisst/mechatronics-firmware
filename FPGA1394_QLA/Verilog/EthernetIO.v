@@ -1145,6 +1145,12 @@ begin
       else if (resetRequest) begin
          nextState = ST_RESET_ASSERT;
       end
+      else if (numReset == 1) begin
+         // For some reason, it is necessary to reset twice.
+         // After the first reset, the FPGA can receive packets via Ethernet,
+         // but cannot send responses.
+         nextState = ST_RESET_ASSERT;
+      end
       else
          nextState = ST_IDLE;
    end
@@ -1234,7 +1240,7 @@ begin
    begin
       testState[ST_RECEIVE_FLUSH_WAIT] = 0;
       if (ReadData[0] == 1'b0) begin
-         if ((FireWirePacketFresh && (quadRead || blockRead) && isLocal) || sendARP || isEcho) begin
+         if ((FireWirePacketFresh && (quadRead || blockRead) && (isLocal || sendExtra)) || sendARP || isEcho) begin
             nextState = ST_RUN_PROGRAM_EXECUTE;
          end
          else begin
@@ -2072,15 +2078,16 @@ begin
             writeRequestQuad <= isLocal&quadWrite;
             writeRequestBlock <= isLocal&(~isRemote)&blockWrite;
             if (isRemote) begin
-               // Request to forward pkt
-               // We drop the packet if Firewire bus is in reset or if bus generation number
-               // specified in packet does not match.
-               if (fw_bus_reset || (host_fw_bus_gen != fw_bus_gen)) begin
-                  fwPacketDropped <= 1;
-               end
-               else begin
+               // Request to forward pkt.
+               // We only forward if the Firewire bus is not in reset AND
+               // the specified bus generation is correct OR it is a broadcast packet
+               // (in which case the reassignment of node numbers does not matter).
+               if (~fw_bus_reset && ((host_fw_bus_gen == fw_bus_gen) || isFwBroadcast)) begin
                   eth_send_fw_req <= 1;
                   host_fw_addr <= fw_src_id;
+               end
+               else begin
+                  fwPacketDropped <= 1;
                end
             end
          end

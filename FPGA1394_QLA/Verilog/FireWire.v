@@ -805,8 +805,11 @@ begin
                             if (rx_tcode != `TC_QREAD)
                                 crc_comp <= ~crc_in;
 
-                            // trigger phy register request if accessed
-                            if ((rx_dest[5:0]==node_id) && (reg_waddr=={`ADDR_MAIN, 8'h0, `REG_PHYCTRL}) && (rx_tcode==`TC_QWRITE))
+                            // trigger phy register request if accessed.
+                            // Support broadcast address because Ethernet initialization requires
+                            // reading of PHY Register 0 so that this module obtains fw_node_id.
+                            if (((rx_dest[5:0] == node_id) || (rx_dest[5:0] == 6'h3f)) &&
+                                (reg_waddr=={`ADDR_MAIN, 8'h0, `REG_PHYCTRL}) && (rx_tcode==`TC_QWRITE))
                             begin
                                 // check the RW bit to determine access type
                                 lreq_type <= (phy_rw ? `LREQ_REG_WR : `LREQ_REG_RD);
