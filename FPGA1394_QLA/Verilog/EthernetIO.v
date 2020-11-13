@@ -772,11 +772,9 @@ reg[7:0] numPacketSent;      // Number of packets sent to host PC
 reg[9:0] numPacketError;     // Number of packet errors (Frame, IPv4 or UDP error)
 reg[9:0] numIPv4Mismatch;    // Number of IPv4 packets with different IP address
 
-reg[15:0] timeNotIdle;       // Time counter when not in ST_IDLE
+reg[15:0] timeSinceIRQ;      // Time counter since last IRQ
 reg[15:0] timeReceive;       // Time when receive portion finished
 reg[15:0] timeSend;          // Time when send portion finished
-reg[15:0] timeForwardFromFw; // Time required to forward packet from FireWire
-reg[15:0] timeForwardToFw;   // Time required to forward packet via FireWire
 
 wire is_ip_unassigned;
 assign is_ip_unassigned = (ip_address == IP_UNASSIGNED) ? 1'd1 : 1'd0;
@@ -798,7 +796,7 @@ wire[15:0] ExtraData[0:3];
 assign ExtraData[0] = {6'd0, fwPacketDropped, fw_bus_reset, fw_bus_gen};
 assign ExtraData[1] = {numStateInvalid[7:0], numPacketError[7:0]};
 assign ExtraData[2] = timeReceive;
-assign ExtraData[3] = timeNotIdle;
+assign ExtraData[3] = timeSinceIRQ;
 
 // -----------------------------------------------
 // Debug data
@@ -824,7 +822,7 @@ assign DebugData[10] = { 6'd0, numUDP, 6'd0, numIPv4 };
 assign DebugData[11] = { 8'd0, numICMP, fw_bus_gen, numARP };
 assign DebugData[12] = { fw_bus_reset, runPCsaved, numIPv4Mismatch, 6'd0, numPacketError };
 assign DebugData[13] = { numSendStateInvalid, numReset, 6'd0, numStateInvalid };
-assign DebugData[14] = { timeForwardToFw, timeForwardFromFw };
+assign DebugData[14] = { 16'd0, 16'd0 };
 assign DebugData[15] = errorStateInfo;
 
 // For debugging block write. Note that in the current implementation, this buffer can
@@ -1330,7 +1328,7 @@ always @(posedge sysclk) begin
 
    //******************** State Machine ********************
 
-   timeNotIdle <= eth_io_isIdle ? timeNotIdle : timeNotIdle + 16'd1;
+   timeSinceIRQ <= timeSinceIRQ + 16'd1;
 
    if (stateError) begin
       // Should never happen, except for programming errors or glitches
@@ -1392,12 +1390,11 @@ always @(posedge sysclk) begin
       else if (~ETH_IRQn) begin
          // If an interrupt transition to ST_RUN_PROGRAM_EXECUTE
          runPC <= ID_READ_INTERRUPT;
-         timeNotIdle <= 16'd0;
+         timeSinceIRQ <= 16'd0;
       end
       else if (sendReq) begin
          // forward packet from FireWire
          isForward <= 1;
-         timeNotIdle <= 16'd0;
          if (!useUDP) begin
             // Forwarding raw data from FireWire
             ReplyBuffer[ID_Rep_Frame_Length] <= sendLen + `FW_EXTRA_SIZE;
@@ -1663,7 +1660,7 @@ always @(posedge sysclk) begin
       //   - else if more frames available, receive status of next frame
       //   - else go to idle state
       if (ReadData[0] == 1'b0) begin
-         timeReceive <= timeNotIdle;
+         timeReceive <= timeSinceIRQ;
          if (sendARP) begin
             ReplyBuffer[ID_Rep_Frame_Length] <= 16'h0806; // ARP EtherType
             runPC <= ID_ENABLE_DMA_SEND;
@@ -1758,14 +1755,9 @@ always @(posedge sysclk) begin
    state[ST_SEND_END]:
    begin
       numPacketSent <= numPacketSent + 8'd1;
-      if (isInIRQ) begin
-         timeSend <= timeNotIdle;
-         if (FrameCount != 8'd0)
-            runPC <= ID_READ_FRAME_STATUS;
-      end
-      else begin
-         timeForwardFromFw <= timeNotIdle;
-      end
+      timeSend <= timeSinceIRQ;
+      if ((isInIRQ) && (FrameCount != 8'd0))
+         runPC <= ID_READ_FRAME_STATUS;
    end
 
    //******************* States for I/O to/from KSZ8851 **********************
@@ -1864,11 +1856,6 @@ begin
       // received before we finish the local write request.
       writeRequestPending <= 1'b0;
       writeRequestBlock <= 1'b1;
-   end
-
-   // Measure time to forward packet via Firewire
-   if (eth_send_fw_req | eth_send_fw_ack) begin
-      timeForwardToFw <= timeForwardToFw + 16'd1;
    end
 
    if (eth_block_wen) begin
@@ -2093,7 +2080,6 @@ begin
                end
                else begin
                   eth_send_fw_req <= 1;
-                  timeForwardToFw <= 16'd0;
                   host_fw_addr <= fw_src_id;
                end
             end
