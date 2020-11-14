@@ -372,15 +372,14 @@ reg isEthBroadcast;
 // a valid raw Ethernet frame is received).
 reg useUDP;
 
-// Whether Firewire packet was dropped, rather than being forwarded,
+// Whether Firewire packet was dropped, rather than being processed,
 // due to Firewire bus reset or mismatch on bus generation number.
 reg fwPacketDropped;
 
 // Whether to send a response packet with just ExtraData.
-// This is done when a (remote) packet is dropped and it is not
-// a broadcast packet (i.e., not also local).
+// This is done when a packet is dropped.
 wire sendExtra;
-assign sendExtra = fwPacketDropped&(~isFwBroadcast);
+assign sendExtra = fwPacketDropped;
 
 // Non-zero initial values
 initial begin
@@ -2069,26 +2068,26 @@ begin
             // Just needs to be early enough that sampling is finished before we access it
             // in ST_SEND_DMA_PACKETDATA_BLOCK.
             sample_start <= blockRead&isLocal&addrMain;
-            // Set writeRequest for local quadlet and block write.
-            // Note that for block write, we do not set it here if isRemote is true,
-            // so that the Firewire module can access the packet memory first
-            // (isLocal and isRemote are both true for broadcast packets).
-            // This is not an issue for quadlet writes because we cache the data
-            // in fw_quadlet_data so we do not need to access packet memory.
-            writeRequestQuad <= isLocal&quadWrite;
-            writeRequestBlock <= isLocal&(~isRemote)&blockWrite;
-            if (isRemote) begin
-               // Request to forward pkt.
-               // We only forward if the Firewire bus is not in reset AND
-               // the specified bus generation is correct OR it is a broadcast packet
-               // (in which case the reassignment of node numbers does not matter).
-               if (~fw_bus_reset && ((host_fw_bus_gen == fw_bus_gen) || isFwBroadcast)) begin
+            // Now, respond to the packet if the Firewire bus is not in reset AND
+            // the specified bus generation is correct OR it is a broadcast packet
+            // (in which case the reassignment of node numbers does not matter).
+            if (~fw_bus_reset && ((host_fw_bus_gen == fw_bus_gen) || isFwBroadcast)) begin
+               // Set writeRequest for local quadlet and block write.
+               // Note that for block write, we do not set it here if isRemote is true,
+               // so that the Firewire module can access the packet memory first
+               // (isLocal and isRemote are both true for broadcast packets).
+               // This is not an issue for quadlet writes because we cache the data
+               // in fw_quadlet_data so we do not need to access packet memory.
+               writeRequestQuad <= isLocal&quadWrite;
+               writeRequestBlock <= isLocal&(~isRemote)&blockWrite;
+               if (isRemote) begin
+                  // Request to forward pkt.
                   eth_send_fw_req <= 1;
                   host_fw_addr <= fw_src_id;
                end
-               else begin
-                  fwPacketDropped <= 1;
-               end
+            end
+            else begin
+               fwPacketDropped <= 1;
             end
          end
          else begin
