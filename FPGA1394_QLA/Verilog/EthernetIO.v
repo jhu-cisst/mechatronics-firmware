@@ -2493,7 +2493,7 @@ begin
                eth_reg_wen <= 1;
                bwState <= BW_WRITE_GAP;
             end
-            dac_local <= 0;
+            dac_local <= 1;
          end
          else begin
             // DAC write
@@ -2501,7 +2501,6 @@ begin
                // Restart with DAC channel 1
                eth_reg_waddr[7:4] <= 4'd1;
                eth_reg_waddr[3:0] <= `OFF_DAC_CTRL;
-               dac_local <= 1;
             end
             else
                eth_reg_waddr[7:4] <= eth_reg_waddr[7:4] + 4'd1;

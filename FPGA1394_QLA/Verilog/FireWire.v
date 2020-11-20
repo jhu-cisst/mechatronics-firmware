@@ -83,18 +83,11 @@
  *   write packet as fake broadcast packet on the PC software for better robustness. 
  *    
  *   Lists:
- *     - Query Packet:  dest_node_id = 0, dest_addr = 0xffffffff000f
- *     - Command Packet: dest_node_id = 0, dest_addr = 0xffffffff0000
- *
- *
- *  2014-08-23 NOTE for Eth1394 packet  Zihan Chen
- *     - if eth1394 bit is set, nodes use rotary switch (board_id) as 
- *       FireWire node_id
- *     - This supports systems that do not have a proper FireWire master
- *       (e.g., when using a FireWire subnetwork consisting only of FPGA1394 boards,
- *       connected via a bridge such as the Ethernet/FireWire bridge).
- *   
- *
+ *     - Query Packet:  dest_node_id = 0, dest_addr = 0xffffffff000f   (< Rev 7)
+ *                      dest_node_id = 0, dest_addr = 0x1800           (FirewirePort, Rev 7+)
+ *                      dest_node_id = 0x3f, dest_addr = 0x1800        (EthBasePort, Rev 7+)
+ *     - Command Packet: dest_node_id = 0, dest_addr = 0xffffffff0000  (< Rev 7 and FirewirePort, Rev 7+)
+ *                       dest_node_id = 0x3f, dest_addr = 0            (EthBasePort, Rev 7+)
  */
  
 
@@ -657,7 +650,7 @@ begin
                                         reg_wdata <= {12'd0, buffer[19:0]};
                                         reg_wen <= 1;
                                     end
-                                    dac_local <= 0;
+                                    dac_local <= 1;
                                 end
                                 else begin
                                     // DAC write
@@ -670,10 +663,11 @@ begin
                                         reg_waddr[7:4] <= reg_waddr[7:4] + 4'd1;
                                     // only respond to bit 27-24 == board_id (bc mode)
                                     if (buffer[27:24] == board_id) begin
-                                        dac_local <= (reg_waddr[7:4] == 4'd0) ? 1'b1 : dac_local;
                                         reg_wdata <= {1'b0, buffer[30:0]};       // data to write
                                         reg_wen <= (buffer[31] & rx_active);     // check valid bit
                                     end
+                                    else
+                                        dac_local <= 0;
                                 end
                             end
                             // other space
@@ -776,7 +770,6 @@ begin
                             // rx_dest == 0 is an asynchronous quadlet write; it is sent to node 0, but processed
                             //              by all nodes.
                             // rx_dest == 3f is a broadcast command (no ack); was used for testing.
-                            // Also, full address of ffffffff000f is used for broadcast read request by PC software.
                             if ((rx_dest[5:0] == 6'd0 || rx_dest[5:0] == 6'h3f) && rx_tcode == `TC_QWRITE && 
                                 (buffer[15:12] == `ADDR_HUB) && (buffer[11:0] == 12'h800)) begin
                                 rx_active <= 1;
@@ -840,7 +833,7 @@ begin
                                 // main is special, ignore address in 1394 packet
                                 reg_waddr[7:4] <= 0;    // init channel address
                                 reg_waddr[3:0] <= `OFF_DAC_CTRL;    // set dac device address
-                                dac_local <= 0;
+                                dac_local <= 1;
                             end
                             else begin
                                 // block write to hub, prom, prom_qla
