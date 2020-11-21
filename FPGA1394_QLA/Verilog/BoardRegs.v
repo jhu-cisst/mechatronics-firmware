@@ -103,7 +103,7 @@ module BoardRegs(
     wire wdog_clk;              // watchdog clock
     reg  wdog_timeout;          // watchdog timeout status flag
     reg[15:0] wdog_period;      // watchdog period, user writable
-    initial wdog_period = 16'hffff;  // disables watchdog by default
+    initial wdog_period = 16'h1680;  // 0x1680 == 30 msec
     reg[15:0] wdog_count;       // watchdog timer counter
     
     // mv good timer                                                                                                                                       
