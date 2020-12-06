@@ -157,6 +157,11 @@ module EthernetIO(
 
     input wire fw_bus_reset,         // Firewire bus reset in process
 
+    // Interface for real-time block write
+    output reg       eth_rt_wen,
+    output reg[2:0]  eth_rt_waddr,
+    output reg[31:0] eth_rt_wdata,
+
     // Interface for sampling data (for block read)
     output reg sample_start,         // 1 -> start sampling for block read
     input wire sample_busy,          // Sampling in process
@@ -1824,8 +1829,6 @@ reg[9:0] rfw_count;     // Counts words in FireWire packets (max is 1024 words, 
 reg doRtBlock;         // Indicates that we are processing a real-time block write
 reg dac_local;         // Indicates that DAC entries in block write are for this board_id
 reg[2:0] RtCnt;        // Counter for real-time block quadlets
-reg[31:0] RtDAC[0:3];  // For storing DAC values
-reg[31:0] RtCtrl;      // For storing power control quadlet
 
 // Shift register for I/O control. The register is shifted left with each clock, with the left-most
 // bit placed on the right (shift and rotate). Each state (except IDLE) is entered with
@@ -1892,6 +1895,7 @@ begin
       isDMARead <= 0;
       mem_wen <= 0;
       doRtBlock <= 0;
+      eth_rt_wen <= 0;
       rfw_count <= 10'd0;
       skipCnt <= 2'd3;  // Skip first 3 words in packet when receiving
                         // ignore(1) + status(1) + byte-count(1)
@@ -2063,12 +2067,6 @@ begin
             fw_quadlet_data <= FireWireQuadlet;
          end
          else if ((rfw_count == 10'd9) && blockWrite && addrMain) begin
-            // Clear the previous values; for the DAC, it is enough to clear the Valid bit (31).
-            RtDAC[0][31] <= 1'd0;
-            RtDAC[1][31] <= 1'd0;
-            RtDAC[2][31] <= 1'd0;
-            RtDAC[3][31] <= 1'd0;
-            RtCtrl <= 32'd0;
             doRtBlock <= 1;
             RtCnt <= 3'd0;
             dac_local <= 1;
@@ -2086,9 +2084,10 @@ begin
             // the specified bus generation is correct OR it is a broadcast packet
             // (in which case the reassignment of node numbers does not matter).
             if (~fw_bus_reset && ((host_fw_bus_gen == fw_bus_gen) || isFwBroadcast)) begin
-               // Set writeRequest for local quadlet and block write.
+               // Set writeRequest for local quadlet and block write, except for real-time
+               // block write, which is handled separately.
                writeRequestQuad <= isLocal&quadWrite;
-               writeRequestBlock <= isLocal&blockWrite;
+               writeRequestBlock <= isLocal&blockWrite&(~addrMain);
                if (isRemote) begin
                   // Request to forward pkt.
                   eth_send_fw_req <= 1;
@@ -2109,18 +2108,22 @@ begin
             // Note that for broadcast write, the packet will have data for all boards;
             // thus, we check for consecutive DAC entries that match our board_id and
             // assume that the next entry is the status register for this board.
+            eth_rt_waddr <= RtCnt;
+            eth_rt_wdata <= FireWireQuadlet;
             if (RtCnt[2]) begin   // if (RtCnt == 3'd4)
                RtCnt <= 3'd0;
                dac_local <= 1;
-               if (dac_local)
-                  RtCtrl <= FireWireQuadlet;
+               eth_rt_wen <= dac_local;
             end
             else begin
                RtCnt <= RtCnt + 3'd1;
-               if (FireWireQuadlet[27:24] == board_id)
-                  RtDAC[RtCnt[1:0]] <= FireWireQuadlet;
-               else
+               if (FireWireQuadlet[27:24] == board_id) begin
+                  eth_rt_wen <= 1;
+               end
+               else begin
+                  eth_rt_wen <= 0;
                   dac_local <= 0;
+               end
             end
          end
       end
@@ -2484,7 +2487,7 @@ begin
          eth_block_wstart <= 1;
          bwState <= BW_WSTART;
          // block write data starts at quadlet 5
-         local_raddr <= addrMain ? 9'd0 : 9'd5;
+         local_raddr <= 9'd5;
          // Set up for writing
          eth_reg_waddr[15:12] <= fw_dest_offset[15:12];
          eth_reg_waddr[11:0] <= fw_dest_offset[11:0] - 12'd1;
@@ -2509,33 +2512,7 @@ begin
 
    BW_WRITE:
    begin
-      if (addrMain) begin
-         local_raddr[2:0] <= local_raddr[2:0] + 3'd1;
-         if (local_raddr[2]) begin   // if 4
-            // Status write
-            eth_reg_waddr[7:0] <= 8'd0;
-            // Write status register. Note that we only write the lowest 20 bits,
-            // so that we do not accidentally make other changes, such as requesting
-            // an FPGA reboot.
-            eth_reg_wdata <= {12'd0, RtCtrl[19:0]};
-            eth_reg_wen <= 1;
-            bwState <= BW_WRITE_GAP;
-         end
-         else begin
-            eth_reg_waddr[11:0] <= { 5'd0, local_raddr[2:0]+3'd1, `OFF_DAC_CTRL};
-            // only respond to bit 27-24 == board_id
-            if (RtDAC[local_raddr[1:0]][27:24] == board_id) begin
-               eth_reg_wdata <= {1'b0, RtDAC[local_raddr[1:0]][30:0]};
-               // MSB is "valid" bit for DAC write (addrMain)
-               if (RtDAC[local_raddr[1:0]][31]) begin
-                  eth_reg_wen <= 1;
-                  bwState <= BW_WRITE_GAP;
-               end
-            end
-         end
-      end
-      else if (bwHasMemAccess) begin
-         // All other local block writes (except addrMain)
+      if (bwHasMemAccess) begin
          local_raddr <= local_raddr + 9'd1;
          eth_reg_waddr[11:0] <= eth_reg_waddr[11:0] + 12'd1;
          eth_reg_wdata <= mem_rdata;
@@ -2552,8 +2529,7 @@ begin
       if (bwCnt == 2'd3) begin
          // bwCnt will be set to 0 (overflow)
          // block_data_length is in bytes
-         if ((addrMain && (local_raddr[2:0] == 3'd5)) ||
-             (local_raddr == (block_data_length[10:2] + 9'd5)))
+         if (local_raddr == (block_data_length[10:2] + 9'd5))
             bwState <= BW_BLK_WEN;
          else
             bwState <= BW_WRITE;
@@ -2569,10 +2545,6 @@ begin
       // Asserting eth_block_wen will cause writeRequestBlock to be cleared
       if (~writeRequestBlock)
          bwState <= BW_IDLE;
-      // Restore the DAC device address for blk_wen because the block write
-      // processing ends by addressing the status/control register instead of the DAC.
-      if (addrMain)
-         eth_reg_waddr[3:0] <= `OFF_DAC_CTRL;    // set dac device address
    end
 
    default:

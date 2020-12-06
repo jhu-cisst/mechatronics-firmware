@@ -74,25 +74,30 @@ module FPGA1394EthQLA
     wire[2:0] lreq_type;        // phy request type
     wire[2:0] fw_lreq_type;     // phy request type from FireWire
     wire[2:0] eth_lreq_type;    // phy request type from Ethernet
-    wire reg_wen;               // register write signal
+    reg reg_wen;                // register write signal
     wire fw_reg_wen;            // register write signal from FireWire
     wire eth_reg_wen;           // register write signal from Ethernet
-    wire blk_wen;               // block write enable
+    wire bw_reg_wen;            // register write signal from WriteRtData
+    reg blk_wen;                // block write enable
     wire fw_blk_wen;            // block write enable from FireWire
     wire eth_blk_wen;           // block write enable from Ethernet
-    wire blk_wstart;            // block write start
+    wire bw_blk_wen;            // block write enable from WriteRtData
+    reg blk_wstart;             // block write start
     wire fw_blk_wstart;         // block write start from FireWire
     wire eth_blk_wstart;        // block write start from Ethernet
+    wire bw_blk_wstart;         // block write start from WriteRtData
     wire[15:0] reg_raddr;       // 16-bit reg read address
     wire[15:0] fw_reg_raddr;    // 16-bit reg read address from FireWire
     wire[15:0] eth_reg_raddr;   // 16-bit reg read address from Ethernet
-    wire[15:0] reg_waddr;       // 16-bit reg write address
+    reg[15:0] reg_waddr;        // 16-bit reg write address
     wire[15:0] fw_reg_waddr;    // 16-bit reg write address from FireWire
     wire[15:0] eth_reg_waddr;   // 16-bit reg write address from Ethernet
+    wire[7:0] bw_reg_waddr;     // 16-bit reg write address from WriteRtData
     wire[31:0] reg_rdata;       // reg read data
-    wire[31:0] reg_wdata;       // reg write data
+    reg[31:0] reg_wdata;        // reg write data
     wire[31:0] fw_reg_wdata;    // reg write data from FireWire
     wire[31:0] eth_reg_wdata;   // reg write data from Ethernet
+    wire[31:0] bw_reg_wdata;    // reg write data from WriteRtData
     wire[31:0] reg_rd[0:15];
     wire eth_read_en;           // 1 -> Ethernet is driving reg_raddr to read from board registers
     wire[5:0] node_id;          // 6-bit phy node id
@@ -114,6 +119,11 @@ wire[4:0] sample_raddr;   // Address in sample_data buffer
 wire[31:0] sample_rdata;  // Output from sample_data buffer
 wire[31:0] timestamp;     // Timestamp used when sampling
 
+// For real-time write
+wire       rt_wen;
+wire[2:0]  rt_waddr;
+wire[31:0] rt_wdata;
+
 // Manage access to data sampling between Ethernet and Firewire.
 // As with most shared Ethernet/Firewire functionality, it is assumed that
 // only one interface will be receiving packets from the host PC, so this is
@@ -134,11 +144,48 @@ assign sample_raddr = eth_sample_read ? eth_sample_raddr : fw_sample_raddr;
 assign reg_raddr = sample_busy ? {`ADDR_MAIN, 4'd0, sample_chan, 4'd0} :
                    eth_read_en ? eth_reg_raddr :
                    fw_reg_raddr;
-assign reg_waddr = (eth_reg_wen | eth_blk_wen) ? eth_reg_waddr : fw_reg_waddr;
-assign reg_wdata = (eth_reg_wen | eth_blk_wen) ? eth_reg_wdata : fw_reg_wdata;
-assign reg_wen = fw_reg_wen | eth_reg_wen;
-assign blk_wen = fw_blk_wen | eth_blk_wen;
-assign blk_wstart = fw_blk_wstart | eth_blk_wstart;
+
+// Indicates which module(s) are active for writing. There should never be
+// more than one active module.
+wire bw_active;
+assign bw_active = bw_reg_wen|bw_blk_wen|bw_blk_wstart;
+wire eth_active;
+assign eth_active = eth_reg_wen|eth_blk_wen|eth_blk_wstart;
+wire fw_active;
+assign fw_active = fw_reg_wen|fw_blk_wen|fw_blk_wstart;
+
+// Whether there is an error due to multiple modules attempting to
+// to write at the same time.
+//reg reg_werror;
+
+always @(*)
+begin
+   if (bw_active) begin
+      reg_wen = bw_reg_wen;
+      blk_wen = bw_blk_wen;
+      blk_wstart = bw_blk_wstart;
+      reg_waddr = {8'd0, bw_reg_waddr};
+      reg_wdata = bw_reg_wdata;
+      //reg_werror = eth_active|fw_active;
+   end
+   else if (eth_active) begin
+      reg_wen = eth_reg_wen;
+      blk_wen = eth_blk_wen;
+      blk_wstart = eth_blk_wstart;
+      reg_waddr = eth_reg_waddr;
+      reg_wdata = eth_reg_wdata;
+      //reg_werror = fw_active;
+   end
+   else begin
+      reg_wen = fw_reg_wen;
+      blk_wen = fw_blk_wen;
+      blk_wstart = fw_blk_wstart;
+      reg_waddr = fw_reg_waddr;
+      reg_wdata = fw_reg_wdata;
+      //reg_werror = 0;
+   end
+end
+
 // Following is for debugging; it is a little risky to allow Ethernet to
 // access the FireWire PHY registers without some type of arbitration.
 assign lreq_trig = eth_lreq_trig | fw_lreq_trig;
@@ -374,6 +421,11 @@ EthernetIO EthernetTransfers(
 
     // Signal from Firewire indicating bus reset in process
     .fw_bus_reset(fw_bus_reset),
+
+    // Interface for real-time block write
+    .eth_rt_wen(rt_wen),
+    .eth_rt_waddr(rt_waddr),
+    .eth_rt_wdata(rt_wdata),
 
     // Interface for sampling data (for block read)
     .sample_start(eth_sample_start),   // 1 -> start sampling for block read
@@ -744,6 +796,22 @@ SampleData sampler(
     .hub_waddr(hub_waddr),
     .hub_wdata(hub_wdata),
     .hub_wen(hub_wen)
+);
+
+// --------------------------------------------------------------------------
+// Write data for real-time block
+// --------------------------------------------------------------------------
+
+WriteRtData rt_write(
+    .clk(sysclk),
+    .rt_write_en(rt_wen),       // Write enable
+    .rt_write_addr(rt_waddr),   // Write address (0-4)
+    .rt_write_data(rt_wdata),   // Write data
+    .bw_reg_wen(bw_reg_wen),
+    .bw_block_wen(bw_blk_wen),
+    .bw_block_wstart(bw_blk_wstart),
+    .bw_reg_waddr(bw_reg_waddr),
+    .bw_reg_wdata(bw_reg_wdata)
 );
 
 // ----------------------------------------------------------------------------
