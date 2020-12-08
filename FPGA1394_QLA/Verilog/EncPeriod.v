@@ -155,18 +155,6 @@ always @(posedge clk) begin
         end else if (counter[1] != overflow_value) begin
             // If not overflowed, increment free-running counter
             counter[1] <= counter[1] + 26'b1;
-            if (counter[1] >= counter[5]) begin
-                // If free-running counter greater than previous, update the period,
-                //  including overflow (period[31]) and dir (period[30]) bits.
-                period[30] <= dir;
-                if (sum > overflow_value) begin
-                    period[31] <= 1;
-                    period[width+1:0] <= {2'b0, overflow_value};
-                end else begin
-                    period[31] <= 0;
-                    period[width+1:0] <= sum;
-                end
-            end
         end else begin
             // Indicate that overflow has occurred
             period[31] <= 1;
