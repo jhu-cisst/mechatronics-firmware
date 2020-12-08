@@ -30,6 +30,7 @@
  *     12/02/16    Zihan Chen          Added packet forward from Ethernet
  *     05/03/18    Jie Ying Wu         Added additional fields for velocity
  *     07/11/20    Peter Kazanzides    Added status/control register at end of block write
+ *     12/08/20    Peter Kazanzides    Removed eth1394 (not needed)
  */
 
 // LLC: link layer controller (implemented in this file)
@@ -167,9 +168,8 @@
 module PhyLinkInterface(
     // globals
     input wire sysclk,           // system clock
-    input wire eth1394,          // global eth1394
     input wire[3:0] board_id,    // global board id
-    output wire[5:0] node_id,    // phy node id
+    output reg[5:0] node_id,     // phy node id
 
     // phy-link interface bus
     inout[1:0] ctl_ext,          // control line
@@ -255,7 +255,6 @@ module PhyLinkInterface(
     reg[3:0] tx_type;             // encodes transmit type
     reg[9:0] bus_id;              // phy bus id (10 bits)
     initial bus_id = 10'h3ff;     // set default bus_id to 10'h3ff
-    reg[5:0] fw_node_id;          // phy node id firewire (6 bits)
     wire[15:0] local_id;          // full addr = bus_id + node_id
 
     // status-related buffers
@@ -351,8 +350,6 @@ module PhyLinkInterface(
 // continuous assignments and aliases for better readability (and writability!)
 //
 
-// node_id based on eth1394 mode
-assign node_id = eth1394 ? {2'b00, board_id} : fw_node_id;
 // full local_id
 assign local_id = { bus_id[9:0], node_id[5:0] };   // full addr = bus_id + node_id
 
@@ -568,7 +565,7 @@ begin
                         reg_wen <= 1;
                         // save node id if register zero
                         if (st_buff[11:8] == 0)
-                            fw_node_id <= st_buff[7:2];
+                            node_id <= st_buff[7:2];
                         // update bus reset bit
                         fw_bus_reset <= st_buff[12+`BUS_RESET_START];
                     end
@@ -816,7 +813,7 @@ begin
 
                             // trigger phy register request if accessed.
                             // Support broadcast address because Ethernet initialization requires
-                            // reading of PHY Register 0 so that this module obtains fw_node_id.
+                            // reading of PHY Register 0 so that this module obtains node_id.
                             if (((rx_dest[5:0] == node_id) || (rx_dest[5:0] == 6'h3f)) &&
                                 (reg_waddr=={`ADDR_MAIN, 8'h0, `REG_PHYCTRL}) && (rx_tcode==`TC_QWRITE))
                             begin

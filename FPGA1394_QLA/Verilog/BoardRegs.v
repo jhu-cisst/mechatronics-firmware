@@ -38,7 +38,6 @@ module BoardRegs(
     output reg  dout_cfg_reset,     // reset dout_cfg_valid
     output reg pwr_enable,          // enable motor power
     output reg relay_on,            // enable relay for safety loop-through
-    output reg eth1394,             // 0: firewire mode 1: ethernet-1394 mode
     
     // board output (PC reads)
     input  wire[4:1] enc_a,         // encoder a  
@@ -113,8 +112,8 @@ module BoardRegs(
     assign reg_status = {
                 // Byte 3: num channels (4), board id
                 4'd4, board_id,
-                // Byte 2: wdog timeout, eth1394 mode, dout_cfg_valid, dout_cfg_bidir
-                wdog_timeout, eth1394, dout_cfg_valid, dout_cfg_bidir,
+                // Byte 2: wdog timeout, 0 (was eth1394), dout_cfg_valid, dout_cfg_bidir
+                wdog_timeout, 1'd0, dout_cfg_valid, dout_cfg_bidir,
                 // mv_good, power enable, safety relay state, safety relay control
                 mv_good, pwr_enable, ~relay, relay_on,
                 // mv_fault, unused (0)
@@ -172,8 +171,7 @@ always @(posedge(sysclk))
             pwr_enable <= reg_wdata[19] ? reg_wdata[18] : pwr_enable;
             // mask reg_wdata[21] with [20] for reboot (was reset prior to Rev 7)
             reboot <= reg_wdata[21] ? reg_wdata[20] : 1'b0;
-            // mask reg_wdata[23] with [22] for eth1394 mode
-            eth1394 <= reg_wdata[23] ? reg_wdata[22] : eth1394;
+            // Previously, masked reg_wdata[23] with [22] for eth1394 mode
             // use reg_wdata[24] to reset dout_cfg_valid
             dout_cfg_reset <= reg_wdata[24];
         end
