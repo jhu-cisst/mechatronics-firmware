@@ -52,13 +52,13 @@ set (VERILOG_SOURCE_COMMON "${VERILOG_SOURCE_DIR}/ClkDiv.v"
 			   "${VERILOG_SOURCE_DIR}/Reboot.v")
 
 # Verilog source files for Rev 1 firmware
-set (VERILOG_SOURCE_REV1 ${VERILOG_SOURCE_COMMON}
-                         "${VERILOG_SOURCE_DIR}/FPGA1394-QLA.v")
+set (VERILOG_SOURCE_REV1 "${VERILOG_SOURCE_DIR}/FPGA1394-QLA.v"
+                          ${VERILOG_SOURCE_COMMON})
 
 # Verilog source files for Rev 2 firmware
-set (VERILOG_SOURCE_REV2 ${VERILOG_SOURCE_COMMON}
-                         "${VERILOG_SOURCE_DIR}/EthernetIO.v"
-                         "${VERILOG_SOURCE_DIR}/FPGA1394Eth-QLA.v")
+set (VERILOG_SOURCE_REV2 "${VERILOG_SOURCE_DIR}/FPGA1394Eth-QLA.v"
+                          ${VERILOG_SOURCE_COMMON}
+                         "${VERILOG_SOURCE_DIR}/EthernetIO.v")
 
 # Compile the Rev 1 firmware -- output is FPGA1394-QLA.mcs, which is copied
 # to the Generated subdirectory in the source directory (if different).

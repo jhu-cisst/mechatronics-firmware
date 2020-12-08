@@ -118,7 +118,7 @@ begin
 end
 
 
-// connect mem_cop to dac(1-4)
+// connect mem_copy to dac(1-4)
 assign dac1 = mem_copy[0][15:0];
 assign dac2 = mem_copy[1][15:0];
 assign dac3 = mem_copy[2][15:0];

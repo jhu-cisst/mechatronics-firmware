@@ -148,7 +148,9 @@
 `define TX_TYPE_QRESP 4'd4        // for quadlet read response
 `define TX_TYPE_BRESP 4'd5        // for block read response
 `define TX_TYPE_BBC   4'd6        // for block write broadcast
+`ifdef HAS_ETHERNET
 `define TX_TYPE_FWD   4'd7        // for 1394 pkt forward from eth port
+`endif
 
 // PHY status bit masks.
 // Note that in the Firewire documentation, these are the 4 LSB, but we
@@ -183,7 +185,8 @@ module PhyLinkInterface(
     output reg[15:0] reg_waddr,   // write address to external register file
     input wire[31:0] reg_rdata,   // read data from external register file
     output reg[31:0] reg_wdata,   // write data to external register file
-    
+
+`ifdef HAS_ETHERNET
     // eth/fw interface
     input wire eth_send_fw_req,   // request from ethernet to send fw pkt
     output reg eth_send_fw_ack,   // ack sent fw pkt
@@ -197,6 +200,7 @@ module PhyLinkInterface(
     input wire[8:0] eth_send_addr,   // packet address bus
     output wire[31:0] eth_send_data, // packet data bus
     output reg[15:0] eth_send_len,   // packet data len (bytes)
+`endif
 
     output reg fw_bus_reset,         // 1 -> Firewire bus reset is in process
 
@@ -319,7 +323,9 @@ module PhyLinkInterface(
         ST_TX_HEAD_BC = 10,       // tx state, link transmits block read header for broadcast to PC
         ST_TX_DATA = 11,          // tx state, link transmits block data (including read from hub?)
         ST_TX_DATA_HUB = 12,      // tx state, link transmits hub block data (NOT USED?)
+`ifdef HAS_ETHERNET
         ST_TX_FWD = 13,           // tx state, link transmits forward data from eth
+`endif
         ST_TX_DONE1 = 14,         // tx state, link finalizes transmission
         ST_TX_DONE2 = 15;         // tx state, phy regains phy-link bus
 
@@ -374,6 +380,7 @@ crc32 mycrc(crc_data, crc_in, crc_2b, crc_4b, crc_8b);
 // for phy requests, this bit distinguishes between register read and write
 assign phy_rw = buffer[12];
 
+`ifdef HAS_ETHERNET
 // packet module (used to store FireWire packet that will be forwarded to Ethernet).
 // This is 512 quadlets (512 x 32), which is the maximum possible Firewire packet size at 400 Mbits/sec
 // (actually, could add a few quadlets because 512 limit probably does not include header and CRC).
@@ -390,6 +397,7 @@ hub_mem_gen pkt_mem(.clka(sysclk),
                     .addrb(eth_send_addr),
                     .doutb(eth_send_data)
                     );
+`endif
    
 // -------------------------------------------------------
 // Broadcast Time Counter 
@@ -456,10 +464,12 @@ end
 always @(posedge(sysclk))
 begin
 
+`ifdef HAS_ETHERNET
     // Clear eth_send_req when eth_send_ack asserted
     if (eth_send_req & eth_send_ack) begin
         eth_send_req <= 1'b0;
     end
+`endif
 
     // Clear sample_start (and writeHub) when sample_busy asserted
     if (sample_start && sample_busy) begin
@@ -494,6 +504,7 @@ begin
                             lreq_type <= `LREQ_TX_ISO;
                             tx_type <= `TX_TYPE_BBC;
                         end
+`ifdef HAS_ETHERNET
                         else if (eth_send_fw_req) begin
                             eth_send_fw_ack <= 1;
                             lreq_trig <= 1;
@@ -502,6 +513,7 @@ begin
                             eth_fwpkt_raddr <= 9'h00;
                             numbits <= (eth_fwpkt_len << 3);
                         end
+`endif
                         else begin
                             lreq_trig <= 0;
                         end
@@ -588,7 +600,9 @@ begin
                     crc_in <= `CRC_INIT;            // start crc calculation
                     crc_ini <= 0;                   // clear the crc reset flag
                     data_block <= 0;                // clear block write flag
+`ifdef HAS_ETHERNET
                     pkt_mem_waddr <= (9'd0 - 9'd2); // set pkt mem addr, dump 2
+`endif
                 end
                 default: state <= ST_IDLE;          // null packet or error
             endcase
@@ -614,6 +628,7 @@ begin
                     // process block write data portion of incoming packet
                     //
 
+`ifdef HAS_ETHERNET
                     // store packet
                     if (count[4:0] == 0) begin
                        pkt_mem_wen <= 1'b1;
@@ -623,7 +638,8 @@ begin
                     else begin
                        pkt_mem_wen <= 1'b0;
                     end
-                    
+`endif
+
                     // now process data
                     if (data_block) begin
 
@@ -808,6 +824,7 @@ begin
                                 lreq_type <= (phy_rw ? `LREQ_REG_WR : `LREQ_REG_RD);
                                 lreq_trig <= 1;
                             end
+`ifdef HAS_ETHERNET
                             // trigger packet forward if packet is for pc
                             if ((rx_dest[15:0] == eth_fw_addr) && (rx_tcode == `TC_QRESP)) begin
                                eth_send_req <= 1;
@@ -817,6 +834,7 @@ begin
                                eth_send_req <= 1;
                                eth_send_len <= 16'd24 + buffer[31:16];
                             end
+`endif
                         end
                         // quadlet 4.5 -----------------------------------------
                         144: crc_ini <= 1;     // reset crc for block data
@@ -985,6 +1003,7 @@ begin
                 numbits <= SZ_BBC;
             end
 
+`ifdef HAS_ETHERNET
             // transmit packet from Ethernet
             `TX_TYPE_FWD: begin
                 buffer <= eth_fwpkt_rdata;
@@ -992,7 +1011,8 @@ begin
                 numbits <= (eth_fwpkt_len << 3);  // len in bytes => in bits
                 eth_fwpkt_raddr <= eth_fwpkt_raddr + 1'b1;
             end
-            
+`endif
+
             // for crc/unknown errors, send an error ack
             default: begin
                 buffer[31:24] <= { `ACK_DATA, ~`ACK_DATA };
@@ -1200,6 +1220,7 @@ begin
         end // case: ST_TX_DATA
 
 
+`ifdef HAS_ETHERNET
         // ---------------------------------------------------------------------
         // link shifts packet from ethernet out to the phy/bus
         //
@@ -1225,6 +1246,7 @@ begin
               end
            end
         end // case: ST_TX_FWD
+`endif
 
         // ---------------------------------------------------------------------
         // drive one more cycle of idle

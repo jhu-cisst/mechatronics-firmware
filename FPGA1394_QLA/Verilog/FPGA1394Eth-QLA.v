@@ -19,6 +19,8 @@
 
 `timescale 1ns / 1ps
 
+`define HAS_ETHERNET
+
 // clock information
 // clk1394: 49.152 MHz 
 // sysclk: same as clk1394 49.152 MHz
