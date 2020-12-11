@@ -23,6 +23,7 @@ module WriteRtData(
     input wire[2:0]  rt_write_addr,   // Write address (0-4)
     input wire[31:0] rt_write_data,   // Write data
     // Following signals are used to write to the DAC and power control
+    output reg       bw_write_en,
     output reg       bw_reg_wen,
     output reg       bw_block_wen,
     output reg       bw_block_wstart,
@@ -61,6 +62,7 @@ begin
    RT_IDLE:
    begin
       rtCnt <= 2'd0;
+      bw_write_en <= 0;
       bw_reg_wen <= 0;
       bw_block_wen <= 0;
       bw_block_wstart <= 0;
@@ -73,6 +75,7 @@ begin
             if (anyDacValid) begin
                // Assert bw_block_wstart for 80 ns before starting local block write
                // (same timing as in Firewire module).
+               bw_write_en <= 1;
                bw_block_wstart <= 1;
                rtState <= RT_WSTART;
                dac_addr <= 2'd0;

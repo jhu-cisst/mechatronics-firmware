@@ -61,15 +61,29 @@ module FPGA1394QLA
 
     wire lreq_trig;             // phy request trigger
     wire[2:0] lreq_type;        // phy request type
-    wire reg_wen;               // register write signal
-    wire blk_wen;               // block write enable
-    wire blk_wstart;            // block write start
+    reg reg_wen;                // register write signal
+    wire fw_reg_wen;            // register write signal from FireWire
+    wire bw_reg_wen;            // register write signal from WriteRtData
+    reg blk_wen;                // block write enable
+    wire fw_blk_wen;            // block write enable from FireWire
+    wire bw_blk_wen;            // block write enable from WriteRtData
+    reg blk_wstart;             // block write start
+    wire fw_blk_wstart;         // block write start from FireWire
+    wire bw_blk_wstart;         // block write start from WriteRtData
     wire[15:0] reg_raddr;       // 16-bit reg read address
     wire[15:0] fw_reg_raddr;    // 16-bit reg read address from FireWire
-    wire[15:0] reg_waddr;       // 16-bit reg write address
+    reg[15:0] reg_waddr;        // 16-bit reg write address
+    wire[15:0] fw_reg_waddr;    // 16-bit reg write address from FireWire
+    wire[7:0] bw_reg_waddr;     // 16-bit reg write address from WriteRtData
     wire[31:0] reg_rdata;       // reg read data
-    wire[31:0] reg_wdata;       // reg write data
+    reg[31:0] reg_wdata;        // reg write data
+    wire[31:0] fw_reg_wdata;    // reg write data from FireWire
+    wire[31:0] bw_reg_wdata;    // reg write data from WriteRtData
     wire[31:0] reg_rd[0:15];
+    // Following wire indicates which module is driving the write bus
+    // (reg_waddr, reg_wdata, reg_wen, blk_wen, blk_wstart).
+    // If bw_write_en is 0, then Firewire is driving the write bus.
+    wire bw_write_en;           // 1 -> WriteRtData (real-time block write) is driving write bus
     wire[3:0] board_id;         // 4-bit board id
     assign board_id = ~wenid;
 
@@ -88,10 +102,36 @@ wire[4:0] sample_raddr;   // Address in sample_data buffer
 wire[31:0] sample_rdata;  // Output from sample_data buffer
 wire[31:0] timestamp;     // Timestamp used when sampling
 
+// For real-time write
+wire       rt_wen;
+wire[2:0]  rt_waddr;
+wire[31:0] rt_wdata;
+
+// For data sampling
 wire fw_sample_start;
 assign sample_start = fw_sample_start & ~sample_busy;
 
 assign reg_raddr = sample_busy ? {`ADDR_MAIN, 4'd0, sample_chan, 4'd0} : fw_reg_raddr;
+
+// Multiplexing of write bus between WriteRtData (bw = real-time block write module)
+// and Firewire.
+always @(*)
+begin
+   if (bw_write_en) begin
+      reg_wen = bw_reg_wen;
+      blk_wen = bw_blk_wen;
+      blk_wstart = bw_blk_wstart;
+      reg_waddr = {8'd0, bw_reg_waddr};
+      reg_wdata = bw_reg_wdata;
+   end
+   else begin
+      reg_wen = fw_reg_wen;
+      blk_wen = fw_blk_wen;
+      blk_wstart = fw_blk_wstart;
+      reg_waddr = fw_reg_waddr;
+      reg_wdata = fw_reg_wdata;
+   end
+end
 
 wire[31:0] reg_rdata_hub;      // reg_rdata_hub is for hub memory
 wire[31:0] reg_rdata_prom;     // reg_rdata_prom is for block reads from PROM
@@ -157,13 +197,6 @@ HubReg hub(
 // firewire modules
 // --------------------------------------------------------------------------
 
-`ifdef USE_CHIPSCOPE
-wire [35:0] control_fw;
-icon_prom icon(
-    .CONTROL0(control_fw)
-);
-`endif
-
 // phy-link interface
 PhyLinkInterface phy(
     .sysclk(sysclk),         // in: global clk  
@@ -172,14 +205,14 @@ PhyLinkInterface phy(
     .ctl_ext(ctl),           // bi: phy ctl lines
     .data_ext(data),         // bi: phy data lines
     
-    .reg_wen(reg_wen),       // out: reg write signal
-    .blk_wen(blk_wen),       // out: block write signal
-    .blk_wstart(blk_wstart), // out: block write is starting
+    .reg_wen(fw_reg_wen),       // out: reg write signal
+    .blk_wen(fw_blk_wen),       // out: block write signal
+    .blk_wstart(fw_blk_wstart), // out: block write is starting
 
     .reg_raddr(fw_reg_raddr),  // out: register address
-    .reg_waddr(reg_waddr),   // out: register address
-    .reg_rdata(reg_rdata),   // in:  read data to external register
-    .reg_wdata(reg_wdata),   // out: write data to external register
+    .reg_waddr(fw_reg_waddr),  // out: register address
+    .reg_rdata(reg_rdata),     // in:  read data to external register
+    .reg_wdata(fw_reg_wdata),  // out: write data to external register
 
     .lreq_trig(lreq_trig),   // out: phy request trigger
     .lreq_type(lreq_type),   // out: phy request type
@@ -187,6 +220,11 @@ PhyLinkInterface phy(
     .rx_bc_sequence(bc_sequence),  // in: broadcast sequence num
     .rx_bc_fpga(bc_board_mask),    // in: mask of boards involved in broadcast read
     .rx_bc_bread(bc_request),      // in: 1 -> received broadcast read request
+
+    // Interface for real-time block write
+    .fw_rt_wen(rt_wen),
+    .fw_rt_waddr(rt_waddr),
+    .fw_rt_wdata(rt_wdata),
 
     // Interface for sampling data (for block read)
     .sample_start(fw_sample_start),   // 1 -> start sampling for block read
@@ -203,10 +241,8 @@ PhyRequest phyreq(
     .lreq(lreq),              // out: phy request line
     .trigger(lreq_trig),      // in: phy request trigger
     .rtype(lreq_type),        // in: phy request type
-    .data(reg_wdata[11:0])    // in: phy request data
+    .data(fw_reg_wdata[11:0]) // in: phy request data
 );
-
-
 
 // --------------------------------------------------------------------------
 // adcs: pot + current 
@@ -569,6 +605,23 @@ SampleData sampler(
     .hub_waddr(hub_waddr),
     .hub_wdata(hub_wdata),
     .hub_wen(hub_wen)
+);
+
+// --------------------------------------------------------------------------
+// Write data for real-time block
+// --------------------------------------------------------------------------
+
+WriteRtData rt_write(
+    .clk(sysclk),
+    .rt_write_en(rt_wen),       // Write enable
+    .rt_write_addr(rt_waddr),   // Write address (0-4)
+    .rt_write_data(rt_wdata),   // Write data
+    .bw_write_en(bw_write_en),
+    .bw_reg_wen(bw_reg_wen),
+    .bw_block_wen(bw_blk_wen),
+    .bw_block_wstart(bw_blk_wstart),
+    .bw_reg_waddr(bw_reg_waddr),
+    .bw_reg_wdata(bw_reg_wdata)
 );
 
 // ----------------------------------------------------------------------------

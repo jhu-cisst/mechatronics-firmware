@@ -133,6 +133,7 @@ module EthernetIO(
     output reg       eth_reg_wen,
     output reg       eth_block_wen,
     output reg       eth_block_wstart,
+    output reg       eth_write_en,
 
     // Low-level Firewire PHY access
     output reg lreq_trig,         // trigger signal for a FireWire phy request
@@ -2478,10 +2479,12 @@ begin
             lreq_type <= (fw_quadlet_data[12] ? `LREQ_REG_WR : `LREQ_REG_RD);
             lreq_trig <= 1;
          end
+         eth_write_en <= 1;
          eth_reg_wen <= 1;
          eth_block_wen <= 1;
       end
       else if (writeRequestBlock) begin
+         eth_write_en <= 1;
          // Assert eth_block_wstart for 80 ns before starting local block write
          // (same timing as in Firewire module).
          eth_block_wstart <= 1;
@@ -2493,6 +2496,7 @@ begin
          eth_reg_waddr[11:0] <= fw_dest_offset[11:0] - 12'd1;
       end
       else begin
+         eth_write_en <= 0;
          eth_reg_wen <= 0;    // Clean up from quadlet/block writes
          eth_block_wen <= 0;
          eth_block_wstart <= 0;

@@ -213,6 +213,11 @@ module PhyLinkInterface(
     input wire[15:0] rx_bc_fpga,     // indicates whether a boards exists
     input wire rx_bc_bread,          // rx broadcast read request flag
 
+    // Interface for real-time block write
+    output reg       fw_rt_wen,
+    output reg[2:0]  fw_rt_waddr,
+    output reg[31:0] fw_rt_wdata,
+
     // Interface for sampling data (for block read)
     output reg sample_start,         // 1 -> start sampling for block read
     input wire sample_busy,          // Sampling in process
@@ -298,6 +303,7 @@ module PhyLinkInterface(
     // real-time read stuff
     reg data_block;               // flag for block write data being received
     reg dac_local;                // Indicates that DAC entries in block write are for this board_id
+    reg[2:0] RtCnt;               // Counter for real-time block quadlets
 
     // Read address for sampled data
     assign sample_raddr = reg_raddr[4:0];
@@ -653,34 +659,23 @@ begin
                                 // Note that for broadcast write, the packet will have data for all boards;
                                 // thus, we check for consecutive DAC entries that match our board_id and
                                 // assume that the next entry is the status register for this board.
-                                if (reg_waddr[7:4] == `NUM_CHANNELS) begin
-                                    // Status write
-                                    reg_waddr[7:0] <= 8'd0;
-                                    if (dac_local) begin
-                                        // Write status register. Note that we only write the lowest 20 bits,
-                                        // so that we do not accidentally make other changes, such as requesting
-                                        // an FPGA reboot.
-                                        reg_wdata <= {12'd0, buffer[19:0]};
-                                        reg_wen <= 1;
-                                    end
+                                fw_rt_waddr <= RtCnt;
+                                fw_rt_wdata <= buffer;
+                                if (RtCnt[2]) begin   // if (RtCnt == 3'd4)
+                                    RtCnt <= 3'd0;
                                     dac_local <= 1;
+                                    fw_rt_wen <= dac_local&rx_active;
                                 end
                                 else begin
-                                    // DAC write
-                                    if (reg_waddr[7:4] == 4'd0) begin
-                                        // Restart with DAC channel 1
-                                        reg_waddr[7:4] <= 4'd1;
-                                        reg_waddr[3:0] <= `OFF_DAC_CTRL;
-                                    end
-                                    else
-                                        reg_waddr[7:4] <= reg_waddr[7:4] + 4'd1;
+                                    RtCnt <= RtCnt + 3'd1;
                                     // only respond to bit 27-24 == board_id (bc mode)
                                     if (buffer[27:24] == board_id) begin
-                                        reg_wdata <= {1'b0, buffer[30:0]};       // data to write
-                                        reg_wen <= (buffer[31] & rx_active);     // check valid bit
+                                        fw_rt_wen <= rx_active;
                                     end
-                                    else
+                                    else begin
+                                        fw_rt_wen <= 0;
                                         dac_local <= 0;
+                                    end
                                 end
                             end
                             // other space
@@ -842,12 +837,10 @@ begin
                         160: begin 
                             // flag to indicate the start of block data
                             data_block <= (rx_tcode==`TC_BWRITE) ? 1'b1 : 1'b0;
-                            blk_wstart <= (rx_tcode==`TC_BWRITE) ? 1'b1 : 1'b0;
 
                             if (addrMainWrite) begin
-                                // main is special, ignore address in 1394 packet
-                                reg_waddr[7:4] <= 0;    // init channel address
-                                reg_waddr[3:0] <= `OFF_DAC_CTRL;    // set dac device address
+                                // main is special, write to WriteRtData module
+                                RtCnt <= 3'd0;
                                 dac_local <= 1;
                             end
                             else begin
@@ -855,6 +848,7 @@ begin
                                 // NOTE: read addr (see 3rd quad)
                                 //       write addr-1 to match timing
                                 reg_waddr[11:0] <= reg_waddr[11:0] - 1'b1; 
+                                blk_wstart <= (rx_tcode==`TC_BWRITE) ? 1'b1 : 1'b0;
                             end
                         end
                         // iffy implementation, works for now ------------------
@@ -914,10 +908,7 @@ begin
                     //   & - bitwise AND
                     //   result is a 1-bit and assigned to reg_wen 
                     reg_wen <= (rx_active & (rx_tcode==`TC_QWRITE));
-                    blk_wen <= (rx_active & ((rx_tcode==`TC_QWRITE) | (rx_tcode==`TC_BWRITE)));
-                    // Restore the DAC device address for blk_wen because the Rev 7+ block write
-                    // processing ends by addressing the status/control register instead of the DAC.
-                    reg_waddr[3:0] <= (rx_tcode == `TC_BWRITE) ? `OFF_DAC_CTRL : reg_waddr[3:0];
+                    blk_wen <= (rx_active & ((rx_tcode==`TC_QWRITE) | ((rx_tcode==`TC_BWRITE) && !addrMainWrite)));
 
                     // Start sampling feedback data if a block read from ADDR_MAIN or
                     // a broadcast read request (quadlet write to ADDR_HUB). Note that sampler

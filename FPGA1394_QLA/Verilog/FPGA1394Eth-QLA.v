@@ -101,6 +101,11 @@ module FPGA1394EthQLA
     wire[31:0] bw_reg_wdata;    // reg write data from WriteRtData
     wire[31:0] reg_rd[0:15];
     wire eth_read_en;           // 1 -> Ethernet is driving reg_raddr to read from board registers
+    // Following two wires indicate which module is driving the write bus
+    // (reg_waddr, reg_wdata, reg_wen, blk_wen, blk_wstart).
+    // If neither is active, then Firewire is driving the write bus.
+    wire eth_write_en;          // 1 -> Ethernet is driving write bus
+    wire bw_write_en;           // 1 -> WriteRtData (real-time block write) is driving write bus
     wire[5:0] node_id;          // 6-bit phy node id
     wire[3:0] board_id;         // 4-bit board id
     assign board_id = ~wenid;
@@ -121,9 +126,15 @@ wire[31:0] sample_rdata;  // Output from sample_data buffer
 wire[31:0] timestamp;     // Timestamp used when sampling
 
 // For real-time write
-wire       rt_wen;
-wire[2:0]  rt_waddr;
-wire[31:0] rt_wdata;
+reg        rt_wen;
+wire       fw_rt_wen;
+wire       eth_rt_wen;
+reg[2:0]   rt_waddr;
+wire[2:0]  fw_rt_waddr;
+wire[2:0]  eth_rt_waddr;
+reg[31:0]  rt_wdata;
+wire[31:0] fw_rt_wdata;
+wire[31:0] eth_rt_wdata;
 
 // Manage access to data sampling between Ethernet and Firewire.
 // As with most shared Ethernet/Firewire functionality, it is assumed that
@@ -146,36 +157,23 @@ assign reg_raddr = sample_busy ? {`ADDR_MAIN, 4'd0, sample_chan, 4'd0} :
                    eth_read_en ? eth_reg_raddr :
                    fw_reg_raddr;
 
-// Indicates which module(s) are active for writing. There should never be
-// more than one active module.
-wire bw_active;
-assign bw_active = bw_reg_wen|bw_blk_wen|bw_blk_wstart;
-wire eth_active;
-assign eth_active = eth_reg_wen|eth_blk_wen|eth_blk_wstart;
-wire fw_active;
-assign fw_active = fw_reg_wen|fw_blk_wen|fw_blk_wstart;
-
-// Whether there is an error due to multiple modules attempting to
-// to write at the same time.
-//reg reg_werror;
-
+// Multiplexing of write bus between WriteRtData (bw = real-time block write module),
+// Ethernet (eth) and Firewire.
 always @(*)
 begin
-   if (bw_active) begin
+   if (bw_write_en) begin
       reg_wen = bw_reg_wen;
       blk_wen = bw_blk_wen;
       blk_wstart = bw_blk_wstart;
       reg_waddr = {8'd0, bw_reg_waddr};
       reg_wdata = bw_reg_wdata;
-      //reg_werror = eth_active|fw_active;
    end
-   else if (eth_active) begin
+   else if (eth_write_en) begin
       reg_wen = eth_reg_wen;
       blk_wen = eth_blk_wen;
       blk_wstart = eth_blk_wstart;
       reg_waddr = eth_reg_waddr;
       reg_wdata = eth_reg_wdata;
-      //reg_werror = fw_active;
    end
    else begin
       reg_wen = fw_reg_wen;
@@ -183,7 +181,6 @@ begin
       blk_wstart = fw_blk_wstart;
       reg_waddr = fw_reg_waddr;
       reg_wdata = fw_reg_wdata;
-      //reg_werror = 0;
    end
 end
 
@@ -328,6 +325,11 @@ PhyLinkInterface phy(
     .rx_bc_fpga(bc_board_mask),    // in: mask of boards involved in broadcast read
     .rx_bc_bread(bc_request),      // in: 1 -> received broadcast read request
 
+    // Interface for real-time block write
+    .fw_rt_wen(fw_rt_wen),
+    .fw_rt_waddr(fw_rt_waddr),
+    .fw_rt_wdata(fw_rt_wdata),
+
     // Interface for sampling data (for block read)
     .sample_start(fw_sample_start),   // 1 -> start sampling for block read
     .sample_busy(sample_busy),        // Sampling in process
@@ -399,6 +401,7 @@ EthernetIO EthernetTransfers(
     .eth_reg_wen(eth_reg_wen),         // out: reg write enable
     .eth_block_wen(eth_blk_wen),       // out: blk write enable
     .eth_block_wstart(eth_blk_wstart), // out: blk write start
+    .eth_write_en(eth_write_en),       // out: write bus enable
 
     // Low-level Firewire PHY access
     .lreq_trig(eth_lreq_trig),   // out: phy request trigger
@@ -423,9 +426,9 @@ EthernetIO EthernetTransfers(
     .fw_bus_reset(fw_bus_reset),
 
     // Interface for real-time block write
-    .eth_rt_wen(rt_wen),
-    .eth_rt_waddr(rt_waddr),
-    .eth_rt_wdata(rt_wdata),
+    .eth_rt_wen(eth_rt_wen),
+    .eth_rt_waddr(eth_rt_waddr),
+    .eth_rt_wdata(eth_rt_wdata),
 
     // Interface for sampling data (for block read)
     .sample_start(eth_sample_start),   // 1 -> start sampling for block read
@@ -801,11 +804,26 @@ SampleData sampler(
 // Write data for real-time block
 // --------------------------------------------------------------------------
 
+always @(*)
+begin
+   if (eth_rt_wen) begin
+      rt_wen = eth_rt_wen;
+      rt_waddr = eth_rt_waddr;
+      rt_wdata = eth_rt_wdata;
+   end
+   else begin
+      rt_wen = fw_rt_wen;
+      rt_waddr = fw_rt_waddr;
+      rt_wdata = fw_rt_wdata;
+   end
+end
+
 WriteRtData rt_write(
     .clk(sysclk),
     .rt_write_en(rt_wen),       // Write enable
     .rt_write_addr(rt_waddr),   // Write address (0-4)
     .rt_write_data(rt_wdata),   // Write data
+    .bw_write_en(bw_write_en),
     .bw_reg_wen(bw_reg_wen),
     .bw_block_wen(bw_blk_wen),
     .bw_block_wstart(bw_blk_wstart),
