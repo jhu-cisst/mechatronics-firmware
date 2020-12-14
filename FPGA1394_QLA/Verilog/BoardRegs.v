@@ -32,7 +32,7 @@ module BoardRegs(
     
     // board input (PC writes)
     output wire[4:1] amp_disable,   // hardware connection to op amps
-    input  wire[4:1] dout,          // digital outputs
+    input  wire[31:0] dout,         // digital outputs
     input  wire dout_cfg_valid,     // digital output configuration valid
     input  wire dout_cfg_bidir,     // whether digital outputs are bidirectional (also need to be inverted)
     output reg  dout_cfg_reset,     // reset dout_cfg_valid
@@ -123,7 +123,7 @@ module BoardRegs(
                 // Byte 0: 1 -> amplifier enabled, 0 -> disabled
                 safety_amp_disable[4:1], ~reg_disable[3:0] };
 
-    assign reg_digin = {v_fault, io1_8, 2'd0, enc_a, enc_b, enc_i, dout, neg_limit, pos_limit, home};
+    assign reg_digin = {v_fault, io1_8, 2'd0, enc_a, enc_b, enc_i, dout[3:0], neg_limit, pos_limit, home};
 
 //------------------------------------------------------------------------------
 // hardware description

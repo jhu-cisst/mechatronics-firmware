@@ -141,13 +141,14 @@ wire[31:0] reg_rdata_chan0;    // 'channel 0' is a special axis that contains va
 
 // Mux routing read data based on read address
 //   See Constants.v for details
-//     addr[15:12]  main | hub | prom | prom_qla | eth | firewire | dallas
+//     addr[15:12]  main | hub | prom | prom_qla | eth | firewire | dallas | databuf | waveform
 assign reg_rdata = (reg_raddr[15:12]==`ADDR_HUB) ? (reg_rdata_hub) :
                   ((reg_raddr[15:12]==`ADDR_PROM) ? (reg_rdata_prom) :
                   ((reg_raddr[15:12]==`ADDR_PROM_QLA) ? (reg_rdata_prom_qla) : 
                   ((reg_raddr[15:12]==`ADDR_DS) ? (reg_rdata_ds) :
                   ((reg_raddr[15:12]==`ADDR_DATA_BUF) ? (reg_rdata_databuf) :
-                  ((reg_raddr[7:4]==4'd0) ? reg_rdata_chan0 : reg_rd[reg_raddr[3:0]])))));
+                  ((reg_raddr[15:12]==`ADDR_WAVEFORM) ? (reg_rtable) :
+                  ((reg_raddr[7:4]==4'd0) ? reg_rdata_chan0 : reg_rd[reg_raddr[3:0]]))))));
 
 // Unused channel offsets
 assign reg_rd[`OFF_UNUSED_02] = 32'd0;
@@ -356,12 +357,13 @@ assign reg_rd[`OFF_RUN_DATA] = reg_run_data;     // running counter
 
 wire[31:0] reg_rdout;
 assign reg_rd[`OFF_DOUT_CTRL] = reg_rdout;
+wire[31:0] reg_rtable;
 
 // DOUT hardware configuration
 wire dout_config_valid;
 wire dout_config_bidir;
 wire dout_config_reset;
-wire[3:0] dout;
+wire[31:0] dout;
 wire dir12_cd;
 wire dir34_cd;
 
@@ -394,6 +396,7 @@ CtrlDout cdout(
     .reg_raddr(reg_raddr),
     .reg_waddr(reg_waddr),
     .reg_rdata(reg_rdout),
+    .table_rdata(reg_rtable),
     .reg_wdata(reg_wdata),
     .reg_wen(reg_wen),
     .dout(dout),
