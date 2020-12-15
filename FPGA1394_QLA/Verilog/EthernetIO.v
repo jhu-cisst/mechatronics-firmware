@@ -1870,7 +1870,6 @@ begin
    end
 
    if (eth_block_wen) begin
-      writeRequestQuad <= 1'b0;
       writeRequestBlock <= 1'b0;
    end
 
@@ -1898,6 +1897,7 @@ begin
       doRtBlock <= 0;
       eth_rt_wen <= 0;
       rfw_count <= 10'd0;
+      writeRequestQuad <= 1'b0;
       skipCnt <= 2'd3;  // Skip first 3 words in packet when receiving
                         // ignore(1) + status(1) + byte-count(1)
       nextRecvState <= ST_RECEIVE_DMA_IDLE;
@@ -1905,7 +1905,6 @@ begin
          FireWirePacketFresh <= 0;
          fwPacketDropped <= 0;
          writeRequestBlock <= 0;
-         writeRequestQuad <= 0;
          numIPv4Mismatch <= 10'd0;
          numPacketError <= 10'd0;
          ethFrameError <= 0;
@@ -2328,6 +2327,7 @@ begin
       end
       else if (sfw_count[3:0] == 4'd9) begin  // block read
          if (blockRead) begin
+            eth_reg_raddr <= fw_dest_offset;
             sample_read <= addrMain;
             eth_read_en <= ~addrMain;
             ethAccessError <= (~addrMain&sample_busy) ? 1'd1 : ethAccessError;
@@ -2458,12 +2458,12 @@ reg bwHadMemAccess;    // Indicates that Ethernet module was not accessing the m
 // Since other block writes are not broadcast, this memory conflict should never occur, but
 // the check is included just in case.
 wire bwHasMemAccess;
-assign bwHasMemAccess = bwHadMemAccess&(~eth_send_fw_ack)&writeRequestQuad;
+assign bwHasMemAccess = bwHadMemAccess&(~eth_send_fw_ack)&writeRequestBlock;
 
 always @(posedge sysclk)
 begin
 
-   bwHadMemAccess <= (~eth_send_fw_ack)&writeRequestQuad;
+   bwHadMemAccess <= (~eth_send_fw_ack)&writeRequestBlock;
 
    case (bwState)
 
@@ -2522,6 +2522,11 @@ begin
          eth_reg_wdata <= mem_rdata;
          eth_reg_wen <= 1;
          bwState <= BW_WRITE_GAP;
+      end
+      else if (!writeRequestBlock) begin
+         // Block write was aborted (e.g., due to reset);
+         // normally, this should not happen.
+         bwState <= BW_IDLE;
       end
    end
 
