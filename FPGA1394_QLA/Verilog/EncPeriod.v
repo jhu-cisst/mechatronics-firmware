@@ -20,6 +20,8 @@
  *     02/29/12    Zihan Chen          Fix implementation and debug module
  *     03/17/14    Peter Kazanzides    Update data every tick (dP = 4)
  *     04/07/17    Jie Ying Wu         Return only larger of cnter or cnter_latch
+ *     10/19/17    Jie Ying Wu         Added acceleration estimation
+ *     12/07/20    Peter Kazanzides    Return both cnter (free running counter) and cnter_latch
  */
 
 // ------------------------------------------------
@@ -40,12 +42,12 @@ module EncPeriodQuad(
     reg a_r;       // Previous value of A channel
     reg b_r;       // Previous value of B channel
 
-    // Various overflow values. The counters are all 26 bits, but only the upper 22 or 20 bits
-    // are sent to the higher-level module (and to the PC via FireWire). 22 bits are used for
-    // the full cycle periods and 20 bits are used for the quarter cycle periods.
+    // Various overflow values. The counters are all 26 bits (width parameter), but the quarter-cycle
+    // counts (for acceleration) are limited to 24 bits (small_overflow).
+    // Starting with Rev 7, all bits are sent to the higher-level module (and to the PC via FireWire).
     parameter width = 26;
-    parameter small_overflow = 24'hFFFFFF;  // 24-bit overflow value (20-bit after dropping 4 LSB)
-    parameter overflow_value = 26'h3FFFFFF; // 26-bit overflow value (22-bit after dropping 4 LSB)
+    parameter small_overflow = 24'hFFFFFF;  // 24-bit overflow value
+    parameter overflow_value = 26'h3FFFFFF; // 26-bit overflow value
 
     // Queue of last 5 quarter cycles for acceleration and counter since last tick
     //    counter[1] -- free running counter
@@ -109,56 +111,51 @@ assign latch_overflow = (counter[2] == overflow_value) || (counter[3] == overflo
 
 always @(posedge clk) begin
 
-        if (latched_mux != mux) begin
-            // If a new edge has been detected, shift the queue and clear the running counter.
-            // There is a 1-clock delay here, but since it happens for both clearing the counter
-	    // and shifting the queue, the net effect cancels out. It could be addressed by
-            // setting counter[1] <= 1 and counter[2] <= counter[1]-1, but that is more work to
-	    // produce the same result.
-            counter[1] <= 0;
-            counter[2] <= counter[1];
-            counter[3] <= counter[2];
-            counter[4] <= counter[3];
-            counter[5] <= counter[4];
-            latched_mux <= mux;
-            
-            // Full cycle period
-            // Note that we discard the lowest 4 bits to produce a 22-bit value; this is equivalent
-            // to using a fast clock of ~3 MHz, rather than ~50 MHz.
-            // The MSB (period[31]) indicates an overflow and period[30] contains the direction.
-            if (sum > overflow_value) begin
-                period[31] <= 1;
-                period[width+1:0] <= overflow_value;
-            end else begin
-                period[31] <= 0;
-                period[width+1:0] <= sum;
-            end
-            period[30] <= dir;
+    if (latched_mux != mux) begin
+        // If a new edge has been detected, shift the queue and clear the running counter.
+        // There is a 1-clock delay here, but since it happens for both clearing the counter
+	// and shifting the queue, the net effect cancels out. It could be addressed by
+        // setting counter[1] <= 1 and counter[2] <= counter[1]-1, but that is more work to
+	// produce the same result.
+        counter[1] <= 0;
+        counter[2] <= counter[1];
+        counter[3] <= counter[2];
+        counter[4] <= counter[3];
+        counter[5] <= counter[4];
+        latched_mux <= mux;
 
-            // Recent counter for acceleration
-            // 8 least-significant bits of last latched value are stored in upper bits of period.
-            // 12 most-significant bits of last latched value are stored in upper bits of acc.
-            if (counter[1] > small_overflow) begin
-                quarter1[width-3:0] <= small_overflow[width-3:0];
-            end else begin
-                quarter1[width-3:0] <= counter[1][width-3:0];
-            end
-
-            // Prev counter for acceleration
-            // 20 bits of previous counter stored in lower bits of acc.
-            if (counter[5] > small_overflow) begin
-                quarter5[width-3:0] <= small_overflow[width-3:0];
-             end else begin
-                quarter5[width-3:0] <= counter[1][width-3:0];
-             end
-             
-        end else if (counter[1] != overflow_value) begin
-            // If not overflowed, increment free-running counter
-            counter[1] <= counter[1] + 26'b1;
-        end else begin
-            // Indicate that overflow has occurred
+        // Full cycle period
+        // The MSB (period[31]) indicates an overflow and period[30] contains the direction.
+        if (sum > overflow_value) begin
             period[31] <= 1;
+            period[width+1:0] <= overflow_value;
+        end else begin
+            period[31] <= 0;
+            period[width+1:0] <= sum;
         end
+        period[30] <= dir;
+
+        // Recent counter for acceleration
+        if (counter[1] > small_overflow) begin
+            quarter1[width-3:0] <= small_overflow[width-3:0];
+        end else begin
+            quarter1[width-3:0] <= counter[1][width-3:0];
+        end
+
+        // Prev counter for acceleration
+        if (counter[5] > small_overflow) begin
+            quarter5[width-3:0] <= small_overflow[width-3:0];
+        end else begin
+            quarter5[width-3:0] <= counter[1][width-3:0];
+        end
+
+    end else if (counter[1] != overflow_value) begin
+        // If not overflowed, increment free-running counter
+        counter[1] <= counter[1] + 26'b1;
+    end else begin
+        // Indicate that overflow has occurred
+        period[31] <= 1;
+    end
 end
 
 //Should overflow more values
