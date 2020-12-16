@@ -146,7 +146,7 @@ always @(posedge clk) begin
         if (counter[5] > small_overflow) begin
             quarter5[width-3:0] <= small_overflow[width-3:0];
         end else begin
-            quarter5[width-3:0] <= counter[1][width-3:0];
+            quarter5[width-3:0] <= counter[5][width-3:0];
         end
 
     end else if (counter[1] != overflow_value) begin
