@@ -42,11 +42,10 @@ module EncPeriodQuad(
     output wire[31:0] t_cur       // time since last edge
 );
 
-    reg[1:0] mux;  // Indicates most recent edge (a_up, a_dn, b_up, or b_dn)
     reg a_r;       // Previous value of A channel
     reg b_r;       // Previous value of B channel
 
-    // Starting with Rev 7, all bits are sent to the higher-level module (and to the PC via FireWire).
+    // Starting with Rev 7, all bits are sent to the higher-level module.
     parameter width = 26;
     parameter overflow_value = 26'h3FFFFFF; // Maximum 26-bit value (overflow)
 
@@ -62,10 +61,11 @@ module EncPeriodQuad(
     // acceleration.
     reg[width-1:0] counter[0:5];
     reg            counter0_overflow;   // whether counter[0] has overflowed
-    reg[3:0]       flags[1:5];          // overflow, dir, mux
+    reg[6:0]       flags[1:5];          // overflow, dir, enc_error, a_up, b_up, a_down, b_down
 
-    localparam ovf_bit = 3,     // overflow bit in flags
-               dir_bit = 2;     // direction bit in flags
+    localparam ovf_bit = 6,     // overflow bit in flags
+               dir_bit = 5,     // direction bit in flags
+               error_bit = 4;   // encoder error
 
 initial begin
     counter[0] = overflow_value;
@@ -75,93 +75,51 @@ initial begin
     counter[4] = overflow_value;
     counter[5] = overflow_value;
     counter0_overflow = 1'b1;
-    flags[1] = 4'b1000;
-    flags[2] = 4'b1000;
-    flags[3] = 4'b1000;
-    flags[4] = 4'b1000;
-    flags[5] = 4'b1000;
+    flags[1] = 7'b100000;
+    flags[2] = 7'b100000;
+    flags[3] = 7'b100000;
+    flags[4] = 7'b100000;
+    flags[5] = 7'b100000;
 end   
-    
+
 //------------------------------------------------------------------------------
 // hardware description
 //
 
-localparam[1:0] a_up = 2'b00;
-localparam[1:0] a_dn = 2'b10;
-localparam[1:0] b_up = 2'b01;
-localparam[1:0] b_dn = 2'b11;
+// Encoder convention (same as EncQuad)
+//    dir = 0: a_up -> b_up -> a_dn -> b_dn  (flags[3:0]: 1000, 0100, 0010, 0001) -- right shift (A leads B)
+//    dir = 1: a_up -> b_dn -> a_dn -> b_up  (flags[3:0]: 1000, 0001, 0010, 0100) -- left shift (B leads A)
 
-reg [1:0] latched_mux;   // Previous value of mux
-reg [1:0] next_edge;     // Next expected edge (not currently used)
-
-reg mux_dir;             // Direction bit when mux updated
-reg latched_dir;         // Latched direction bit
-
-reg enc_init;            // Indicates that at least one encoder edge has occurred
-reg latched_init;
-
-initial begin
-    enc_init = 0;
-    latched_init = 0;
-end
-
-// Determine which edge is the most recent and sets mux (no longer a mux, but used
-// to indicate the most recent edge). Could do some error checking here; for example,
-// when the current edge is not equal to next_edge.
-always @(posedge clk)
-begin
-    a_r <= a;
-    b_r <= b;
-    if (a & (~a_r)) begin        // a_up
-        mux <= a_up;
-        mux_dir <= dir;
-        enc_init <= 1'b1;
-        next_edge <= dir ? b_dn : b_up;
-    end
-    else if (b & (~b_r)) begin   // b_up
-        mux <= b_up;    
-        mux_dir <= dir;
-        enc_init <= 1'b1;
-        next_edge <= dir ? a_up : a_dn;
-    end    
-    else if ((~a) & a_r) begin   // a_dn
-        mux <= a_dn;
-        mux_dir <= dir;
-        enc_init <= 1'b1;
-        next_edge <= dir ? b_up : b_dn;
-    end
-    else if ((~b) & b_r) begin   // b_dn
-        mux <= b_dn;
-        mux_dir <= dir;
-        enc_init <= 1'b1;
-        next_edge <= dir ? a_dn : a_up;
-    end
-end
+wire a_up;
+wire b_up;
+wire a_down;
+wire b_down;
+assign a_up = a & (~a_r);
+assign b_up = b & (~b_r);
+assign a_down = (~a) & a_r;
+assign b_down = (~b) & b_r;
 
 wire [width+1:0] sum;   // 28-bits for sum of 4 26-bit values
 assign sum = counter[1]+counter[2]+counter[3]+counter[4];
 
-// Indicates whether last 4 quarter-cycles were all in the same direction (all 0 or all 1).
-// A 4-input NOR indicates whether all bits are 0 and a 4-input AND indicates whether all bits are 1.
-wire dir_same;
-assign dir_same =
-  ~(flags[1][dir_bit] | flags[2][dir_bit] | flags[3][dir_bit] | flags[4][dir_bit]) |
-   (flags[1][dir_bit] & flags[2][dir_bit] & flags[3][dir_bit] | flags[4][dir_bit]);
+// Following used to determine whether last two encoder edges are valid, based on the direction.
+// We skip the check if flags[1][3:0] has not yet been set (initial value is 0000).
+wire enc_valid[0:1];
+assign enc_valid[0] = (flags[1][3:0] == {b_down, a_up, b_up, a_down}) ? 1'b1 : 1'b0;  // dir == 0, right shift
+assign enc_valid[1] = (flags[1][3:0] == {b_up, a_down, b_down, a_up}) ? 1'b1 : 1'b0;  // dir == 1, left shift
+wire flags1_valid;
+assign flags1_valid = (flags[1][3:0] == 4'b0000) ? 1'b0 : 1'b1;
 
-// Counts initial encoder edges (up to 4). This is useful for testing, so the test software can
-// determine whether dir_same is valid (i.e., ignore if less than 4 edges have occurred).
-reg[1:0] enc_cnt;
-
-always @(posedge clk) begin
-
-    latched_init <= enc_init;
-    if ((latched_mux != mux) || (latched_init != enc_init)) begin
+always @(posedge clk)
+begin
+    a_r <= a;
+    b_r <= b;
+    if (a_up | a_down | b_up | b_down) begin
         // If a new edge has been detected, shift the queue and initialize the running counter
-        // (check for latched_init != init handles first encoder edge).
-        counter[0] <= 26'b1;
+        counter[0] <= 26'b0;
         counter0_overflow <= 1'b0;
-        counter[1] <= counter0_overflow ? overflow_value : (counter[0]-26'b1);
-        flags[1] <= {counter0_overflow, mux_dir, mux};
+        counter[1] <= counter[0];
+        flags[1] <= {counter0_overflow, dir, (flags1_valid ? ~enc_valid[dir] : 1'b0), a_up, b_up, a_down, b_down};
         counter[2] <= counter[1];
         flags[2] <= flags[1];
         counter[3] <= counter[2];
@@ -170,9 +128,6 @@ always @(posedge clk) begin
         flags[4] <= flags[3];
         counter[5] <= counter[4];
         flags[5] <= flags[4];
-        latched_mux <= mux;
-        // Update encoder counter (counts up to 4 edges)
-        enc_cnt <= (enc_cnt == 2'd3) ? 2'd3 : (enc_cnt + 2'd1);
     end
     else if (counter[0] != overflow_value) begin
         // If not overflowed, increment free-running counter
@@ -184,17 +139,33 @@ always @(posedge clk) begin
     end
 end
 
-assign t_cur =    {counter0_overflow, dir, enc_cnt, {28-width{1'b0}}, counter[0]};
-assign quarter1 = {flags[1], {28-width{1'b0}}, counter[1]};
-assign quarter5 = {flags[5], {28-width{1'b0}}, counter[5]};
+assign t_cur =    {counter0_overflow, dir, {30-width{1'b0}}, counter[0]};
+assign quarter1 = {flags[1][ovf_bit], flags[1][dir_bit], flags[1][3:0], counter[1]};
+assign quarter5 = {flags[5][ovf_bit], flags[5][dir_bit], flags[5][3:0], counter[5]};
 
 // Last full-cycle period
 // Set overflow bit if sum is greater than overflow_value; note that if any quarter-cycle period
 // has overflowed, then sum will also overflow.
+wire overflow_flag;
+assign overflow_flag = (sum > overflow_value) ? 1'b1 : 1'b0;
 // Set direction bit based on most recent quarter-cycle direction (flags[1][dir_bit]),
 // but also indicate if there was a direction change (~dir_same).
-assign period = (sum > overflow_value) ?
-                { 1'b1, flags[1][dir_bit], ~dir_same, {29-width{1'b0}}, overflow_value } :
-                { 1'b0, flags[1][dir_bit], ~dir_same, {29-width{1'b0}}, sum[width-1:0] };
+// Wire dir_same indicates whether last 4 quarter-cycles were all in the same direction (all 0 or all 1).
+// A 4-input NOR indicates whether all bits are 0 and a 4-input AND indicates whether all bits are 1.
+wire dir_same;
+assign dir_same =
+  ~(flags[1][dir_bit] | flags[2][dir_bit] | flags[3][dir_bit] | flags[4][dir_bit]) |
+   (flags[1][dir_bit] & flags[2][dir_bit] & flags[3][dir_bit] | flags[4][dir_bit]);
+// Indicate whether any encoder error was detected
+wire enc_error;
+assign enc_error = flags[1][error_bit] | flags[2][error_bit] | flags[3][error_bit] | flags[4][error_bit];
+// Indicate whether not enough edges have occurred for a full cycle (this is only important during testing).
+// We detect this by checking if the edge mask for the last counter is all zero (flags[4][3:0] == 4'd0)
+// because that means it is still at its initial value.
+wire partial_cycle;
+assign partial_cycle = (flags[4][3:0] == 4'd0) ? 1'b1 : 1'b0;
+
+assign period = { overflow_flag, flags[1][dir_bit], ~dir_same, enc_error, partial_cycle, 1'b0,
+                  overflow_flag ? overflow_value : sum[width-1:0] };
 
 endmodule

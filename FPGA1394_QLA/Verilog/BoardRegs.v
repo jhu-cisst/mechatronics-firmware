@@ -123,7 +123,8 @@ module BoardRegs(
                 // Byte 0: 1 -> amplifier enabled, 0 -> disabled
                 safety_amp_disable[4:1], ~reg_disable[3:0] };
 
-    assign reg_digin = {v_fault, io1_8, 2'd0, enc_a, enc_b, enc_i, dout[3:0], neg_limit, pos_limit, home};
+    // dout[31] indicates that waveform table is driving at least one DOUT
+    assign reg_digin = {v_fault, io1_8, dout[31], 1'b0, enc_a, enc_b, enc_i, dout[3:0], neg_limit, pos_limit, home};
 
 //------------------------------------------------------------------------------
 // hardware description
