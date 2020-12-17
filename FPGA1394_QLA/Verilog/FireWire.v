@@ -92,7 +92,7 @@
  */
  
 
-// -------------------------------------------------------
+// -----------------------------------------------------------------
 // IEEE-1394 64-bit Address Mapped 
 // We only use last 16-bit, the rest bit number is 0 indexed
 // 
@@ -102,10 +102,20 @@
 //     4'h2: M25P16 prom space
 //     4'h3: QLA 25AA128 prom space
 //         
-// -------------------------------------------------------------
+// In addition, the IEEE-1394 CSR Architecture specifies a register
+// space starting at offset ffff f000 0000 (last 256 MB).
+// Within this space, the first 2 KB is the Initial Node Space:
+//   ffff f000 0000 -> ffff f000 01ff  -- CSR Architecture (512 bytes)
+//   ffff f000 0200 -> ffff f000 03ff  -- Serial Bus (512 bytes)
+//   ffff f000 0400 -> ffff f000 07ff  -- Configuration ROM
+// The Configuration ROM follows ISO/IEC 13213:
+//   The minimum ROM format requires the following 32-bit value to be
+//   stored at address ffff f000 0400:  | 1 (8) | vendor_id (24) |
+//   For JHU-LCSR, the 24-bit vendor_id is FA610E (see MIN_ROM_ENTRY)
+// -----------------------------------------------------------------
 
 
-// global constant e.g. register & device address
+// global constants, e.g. register & device addresses
 `include "Constants.v"
 
 // constants for receive speed codes
@@ -164,6 +174,10 @@
 // other
 `define CRC_INIT -32'd1           // initial value to start new crc calculation
 `define INVALID_SIZE -16'd1       // packet size that we should never encounter
+
+// Minimum Configuration ROM Entry:  | 01 (8) | FA610E (24) |
+// (FA610E is the 24-bit CID assigned to JHU-LCSR by IEEE)
+`define MIN_ROM_ENTRY  32'h01FA610E
 
 module PhyLinkInterface(
     // globals
@@ -312,6 +326,9 @@ module PhyLinkInterface(
     wire addrMainWrite;
     assign addrMainRead  = (reg_raddr[15:12] == `ADDR_MAIN) ? 1'd1 : 1'd0;
     assign addrMainWrite = (reg_waddr[15:12] == `ADDR_MAIN) ? 1'd1 : 1'd0;
+
+    wire  rom_read;          // Whether reading from Configuration ROM
+    assign rom_read = (rx_addr_full == 48'hfffff0000400) ? 1'b1 : 1'b0;
 
     // state machine states
     parameter[3:0]
@@ -1074,7 +1091,7 @@ begin
                 case (count)
                      24: buffer <= { rx_dest, `RC_DONE, 12'd0 };
                      56: buffer <= 0;
-                     88: buffer <= reg_rdata;
+                     88: buffer <= rom_read ? `MIN_ROM_ENTRY : reg_rdata;
                     128: begin
                         data <= ~crc_8msb;
                         buffer <= { ~crc_in[23:0], 8'd0 };
