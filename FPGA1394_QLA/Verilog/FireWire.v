@@ -327,8 +327,17 @@ module PhyLinkInterface(
     assign addrMainRead  = (reg_raddr[15:12] == `ADDR_MAIN) ? 1'd1 : 1'd0;
     assign addrMainWrite = (reg_waddr[15:12] == `ADDR_MAIN) ? 1'd1 : 1'd0;
 
-    wire  rom_read;          // Whether reading from Configuration ROM
-    assign rom_read = (rx_addr_full == 48'hfffff0000400) ? 1'b1 : 1'b0;
+    // It is a ROM read when the upper 36 bits are ffff f0000.
+    // This covers addresses from ffff f000 0000 to ffff f000 0fff, which includes
+    // the CSR Architecture, Serial Bus, Configuration ROM and more.
+    // Note that it is more convenient to use reg_raddr[11:0] instead of rx_addr_full[11:0].
+    wire rom_read;          // Whether reading from Configuration ROM
+    assign rom_read = (rx_addr_full[47:12] == 36'hfffff0000) ? 1'b1 : 1'b0;
+    wire  rom_minimal;      // Whether reading from fffff0000400
+    assign rom_minimal = (reg_raddr[11:0] == 12'h400) ? 1'b1 : 1'b0;
+    // For now, return MIN_ROM_ENTRY for fffff0000400 and reg_raddr for everything else.
+    wire [31:0] rom_data;
+    assign rom_data = rom_minimal ? `MIN_ROM_ENTRY : {20'd0, reg_raddr[11:0]};
 
     // state machine states
     parameter[3:0]
@@ -1091,7 +1100,7 @@ begin
                 case (count)
                      24: buffer <= { rx_dest, `RC_DONE, 12'd0 };
                      56: buffer <= 0;
-                     88: buffer <= rom_read ? `MIN_ROM_ENTRY : reg_rdata;
+                     88: buffer <= rom_read ? rom_data : reg_rdata;
                     128: begin
                         data <= ~crc_8msb;
                         buffer <= { ~crc_in[23:0], 8'd0 };
@@ -1131,7 +1140,8 @@ begin
                 // restart crc and goto ST_TX_DATA
                 152: begin                                    // quadlet 6 
                     // ----- BRESP Continue -------
-                    buffer <= addrMainRead ? sample_rdata : reg_rdata;
+                    buffer <= rom_read ? rom_data :
+                              addrMainRead ? sample_rdata : reg_rdata;
                     reg_raddr[11:0] <= reg_raddr[11:0] + 12'd1;
                     state <= ST_TX_DATA;
                     crc_ini <= 0;
@@ -1211,7 +1221,8 @@ begin
                 // latch data and update addresses on quadlet boundaries
                 if (count[4:0] == 5'd24) begin
                     // send to FireWire bus
-                    buffer <= addrMainRead ? sample_rdata : reg_rdata;
+                    buffer <= rom_read ? rom_data :
+                              addrMainRead ? sample_rdata : reg_rdata;
                     // 12-bit address increment, even though Firewire limited to 512 quadlets (9 bits)
                     // because this way we can support non-zero starting addresses.
                     reg_raddr[11:0] <= reg_raddr[11:0] + 12'd1;

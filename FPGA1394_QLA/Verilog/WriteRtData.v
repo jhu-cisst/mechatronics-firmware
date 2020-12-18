@@ -82,6 +82,7 @@ begin
             end
             else begin
                // No DAC valid, only write RtCtrl quadlet
+               bw_write_en <= 1;
                rtState <= RT_WQUAD;
             end
          end
