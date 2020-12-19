@@ -175,9 +175,11 @@
 `define CRC_INIT -32'd1           // initial value to start new crc calculation
 `define INVALID_SIZE -16'd1       // packet size that we should never encounter
 
+// FA610E is the 24-bit CID assigned to JHU-LCSR by IEEE
+`define JHU_LCSR_CID   24'hFA610E
+
 // Minimum Configuration ROM Entry:  | 01 (8) | FA610E (24) |
-// (FA610E is the 24-bit CID assigned to JHU-LCSR by IEEE)
-`define MIN_ROM_ENTRY  32'h01FA610E
+`define MIN_ROM_ENTRY  {4'h01, `JHU_LCSR_CID}
 
 module PhyLinkInterface(
     // globals
@@ -333,11 +335,47 @@ module PhyLinkInterface(
     // Note that it is more convenient to use reg_raddr[11:0] instead of rx_addr_full[11:0].
     wire rom_read;          // Whether reading from Configuration ROM
     assign rom_read = (rx_addr_full[47:12] == 36'hfffff0000) ? 1'b1 : 1'b0;
-    wire  rom_minimal;      // Whether reading from fffff0000400
-    assign rom_minimal = (reg_raddr[11:0] == 12'h400) ? 1'b1 : 1'b0;
-    // For now, return MIN_ROM_ENTRY for fffff0000400 and reg_raddr for everything else.
-    wire [31:0] rom_data;
-    assign rom_data = rom_minimal ? `MIN_ROM_ENTRY : {20'd0, reg_raddr[11:0]};
+
+    // Configuration ROM data
+    reg[31:0] rom_data;
+
+    wire[3:0] fpga_ver;       // FPGA version
+`ifdef HAS_ETHERNET
+    assign fpga_ver = 4'hE;   // Ethernet/Firwire (Rev 2.x)
+`else
+    assign fpga_ver = 4'hF;   // Firewire (Rev 1.x)
+`endif
+
+    // Configuration ROM:
+    //   0400:  ROM Format (Minimal or General)
+    // Bus_Info_Block:
+    //   0404:  "1394"
+    //   0408:  irmc, cmc, isc, bmc, pmc, reserved, cyc_clk_acc, max_rec, reserved, gen, rs, link_spd
+    //   040c:  node_vendor_id (24) | chip_id_hi (4)
+    //   0410:  chip_id_lo (32)
+    //
+    // We specify the Minimal ROM format (MIN_ROM_ENTRY), but it seems that drivers still expect
+    // valid information in at least some of the Bus_Info_Block, especially to create the GUID.
+
+    always @(*)
+    begin
+        if (reg_raddr[11:5] == {4'h4, 3'b000}) begin
+            if (reg_raddr[4:0] == 5'b00000)      // 0400
+                rom_data = `MIN_ROM_ENTRY;
+            else if (reg_raddr[4:0] == 5'b00100) // 0404
+                rom_data = "1394";
+            else if (reg_raddr[4:0] == 5'b01000) // 0408
+                rom_data = 32'h00ffa000;   // should be default values
+            else if (reg_raddr[4:0] == 5'b01100) // 040C
+                rom_data = {`JHU_LCSR_CID, board_id, fpga_ver};
+            else if (reg_raddr[4:0] == 5'b10000) // 0410
+                rom_data = `FW_VERSION;
+            else
+                rom_data = 32'd0;
+        end
+        else
+            rom_data = 32'd0;
+    end
 
     // state machine states
     parameter[3:0]
@@ -1142,7 +1180,8 @@ begin
                     // ----- BRESP Continue -------
                     buffer <= rom_read ? rom_data :
                               addrMainRead ? sample_rdata : reg_rdata;
-                    reg_raddr[11:0] <= reg_raddr[11:0] + 12'd1;
+                    // Note that for rom_read, we increment by 4, otherwise by 1.
+                    reg_raddr[11:0] <= reg_raddr[11:0] + {9'd0,rom_read,1'b0,~rom_read};
                     state <= ST_TX_DATA;
                     crc_ini <= 0;
                 end
@@ -1225,7 +1264,8 @@ begin
                               addrMainRead ? sample_rdata : reg_rdata;
                     // 12-bit address increment, even though Firewire limited to 512 quadlets (9 bits)
                     // because this way we can support non-zero starting addresses.
-                    reg_raddr[11:0] <= reg_raddr[11:0] + 12'd1;
+                    // Note that for rom_read, we increment by 4, otherwise by 1.
+                    reg_raddr[11:0] <= reg_raddr[11:0] + {9'd0,rom_read,1'b0,~rom_read};
                 end
 
                 if (count == (numbits-16'd32)) begin
