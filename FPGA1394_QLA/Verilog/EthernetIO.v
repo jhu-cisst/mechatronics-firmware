@@ -91,6 +91,7 @@ endmodule
 `define FW_QWRITE_SIZE  16'd20     // Firewire quadlet write
 `define FW_BRESP_SIZE   16'd24     // Firewire block read response header and CRCs
 `define FW_BWRITE_SIZE  16'd24     // Firewire block write header and CRCs
+`define FW_BWRITE_HDR_SIZE 16'd20  // Firewire block write header size
 
 module EthernetIO(
     // global clock
@@ -788,6 +789,20 @@ assign is_ip_unassigned = (ip_address == IP_UNASSIGNED) ? 1'd1 : 1'd0;
 reg writeRequestBlock;
 reg writeRequestQuad;
 
+// Indicates that block write module is actively accessing memory
+reg bw_active;
+
+// Word number at which to request a block write, so that reader and writer
+// can overlap. See explanation below (search for writeRequestTrigger).
+wire[9:0] writeRequestTrigger;
+// FW_BWRITE_HDR_SIZE>>1    -->  number of words in block write header
+// block_data_length[11:2]  -->  block_data_length[10:1]>>1
+// block_data_length[13:4]  -->  block_data_length[10:1]>>3
+// (where block_data_length[10:1] is the number of words and we assume that the upper bits are 0)
+assign writeRequestTrigger = (`FW_BWRITE_HDR_SIZE>>1) + block_data_length[11:2] + block_data_length[13:4] + 10'd1;
+reg[9:0] wrt_saved;
+reg[8:0] bw_left;
+
 // ----------------------------------------
 // Whether packet is being forwarded (to Ethernet) from FireWire receiver
 // ----------------------------------------
@@ -808,7 +823,7 @@ assign ExtraData[3] = timeSinceIRQ;
 wire[31:0] DebugData[0:15];
 assign DebugData[0]  = "0GBD";  // DBG0 byte-swapped
 assign DebugData[1]  = timestamp;
-assign DebugData[2]  = { writeRequestQuad, writeRequestBlock, 1'd0, eth_send_isIdle,
+assign DebugData[2]  = { writeRequestQuad, writeRequestBlock, bw_active, eth_send_isIdle,
                          eth_recv_isIdle, ethUDPError, ethAccessError, ethIPv4Error,
                          isDMAWrite, sendDMAreq, node_id, eth_status};
 assign DebugData[3]  = { state[7:0], eth_send_fw_ack, eth_send_fw_req, linkStatus, retState,
@@ -826,7 +841,7 @@ assign DebugData[10] = { 6'd0, numUDP, 6'd0, numIPv4 };
 assign DebugData[11] = { 5'd0, bwState, numICMP, fw_bus_gen, numARP };
 assign DebugData[12] = { fw_bus_reset, runPCsaved, numIPv4Mismatch, 6'd0, numPacketError };
 assign DebugData[13] = { numSendStateInvalid, numReset, 6'd0, numStateInvalid };
-assign DebugData[14] = { 16'd0, 16'd0 };
+assign DebugData[14] = { 6'd0, wrt_saved, 7'b0, bw_left };
 assign DebugData[15] = errorStateInfo;
 
 // For debugging block write. Note that in the current implementation, this buffer can
@@ -860,7 +875,7 @@ reg[8:0] local_raddr;
 reg      icmp_read_en;    // 1 -> ICMP needs to read from memory
 
 assign mem_raddr = eth_send_fw_ack   ? eth_fwpkt_raddr :
-                   writeRequestBlock ? local_raddr :
+                   bw_active         ? local_raddr :
                    icmp_read_en      ? sfw_count[9:1]
                                      : reg_raddr[8:0];
 assign eth_fwpkt_rdata = mem_rdata;
@@ -1046,7 +1061,7 @@ reg[4:0] runPCsaved;
 always @(*)
 begin
    if (reg_raddr[7] == 0) begin
-      // read_error = eth_send_fw_ack|writeRequestBlock|icmp_read_en;
+      // read_error = eth_send_fw_ack|bw_active|icmp_read_en;
       reg_rdata = mem_rdata;
    end
    else begin
@@ -1869,10 +1884,6 @@ begin
       eth_send_fw_req <= 1'd0;
    end
 
-   if (eth_block_wen) begin
-      writeRequestBlock <= 1'b0;
-   end
-
    // Write to IP address register
    if (ip_reg_wen) begin
       // Following is equivalent to: ip_address <= reg_wdata;
@@ -1898,13 +1909,13 @@ begin
       eth_rt_wen <= 0;
       rfw_count <= 10'd0;
       writeRequestQuad <= 1'b0;
+      writeRequestBlock <= 1'b0;
       skipCnt <= 2'd3;  // Skip first 3 words in packet when receiving
                         // ignore(1) + status(1) + byte-count(1)
       nextRecvState <= ST_RECEIVE_DMA_IDLE;
       if (resetActive) begin
          FireWirePacketFresh <= 0;
          fwPacketDropped <= 0;
-         writeRequestBlock <= 0;
          numIPv4Mismatch <= 10'd0;
          numPacketError <= 10'd0;
          ethFrameError <= 0;
@@ -2087,7 +2098,12 @@ begin
                // Set writeRequest for local quadlet and block write, except for real-time
                // block write, which is handled separately.
                writeRequestQuad <= isLocal&quadWrite;
-               writeRequestBlock <= isLocal&blockWrite&(~addrMain);
+               if (writeRequestBlock) begin
+                  // Number of quadlets left to write to registers; should be greater than 1,
+                  // otherwise the register writer may have overtaken the Ethernet reader.
+                  bw_left <= block_data_length[10:2] + 9'd5 - local_raddr;
+                  wrt_saved <= writeRequestTrigger;
+               end
                if (isRemote) begin
                   // Request to forward pkt.
                   eth_send_fw_req <= 1;
@@ -2100,6 +2116,9 @@ begin
          end
          else begin
             nextRecvState <= ST_RECEIVE_DMA_FIREWIRE_PACKET;
+         end
+         if (rfw_count == writeRequestTrigger) begin
+            writeRequestBlock <= blockWrite&isLocal&(~addrMain);
          end
          if (doRtBlock&rfw_count[0]) begin
             // Real-time block write.
@@ -2298,7 +2317,7 @@ begin
 
    ST_SEND_DMA_ICMP_DATA:
    begin
-      //read_error = eth_send_fw_ack|writeRequestBlock;
+      //read_error = eth_send_fw_ack|bw_active;
       `SDRegDWRSwapped <= (sfw_count[0] == 0) ? mem_rdata[31:16]
                                               : mem_rdata[15:0];
       // Increment a little earlier due to reading from memory
@@ -2440,7 +2459,40 @@ begin
    endcase // case (sendState)
 end
 
-// Following handles writing to board registers
+// Following handles writing to board registers via quadlet or block write,
+// except for real-time block write, which is handled by WriteRtData.
+//
+// The DMA receive process requires 5 sysclk for reading each word (16-bits)
+// for a total of 10 sysclk (~200 nsec) per quadlet.
+// Thus, quadlet N is available at t = 10*N*sysclk, relative to when the
+// first quadlet (N=0) is stored in memory. Note that for a block write,
+// the first 5 quadlets are the block write header, which do not get written
+// to the registers.
+//
+// The register block write process (below) is timed as follows:
+//   4 sysclk (80 nsec) for blk_wstart at beginning
+//   1 sysclk (20 nsec) for reg_wen for each quadlet
+//   3 sysclk (60 nsec) gap after each quadlet
+//   1 sysclk (20 nsec) for blk_wen at end
+// Thus, it will start writing the Nth quadlet at
+//    t = (4+(1+3)*N)*sysclk = 4(N+1)*sysclk
+// relative to when writeRequestBlock is set.
+//
+// If we want to overlap reading and writing, we need to ensure that the
+// reader stays ahead of the writer. We do this by setting the time when
+// writeRequestBlock is set; specifically when quadlet M is being stored
+// (see writeRequestTrigger).
+//     10*(N-M)*sysclk < 4(N+1)*sysclk
+//     M > (3N-2)/5
+// This is not the most convenient computationally on an FPGA, so we choose
+// a more conservative bound.
+//     3/5 == 1/2 + 1/10, which is less than 1/2 + 1/8
+// Thus, it is sufficient to choose M = 1 + N/2 + N/8, which can be implemented
+// by shifting and adding.
+//
+// The reader actually works with words, rather than quadlets, and has to
+// add the length of the block write header, which leads to the equation
+// above for setting writeRequestTrigger.
 
 parameter[2:0]
    BW_IDLE = 0,
@@ -2460,12 +2512,12 @@ reg bwHadMemAccess;    // Indicates that Ethernet module was not accessing the m
 // Since other block writes are not broadcast, this memory conflict should never occur, but
 // the check is included just in case.
 wire bwHasMemAccess;
-assign bwHasMemAccess = bwHadMemAccess&(~eth_send_fw_ack)&writeRequestBlock;
+assign bwHasMemAccess = bwHadMemAccess&(~eth_send_fw_ack)&bw_active;
 
 always @(posedge sysclk)
 begin
 
-   bwHadMemAccess <= (~eth_send_fw_ack)&writeRequestBlock;
+   bwHadMemAccess <= (~eth_send_fw_ack)&bw_active;
 
    case (bwState)
 
@@ -2486,6 +2538,7 @@ begin
          eth_block_wen <= 1;
       end
       else if (writeRequestBlock) begin
+         bw_active <= 1;
          eth_write_en <= 1;
          // Assert eth_block_wstart for 80 ns before starting local block write
          // (same timing as in Firewire module).
@@ -2498,6 +2551,7 @@ begin
          eth_reg_waddr[11:0] <= fw_dest_offset[11:0] - 12'd1;
       end
       else begin
+         bw_active <= 0;
          eth_write_en <= 0;
          eth_reg_wen <= 0;    // Clean up from quadlet/block writes
          eth_block_wen <= 0;
@@ -2523,12 +2577,8 @@ begin
          eth_reg_waddr[11:0] <= eth_reg_waddr[11:0] + 12'd1;
          eth_reg_wdata <= mem_rdata;
          eth_reg_wen <= 1;
+         bwCnt <= 2'd1;
          bwState <= BW_WRITE_GAP;
-      end
-      else if (!writeRequestBlock) begin
-         // Block write was aborted (e.g., due to reset);
-         // normally, this should not happen.
-         bwState <= BW_IDLE;
       end
    end
 
@@ -2549,13 +2599,14 @@ begin
 
    BW_BLK_WEN:
    begin
+      bw_active <= 0;   // Stop accessing memory
       // Wait 60 nsec before asserting eth_block_wen
       bwCnt <= bwCnt + 2'd1;
-      if (bwCnt == 2'd3)
+      if (bwCnt == 2'd3) begin
+         // writeRequestBlock should have been cleared by now
          eth_block_wen <= 1'b1;
-      // Asserting eth_block_wen will cause writeRequestBlock to be cleared
-      if (~writeRequestBlock)
          bwState <= BW_IDLE;
+      end
    end
 
    default:
