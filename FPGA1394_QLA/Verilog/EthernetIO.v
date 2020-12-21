@@ -244,7 +244,7 @@ reg[20:0] initCount;
 //******************************* End from KSZ8851.v *****************************************
 
 // Error flags
-reg ethFrameError;     // 1 -> Frame too long (currently, if more than 512 bytes)
+reg ethFrameError;     // 1 -> Frame is not Raw, IPv4 or ARP
 reg ethIPv4Error;      // 1 -> IPv4 header error (protocol not UDP or ICMP; header version != 4)
 reg ethUDPError;       // 1 -> Wrong UDP port (not 1394)
 reg ethDestError;      // 1 -> Incorrect destination (FireWire destination does not begin with 0xFFC)
@@ -403,7 +403,7 @@ assign eth_status[30] = eth_error;       // 30: 1 -> Could not access KSZ regist
 assign eth_status[29] = initOK;          // 29: 1 -> Initialization OK
 assign eth_status[28] = isLocal;         // 28: 1 -> command requested by higher level
 assign eth_status[27] = isRemote;        // 27: 1 -> command acknowledged by lower level
-assign eth_status[26] = ethFrameError;   // 26: 1 -> ethernet packet too long (higher layer)
+assign eth_status[26] = ethFrameError;   // 26: 1 -> ethernet frame unsupported
 assign eth_status[25] = ethDestError;    // 25: 1 -> ethernet destination error (higher layer)
 assign eth_status[24] = quadRead;        // 24: quadRead (debugging)
 assign eth_status[23] = quadWrite;       // 23: quadWrite (debugging)
@@ -563,10 +563,10 @@ assign isARP = (FrameValid && (Eth_EtherType == 16'h0806)) ? 1'd1 : 1'd0;
 
 wire isRaw;
 // The frame is considered raw if it has a length, rather than an EtherType.
-// The Ethernet standard allows lengths up to 1500 bytes, but we limit to
-// 512 bytes, which is enough for the largest Firewire packet. Thus, we check
-// if the upper 7 bits are 0 (i.e., if length is no more than 9 bits).
-assign isRaw = (FrameValid && (Eth_EtherType[15:9] == 7'd0)) ? 1'd1 : 1'd0;
+// The Ethernet standard allows lengths up to 1500 bytes, but we limit to 1024 bytes.
+// Thus, we check if the upper 6 bits are 0 (i.e., if length is no more than 10 bits).
+// Note: a better implementation could use B03 in the FrameStatus
+assign isRaw = (Eth_EtherType[15:10] == 6'd0) ? 1'd1 : 1'd0;
 
 //********************************* ARP Packet ***********************************
 // Word 0: Hardware type (HTYPE):  1 for Ethernet
@@ -1609,7 +1609,7 @@ always @(posedge sysclk) begin
    begin
       FrameCount <= FrameCount-8'd1;
       // Check if packet valid:
-      // B15: RXFV  receive frame valid
+      // B15: RXFV receive frame valid
       // B13: ICMP checksum invalid
       // B12: IP checksum invalid
       // B11: TCP checksum invalid
@@ -1619,10 +1619,14 @@ always @(posedge sysclk) begin
       // B05: Received unicastframe
       // B04: Received MII error
       // B03: Indicates Ethernet-type frame (length > 1500 bytes)
-      // B02: RXFTL receive frame too long
+      // B02: RXFTL receive frame too long (IGNORED -- see below)
       // B01: RXRF  receive runt frame, damaged by collision
       // B00: RXCE  receive CRC error
-      if (~ReadData[15] || (ReadData&16'b0011110000010111 != 16'h0)) begin
+      //
+      // According to the KSZ8851 datasheet, the "frame too long" bit is set
+      // if the frame is greater than 2000 bytes. However, the datasheet also
+      // states that it does not cause frame truncation.
+      if (~ReadData[15] || (ReadData&16'b0011110000010011 != 16'h0)) begin
          // Error detected, so flush frame
          FrameValid <= 0;
          isEthMulticast <= 0;
