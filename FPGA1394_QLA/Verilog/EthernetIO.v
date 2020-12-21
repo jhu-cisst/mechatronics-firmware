@@ -886,9 +886,7 @@ reg mem_wen;   // memory write enable
 
 // packet module (used to store Ethernet packet that will be forwarded to Firewire)
 // This is 512 quadlets (512 x 32), which is the maximum possible Firewire packet size at 400 Mbits/sec
-// (actually, could add a few quadlets because 512 limit probably does not include header and CRC).
-// This memory is much larger than currently needed (could get by with 128 quadlets), but the FPGA
-// contains more than enough memory primitives.
+// (actually, could add a few quadlets because the 512 limit does not include header and CRC).
 hub_mem_gen fw_packet(.clka(sysclk),
                       .wea(mem_wen),
                       .addra(rfw_count[9:1]),
@@ -2522,12 +2520,14 @@ always @(posedge sysclk)
 begin
 
    bwHadMemAccess <= (~eth_send_fw_ack)&bw_active;
+   bwCnt <= (bwState == BW_IDLE)  ? 2'd0 :
+            (bwState == BW_WRITE) ? 2'd1 :
+                                    (bwCnt + 2'd1);
 
    case (bwState)
 
    BW_IDLE:
    begin
-      bwCnt <= 2'd0;
       if (writeRequestQuad) begin
          eth_reg_waddr <= fw_dest_offset;
          eth_reg_wdata <= fw_quadlet_data;
@@ -2566,11 +2566,9 @@ begin
 
    BW_WSTART:
    begin
-      bwCnt <= bwCnt + 2'd1;
       if (bwCnt == 2'd3) begin
          eth_block_wstart <= 0;
          bwState <= BW_WRITE;
-         // bwCnt will be set to 0 (overflow)
       end
    end
 
@@ -2581,7 +2579,6 @@ begin
          eth_reg_waddr[11:0] <= eth_reg_waddr[11:0] + 12'd1;
          eth_reg_wdata <= mem_rdata;
          eth_reg_wen <= 1;
-         bwCnt <= 2'd1;
          bwState <= BW_WRITE_GAP;
       end
    end
@@ -2589,10 +2586,8 @@ begin
    BW_WRITE_GAP:
    begin
       // hold reg_wen low for 60 nsec (3 cycles)
-      bwCnt <= bwCnt + 2'd1;
       eth_reg_wen <= 1'b0;
       if (bwCnt == 2'd3) begin
-         // bwCnt will be set to 0 (overflow)
          // block_data_length is in bytes
          if (local_raddr == (block_data_length[10:2] + 9'd5))
             bwState <= BW_BLK_WEN;
@@ -2605,7 +2600,6 @@ begin
    begin
       bw_active <= 0;   // Stop accessing memory
       // Wait 60 nsec before asserting eth_block_wen
-      bwCnt <= bwCnt + 2'd1;
       if (bwCnt == 2'd3) begin
          // writeRequestBlock should have been cleared by now
          eth_block_wen <= 1'b1;

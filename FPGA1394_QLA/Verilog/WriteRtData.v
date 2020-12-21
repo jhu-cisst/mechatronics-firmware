@@ -57,11 +57,12 @@ reg[19:0] RtCtrl;
 always @(posedge clk)
 begin
 
+   rtCnt <= (rtState == RT_IDLE)  ? 2'd0 : (rtCnt + 2'd1);
+
    case (rtState)
 
    RT_IDLE:
    begin
-      rtCnt <= 2'd0;
       bw_write_en <= 0;
       bw_reg_wen <= 0;
       bw_block_wen <= 0;
@@ -94,12 +95,10 @@ begin
 
    RT_WSTART:
    begin
-      rtCnt <= rtCnt + 2'd1;
       if (rtCnt == 2'd3) begin
          bw_block_wstart <= 0;
          bw_reg_waddr <= {4'd0, `OFF_DAC_CTRL};
          rtState <= RT_WRITE;
-         // rtCnt will be set to 0 (overflow)
       end
    end
 
@@ -112,16 +111,13 @@ begin
       bw_reg_wen <= RtDAC[dac_addr][31];
       rtState <= RT_WRITE_GAP;
       RtDAC[dac_addr][31] <= 0;  // Clear valid bit
-      rtCnt <= 2'd1;
    end
 
    RT_WRITE_GAP:
    begin
       // hold reg_wen low for 60 nsec (3 cycles)
-      rtCnt <= rtCnt + 2'd1;
       bw_reg_wen <= 1'b0;
       if (rtCnt == 2'd3) begin
-         // rtCnt will be set to 0 (overflow)
          if (dac_addr == 2'd0)  // end of DAC block
             rtState <= RT_BLK_WEN;
          else
@@ -132,7 +128,6 @@ begin
    RT_BLK_WEN:
    begin
       // Wait 60 nsec before asserting block_wen
-      rtCnt <= rtCnt + 2'd1;
       if (rtCnt == 2'd3) begin
          bw_block_wen <= 1'b1;
          // Write quadlet if non-zero (here, we know that at
@@ -148,7 +143,6 @@ begin
    begin
       // Wait a little between DAC block write and
       // power control quadlet write
-      rtCnt <= rtCnt + 2'd1;
       bw_block_wen <= 1'b0;
       if (rtCnt == 2'd3)
          rtState <= RT_WQUAD;

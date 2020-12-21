@@ -450,9 +450,7 @@ assign phy_rw = buffer[12];
 `ifdef HAS_ETHERNET
 // packet module (used to store FireWire packet that will be forwarded to Ethernet).
 // This is 512 quadlets (512 x 32), which is the maximum possible Firewire packet size at 400 Mbits/sec
-// (actually, could add a few quadlets because 512 limit probably does not include header and CRC).
-// This memory is much larger than currently needed (could get by with 128 quadlets), but the FPGA
-// contains more than enough memory primitives.
+// (actually, could add a few quadlets because the 512 limit does not include header and CRC).
 reg pkt_mem_wen;
 reg [8:0] pkt_mem_waddr;
 reg [31:0] pkt_mem_wdata;
