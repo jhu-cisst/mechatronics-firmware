@@ -751,8 +751,10 @@ begin
                                 reg_wen <= rx_active;   // only save value's when device is targeted
                             end
                         end
-                        else
+                        else begin
                             reg_wen <= 0;
+                            fw_rt_wen <= 0;
+                        end
 
                         // save the computed crc of the block data
                         if (count == (numbits-16'd32))
@@ -801,7 +803,9 @@ begin
                                 endcase
                             end
 
-                            // process broadcast packets (NOTE: broadcast is write only)
+                            // process broadcast packets (NOTE: broadcast is write only);
+                            // broadcast address is bus_id = 10'h3ff and node_id = 6'h3f,
+                            // which combines to 16'hffff.
                             else if (buffer[31:16] == 16'hffff) begin
                                // no response for bc packets
                                lreq_trig <= 0;

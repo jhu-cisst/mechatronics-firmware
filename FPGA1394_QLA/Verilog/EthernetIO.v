@@ -2152,6 +2152,10 @@ begin
             end
          end
       end
+      else begin
+         // Remove eth_rt_wen when not in dataValid phase
+         eth_rt_wen <= 0;
+      end
    end
 
    endcase // case (recvState)
