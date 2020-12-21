@@ -112,6 +112,7 @@ begin
       bw_reg_wen <= RtDAC[dac_addr][31];
       rtState <= RT_WRITE_GAP;
       RtDAC[dac_addr][31] <= 0;  // Clear valid bit
+      rtCnt <= 2'd1;
    end
 
    RT_WRITE_GAP:

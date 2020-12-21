@@ -799,7 +799,7 @@ wire[9:0] writeRequestTrigger;
 // block_data_length[11:2]  -->  block_data_length[10:1]>>1
 // block_data_length[13:4]  -->  block_data_length[10:1]>>3
 // (where block_data_length[10:1] is the number of words and we assume that the upper bits are 0)
-assign writeRequestTrigger = (`FW_BWRITE_HDR_SIZE>>1) + block_data_length[11:2] + block_data_length[13:4] + 10'd1;
+assign writeRequestTrigger = (`FW_BWRITE_HDR_SIZE>>1) + block_data_length[11:2] + block_data_length[13:4] + 10'd2;
 reg[9:0] wrt_saved;
 reg[8:0] bw_left;
 
@@ -2069,10 +2069,21 @@ begin
             ethDestError <= 1;
             nextRecvState <= ST_RECEIVE_DMA_IDLE;
          end
-         else if ((rfw_count == 10'd5) && quadWrite && (fw_dest_offset == {`ADDR_HUB, 12'h800 })) begin
-            // If broadcast read request, start sampling feedback data
-            sample_start <= 1;
-            writeHub <= 1;
+         else if (rfw_count == 10'd5) begin
+            FireWirePacketFresh <= 1;
+            useUDP <= isUDP;
+            if (fw_bus_reset || ((host_fw_bus_gen != fw_bus_gen) && ~isFwBroadcast)) begin
+               // if Firewire bus is in reset OR (bus generation does not match AND not a broadcast
+               // packet), then flush packet. Note that we do not check if the bus goes into reset
+               // or the generation changes while we are processing the packet.
+               fwPacketDropped <= 1;
+               nextRecvState <= ST_RECEIVE_DMA_IDLE;
+            end
+            else if (quadWrite && (fw_dest_offset == {`ADDR_HUB, 12'h800 })) begin
+               // If broadcast read request, start sampling feedback data
+               sample_start <= 1;
+               writeHub <= 1;
+            end
          end
          else if ((rfw_count == 10'd7) && quadWrite) begin
             fw_quadlet_data <= FireWireQuadlet;
@@ -2084,34 +2095,27 @@ begin
          end
          else if (rfw_count == maxCountFW) begin
             nextRecvState <= ST_RECEIVE_DMA_IDLE;  // was ST_RECEIVE_DMA_FRAME_CRC;
-            useUDP <= isUDP;
-            FireWirePacketFresh <= 1;
             doRtBlock <= 0;
             // Set sample_start to trigger sampling data for block read.
             // Just needs to be early enough that sampling is finished before we access it
             // in ST_SEND_DMA_PACKETDATA_BLOCK.
             sample_start <= blockRead&isLocal&addrMain;
-            // Now, respond to the packet if the Firewire bus is not in reset AND
-            // the specified bus generation is correct OR it is a broadcast packet
-            // (in which case the reassignment of node numbers does not matter).
-            if (~fw_bus_reset && ((host_fw_bus_gen == fw_bus_gen) || isFwBroadcast)) begin
-               // Set writeRequest for local quadlet and block write, except for real-time
-               // block write, which is handled separately.
-               writeRequestQuad <= isLocal&quadWrite;
-               if (writeRequestBlock) begin
-                  // Number of quadlets left to write to registers; should be greater than 1,
-                  // otherwise the register writer may have overtaken the Ethernet reader.
-                  bw_left <= block_data_length[10:2] + 9'd5 - local_raddr;
-                  wrt_saved <= writeRequestTrigger;
-               end
-               if (isRemote) begin
-                  // Request to forward pkt.
-                  eth_send_fw_req <= 1;
-                  host_fw_addr <= fw_src_id;
-               end
+            // Set writeRequest for local quadlet and block write, except for real-time
+            // block write, which is handled separately. Note that writeRequestBlock was
+            // probably set earlier (using writeRequestTrigger), but it is set again here
+            // just in case.
+            writeRequestQuad <= isLocal&quadWrite;
+            writeRequestBlock <= blockWrite&isLocal&(~addrMain);
+            if (blockWrite&isLocal&(~addrMain)) begin  // if writeRequestBlock
+               // Number of quadlets left to write to registers; should be greater than 1,
+               // otherwise the register writer may have overtaken the Ethernet reader.
+               bw_left <= block_data_length[10:2] + 9'd5 - local_raddr;
+               wrt_saved <= writeRequestTrigger;
             end
-            else begin
-               fwPacketDropped <= 1;
+            if (isRemote) begin
+               // Request to forward pkt.
+               eth_send_fw_req <= 1;
+               host_fw_addr <= fw_src_id;
             end
          end
          else begin
