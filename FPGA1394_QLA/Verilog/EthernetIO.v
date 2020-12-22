@@ -2391,16 +2391,28 @@ begin
    ST_SEND_DMA_PACKETDATA_BLOCK:
    begin
       if (sendTransition) sfw_count <= sfw_count + 10'd1;
-      if (sfw_count[0] == 0) begin
+      if (sfw_count[0] == 0) begin   // even count (upper word)
+         // Since we are not incrementing eth_reg_raddr, writing to SDReg does not need
+         // to be conditioned on ~sendTransition, as in the odd sfw_count case below.
          `SDRegDWRSwapped <= (addrMain ? sample_rdata[31:16] : eth_reg_rdata[31:16]);
          // stay in this state
          //nextSendState <= ST_SEND_DMA_PACKETDATA_BLOCK;
       end
-      else begin
-         `SDRegDWRSwapped <= (addrMain ? sample_rdata[15:0] : eth_reg_rdata[15:0]);
+      else begin   // odd count (lower word)
          // 12-bit address increment, even though Firewire limited to 512 quadlets (9 bits)
          // because this way we can support non-zero starting addresses.
-         if (sendTransition) eth_reg_raddr[11:0] <= eth_reg_raddr[11:0] + 12'd1;
+         // We have to increment eth_reg_raddr during sendPreTransition so that it works
+         // correctly when reading from memory -- otherwise, the upper word (even sfw_count
+         // case above) will not yet be retrieved from the memory.
+         if (sendPreTransition)
+            eth_reg_raddr[11:0] <= eth_reg_raddr[11:0] + 12'd1;
+         // For general block read (not real-time block read) cannot write to SDReg during
+         //  sendTransition so that the code works for both register reads (no delay) and
+         //  memory reads (1 clk delay).
+         if (addrMain)                    // real-time block read
+            `SDRegDWRSwapped <= sample_rdata[15:0];
+         else if (~sendTransition)        // general block read
+            `SDRegDWRSwapped <= eth_reg_rdata[15:0];
          // sfw_count is in words and block_data_length is in bytes, but we compare in quadlets
          if ((sfw_count[9:1] + 8'd1) == block_data_length[10:2])
             nextSendState <= ST_SEND_DMA_PACKETDATA_CHECKSUM;
