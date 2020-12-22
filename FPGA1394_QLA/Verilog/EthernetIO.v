@@ -800,8 +800,8 @@ wire[9:0] writeRequestTrigger;
 // block_data_length[13:4]  -->  block_data_length[10:1]>>3
 // (where block_data_length[10:1] is the number of words and we assume that the upper bits are 0)
 assign writeRequestTrigger = (`FW_BWRITE_HDR_SIZE>>1) + block_data_length[11:2] + block_data_length[13:4] + 10'd2;
-reg[9:0] wrt_saved;
 reg[8:0] bw_left;
+reg[9:0] bw_wait;
 
 // ----------------------------------------
 // Whether packet is being forwarded (to Ethernet) from FireWire receiver
@@ -841,7 +841,7 @@ assign DebugData[10] = { 6'd0, numUDP, 6'd0, numIPv4 };
 assign DebugData[11] = { 5'd0, bwState, numICMP, fw_bus_gen, numARP };
 assign DebugData[12] = { fw_bus_reset, runPCsaved, numIPv4Mismatch, 6'd0, numPacketError };
 assign DebugData[13] = { numSendStateInvalid, numReset, 6'd0, numStateInvalid };
-assign DebugData[14] = { 6'd0, wrt_saved, 7'b0, bw_left };
+assign DebugData[14] = { 6'd0, bw_wait, 7'b0, bw_left };
 assign DebugData[15] = errorStateInfo;
 
 // For debugging block write. Note that in the current implementation, this buffer can
@@ -1258,8 +1258,12 @@ begin
    state[ST_RECEIVE_FLUSH_WAIT]:
    begin
       testState[ST_RECEIVE_FLUSH_WAIT] = 0;
-      if (ReadData[0] == 1'b0) begin
-         if ((FireWirePacketFresh && (quadRead || blockRead) && (isLocal || sendExtra)) || sendARP || isEcho) begin
+      if (ReadData[0] | (isLocal&blockWrite&bw_active)) begin
+         nextState = ReadData[0] ? ST_RUN_PROGRAM_EXECUTE : ST_RECEIVE_FLUSH_WAIT;
+      end
+      else begin
+         if ((FireWirePacketFresh && (quadRead || blockRead) && (isLocal || sendExtra))
+                                  || sendARP || isEcho) begin
             nextState = ST_RUN_PROGRAM_EXECUTE;
          end
          else begin
@@ -1268,9 +1272,6 @@ begin
             else
                nextState = ST_RUN_PROGRAM_EXECUTE;
          end
-      end
-      else begin
-         nextState = ST_RUN_PROGRAM_EXECUTE;
       end
    end
 
@@ -1671,6 +1672,7 @@ always @(posedge sysclk) begin
       end
       else if (~(recvDMAreq|isDMARead)) begin
          waitInfo <= WAIT_NONE;
+         if (isLocal&blockWrite) bw_wait <= 10'd0;
          // Increment counters
          numIPv4 <= numIPv4 + {9'd0, isIPv4};
          numARP <= numARP + {7'd0, isARP};
@@ -1682,13 +1684,20 @@ always @(posedge sysclk) begin
 
    state[ST_RECEIVE_FLUSH_WAIT]:
    begin
-      // Wait for bit 0 in Register RXQCR to be cleared;
+      // Wait for bit 0 in Register RXQCR to be cleared; also wait for
+      // local block write to finish (~bw_active).
       // Then enable interrupt
       //   - if a read command, start sending response
       //     (check FrameCount after send complete)
       //   - else if more frames available, receive status of next frame
       //   - else go to idle state
-      if (ReadData[0] == 1'b0) begin
+      if (ReadData[0] | (isLocal&blockWrite&bw_active)) begin
+         runPC <= ID_READ_CMD_REG;  // Check again (only if ReadData[0])
+         waitInfo <= WAIT_FLUSH;
+         if (bw_active&(~ReadData[0]))
+            bw_wait <= bw_wait + 10'd1;
+      end
+      else begin
          timeReceive <= timeSinceIRQ;
          if (sendARP) begin
             ReplyBuffer[ID_Rep_Frame_Length] <= 16'h0806; // ARP EtherType
@@ -1726,10 +1735,6 @@ always @(posedge sysclk) begin
             end
          end
          waitInfo <= WAIT_NONE;
-      end
-      else begin
-         runPC <= ID_READ_CMD_REG;  // Check again
-         waitInfo <= WAIT_FLUSH;
       end
    end
 
@@ -2112,7 +2117,6 @@ begin
                // Number of quadlets left to write to registers; should be greater than 1,
                // otherwise the register writer may have overtaken the Ethernet reader.
                bw_left <= block_data_length[10:2] + 9'd5 - local_raddr;
-               wrt_saved <= writeRequestTrigger;
             end
             if (isRemote) begin
                // Request to forward pkt.
