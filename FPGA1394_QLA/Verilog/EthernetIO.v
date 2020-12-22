@@ -798,8 +798,10 @@ wire[9:0] writeRequestTrigger;
 // FW_BWRITE_HDR_SIZE>>1    -->  number of words in block write header
 // block_data_length[11:2]  -->  block_data_length[10:1]>>1
 // block_data_length[13:4]  -->  block_data_length[10:1]>>3
+// block_data_length[16:7]  -->  block_data_length[10:1]>>6
 // (where block_data_length[10:1] is the number of words and we assume that the upper bits are 0)
-assign writeRequestTrigger = (`FW_BWRITE_HDR_SIZE>>1) + block_data_length[11:2] + block_data_length[13:4] + 10'd2;
+assign writeRequestTrigger = (`FW_BWRITE_HDR_SIZE>>1) + block_data_length[11:2]
+                             + block_data_length[13:4] - {1'b0, block_data_length[15:7]} + 10'd2;
 reg[8:0] bw_left;
 reg[9:0] bw_wait;
 
@@ -1694,6 +1696,10 @@ always @(posedge sysclk) begin
       if (ReadData[0] | (isLocal&blockWrite&bw_active)) begin
          runPC <= ID_READ_CMD_REG;  // Check again (only if ReadData[0])
          waitInfo <= WAIT_FLUSH;
+         // Track time we are waiting for block write to finish.
+         // Experimentally determined that it takes about 20-23 clocks to flush
+         // the queue (i.e., after bw_left is latched). Thus, the ideal range
+         // for bw_left is 2-6.
          if (bw_active&(~ReadData[0]))
             bw_wait <= bw_wait + 10'd1;
       end
@@ -2512,9 +2518,10 @@ end
 //     M > (3N-2)/5
 // This is not the most convenient computationally on an FPGA, so we choose
 // a more conservative bound.
-//     3/5 == 1/2 + 1/10, which is less than 1/2 + 1/8
-// Thus, it is sufficient to choose M = 1 + N/2 + N/8, which can be implemented
-// by shifting and adding.
+//     3/5 == 1/2 + 1/10 (0.6), which is less than 1/2 + 1/8 (0.625)
+// Thus, it is sufficient to choose M = 2 + N/2 + N/8, which can be implemented
+// by shifting and adding. For an even better approximation, choose
+// M = 2 + N/2 + N/8 - N/64, where 1/2+1/8-1/64 = 0.609.
 //
 // The reader actually works with words, rather than quadlets, and has to
 // add the length of the block write header, which leads to the equation
