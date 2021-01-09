@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2008-2020 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2008-2021 ERC CISST, Johns Hopkins University.
  *
  * This module measures the encoder pulse period by counting the edges of a
  * fixed fast clock between encoder pulses.  Each new encoder pulse
@@ -65,7 +65,11 @@ module EncPeriodQuad(
 
     localparam ovf_bit = 6,     // overflow bit in flags
                dir_bit = 5,     // direction bit in flags
-               error_bit = 4;   // encoder error
+               error_bit = 4,   // encoder error
+               a_up_bit = 3,
+               b_up_bit = 2,
+               a_dn_bit = 1,
+               b_dn_bit = 0;
 
 initial begin
     counter[0] = overflow_value;
@@ -85,10 +89,9 @@ end
 //------------------------------------------------------------------------------
 // hardware description
 //
-
 // Encoder convention (same as EncQuad)
-//    dir = 0: a_up -> b_up -> a_dn -> b_dn  (flags[3:0]: 1000, 0100, 0010, 0001) -- right shift (A leads B)
-//    dir = 1: a_up -> b_dn -> a_dn -> b_up  (flags[3:0]: 1000, 0001, 0010, 0100) -- left shift (B leads A)
+//    dir = 0: a_up -> b_dn -> a_dn -> b_up  (flags[3:0]: 1000, 0001, 0010, 0100) -- left shift (B leads A)
+//    dir = 1: a_up -> b_up -> a_dn -> b_dn  (flags[3:0]: 1000, 0100, 0010, 0001) -- right shift (A leads B)
 
 wire a_up;
 wire b_up;
@@ -99,14 +102,30 @@ assign b_up = b & (~b_r);
 assign a_down = (~a) & a_r;
 assign b_down = (~b) & b_r;
 
+// Encoder direction -- this signal is only valid when a pulse
+// (i.e., a_up, b_up, a_down, or b_down) has just occurred.
+// After that, use the "dir" register.
+wire dir_now;
+assign dir_now = a^b_r;   // dir 1 is A leading B
+
+reg init_done;          // indicates that prev has a valid value
+
 wire [width+1:0] sum;   // 28-bits for sum of 4 26-bit values
 assign sum = counter[1]+counter[2]+counter[3]+counter[4];
 
-// Following used to determine whether last two encoder edges are valid, based on the direction.
-// We skip the check if flags[1][3:0] has not yet been set (initial value is 0000).
-wire enc_valid[0:1];
-assign enc_valid[0] = (flags[1][3:0] == {b_down, a_up, b_up, a_down}) ? 1'b1 : 1'b0;  // dir == 0, right shift
-assign enc_valid[1] = (flags[1][3:0] == {b_up, a_down, b_down, a_up}) ? 1'b1 : 1'b0;  // dir == 1, left shift
+// Following used to determine whether last two encoder edges are valid, based on the direction
+// (assuming direction has not changed)
+wire enc_valid_dir[0:1];
+assign enc_valid_dir[0] = (flags[1][3:0] == {b_down, a_up, b_up, a_down}) ? 1'b1 : 1'b0;  // dir == 0, left shift
+assign enc_valid_dir[1] = (flags[1][3:0] == {b_up, a_down, b_down, a_up}) ? 1'b1 : 1'b0;  // dir == 1, right shift
+// Following used to determine whether the last two encoder edges are valid, if direction changed
+wire enc_valid_change;
+assign enc_valid_change = (flags[1][3:0] == { a_down, b_down, a_up, b_up }) ? 1'b1 : 1'b0;
+// Combining above two checks
+wire enc_valid;
+assign enc_valid = (flags[1][dir_bit] == dir_now) ? enc_valid_dir[dir_now] : enc_valid_change;
+
+// We skip the checks if flags[1][3:0] has not yet been set (initial value is 0000).
 wire flags1_valid;
 assign flags1_valid = (flags[1][3:0] == 4'b0000) ? 1'b0 : 1'b1;
 
@@ -114,12 +133,13 @@ always @(posedge clk)
 begin
     a_r <= a;
     b_r <= b;
-    if (a_up | a_down | b_up | b_down) begin
+    init_done <= 1;
+    if (init_done & (a_up | a_down | b_up | b_down)) begin
         // If a new edge has been detected, shift the queue and initialize the running counter
         counter[0] <= 26'b0;
         counter0_overflow <= 1'b0;
         counter[1] <= counter[0];
-        flags[1] <= {counter0_overflow, dir, (flags1_valid ? ~enc_valid[dir] : 1'b0), a_up, b_up, a_down, b_down};
+        flags[1] <= {counter0_overflow, dir_now, (flags1_valid ? ~enc_valid : 1'b0), a_up, b_up, a_down, b_down};
         counter[2] <= counter[1];
         flags[2] <= flags[1];
         counter[3] <= counter[2];

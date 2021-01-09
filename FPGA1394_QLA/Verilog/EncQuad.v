@@ -1,6 +1,6 @@
 /*******************************************************************************
  *
- * Copyright(C) 2008-2020 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2008-2021 ERC CISST, Johns Hopkins University.
  *
  * This module decodes a pair of quadrature encoder inputs, a and b, analyzing
  * them via a state machine and outputting transition ticks and direction flag.
@@ -34,6 +34,8 @@ module EncQuad(
     reg[1:0] prev;          // used to remember the previously received code
     wire code_changed;      // indicates if encoder has moved since prev clk
 
+    reg init_done;          // indicates that prev has a valid value
+
 // -----------------------------------------------------------------------------
 // hardware description
 //
@@ -41,15 +43,18 @@ module EncQuad(
 // set the output count msb as the overflow flag
 assign count = { overflow, counter[23:0] };
 assign code = { a, b };
-assign code_changed = code[1] ^ prev[1] ^ code[0] ^ prev[0];
-always @(posedge(clk)) prev <= code;
+assign code_changed = init_done & (code[1] ^ prev[1] ^ code[0] ^ prev[0]);
+always @(posedge clk) begin
+    init_done <= 1;
+    prev <= code;
+end
 
-// dir 0 is A leading B
-// dir 1 is B leading A
+// dir 0 is B leading A
+// dir 1 is A leading B
 always @(posedge clk)
 begin
     if (code_changed)
-        dir <= code[1] ^ prev[0];
+        dir <= code[1] ^ prev[0];  // a ^ b_prev
 end
 
 // -----------------------------------------------------------------------------
