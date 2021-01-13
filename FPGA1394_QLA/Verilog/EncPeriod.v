@@ -175,7 +175,7 @@ assign overflow_flag = (sum > overflow_value) ? 1'b1 : 1'b0;
 wire dir_same;
 assign dir_same =
   ~(flags[1][dir_bit] | flags[2][dir_bit] | flags[3][dir_bit] | flags[4][dir_bit]) |
-   (flags[1][dir_bit] & flags[2][dir_bit] & flags[3][dir_bit] | flags[4][dir_bit]);
+   (flags[1][dir_bit] & flags[2][dir_bit] & flags[3][dir_bit] & flags[4][dir_bit]);
 // Indicate whether any encoder error was detected
 wire enc_error;
 assign enc_error = flags[1][error_bit] | flags[2][error_bit] | flags[3][error_bit] | flags[4][error_bit];
