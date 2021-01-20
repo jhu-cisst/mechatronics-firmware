@@ -2097,32 +2097,34 @@ begin
             fw_quadlet_data <= FireWireQuadlet;
          end
          else if ((rfw_count == 10'd9) && blockWrite && addrMain) begin
-            doRtBlock <= 1;
+            doRtBlock <= isLocal;
             RtCnt <= 3'd0;
             dac_local <= 1;
          end
          else if (rfw_count == maxCountFW) begin
             nextRecvState <= ST_RECEIVE_DMA_IDLE;  // was ST_RECEIVE_DMA_FRAME_CRC;
             doRtBlock <= 0;
-            // Start sampling feedback data if a block read from ADDR_MAIN or
-            // a broadcast read request (quadlet write to ADDR_HUB). Note that sampler
-            // will enter its busy state (after the next cycle) and take control of reg_raddr
-            // for a few cycles. If writeHub is set, the sampler will also directly write
-            // this board's feedback to the Hub memory.
-            if ((addrMain && blockRead) || ((fw_dest_offset == {`ADDR_HUB, 12'h800 }) && quadWrite)) begin
-               sample_start <= 1;
-               writeHub <= quadWrite;
-            end
-            // Set writeRequest for local quadlet and block write, except for real-time
-            // block write, which is handled separately. Note that writeRequestBlock was
-            // probably set earlier (using writeRequestTrigger), but it is set again here
-            // just in case.
-            writeRequestQuad <= isLocal&quadWrite;
-            writeRequestBlock <= blockWrite&isLocal&(~addrMain);
-            if (blockWrite&isLocal&(~addrMain)) begin  // if writeRequestBlock
-               // Number of quadlets left to write to registers; should be greater than 1,
-               // otherwise the register writer may have overtaken the Ethernet reader.
-               bw_left <= block_data_length[10:2] + 9'd5 - local_raddr;
+            if (isLocal) begin
+               // Start sampling feedback data if a block read from ADDR_MAIN or
+               // a broadcast read request (quadlet write to ADDR_HUB). Note that sampler
+               // will enter its busy state (after the next cycle) and take control of reg_raddr
+               // for a few cycles. If writeHub is set, the sampler will also directly write
+               // this board's feedback to the Hub memory.
+               if ((addrMain && blockRead) || ((fw_dest_offset == {`ADDR_HUB, 12'h800 }) && quadWrite)) begin
+                  sample_start <= 1;
+                  writeHub <= quadWrite;
+               end
+               // Set writeRequest for local quadlet and block write, except for real-time
+               // block write, which is handled separately. Note that writeRequestBlock was
+               // probably set earlier (using writeRequestTrigger), but it is set again here
+               // just in case.
+               writeRequestQuad <= quadWrite;
+               writeRequestBlock <= blockWrite&(~addrMain);
+               if (blockWrite&(~addrMain)) begin  // if writeRequestBlock
+                  // Number of quadlets left to write to registers; should be greater than 1,
+                  // otherwise the register writer may have overtaken the Ethernet reader.
+                  bw_left <= block_data_length[10:2] + 9'd5 - local_raddr;
+               end
             end
             if (isRemote) begin
                // Request to forward pkt.
