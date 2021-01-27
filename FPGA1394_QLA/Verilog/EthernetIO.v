@@ -3,7 +3,7 @@
 
 /*******************************************************************************    
  *
- * Copyright(C) 2014-2020 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2014-2021 ERC CISST, Johns Hopkins University.
  *
  * This module implements the higher-level Ethernet I/O, which interfaces
  * to the KSZ8851 MAC/PHY chip.
@@ -170,8 +170,7 @@ module EthernetIO(
     output reg sample_read,          // Reading from memory in process
     output wire[4:0] sample_raddr,   // Read address for sampled data
     input wire[31:0] sample_rdata,   // Sampled data (for block read)
-    input wire[31:0] timestamp,      // Timestamp (for debugging)
-    output reg writeHub              // 1 -> write to Hub after sampling
+    input wire[31:0] timestamp       // Timestamp (for debugging)
 );
 
 reg initOK;            // 1 -> Initialization successful
@@ -1889,7 +1888,6 @@ begin
 
    if (sample_start && sample_busy) begin
       sample_start <= 1'd0;
-      writeHub <= 1'd0;
    end
 
    // Clear eth_send_fw_req flag
@@ -2108,11 +2106,9 @@ begin
                // Start sampling feedback data if a block read from ADDR_MAIN or
                // a broadcast read request (quadlet write to ADDR_HUB). Note that sampler
                // will enter its busy state (after the next cycle) and take control of reg_raddr
-               // for a few cycles. If writeHub is set, the sampler will also directly write
-               // this board's feedback to the Hub memory.
+               // for a few cycles.
                if ((addrMain && blockRead) || ((fw_dest_offset == {`ADDR_HUB, 12'h800 }) && quadWrite)) begin
                   sample_start <= 1;
-                  writeHub <= quadWrite;
                end
                // Set writeRequest for local quadlet and block write, except for real-time
                // block write, which is handled separately. Note that writeRequestBlock was

@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2008-2020 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2008-2021 ERC CISST, Johns Hopkins University.
  *
  * This module implements the FireWire link layer state machine, which defines
  * the operation of the phy-link interface.  The state machine is triggered on
@@ -238,8 +238,7 @@ module PhyLinkInterface(
     output reg sample_start,         // 1 -> start sampling for block read
     input wire sample_busy,          // Sampling in process
     output wire[4:0] sample_raddr,   // Read address for sampled data
-    input wire[31:0] sample_rdata,   // Sampled data (for block read)
-    output reg writeHub              // 1 -> write to Hub after sampling
+    input wire[31:0] sample_rdata    // Sampled data (for block read)
 
     // debug
 `ifdef USE_CHIPSCOPE
@@ -536,10 +535,9 @@ begin
     end
 `endif
 
-    // Clear sample_start (and writeHub) when sample_busy asserted
+    // Clear sample_start when sample_busy asserted
     if (sample_start && sample_busy) begin
         sample_start <= 1'd0;
-        writeHub <= 1'd0;
     end
 
     // phy-link state machine
@@ -979,13 +977,11 @@ begin
                     // Start sampling feedback data if a block read from ADDR_MAIN or
                     // a broadcast read request (quadlet write to ADDR_HUB). Note that sampler
                     // will enter its busy state (after the next cycle) and take control of reg_raddr
-                    // for a few cycles. If writeHub is set, the sampler will also directly write
-                    // this board's feedback to the Hub memory.
+                    // for a few cycles.
                     if (rx_active &&
                         ((addrMainRead && (rx_tcode==`TC_BREAD)) ||
                          ((reg_waddr[15:0] == {`ADDR_HUB, 12'h800}) && (rx_tcode==`TC_QWRITE)))) begin
                        sample_start <= 1;
-                       writeHub <= (rx_tcode == `TC_QWRITE) ? 1'b1 : 1'b0;
                     end
                 end
 
@@ -1224,6 +1220,10 @@ begin
                 
                 // latch header crc, reset crc in preparation for data crc
                 128: begin
+                    // for hub register (HubReg)
+                    reg_waddr[15:0] <= { `ADDR_HUB, 3'd0, board_id[3:0], 5'd0 };
+                    reg_wen <= 1'b1;
+
                     // crc
                     data <= ~crc_8msb;
                     buffer <= { ~crc_in[23:0], 8'd0 };
@@ -1232,6 +1232,7 @@ begin
 
                 // latch bc_sequence and bc_fpga, send back to PC,  restart crc
                 152: begin
+                    reg_wdata <= { rx_bc_sequence, rx_bc_fpga };  // for HubReg
                     buffer <= { rx_bc_sequence, rx_bc_fpga };
                     crc_ini <= 0;           // clear crc start bit
                     reg_raddr <= {`ADDR_MAIN, 12'd0 };  // Will actually read from SampleData
@@ -1261,6 +1262,12 @@ begin
                 
                 // latch data and update addresses on quadlet boundaries
                 if (count[4:0] == 5'd24) begin
+
+                    // cache to hubreg, only saves to hub when block broadcast packets
+                    // (reg_wen is set in ST_TX_HEAD_BC)
+                    reg_waddr[4:0] <= reg_waddr[4:0] + 5'd1;
+                    reg_wdata <= sample_rdata;
+
                     // send to FireWire bus
                     buffer <= rom_read ? rom_data :
                               addrMainRead ? sample_rdata : reg_rdata;

@@ -3,7 +3,7 @@
 
 /*******************************************************************************    
  *
- * Copyright(C) 2011-2020 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2011-2021 ERC CISST, Johns Hopkins University.
  *
  * This is the top level module for the FPGA1394-QLA motor controller interface.
  *
@@ -118,7 +118,6 @@ BUFG clksysclk(.I(clk1394), .O(sysclk));
 
 // Wires for sampling block read data (shared between Ethernet and Firewire)
 wire sample_start;        // Start sampling read data
-wire writeHub;            // 1 -> write to hub after sampling
 wire sample_busy;         // 1 -> data sampler has control of bus
 wire[3:0] sample_chan;    // Channel for sampling
 wire[4:0] sample_raddr;   // Address in sample_data buffer
@@ -143,10 +142,6 @@ wire[31:0] eth_rt_wdata;
 wire fw_sample_start;
 wire eth_sample_start;
 assign sample_start = (eth_sample_start|fw_sample_start) & ~sample_busy;
-
-wire fw_writeHub;
-wire eth_writeHub;
-assign writeHub = eth_writeHub|fw_writeHub;
 
 wire eth_sample_read;      // 1 -> Ethernet module has control of sample_raddr
 wire[4:0] fw_sample_raddr;
@@ -238,24 +233,13 @@ wire[15:0] bc_sequence;
 wire[15:0] bc_board_mask;
 wire       bc_request;
 
-wire hub_wen;             // 1 -> sampler writing to hub
-wire[4:0] hub_waddr;      // write address from sampler
-wire[31:0] hub_wdata;     // write data from sampler
-
-wire reg_wen_hub;
-assign reg_wen_hub = reg_wen|hub_wen;
-wire[15:0] reg_waddr_hub;
-assign reg_waddr_hub = hub_wen ? {`ADDR_HUB, 3'd0, board_id, hub_waddr} : reg_waddr;
-wire[31:0] reg_wdata_hub;
-assign reg_wdata_hub = hub_wen ? hub_wdata : reg_wdata;
-
 HubReg hub(
     .sysclk(sysclk),
-    .reg_wen(reg_wen_hub),
+    .reg_wen(reg_wen),
     .reg_raddr(reg_raddr),
-    .reg_waddr(reg_waddr_hub),
+    .reg_waddr(reg_waddr),
     .reg_rdata(reg_rdata_hub),
-    .reg_wdata(reg_wdata_hub),
+    .reg_wdata(reg_wdata),
     .sequence(bc_sequence),
     .board_mask(bc_board_mask),
     .hub_reg_wen(bc_request)
@@ -335,8 +319,7 @@ PhyLinkInterface phy(
     .sample_start(fw_sample_start),   // 1 -> start sampling for block read
     .sample_busy(sample_busy),        // Sampling in process
     .sample_raddr(fw_sample_raddr),   // Read address for sampled data
-    .sample_rdata(sample_rdata),      // Sampled data (for block read)
-    .writeHub(fw_writeHub)            // 1 -> write to hub after sampling
+    .sample_rdata(sample_rdata)       // Sampled data (for block read)
 );
 
 
@@ -437,8 +420,7 @@ EthernetIO EthernetTransfers(
     .sample_read(eth_sample_read),     // 1 -> reading from sample memory
     .sample_raddr(eth_sample_raddr),   // Read address for sampled data
     .sample_rdata(sample_rdata),       // Sampled data (for block read)
-    .timestamp(timestamp),             // timestamp
-    .writeHub(eth_writeHub)            // 1 -> write to hub after sampling
+    .timestamp(timestamp)              // timestamp
 );
 
 // --------------------------------------------------------------------------
@@ -796,11 +778,7 @@ SampleData sampler(
     .blk_data(sample_rdata),
     .timestamp(timestamp),
     .bc_sequence(bc_sequence),
-    .bc_board_mask(bc_board_mask),
-    .writeHub(writeHub),
-    .hub_waddr(hub_waddr),
-    .hub_wdata(hub_wdata),
-    .hub_wen(hub_wen)
+    .bc_board_mask(bc_board_mask)
 );
 
 // --------------------------------------------------------------------------
