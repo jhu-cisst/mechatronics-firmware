@@ -43,7 +43,7 @@ reg[13:0] bcTimer;
 reg[3:0] read_index[0:15];
 reg[3:0] curIndex;
 reg[3:0] curBoard;
-reg newMask;
+reg[15:0] last_mask;
 
 // Indicates whether board has been updated
 reg[15:0] board_updated;
@@ -66,16 +66,16 @@ begin
     bcTimer <=  bcTimer + 14'd1;
     if (hub_reg_wen) begin
         sequence <= reg_wdata[31:16];
-        board_mask <= reg_wdata[15:0];
+        if (reg_wdata[15:0] != 16'd0) begin
+            // Avoid board_mask==0 because that will infinite loop
+            board_mask <= reg_wdata[15:0];
+        end
         curIndex <= 4'd0;
         curBoard <= 4'd0;
         bcTimer <=  14'd0;
         board_updated <= 16'd0;
-        // Avoid board_mask==0 because that will infinite loop
-        // Also, check for case where new mask is equal to previous one
-        newMask <= ((reg_wdata[15:0] == 16'd0) || (reg_wdata[15:0] == board_mask)) ? 1'b0 : 1'b1;
     end
-    else if (newMask) begin
+    else if (board_mask != last_mask) begin
        if (board_mask[curBoard]) begin
           read_index[curIndex] <= curBoard;
           curIndex <= curIndex + 4'd1;
@@ -83,7 +83,7 @@ begin
           // For example, if boards 0, 5, 7 are present, read_index will be:
           //    (0, 5, 7, 0, 5, 7, 0, 5, 7, 0, 5, 7, 0, 5, 7, 0)
           if (curIndex == 4'hf)
-             newMask <= 0;
+             last_mask <= board_mask;
        end
        curBoard <= curBoard + 4'd1;
     end
@@ -108,25 +108,24 @@ localparam[8:0] QUAD_OFFSET = (9'd32-`NUM_BC_READ_QUADS);
 //
 // The implementation assumes that the hub read will start at address 0. It should actually
 // work for any start address up to the number of quadlets per board (29), but there is no
-// reason to start at any address other than 0. It also assumes that reg_raddr[15:12] will
-// remain equal to `ADDR_HUB (1) throughout the block read operation.
+// reason to start at any address other than 0.
 
 // Multiple of number of quadlets per entry (e.g., 29, 58, 87, ...)
 reg[8:0] multNQ;
+initial multNQ = NUM_QUADS;
+
 // Offset to add to reg_raddr
 reg[8:0] offset;
 
 always @(posedge sysclk)
 begin
-   if (reg_raddr[15:12] == `ADDR_HUB) begin
-      if (reg_raddr[8:0] == multNQ) begin
-         multNQ <= multNQ + NUM_QUADS;
-         offset <= offset + QUAD_OFFSET;
-      end
-   end
-   else begin
+   if (hub_reg_wen) begin
       multNQ <= NUM_QUADS;
       offset <= 9'd0;
+   end
+   else if ((reg_raddr[15:12] == `ADDR_HUB) && (reg_raddr[8:0] == multNQ)) begin
+      multNQ <= multNQ + NUM_QUADS;
+      offset <= offset + QUAD_OFFSET;
    end
 end
 
