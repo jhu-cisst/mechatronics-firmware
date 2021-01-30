@@ -107,8 +107,14 @@ localparam[8:0] QUAD_OFFSET = (9'd32-`NUM_BC_READ_QUADS);
 // (currently 29) and then skip to the next board.
 //
 // The implementation assumes that the hub read will start at address 0. It should actually
-// work for any start address up to the number of quadlets per board (29), but there is no
-// reason to start at any address other than 0.
+// work for any start address up to the number of quadlets per board (29).
+//
+// Note that multNQ and offset are initialized when writing to the hub register (i.e., by
+// the broadcast query command) or when starting to read from address 0. The latter case
+// allows reading the hub multiple times after the broadcast query command, as long as
+// the start address is 0. Note that it is also possible to do partial reads, as long as
+// the reads cover contiguous memory. For example, one can read from 0 to 57, then from 58
+// to 86, etc.
 
 // Multiple of number of quadlets per entry (e.g., 29, 58, 87, ...)
 reg[8:0] multNQ;
@@ -119,7 +125,8 @@ reg[8:0] offset;
 
 always @(posedge sysclk)
 begin
-   if (hub_reg_wen) begin
+   if (hub_reg_wen || ((reg_raddr[15:12] == `ADDR_HUB) && (reg_raddr[8:0] == 9'd0))) begin
+      // Also check for 0 address to handle reading again
       multNQ <= NUM_QUADS;
       offset <= 9'd0;
    end
