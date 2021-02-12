@@ -227,7 +227,8 @@ module PhyLinkInterface(
     // broadcast related fields
     input wire[15:0] rx_bc_sequence, // broadcast sequence num
     input wire[15:0] rx_bc_fpga,     // indicates whether a boards exists
-    input wire rx_bc_bread,          // rx broadcast read request flag
+    input wire write_trig,           // request to broadcast this board's hub data
+    output wire write_trig_reset,    // reset write_trig
 
     // Interface for real-time block write
     output reg       fw_rt_wen,
@@ -446,6 +447,8 @@ crc32 mycrc(crc_data, crc_in, crc_2b, crc_4b, crc_8b);
 // for phy requests, this bit distinguishes between register read and write
 assign phy_rw = buffer[12];
 
+assign write_trig_reset = (lreq_type == `LREQ_TX_ISO) ? 1'b1 : 1'b0;
+
 `ifdef HAS_ETHERNET
 // packet module (used to store FireWire packet that will be forwarded to Ethernet).
 // This is 512 quadlets (512 x 32), which is the maximum possible Firewire packet size at 400 Mbits/sec
@@ -463,65 +466,6 @@ hub_mem_gen pkt_mem(.clka(sysclk),
                     );
 `endif
    
-// -------------------------------------------------------
-// Broadcast Time Counter 
-//   - Trigger:
-//      - Special broadcast qwrite serves as bc read request
-//   - Time offset
-//      - 5 us is enough for 1 board to send data
-//      - wait for lower numbered boards to send data first
-//      - add 3 us for ACK
-// -------------------------------------------------------
-reg[31:0] write_counter;
-wire[14:0] write_trig_count;    // 6 bits node_id + 8 bits (256 counts)
-reg write_trig;                 // triggers broadcast board status
-wire board_selected;            // flag: whether board is selected on PC side
-wire [15:0] rx_bc_fpga_masked;  // indicate whether a board exist from board 0 to board_id
-
-assign rx_bc_fpga_masked = ((16'b1 << board_id) - 16'b1) & rx_bc_fpga;
-assign board_selected = rx_bc_fpga[board_id];
-
-reg [15:0] d;
-reg [5:0] write_trig_seq;   // counts how many boards before board_id
-always @ (posedge sysclk) begin
-   d <= rx_bc_fpga_masked;
-   write_trig_seq <= (((d[ 0] + d[ 1] + d[ 2] + d[ 3]) + (d[ 4] + d[ 5] + d[ 6] + d[ 7]))
-            +  ((d[ 8] + d[ 9] + d[10] + d[11]) + (d[12] + d[13] + d[14] + d[15])));
-end
-
-assign write_trig_count = {write_trig_seq, 8'd150};
-
-always @(posedge(sysclk))
-begin
-    if (rx_bc_bread) begin               // if broadcast read request received
-        write_counter <= 32'd0;          //    reset counter
-        write_trig <= 1'b0;
-    end
-    else begin
-        // First, wait (256*write_trig_seq+150) cycles, where each cycle is 20.345 ns.
-        // write_trig_seq is equal to the number of boards in use that have a lower
-        // number than the current board. 150 cycles is added for the ACK packet.
-        // For example, if there is 1 board with a lower number, then the wait
-        // will be for 256*1+150 = 406 cycles, or 8.26 microseconds.
-        // In general, for N lower-numbered boards, wait 256*N+150 = 5.21*N+3.05 microseconds.
-        // Next, if this board is selected, set write_trig, which will cause the
-        // Firewire state machine to set lreq_type == `LREQ_TX_ISO.
-        // Note that write_counter is not updated after write_trig is set, so it remains
-        // at (write_trig_count+1) until the next broadcast read request.
-        if (write_counter < write_trig_count) begin
-            write_counter <= write_counter + 1'b1;
-            write_trig <= 1'b0;
-        end
-        else if (write_counter == write_trig_count) begin
-            write_counter <= write_counter + 1'b1;
-            write_trig <= board_selected;
-        end
-        else if (lreq_type == `LREQ_TX_ISO) begin
-            write_trig <= 1'b0;
-        end
-    end
-end
-
 //
 // state machine clocked by sysclk; transitions depend on ctl and data
 //
@@ -1209,7 +1153,7 @@ begin
                 //  - 4'h01 = `ADDR_HUB
                 //  - bid is 4 bits board id
                 24: buffer <= { local_id, 16'hffff };  // src_id, dest_offset
-                56: buffer <= { 16'hff00, `ADDR_HUB, 3'd0, board_id[3:0], 5'd0 }; 
+                56: buffer <= { 16'hff00, `ADDR_HUB, 3'd0, board_id, 5'd0 };
 
                 //-------- Start broadcast back with sequence -------------
                 // datalen = 4 x (1 + 4 + 4 + 4 + 4 + 4) = 84 bytes (Rev 1-6)
@@ -1221,7 +1165,7 @@ begin
                 // latch header crc, reset crc in preparation for data crc
                 128: begin
                     // for hub register (HubReg)
-                    reg_waddr[15:0] <= { `ADDR_HUB, 3'd0, board_id[3:0], 5'd0 };
+                    reg_waddr[15:0] <= { `ADDR_HUB, 3'd0, board_id, 5'd0 };
                     reg_wen <= 1'b1;
 
                     // crc

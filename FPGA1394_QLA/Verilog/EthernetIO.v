@@ -1890,11 +1890,6 @@ begin
       sample_start <= 1'd0;
    end
 
-   // Clear eth_send_fw_req flag
-   if (eth_send_fw_req & eth_send_fw_ack) begin
-      eth_send_fw_req <= 1'd0;
-   end
-
    // Write to IP address register
    if (ip_reg_wen) begin
       // Following is equivalent to: ip_address <= reg_wdata;
@@ -1914,17 +1909,15 @@ begin
 
    ST_RECEIVE_DMA_IDLE:
    begin
-      isDMARead <= 0;
       mem_wen <= 0;
       doRtBlock <= 0;
       eth_rt_wen <= 0;
       rfw_count <= 10'd0;
-      writeRequestQuad <= 1'b0;
-      writeRequestBlock <= 1'b0;
       skipCnt <= 2'd3;  // Skip first 3 words in packet when receiving
                         // ignore(1) + status(1) + byte-count(1)
       nextRecvState <= ST_RECEIVE_DMA_IDLE;
       if (resetActive) begin
+         // Always process reset
          FireWirePacketFresh <= 0;
          fwPacketDropped <= 0;
          numIPv4Mismatch <= 10'd0;
@@ -1933,12 +1926,29 @@ begin
          ethIPv4Error <= 0;
          ethUDPError <= 0;
          ethDestError <= 0;
+         eth_send_fw_req <= 0;
       end
-      if (recvDMAreq) begin
-         isDMARead <= 1;
-         FireWirePacketFresh <= 0;
-         fwPacketDropped <= 0;
-         recvState <= ST_RECEIVE_DMA_ETHERNET_HEADERS;
+      if (eth_send_fw_req) begin
+         // This could have been a separate state, but would need an extra
+         // bit to have 5 receive states.
+         if (eth_send_fw_ack) begin
+             eth_send_fw_req <= 0;
+             // If a broadcast quadlet write (local and remote), then
+             // write it to the hardware now.
+             writeRequestQuad <= quadWrite&isLocal;
+         end
+      end
+      else begin
+         // Normal idle state. Wait for recvDMAreq to be set.
+         isDMARead <= 0;
+         writeRequestQuad <= 1'b0;
+         writeRequestBlock <= 1'b0;
+         if (recvDMAreq) begin
+            isDMARead <= 1;
+            FireWirePacketFresh <= 0;
+            fwPacketDropped <= 0;
+            recvState <= ST_RECEIVE_DMA_ETHERNET_HEADERS;
+         end
       end
    end
 
@@ -2110,11 +2120,16 @@ begin
                if ((addrMain && blockRead) || ((fw_dest_offset == {`ADDR_HUB, 12'h800 }) && quadWrite)) begin
                   sample_start <= 1;
                end
-               // Set writeRequest for local quadlet and block write, except for real-time
-               // block write, which is handled separately. Note that writeRequestBlock was
-               // probably set earlier (using writeRequestTrigger), but it is set again here
-               // just in case.
-               writeRequestQuad <= quadWrite;
+               // Set writeRequestQuad for local quadlet write, if not also remote (i.e., not broadcast).
+               // For broadcast quadlet write, we first forward to Firewire, then set writeRequestQuad
+               // when we receive the ack (eth_send_fw_ack).
+               // The only case where this is necessary is for the broadcast query command, but we do
+               // it consistently for all broadcast quadlet writes.
+               writeRequestQuad <= quadWrite&(~isRemote);
+               // Set writeRequestBlock for all block writes (even broadcast), except for real-time
+               // block write (to addrMain), which is handled separately.
+               // Note that writeRequestBlock was probably set earlier (using writeRequestTrigger),
+               // but it is set again here just in case.
                writeRequestBlock <= blockWrite&(~addrMain);
                if (blockWrite&(~addrMain)) begin  // if writeRequestBlock
                   // Number of quadlets left to write to registers; should be greater than 1,

@@ -167,7 +167,9 @@ assign reset_phy = 1'b1;
 
 wire[15:0] bc_sequence;
 wire[15:0] bc_board_mask;
-wire       bc_request;
+//wire       bc_request;
+wire       hub_write_trig;
+wire       hub_write_trig_reset;
 
 HubReg hub(
     .sysclk(sysclk),
@@ -178,7 +180,10 @@ HubReg hub(
     .reg_wdata(reg_wdata),
     .sequence(bc_sequence),
     .board_mask(bc_board_mask),
-    .hub_reg_wen(bc_request)
+    //.hub_reg_wen(bc_request),
+    .board_id(board_id),
+    .write_trig(hub_write_trig),
+    .write_trig_reset(hub_write_trig_reset)
 );
 
 
@@ -208,7 +213,8 @@ PhyLinkInterface phy(
 
     .rx_bc_sequence(bc_sequence),  // in: broadcast sequence num
     .rx_bc_fpga(bc_board_mask),    // in: mask of boards involved in broadcast read
-    .rx_bc_bread(bc_request),      // in: 1 -> received broadcast read request
+    .write_trig(hub_write_trig),   // in: 1 -> broadcast write this board's hub data
+    .write_trig_reset(hub_write_trig_reset),
 
     // Interface for real-time block write
     .fw_rt_wen(rt_wen),

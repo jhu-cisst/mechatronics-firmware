@@ -25,7 +25,11 @@ module HubReg(
     input  wire[31:0] reg_wdata,   // hub incoming write data
     output reg[15:0]  sequence,    // sequence number received via read request
     output reg[15:0]  board_mask,  // board mask received via read request
-    output wire       hub_reg_wen  // broadcast request received (write to register)
+    output wire       hub_reg_wen, // broadcast request received (write to register)
+    input wire[3:0]   board_id,    // board id
+    output reg        write_trig,  // request to broadcast this board's info via FireWire
+    input wire        write_trig_reset, // reset write_trig
+    output wire       updated      // hub has been updated since last query (write to 0x1800)
 );
 
 wire hub_reg_waddr;
@@ -48,6 +52,17 @@ reg[15:0] last_mask;
 // Indicates whether board has been updated
 reg[15:0] board_updated;
 
+assign updated = (board_updated == board_mask) ? 1'b1 : 1'b0;
+
+wire[15:0] board_mask_lower;  // only boards with lower board ids
+assign board_mask_lower = ((16'b1 << board_id) - 16'b1) & board_mask;
+
+assign board_selected = board_mask[board_id];
+
+// write_trig is sent to Firewire module to start broadcast write of hub data from this board to
+// all other boards. Note that writing is done sequentially, by board number.
+//assign write_trig = (board_selected && (board_updated == board_mask_lower)) ? 1'b1 : 1'b0;
+
 wire hub_reg_raddr;
 // Hub register address space is 0x1800 - 0x1803
 assign hub_reg_raddr = (reg_raddr[15:12]==`ADDR_HUB) && (reg_raddr[11:2] == 10'b1000000000);
@@ -59,7 +74,7 @@ assign reg_rdata = !hub_reg_raddr ? reg_rdata_hub :
                                                  read_index[ 4], read_index[ 5], read_index[ 6], read_index[ 7] } :
                    (reg_raddr[1:0] == 2'b10) ? { read_index[ 8], read_index[ 9], read_index[10], read_index[11],
                                                  read_index[12], read_index[13], read_index[14], read_index[15] } :
-                   32'd0;
+                   { 12'd0, board_id, board_mask_lower };
 
 always @(posedge(sysclk))
 begin
@@ -69,9 +84,9 @@ begin
         if (reg_wdata[15:0] != 16'd0) begin
             // Avoid board_mask==0 because that will infinite loop
             board_mask <= reg_wdata[15:0];
+            curIndex <= 4'd0;
+            curBoard <= 4'd0;
         end
-        curIndex <= 4'd0;
-        curBoard <= 4'd0;
         bcTimer <=  14'd0;
         board_updated <= 16'd0;
     end
@@ -88,6 +103,8 @@ begin
        curBoard <= curBoard + 4'd1;
     end
     if (hub_mem_wen) begin
+       // Start of board update; could check for (reg_waddr[4:0] == (NUM_QUADS-1)) if we
+       // wish to know when update is finished.
        board_updated[reg_waddr[8:5]] <= 1'b1;
     end
 end
@@ -153,8 +170,8 @@ wire[31:0] reg_rdata_mem;
 // command. If not, set bits 15:14 to 00 and return current bcTimer. If board has been updated,
 // just return contents of memory, where bits 15:14 should be 10 and the timer value should correspond
 // to when the board information was updated (see comment below).
-assign reg_rdata_hub = ((read_addr[4:0] == 5'd0) && !board_updated[read_board])
-                        ? {reg_rdata_mem[31:16], 2'b00, bcTimer }
+assign reg_rdata_hub = (read_addr[4:0] == 5'd0)
+                        ? {reg_rdata_mem[31:16], board_updated[read_board], 1'b0, reg_rdata_mem[13:0] }
                         : reg_rdata_mem;
 
 // When writing first board quadlet, replace lowest 16 bits as follows:
@@ -178,5 +195,59 @@ hub_mem_gen hub_mem(
     .addrb(read_addr),
     .doutb(reg_rdata_mem)
 );
+
+//********************************* TEMP from Firewire.v *********************************
+// -------------------------------------------------------
+// Broadcast Time Counter
+//   - Trigger:
+//      - Special broadcast qwrite serves as bc read request
+//   - Time offset
+//      - 5 us is enough for 1 board to send data
+//      - wait for lower numbered boards to send data first
+//      - add 3 us for ACK
+// -------------------------------------------------------
+reg[31:0] write_counter;
+wire[14:0] write_trig_count;    // 6 bits node_id + 8 bits (256 counts)
+
+reg [15:0] d;
+reg [5:0] write_trig_seq;   // counts how many boards before board_id
+always @ (posedge sysclk) begin
+   d <= board_mask_lower;
+   write_trig_seq <= (((d[ 0] + d[ 1] + d[ 2] + d[ 3]) + (d[ 4] + d[ 5] + d[ 6] + d[ 7]))
+            +  ((d[ 8] + d[ 9] + d[10] + d[11]) + (d[12] + d[13] + d[14] + d[15])));
+end
+
+assign write_trig_count = {write_trig_seq, 8'd150};
+
+always @(posedge(sysclk))
+begin
+    if (hub_reg_wen) begin               // if broadcast read request received
+        write_counter <= 32'd0;          //    reset counter
+        write_trig <= 1'b0;
+    end
+    else begin
+        // First, wait (256*write_trig_seq+150) cycles, where each cycle is 20.345 ns.
+        // write_trig_seq is equal to the number of boards in use that have a lower
+        // number than the current board. 150 cycles is added for the ACK packet.
+        // For example, if there is 1 board with a lower number, then the wait
+        // will be for 256*1+150 = 406 cycles, or 8.26 microseconds.
+        // In general, for N lower-numbered boards, wait 256*N+150 = 5.21*N+3.05 microseconds.
+        // Next, if this board is selected, set write_trig, which will cause the
+        // Firewire state machine to set lreq_type == `LREQ_TX_ISO.
+        // Note that write_counter is not updated after write_trig is set, so it remains
+        // at (write_trig_count+1) until the next broadcast read request.
+        if (write_counter < write_trig_count) begin
+            write_counter <= write_counter + 1'b1;
+            write_trig <= 1'b0;
+        end
+        else if (write_counter == write_trig_count) begin
+            write_counter <= write_counter + 1'b1;
+            write_trig <= board_selected;
+        end
+        else if (write_trig_reset) begin
+            write_trig <= 0;
+        end
+    end
+end
 
 endmodule
