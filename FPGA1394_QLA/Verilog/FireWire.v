@@ -447,7 +447,7 @@ crc32 mycrc(crc_data, crc_in, crc_2b, crc_4b, crc_8b);
 // for phy requests, this bit distinguishes between register read and write
 assign phy_rw = buffer[12];
 
-assign write_trig_reset = (lreq_type == `LREQ_TX_ISO) ? 1'b1 : 1'b0;
+assign write_trig_reset = ((lreq_type == `LREQ_TX_ISO) && (tx_type == `TX_TYPE_BBC)) ? 1'b1 : 1'b0;
 
 `ifdef HAS_ETHERNET
 // packet module (used to store FireWire packet that will be forwarded to Ethernet).
