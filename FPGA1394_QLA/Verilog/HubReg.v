@@ -41,6 +41,7 @@ assign hub_reg_wen = (reg_wen && hub_reg_waddr && (reg_waddr[1:0] == 2'd0));
 
 // For timing measurements. Cleared when broadcast query command received (i.e., quadlet write to 0x1800).
 reg[13:0] bcTimer;
+reg[13:0] bcReadStart;
 
 // read_index maintains an ordered list of boards in use, so that it is no longer necessary
 // for the PC to read the entire hub memory.
@@ -146,6 +147,8 @@ begin
       // Also check for 0 address to handle reading again
       multNQ <= NUM_QUADS;
       offset <= 9'd0;
+      if (~hub_reg_wen)
+         bcReadStart <= bcTimer;
    end
    else if ((reg_raddr[15:12] == `ADDR_HUB) && (reg_raddr[8:0] == multNQ)) begin
       multNQ <= multNQ + NUM_QUADS;
@@ -161,6 +164,13 @@ assign reg_raddr_offset = (reg_raddr[8:0] == multNQ) ? { reg_raddr[8:0] + offset
 wire[3:0] read_board;
 assign read_board = read_index[reg_raddr_offset[8:5]];
 
+// The block read packet has an extra data field at the end, which contains timing information.
+// We detect this address when read_board repeats. Note that the first conditional could instead
+// be (multNQ != NUM_QUADS). The implementation could easily be extended to return up to NUM_QUADS
+// extra fields.
+wire is_extra;
+assign is_extra = ((offset != 9'd0) && (read_board == read_index[0])) ? 1'b1 : 1'b0;
+
 wire[8:0] read_addr;
 assign read_addr = { read_board, reg_raddr_offset[4:0] };
 
@@ -170,7 +180,8 @@ wire[31:0] reg_rdata_mem;
 // command. If not, set bits 15:14 to 00 and return current bcTimer. If board has been updated,
 // just return contents of memory, where bits 15:14 should be 10 and the timer value should correspond
 // to when the board information was updated (see comment below).
-assign reg_rdata_hub = (read_addr[4:0] == 5'd0)
+assign reg_rdata_hub = is_extra ? { 2'b0, bcReadStart, 2'b0, bcTimer }
+                        : (read_addr[4:0] == 5'd0)
                         ? {reg_rdata_mem[31:16], board_updated[read_board], 1'b0, reg_rdata_mem[13:0] }
                         : reg_rdata_mem;
 
