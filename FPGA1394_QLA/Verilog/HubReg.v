@@ -217,34 +217,38 @@ hub_mem_gen hub_mem(
 //      - wait for lower numbered boards to send data first
 //      - add 3 us for ACK
 // -------------------------------------------------------
-reg[31:0] write_counter;
-wire[14:0] write_trig_count;    // 6 bits node_id + 8 bits (256 counts)
+reg[12:0] write_counter;
+wire[12:0] write_trig_count;    // 1 bit (overflow) + 4 bits (boards) + 8 bits
 
-reg [15:0] d;
-reg [5:0] write_trig_seq;   // counts how many boards before board_id
+reg[15:0] d;
+reg[3:0] write_trig_seq;   // counts how many boards before board_id
 always @ (posedge sysclk) begin
    d <= board_mask_lower;
    write_trig_seq <= (((d[ 0] + d[ 1] + d[ 2] + d[ 3]) + (d[ 4] + d[ 5] + d[ 6] + d[ 7]))
-            +  ((d[ 8] + d[ 9] + d[10] + d[11]) + (d[12] + d[13] + d[14] + d[15])));
+            +  ((d[ 8] + d[ 9] + d[10] + d[11]) + (d[12] + d[13] + d[14])));
 end
 
-assign write_trig_count = {write_trig_seq, 8'd150};
+// Previously, we waited 256*write_trig_seq + 150, where 256 counts is ~5.2 usec,
+// but there were occasional failures in some configurations with many FPGA boards.
+// The following computes (256+16)*write_trig_seq + 150 = 272*write_trig_seq + 150,
+// where 272 counts is ~5.5 usec.
+assign write_trig_count = {1'd0, write_trig_seq, 8'd150} + { 5'd0, write_trig_seq, 4'd0};
 
 always @(posedge(sysclk))
 begin
     if (hub_reg_wen) begin               // if broadcast read request received
-        write_counter <= 32'd0;          //    reset counter
+        write_counter <= 13'd0;          //    reset counter
         write_trig <= 1'b0;
     end
     else begin
-        // First, wait (256*write_trig_seq+150) cycles, where each cycle is 20.345 ns.
+        // First, wait (272*write_trig_seq+150) cycles, where each cycle is 20.345 ns.
         // write_trig_seq is equal to the number of boards in use that have a lower
         // number than the current board. 150 cycles is added for the ACK packet.
         // For example, if there is 1 board with a lower number, then the wait
-        // will be for 256*1+150 = 406 cycles, or 8.26 microseconds.
-        // In general, for N lower-numbered boards, wait 256*N+150 = 5.21*N+3.05 microseconds.
+        // will be for 272*1+150 = 422 cycles, or 8.6 microseconds.
+        // In general, for N lower-numbered boards, wait 272*N+150 = 5.53*N+3.05 microseconds.
         // Next, if this board is selected, set write_trig, which will cause the
-        // Firewire state machine to set lreq_type == `LREQ_TX_ISO.
+        // Firewire state machine to set write_trig_reset after requesting the Firewire transfer.
         // Note that write_counter is not updated after write_trig is set, so it remains
         // at (write_trig_count+1) until the next broadcast read request.
         if (write_counter < write_trig_count) begin
