@@ -3,7 +3,7 @@
 
 /*******************************************************************************    
  *
- * Copyright(C) 2020 Johns Hopkins University.
+ * Copyright(C) 2020-2021 Johns Hopkins University.
  *
  * This module implements a data collection buffer.
  *
@@ -31,19 +31,22 @@ module DataBuffer(
 
 initial chan = 4'd1;
 
-reg       collecting = 0;
-reg       buf_wr = 0;
-reg[9:0]  buf_wr_addr = 10'h000;
+reg       collecting;
+reg       buf_wr;
+reg[9:0]  buf_wr_addr;
 reg[31:0] buf_wr_data;
-reg       cur_fb_wen_last = 0;
+reg       cur_fb_wen_last;
+reg       cur_fb_pending;
+
+wire      cur_fb_trigger;
+assign    cur_fb_trigger = (cur_fb_wen == 1) && (cur_fb_wen_last == 0) ? 1'b1 : 1'b0;
 
 // Note that the data collection bit (30) is used to start/stop data collection.
 wire cur_cmd_wen;    // Write enable for commanded current
 // Write the command current to the buffer when:
 //   1) Collection bit set (reg_wdata[30]), but not already collecting
 //   2) Collection in process and writing current to the correct channel
-assign cur_cmd_wen = reg_wen && (reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[3:0]==`OFF_DAC_CTRL) &&
-                     (((!collecting && reg_wdata[30])) || (collecting && (reg_waddr[7:4] == chan)));
+assign cur_cmd_wen = reg_wen && (reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[3:0]==`OFF_DAC_CTRL);
 
 wire[31:0] mem_read;
 // Read data: flags (2 bits), current write address (10 bits), channel (4 bits), data (16 bits)
@@ -71,24 +74,25 @@ begin
         if (!collecting && reg_wdata[30]) begin  // rising edge collecting
             chan <= reg_waddr[7:4];   // update channel
             buf_wr_addr <= 10'd0;     // reset address
-            buf_wr_data <= {2'd1, 10'd0, reg_waddr[7:4], reg_wdata[15:0]};
-            buf_wr <= 1;
+            collecting <= 1;
         end
-        else if (collecting && reg_wdata[30]) begin // collecting, but not first time
-            buf_wr_data <= {2'd1, 10'd0, reg_waddr[7:4], reg_wdata[15:0]};
-            buf_wr <= 1;
+        else if (reg_waddr[7:4] == chan) begin
             buf_wr_addr <= buf_wr_addr+1;
+            collecting <= reg_wdata[30];
         end
-        collecting <= reg_wdata[30];   //update collecting
+        buf_wr <= reg_wdata[30];
+        buf_wr_data <= {2'd0, 10'd0, reg_waddr[7:4], reg_wdata[15:0]};
+        if (reg_wdata[30]&cur_fb_trigger)
+            cur_fb_pending <= 1;
     end
-    else if (collecting && (cur_fb_wen == 1) && (cur_fb_wen_last == 0)) begin
-        // if no commanded value is available, but feedback current is available
-        buf_wr_data <= {2'd3, 10'd0, chan, cur_fb};
+    else if ((collecting&cur_fb_trigger)|cur_fb_pending) begin
+        buf_wr_data <= {2'd1, 10'd0, chan, cur_fb};
         buf_wr <= 1;
         buf_wr_addr <= buf_wr_addr+1;
+        cur_fb_pending <= 0;
     end
     else begin
-        buf_wr <= 0; // if new commanded value or fb value is not available, don't store anything
+        buf_wr <= 0;
     end
     cur_fb_wen_last <= cur_fb_wen; //update ADC edge detection flag for next cycle
 end
