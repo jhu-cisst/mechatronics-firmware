@@ -714,6 +714,7 @@ wire[4:1] amp_enable_cmd;
 wire[31:0] reg_status;    // Status register
 wire[31:0] reg_digio;     // Digital I/O register
 wire[15:0] tempsense;     // Temperature sensor
+wire[15:0] reg_databuf;   // Data collection status
 
 wire reboot;              // Reboot the FPGA
 
@@ -772,7 +773,7 @@ SampleData sampler(
     .isBusy(sample_busy),
     .reg_status(reg_status),
     .reg_digio(reg_digio),
-    .reg_temp({16'd0, tempsense}),
+    .reg_temp({reg_databuf, tempsense}),
     .chan(sample_chan),
     .adc_in(reg_adc_data),
     .enc_pos(reg_quad_data),
@@ -879,7 +880,10 @@ DataBuffer data_buffer(
     .reg_wdata(reg_wdata),          // write data
     .reg_wen(reg_wen),              // write enable
     .reg_raddr(reg_raddr),          // read address
-    .reg_rdata(reg_rdata_databuf)   // read data
+    .reg_rdata(reg_rdata_databuf),  // read data
+    // status and timestamp
+    .databuf_status(reg_databuf),   // status for SampleData
+    .ts(timestamp)                  // timestamp from SampleData
 );
 
 //------------------------------------------------------------------------------

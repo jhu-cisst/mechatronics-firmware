@@ -26,7 +26,11 @@ module DataBuffer(
     input  wire[31:0] reg_wdata,    // register write
     input  wire       reg_wen,      // register write enable
     input  wire[15:0] reg_raddr,    // register read address
-    output wire[31:0] reg_rdata     // read data
+    output wire[31:0] reg_rdata,    // read data
+    // Status
+    output wire[15:0] databuf_status,
+    // Timestamp
+    input  wire[31:0] ts
 );
 
 initial chan = 4'd1;
@@ -41,6 +45,12 @@ reg       cur_fb_pending;
 wire      cur_fb_trigger;
 assign    cur_fb_trigger = (cur_fb_wen == 1) && (cur_fb_wen_last == 0) ? 1'b1 : 1'b0;
 
+assign    databuf_status = { collecting, 1'b0, chan, buf_wr_addr };
+
+// Indicate whether timestamp has more than 14 bits
+wire     ts_over14;
+assign   ts_over14 = (ts[31:14] == 18'd0) ? 1'b0 : 1'b1;
+
 // Note that the data collection bit (30) is used to start/stop data collection.
 wire cur_cmd_wen;    // Write enable for commanded current
 // Write the command current to the buffer when:
@@ -49,8 +59,14 @@ wire cur_cmd_wen;    // Write enable for commanded current
 assign cur_cmd_wen = reg_wen && (reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[3:0]==`OFF_DAC_CTRL);
 
 wire[31:0] mem_read;
-// Read data: flags (2 bits), current write address (10 bits), channel (4 bits), data (16 bits)
-assign reg_rdata = {mem_read[31:30], buf_wr_addr, mem_read[19:0]};
+// Read data:
+//   7000-73ff  memory
+//   7400-77ff  memory (wrapping for circular buffer)
+//   7800       status register
+// all other addresses return 0
+assign reg_rdata = (reg_raddr[11] == 1'b0) ? mem_read :
+                   (reg_raddr[11:0] == 12'h800) ? { 16'd0, databuf_status }
+                   : 32'd0;
 
 Dual_port_RAM_32X1024 Dual_port_RAM_32X1024(
     .clka(clk),
@@ -60,7 +76,7 @@ Dual_port_RAM_32X1024 Dual_port_RAM_32X1024(
     .dina(buf_wr_data),
     .clkb(clk),
     .enb(1'b1),
-    .addrb(reg_raddr),
+    .addrb(reg_raddr[9:0]),
     .doutb(mem_read)
 );
 
@@ -77,16 +93,16 @@ begin
             collecting <= 1;
         end
         else if (reg_waddr[7:4] == chan) begin
-            buf_wr_addr <= buf_wr_addr+1;
+            buf_wr_addr <= buf_wr_addr+reg_wdata[30];
             collecting <= reg_wdata[30];
         end
         buf_wr <= reg_wdata[30];
-        buf_wr_data <= {2'd0, 10'd0, reg_waddr[7:4], reg_wdata[15:0]};
+        buf_wr_data <= {1'b0, ts_over14, ts[13:0], reg_wdata[15:0]};
         if (reg_wdata[30]&cur_fb_trigger)
             cur_fb_pending <= 1;
     end
     else if ((collecting&cur_fb_trigger)|cur_fb_pending) begin
-        buf_wr_data <= {2'd1, 10'd0, chan, cur_fb};
+        buf_wr_data <= {1'b1, ts_over14, ts[13:0], cur_fb};
         buf_wr <= 1;
         buf_wr_addr <= buf_wr_addr+1;
         cur_fb_pending <= 0;
