@@ -229,6 +229,7 @@ module PhyLinkInterface(
     input wire[15:0] rx_bc_fpga,     // indicates whether a boards exists
     input wire write_trig,           // request to broadcast this board's hub data
     output wire write_trig_reset,    // reset write_trig
+    output wire fw_idle,             // whether Firewire state machine is idle
 
     // Interface for real-time block write
     output reg       fw_rt_wen,
@@ -277,6 +278,9 @@ module PhyLinkInterface(
     reg[9:0] bus_id;              // phy bus id (10 bits)
     initial bus_id = 10'h3ff;     // set default bus_id to 10'h3ff
     wire[15:0] local_id;          // full addr = bus_id + node_id
+
+    // Indicates whether Firewire state machine is idle
+    assign fw_idle = (state == ST_IDLE) ? 1'b1 : 1'b0;
 
     // status-related buffers
     reg[15:0] st_buff;            // temp buffer for status
