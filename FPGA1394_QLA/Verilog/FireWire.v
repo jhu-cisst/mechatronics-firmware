@@ -82,6 +82,8 @@
  *   We noticed that some FireWire cards have issue with broadcast packets (can not 
  *   async read after sending broadcast packets). This leads us to use an asynchronous 
  *   write packet as fake broadcast packet on the PC software for better robustness. 
+ *  2021-03-06 Also, it seems that libraw1394 or the Juju Firewire driver may not allow
+ *   broadcasts (permission denied error).
  *    
  *   Lists:
  *     - Query Packet:  dest_node_id = 0, dest_addr = 0xffffffff000f   (< Rev 7)
@@ -111,7 +113,7 @@
 // The Configuration ROM follows ISO/IEC 13213:
 //   The minimum ROM format requires the following 32-bit value to be
 //   stored at address ffff f000 0400:  | 1 (8) | vendor_id (24) |
-//   For JHU-LCSR, the 24-bit vendor_id is FA610E (see MIN_ROM_ENTRY)
+//   For JHU-LCSR, the 24-bit vendor_id is FA610E (see JHU_LCSR_CID)
 // -----------------------------------------------------------------
 
 
@@ -179,6 +181,7 @@
 `define JHU_LCSR_CID   24'hFA610E
 
 // Minimum Configuration ROM Entry:  | 01 (8) | FA610E (24) |
+// This is not currently used (using General ROM format)
 `define MIN_ROM_ENTRY  {4'h01, `JHU_LCSR_CID}
 
 module PhyLinkInterface(
@@ -333,12 +336,23 @@ module PhyLinkInterface(
     assign addrMainRead  = (reg_raddr[15:12] == `ADDR_MAIN) ? 1'd1 : 1'd0;
     assign addrMainWrite = (reg_waddr[15:12] == `ADDR_MAIN) ? 1'd1 : 1'd0;
 
-    // It is a ROM read when the upper 36 bits are ffff f0000.
+    // It is a ROM read (or write) when the upper 36 bits are ffff f0000.
     // This covers addresses from ffff f000 0000 to ffff f000 0fff, which includes
     // the CSR Architecture, Serial Bus, Configuration ROM and more.
     // Note that it is more convenient to use reg_raddr[11:0] instead of rx_addr_full[11:0].
-    wire rom_read;          // Whether reading from Configuration ROM
-    assign rom_read = (rx_addr_full[47:12] == 36'hfffff0000) ? 1'b1 : 1'b0;
+    wire rom_addr;          // Whether reading (or writing) from CSR Registers or Configuration ROM
+    assign rom_addr = (rx_addr_full[47:12] == 36'hfffff0000) ? 1'b1 : 1'b0;
+
+    // CSR Registers:
+    //   CSR[0] = 000: STATE_CLEAR
+    //   CSR[1] = 004: STATE_SET
+    //   CSR[2] = 008: NODE_IDS
+    //   CSR[3] = 00C: RESET_START (not needed, read as 0)
+    //   CSR[6] = 018: SPLIT_TIMEOUT_HI
+    //   CSR[7] = 01C: SPLIT_TIMEOUT_LO
+   reg[31:0] csr_state = { 16'h0000, 8'h00, 8'b00000000 };
+   reg[2:0]  split_timeout_sec = 3'd0;
+   reg[12:0] split_timeout_125usec = 13'd800;
 
     // Configuration ROM data
     reg[31:0] rom_data;
@@ -350,35 +364,144 @@ module PhyLinkInterface(
     assign fpga_ver = 4'hF;   // Firewire (Rev 1.x)
 `endif
 
-    // Configuration ROM:
-    //   0400:  ROM Format (Minimal or General)
+    // CRCs for ROM entries.
+    // This is computed using CRC16-CCIT (also known as CRC-ITU).
+    // See ComputeConfigCRC in mechatronics-software repository.
+    // The bus_info CRC depends on the board version (Ethernet or Firewire),
+    // the board number (0-15), and the firmware version (7).
+    // The root_dir CRC is constant.
+    // It seems that the Linux driver does not care if the CRC is
+    // correct, but we provide the correct CRC just in case.
+    reg[15:0] info_crc;
+    localparam[15:0] root_crc = 16'h1906;
+
+`ifdef HAS_ETHERNET
+    // Version: Ethernet
+    always @(*)
+    begin
+        case (board_id)
+            4'h0: info_crc = 16'h8496;
+            4'h1: info_crc = 16'h80cc;
+            4'h2: info_crc = 16'h8c22;
+            4'h3: info_crc = 16'h8878;
+            4'h4: info_crc = 16'h95fe;
+            4'h5: info_crc = 16'h91a4;
+            4'h6: info_crc = 16'h9d4a;
+            4'h7: info_crc = 16'h9910;
+            4'h8: info_crc = 16'ha646;
+            4'h9: info_crc = 16'ha21c;
+            4'ha: info_crc = 16'haef2;
+            4'hb: info_crc = 16'haaa8;
+            4'hc: info_crc = 16'hb72e;
+            4'hd: info_crc = 16'hb374;
+            4'he: info_crc = 16'hbf9a;
+            4'hf: info_crc = 16'hbbc0;
+        endcase
+    end
+`else
+    // Version: Firewire
+    always @(*)
+    begin
+        case (board_id)
+            4'h0: info_crc = 16'h2ec7;
+            4'h1: info_crc = 16'h2a9d;
+            4'h2: info_crc = 16'h2673;
+            4'h3: info_crc = 16'h2229;
+            4'h4: info_crc = 16'h3faf;
+            4'h5: info_crc = 16'h3bf5;
+            4'h6: info_crc = 16'h371b;
+            4'h7: info_crc = 16'h3341;
+            4'h8: info_crc = 16'h0c17;
+            4'h9: info_crc = 16'h084d;
+            4'ha: info_crc = 16'h04a3;
+            4'hb: info_crc = 16'h00f9;
+            4'hc: info_crc = 16'h1d7f;
+            4'hd: info_crc = 16'h1925;
+            4'he: info_crc = 16'h15cb;
+            4'hf: info_crc = 16'h1191;
+        endcase
+    end
+`endif
+
+    // Configuration ROM (General format):
+    //   ROM[0] = 400:  info_length (8) | crc_length (8) | crc_value (16)
     // Bus_Info_Block:
-    //   0404:  "1394"
-    //   0408:  irmc, cmc, isc, bmc, pmc, reserved, cyc_clk_acc, max_rec, reserved, gen, rs, link_spd
-    //   040c:  node_vendor_id (24) | chip_id_hi (4)
-    //   0410:  chip_id_lo (32)
+    //   ROM[1] = 404:  "1394" (bus name)
+    //   ROM[2] = 408:  irmc, cmc, isc, bmc, pmc, reserved, cyc_clk_acc, max_rec, reserved, gen, rs, link_spd
+    //   ROM[3] = 40c:  node_vendor_id (24) | chip_id_hi (4)
+    //   ROM[4] = 410:  chip_id_lo (32)
+    // Root_Directory_Block:
+    //   ROM[5] = 414:  block_length (16) | block_crc (16)
+    // Root_Directory:
+    //   ROM[6] = 418:  0 (2) | 03 (6) | module_vendor_id (24)
+    //   ROM[7] = 41C:  0 (2) | 0C (6) | node_capabilities (24)
     //
-    // We specify the Minimal ROM format (MIN_ROM_ENTRY), but it seems that drivers still expect
-    // valid information in at least some of the Bus_Info_Block, especially to create the GUID.
+    // All lengths are in quadlets. See above for CRC computation.
+    //
+    // We can instead specify the Minimal ROM format (MIN_ROM_ENTRY) for ROM[0], but it seems that drivers
+    //  still expect valid information in at least some of the Bus_Info_Block, especially to create the GUID.
+    //
+    // Node capabilities (in Root_Directory):
+    //   24'h0083c0 -> split_timeout, 64-bit addressing, fixed addressing, lost bit, disable request
 
     always @(*)
     begin
-        if (reg_raddr[11:5] == {4'h4, 3'b000}) begin
-            if (reg_raddr[4:0] == 5'b00000)      // 0400
-                rom_data = `MIN_ROM_ENTRY;
-            else if (reg_raddr[4:0] == 5'b00100) // 0404
+        if (reg_raddr[11:5] == {4'h0, 3'b000}) begin
+            // CSR Registers
+            if (reg_raddr[4:0] == 5'b00x00)          // 000/004
+               rom_data = csr_state;
+            else if (reg_raddr[4:0] == 5'b01000)     // 008
+               rom_data = { bus_id, node_id, 16'd0 };
+            else if (reg_raddr[4:0] == 5'b11000)     // 018
+               rom_data = { 29'd0, split_timeout_sec };
+            else if (reg_raddr[4:0] == 5'b11100)     // 01C
+               rom_data = { split_timeout_125usec, 19'd0 };
+            else
+               rom_data = 32'd0;
+        end
+        else if (reg_raddr[11:5] == {4'h4, 3'b000}) begin
+            // Configuration ROM
+            if (reg_raddr[4:0] == 5'b00000)          // 400
+              rom_data = { 8'h04, 8'h04, info_crc }; // 4 quadlets, CRC
+            else if (reg_raddr[4:0] == 5'b00100)     // 404
                 rom_data = "1394";
-            else if (reg_raddr[4:0] == 5'b01000) // 0408
-                rom_data = 32'h00ffa000;   // should be default values
-            else if (reg_raddr[4:0] == 5'b01100) // 040C
+            else if (reg_raddr[4:0] == 5'b01000)     // 408
+                rom_data = 32'h00ffa000;             // should be default values
+            else if (reg_raddr[4:0] == 5'b01100)     // 40C
                 rom_data = {`JHU_LCSR_CID, board_id, fpga_ver};
-            else if (reg_raddr[4:0] == 5'b10000) // 0410
+            else if (reg_raddr[4:0] == 5'b10000)     // 410
                 rom_data = `FW_VERSION;
+            else if (reg_raddr[4:0] == 5'b10100)     // 414
+                rom_data = { 16'h02, root_crc };     // 2 quadlets, CRC
+            else if (reg_raddr[4:0] == 5'b11000)     // 418
+                rom_data = { 8'h03, `JHU_LCSR_CID };
+            else if (reg_raddr[4:0] == 5'b11100)     // 41C
+                rom_data = { 8'h0c, 24'h0083c0 };
             else
                 rom_data = 32'd0;
         end
         else
             rom_data = 32'd0;
+    end
+
+    // Following block handles writes to CSR Registers.
+    // Currently, most of these registers (with the exception of bus_id) are
+    // ignored by the firmware. A more complete implementation would actually
+    // use the values in these registers.
+    always @(posedge sysclk)
+    begin
+        if (reg_wen&rom_addr) begin
+            if (reg_waddr[11:0] == 12'h000)
+                csr_state[31:2] <= csr_state[31:2]&(~reg_wdata[31:2]);
+            else if (reg_waddr[11:0] == 12'h004)
+                csr_state[31:2] <= csr_state[31:2]|reg_wdata[31:2];
+            else if (reg_waddr[11:0] == 12'h008)
+                bus_id <= reg_wdata[31:22];
+            else if (reg_waddr[11:0] == 12'h018)
+                split_timeout_sec <= reg_wdata[2:0];
+            else if (reg_waddr[11:0] == 12'h01C)
+                split_timeout_125usec <= reg_wdata[31:19];
+        end
     end
 
     // state machine states
@@ -789,13 +912,13 @@ begin
                             // broadcast read request    (trick: NOT standard !!!)
                             // rx_dest == 0 is an asynchronous quadlet write; it is sent to node 0, but processed
                             //              by all nodes.
-                            // rx_dest == 3f is a broadcast command (no ack); was used for testing.
+                            // rx_dest == 3f is a broadcast command (no ack)
                             if ((rx_dest[5:0] == 6'd0 || rx_dest[5:0] == 6'h3f) && rx_tcode == `TC_QWRITE && 
                                 (buffer[15:12] == `ADDR_HUB) && (buffer[11:0] == 12'h800)) begin
                                 rx_active <= 1;
-                                bus_id <= rx_src[15:6];    // latch bus_id
+                                // bus_id <= rx_src[15:6];    // latch bus_id
                             end
-                            // broadcast write commands 
+                            // broadcast write commands ("fake broadcast")
                             else if (rx_dest[5:0] == 6'd0 && rx_tcode == `TC_BWRITE && 
                                 rx_addr_full[47:32] == 16'hffff && buffer[31:0] == 32'hffff0000) begin
                                 rx_active <= 1;
@@ -1084,7 +1207,7 @@ begin
                 case (count)
                      24: buffer <= { rx_dest, `RC_DONE, 12'd0 };
                      56: buffer <= 0;
-                     88: buffer <= rom_read ? rom_data : reg_rdata;
+                     88: buffer <= rom_addr ? rom_data : reg_rdata;
                     128: begin
                         data <= ~crc_8msb;
                         buffer <= { ~crc_in[23:0], 8'd0 };
@@ -1124,10 +1247,10 @@ begin
                 // restart crc and goto ST_TX_DATA
                 152: begin                                    // quadlet 6 
                     // ----- BRESP Continue -------
-                    buffer <= rom_read ? rom_data :
+                    buffer <= rom_addr ? rom_data :
                               addrMainRead ? sample_rdata : reg_rdata;
-                    // Note that for rom_read, we increment by 4, otherwise by 1.
-                    reg_raddr[11:0] <= reg_raddr[11:0] + {9'd0,rom_read,1'b0,~rom_read};
+                    // Note that for rom_addr, we increment by 4, otherwise by 1.
+                    reg_raddr[11:0] <= reg_raddr[11:0] + {9'd0,rom_addr,1'b0,~rom_addr};
                     state <= ST_TX_DATA;
                     crc_ini <= 0;
                 end
@@ -1217,12 +1340,12 @@ begin
                     reg_wdata <= sample_rdata;
 
                     // send to FireWire bus
-                    buffer <= rom_read ? rom_data :
+                    buffer <= rom_addr ? rom_data :
                               addrMainRead ? sample_rdata : reg_rdata;
                     // 12-bit address increment, even though Firewire limited to 512 quadlets (9 bits)
                     // because this way we can support non-zero starting addresses.
-                    // Note that for rom_read, we increment by 4, otherwise by 1.
-                    reg_raddr[11:0] <= reg_raddr[11:0] + {9'd0,rom_read,1'b0,~rom_read};
+                    // Note that for rom_addr, we increment by 4, otherwise by 1.
+                    reg_raddr[11:0] <= reg_raddr[11:0] + {9'd0,rom_addr,1'b0,~rom_addr};
                 end
 
                 if (count == (numbits-16'd32)) begin
