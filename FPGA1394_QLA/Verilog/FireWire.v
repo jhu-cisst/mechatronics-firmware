@@ -357,11 +357,14 @@ module PhyLinkInterface(
     // Configuration ROM data
     reg[31:0] rom_data;
 
-    wire[3:0] fpga_ver;       // FPGA version
 `ifdef HAS_ETHERNET
-    assign fpga_ver = 4'hE;   // Ethernet/Firwire (Rev 2.x)
+    localparam[3:0]  fpga_ver = 4'hE;   // Ethernet/Firewire (Rev 2.x)
+    localparam[23:0] fpga_rev = 24'h2;
+    localparam[7:0]  fpga_num = "2";
 `else
-    assign fpga_ver = 4'hF;   // Firewire (Rev 1.x)
+    localparam[3:0]  fpga_ver = 4'hF;   // Firewire (Rev 1.x)
+    localparam[23:0] fpga_rev = 24'h1;
+    localparam[7:0]  fpga_num = "1";
 `endif
 
     // CRCs for ROM entries.
@@ -369,11 +372,12 @@ module PhyLinkInterface(
     // See ComputeConfigCRC in mechatronics-software repository.
     // The bus_info CRC depends on the board version (Ethernet or Firewire),
     // the board number (0-15), and the firmware version (7).
-    // The root_dir CRC is constant.
+    // The root_dir and model_desc CRC depends on the board version.
+    // The vendor_desc CRC is constant ("JHU LCSR").
     // It seems that the Linux driver does not care if the CRC is
     // correct, but we provide the correct CRC just in case.
     reg[15:0] info_crc;
-    localparam[15:0] root_crc = 16'h1906;
+    localparam[15:0] vendor_crc = 16'h56c4;
 
 `ifdef HAS_ETHERNET
     // Version: Ethernet
@@ -398,6 +402,9 @@ module PhyLinkInterface(
             4'hf: info_crc = 16'hbbc0;
         endcase
     end
+
+    localparam[15:0] root_crc  = 16'h9395;
+    localparam[15:0] model_crc = 16'h87b6;
 `else
     // Version: Firewire
     always @(*)
@@ -421,20 +428,39 @@ module PhyLinkInterface(
             4'hf: info_crc = 16'h1191;
         endcase
     end
+
+    localparam[15:0] root_crc  = 16'h7d47;
+    localparam[15:0] model_crc = 16'h4fc3;
 `endif
 
     // Configuration ROM (General format):
-    //   ROM[0] = 400:  info_length (8) | crc_length (8) | crc_value (16)
+    //   ROM[0]  = 400:  info_length (8) | crc_length (8) | crc_value (16)
     // Bus_Info_Block:
-    //   ROM[1] = 404:  "1394" (bus name)
-    //   ROM[2] = 408:  irmc, cmc, isc, bmc, pmc, reserved, cyc_clk_acc, max_rec, reserved, gen, rs, link_spd
-    //   ROM[3] = 40c:  node_vendor_id (24) | chip_id_hi (4)
-    //   ROM[4] = 410:  chip_id_lo (32)
+    //   ROM[1]  = 404:  "1394" (bus name)
+    //   ROM[2]  = 408:  irmc, cmc, isc, bmc, pmc, reserved, cyc_clk_acc, max_rec, reserved, gen, rs, link_spd
+    //   ROM[3]  = 40c:  node_vendor_id (24) | chip_id_hi (4)
+    //   ROM[4]  = 410:  chip_id_lo (32)
     // Root_Directory_Block:
-    //   ROM[5] = 414:  block_length (16) | block_crc (16)
+    //   ROM[5]  = 414:  block_length (16) | block_crc (16)
     // Root_Directory:
-    //   ROM[6] = 418:  0 (2) | 03 (6) | module_vendor_id (24)
-    //   ROM[7] = 41C:  0 (2) | 0C (6) | node_capabilities (24)
+    //   ROM[6]  = 418:  0 (2) | 0C (6) | node_capabilities (24)
+    //   ROM[7]  = 41C:  0 (2) | 03 (6) | module_vendor_id (24)
+    //   ROM[8]  = 420:  2 (2) | 01 (6) | offset to vendor descriptor leaf (24)
+    //   ROM[9]  = 424:  0 (2) | 17 (6) | model (24)
+    //   ROM[10] = 428:  2 (2) | 01 (6) | offset to model descriptor leaf (24)
+    // Vendor_Descriptor_Block:
+    //   ROM[11] = 42C:  block_length (16) | block_crc (16)
+    //   ROM[12] = 430:  vendor descriptor
+    //   ROM[13] = 434:  vendor descriptor
+    //   ROM[14] = 438:  vendor descriptor
+    //   ROM[14] = 43C:  vendor descriptor
+    // Model_Descriptor_Block:
+    //   ROM[15] = 440:  block_length (16) | block_crc (16)
+    //   ROM[16] = 444:  model descriptor
+    //   ROM[17] = 448:  model descriptor
+    //   ROM[18] = 44C:  model descriptor
+    //   ROM[19] = 450:  model descriptor
+    //   ROM[20] = 454:  model descriptor
     //
     // All lengths are in quadlets. See above for CRC computation.
     //
@@ -443,6 +469,9 @@ module PhyLinkInterface(
     //
     // Node capabilities (in Root_Directory):
     //   24'h0083c0 -> split_timeout, 64-bit addressing, fixed addressing, lost bit, disable request
+    //
+    // Descriptor strings must have first two quadlets equal to 0 (see textual_leaf_to_string in
+    // core-device.c, Linux driver source code).
 
     always @(*)
     begin
@@ -459,26 +488,33 @@ module PhyLinkInterface(
             else
                rom_data = 32'd0;
         end
-        else if (reg_raddr[11:5] == {4'h4, 3'b000}) begin
+        else if (reg_raddr[11:8] == 4'h4) begin
             // Configuration ROM
-            if (reg_raddr[4:0] == 5'b00000)          // 400
-              rom_data = { 8'h04, 8'h04, info_crc }; // 4 quadlets, CRC
-            else if (reg_raddr[4:0] == 5'b00100)     // 404
-                rom_data = "1394";
-            else if (reg_raddr[4:0] == 5'b01000)     // 408
-                rom_data = 32'h00ffa000;             // should be default values
-            else if (reg_raddr[4:0] == 5'b01100)     // 40C
-                rom_data = {`JHU_LCSR_CID, board_id, fpga_ver};
-            else if (reg_raddr[4:0] == 5'b10000)     // 410
-                rom_data = `FW_VERSION;
-            else if (reg_raddr[4:0] == 5'b10100)     // 414
-                rom_data = { 16'h02, root_crc };     // 2 quadlets, CRC
-            else if (reg_raddr[4:0] == 5'b11000)     // 418
-                rom_data = { 8'h03, `JHU_LCSR_CID };
-            else if (reg_raddr[4:0] == 5'b11100)     // 41C
-                rom_data = { 8'h0c, 24'h0083c0 };
-            else
-                rom_data = 32'd0;
+            case (reg_raddr[7:0])
+              8'h00: rom_data = { 8'h04, 8'h04, info_crc }; // 400: bus_info_len, CRC
+              8'h04: rom_data = "1394";                     // 404
+              8'h08: rom_data = 32'h00ffa000;               // 408: should be default values
+              8'h0c: rom_data = {`JHU_LCSR_CID, board_id, fpga_ver};  // 40C
+              8'h10: rom_data = `FW_VERSION;                // 410
+              8'h14: rom_data = { 16'h05, root_crc };       // 414: root_dir_len, CRC
+              8'h18: rom_data = { 8'h0c, 24'h0083c0 };      // 418: node capabilities
+              8'h1c: rom_data = { 8'h03, `JHU_LCSR_CID };   // 41c: vendor id
+              8'h20: rom_data = { 8'h81, 24'd3 };           // 420: offset to vendor descriptor
+              8'h24: rom_data = { 8'h17, fpga_rev };        // 424: model
+              8'h28: rom_data = { 8'h81, 24'd6 };           // 428: offset to model descriptor
+              8'h2c: rom_data = { 16'd4, vendor_crc };      // 42C: vendor descriptor block
+              8'h30: rom_data = 32'd0;                      // 430:   "JHU LCSR"
+              8'h34: rom_data = 32'd0;                      // 434
+              8'h38: rom_data = "JHU ";                     // 438
+              8'h3c: rom_data = "LCSR";                     // 43C
+              8'h40: rom_data = { 16'd5, model_crc };       // 440: model descriptor block
+              8'h44: rom_data = 32'd0;                      // 444:   "FPGAn/QLA"
+              8'h48: rom_data = 32'd0;                      // 448:   (n = "1" or "2")
+              8'h4c: rom_data = "FPGA";                     // 44C
+              8'h50: rom_data = { fpga_num, "/QL" };        // 450
+              8'h54: rom_data = { "A", 24'd0 };             // 454
+              default: rom_data = 32'd0;
+            endcase
         end
         else
             rom_data = 32'd0;
