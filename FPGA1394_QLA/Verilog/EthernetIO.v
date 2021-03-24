@@ -56,6 +56,9 @@ module getAddr(
 
 endmodule
 
+// Define following for debug data (DBG1)
+`define HAS_DEBUG_DATA
+
 // constants KSZ8851 chip
 `define ETH_ADDR_MARL    8'h10     // Host MAC Address Reg Low
 `define ETH_ADDR_MARM    8'h12     // Host MAC Address Reg Middle
@@ -179,7 +182,6 @@ reg isWord;            // 0 -> Byte, 1 -> Word
 reg[7:0] RegAddr;      // Register address (N/A for DMA mode)
 reg[15:0] WriteData;   // Data to be written to chip (N/A for read)
 wire[15:0] ReadData;   // Data read from chip (N/A for write)
-reg eth_error;         // 1 -> I/O request received when not in idle state
 reg linkStatus;        // 1 -> Ethernet link good (cable connected)
 
 assign ReadData = eth_data;
@@ -243,13 +245,18 @@ reg[20:0] initCount;
 //******************************* End from KSZ8851.v *****************************************
 
 // Error flags
+reg ethFwReqError;     // 1 -> I/O request received (from Firewire) when not in idle state
 reg ethFrameError;     // 1 -> Frame is not Raw, IPv4 or ARP
 reg ethIPv4Error;      // 1 -> IPv4 header error (protocol not UDP or ICMP; header version != 4)
 reg ethUDPError;       // 1 -> Wrong UDP port (not 1394)
 reg ethDestError;      // 1 -> Incorrect destination (FireWire destination does not begin with 0xFFC)
 reg ethAccessError;    // 1 -> Unable to access internal bus
 
-reg[9:0] numStateInvalid;   // Number of invalid states (for debugging)
+// Summary of above error bits (except EthFwReqError and ethAccessError)
+wire ethSummaryError;
+assign ethSummaryError = ethFrameError | ethIPv4Error | ethUDPError | ethDestError;
+
+reg[7:0] numStateInvalid;   // Number of invalid states (for debugging)
 reg[7:0] numReset;          // Number of times reset called
 
 reg resetRequest;      // 1 -> reset requested (e.g., when Ethernet cable unplugged)
@@ -324,8 +331,10 @@ localparam[4:0]
 // Current state (one-hot encoding)
 reg[21:0] state = (22'd1 << ST_RESET_ASSERT);
 reg[21:0] lastState;
+`ifdef HAS_DEBUG_DATA
 // Current state (not one-hot)
 reg[4:0] stateIndex = ST_RESET_ASSERT;
+`endif
 // For error checking
 reg[21:0] testState;
 // Next state
@@ -339,12 +348,16 @@ reg[4:0] retState = ST_IDLE;
 // always block that also sets nextState.
 wire stateError;
 assign stateError  = (state == 22'd0) || (testState != 22'd0) ? 1'b1 : 1'b0;
+`ifdef HAS_DEBUG_DATA
 reg[31:0] errorStateInfo;
+`endif
 
 // Debugging support
 assign eth_io_isIdle = state[ST_IDLE];
+`ifdef HAS_DEBUG_DATA
 assign eth_send_isIdle = (sendState == ST_SEND_DMA_IDLE) ? 1'd1 : 1'd0;
 assign eth_recv_isIdle = (recvState == ST_RECEIVE_DMA_IDLE) ? 1'd1 : 1'd0;
+`endif
 
 // Keep track of areas where state machine may wait
 // for unknown amount of time (for debugging)
@@ -369,8 +382,10 @@ wire blockWrite;
 wire addrMain;
 
 reg FrameValid;
+`ifdef HAS_DEBUG_DATA
 reg isEthMulticast;
 reg isEthBroadcast;
+`endif
 
 // Whether to use UDP (1) or raw Ethernet frames (0).
 // This mode is set each time a valid packet is received
@@ -398,16 +413,16 @@ end
 //   Bit 30: 1 to indicate that an error occurred in KSZ8851 -- must be kept for backward compatibility
 //   Other fields can be assigned as needed
 assign eth_status[31] = 1'b1;            // 31: 1 -> Ethernet is present
-assign eth_status[30] = eth_error;       // 30: 1 -> Could not access KSZ registers via FireWire
+assign eth_status[30] = ethFwReqError;   // 30: 1 -> Could not access KSZ registers via FireWire
 assign eth_status[29] = initOK;          // 29: 1 -> Initialization OK
-assign eth_status[28] = isLocal;         // 28: 1 -> command requested by higher level
-assign eth_status[27] = isRemote;        // 27: 1 -> command acknowledged by lower level
-assign eth_status[26] = ethFrameError;   // 26: 1 -> ethernet frame unsupported
-assign eth_status[25] = ethDestError;    // 25: 1 -> ethernet destination error (higher layer)
-assign eth_status[24] = quadRead;        // 24: quadRead (debugging)
-assign eth_status[23] = quadWrite;       // 23: quadWrite (debugging)
-assign eth_status[22] = blockRead;       // 22: blockRead (debugging)
-assign eth_status[21] = blockWrite;      // 21: blockWrite (debugging)
+assign eth_status[28] = isLocal;         // 28: 1 -> Last command was local
+assign eth_status[27] = isRemote;        // 27: 1 -> Last command was remote
+assign eth_status[26] = ethFrameError;   // 26: 1 -> Ethernet frame unsupported
+assign eth_status[25] = ethIPv4Error;    // 25: 1 -> IPv4 header error
+assign eth_status[24] = ethUDPError;     // 24: 1 -> Wrong UDP port (not 1394)
+assign eth_status[23] = ethDestError;    // 23: 1 -> Ethernet destination error
+assign eth_status[22] = ethAccessError;  // 22: 1 -> Unable to access internal bus
+assign eth_status[21] = 1'b0;            // 21: Unused
 assign eth_status[20] = useUDP;          // 20: UDP mode
 assign eth_status[19] = linkStatus;      // 19: Link status
 assign eth_status[18] = eth_io_isIdle;   // 18: Ethernet I/O state machine is idle
@@ -416,7 +431,9 @@ assign eth_status[17:16] = waitInfo;     // 17-16: Wait points in EthernetIO.v
 
 reg isInIRQ;           // True if IRQ handle routing
 reg[15:0] RegISR;      // 16-bit ISR register
+`ifdef HAS_DEBUG_DATA
 reg[15:0] RegISROther; // Unexpected ISR value (for debugging)
+`endif
 reg[7:0] FrameCount;   // Number of received frames
 reg[11:0] txPktWords;  // Num of words sent
 reg[11:0] rxPktWords;  // Num of words in receive queue
@@ -613,8 +630,10 @@ assign sendARP = isARP & isARPValid & isARP_ip_equal;
 // Word 8,9: Destination IP address (fpga)
 wire[3:0] IPv4_Version;
 assign IPv4_Version = PacketBuffer[ID_IPv4_Word0][15:12];
+`ifdef HAS_DEBUG_DATA
 wire [3:0] IPv4_IHL;
 assign IPv4_IHL = PacketBuffer[ID_IPv4_Word0][11:8];
+`endif
 wire[15:0] IPv4_Length;
 assign IPv4_Length = PacketBuffer[ID_IPv4_Length];
 wire[7:0] IPv4_Protocol;
@@ -623,6 +642,7 @@ wire[31:0] IPv4_fpgaIP;
 // Byteswapped to match ip_address
 assign IPv4_fpgaIP = { PacketBuffer[ID_IPv4_destIP1][7:0], PacketBuffer[ID_IPv4_destIP1][15:8], PacketBuffer[ID_IPv4_destIP0][7:0], PacketBuffer[ID_IPv4_destIP0][15:8] };
 
+`ifdef HAS_DEBUG_DATA
 wire is_IPv4_Long;
 // The following conditional is an efficient alternative to (IPv4_IHL > 5).
 assign is_IPv4_Long = (isIPv4 && ((IPv4_IHL[3] == 2'b1) || (IPv4_IHL[2:1] == 2'b11))) ? 1'd1 : 1'd0;
@@ -630,6 +650,7 @@ assign is_IPv4_Long = (isIPv4 && ((IPv4_IHL[3] == 2'b1) || (IPv4_IHL[2:1] == 2'b
 wire is_IPv4_Short;
 // IHL should never be less than 5, so this should not happen
 assign is_IPv4_Short = (isIPv4 && !is_IPv4_Long && (IPv4_IHL != 4'd5)) ? 1'd1 : 1'd0;
+`endif
 
 wire isUDP;
 assign isUDP = (isIPv4 && (IPv4_Protocol == 8'd17)) ? 1'd1 : 1'd0;
@@ -766,16 +787,18 @@ assign Firewire_Header_Reply[9] = 16'd0;   // header_CRC
 
 //******************************** Debug Counters *************************************
 
+`ifdef HAS_DEBUG_DATA
 reg[15:0] numPacketValid;    // Number of valid Ethernet frames received
-reg[9:0]  numPacketInvalid;  // Number of invalid Ethernet frames received
+reg[7:0]  numPacketInvalid;  // Number of invalid Ethernet frames received
 reg[9:0] numIPv4;            // Number of IPv4 packets received
 reg[9:0] numUDP;             // Number of UDP packets received
 reg[7:0] numARP;             // Number of ARP packets received
 reg[7:0] numICMP;            // Number of ICMP packets received
 reg[7:0] numPacketSent;      // Number of packets sent to host PC
+reg[7:0] numIPv4Mismatch;    // Number of IPv4 packets with different IP address
+`endif
 
-reg[9:0] numPacketError;     // Number of packet errors (Frame, IPv4 or UDP error)
-reg[9:0] numIPv4Mismatch;    // Number of IPv4 packets with different IP address
+reg[7:0] numPacketError;     // Number of packet errors (Frame, IPv4 or UDP error)
 
 reg[15:0] timeSinceIRQ;      // Time counter since last IRQ
 reg[15:0] timeReceive;       // Time when receive portion finished
@@ -812,17 +835,19 @@ reg isForward;
 // -----------------------------------------------
 // Extra data sent to PC with every Firewire packet
 // -----------------------------------------------
+
 wire[15:0] ExtraData[0:3];
-assign ExtraData[0] = {6'd0, fwPacketDropped, fw_bus_reset, fw_bus_gen};
-assign ExtraData[1] = {numStateInvalid[7:0], numPacketError[7:0]};
+assign ExtraData[0] = {4'd0, ethSummaryError, ethAccessError, fwPacketDropped, fw_bus_reset, fw_bus_gen};
+assign ExtraData[1] = {numStateInvalid, numPacketError};
 assign ExtraData[2] = timeReceive;
 assign ExtraData[3] = timeSinceIRQ;
 
 // -----------------------------------------------
 // Debug data
 // -----------------------------------------------
+`ifdef HAS_DEBUG_DATA
 wire[31:0] DebugData[0:15];
-assign DebugData[0]  = "0GBD";  // DBG0 byte-swapped
+assign DebugData[0]  = "1GBD";  // DBG1 byte-swapped
 assign DebugData[1]  = timestamp;
 assign DebugData[2]  = { writeRequestQuad, writeRequestBlock, bw_active, eth_send_isIdle,
                          eth_recv_isIdle, ethUDPError, ethAccessError, ethIPv4Error,
@@ -837,13 +862,14 @@ assign DebugData[5]  = { host_fw_addr, FrameCount, numPacketSent};
 assign DebugData[6]  = { 1'b0, nextState, maxCountFW, LengthFW };
 assign DebugData[7]  = { sendState, txPktWords, nextSendState, rxPktWords };
 assign DebugData[8]  = { timeSend, timeReceive };
-assign DebugData[9]  = { 1'd0, runPC, numPacketInvalid, numPacketValid };
+assign DebugData[9]  = { 1'd0, runPC, 2'd0, numPacketInvalid, numPacketValid };
 assign DebugData[10] = { 6'd0, numUDP, 6'd0, numIPv4 };
 assign DebugData[11] = { 5'd0, bwState, numICMP, fw_bus_gen, numARP };
-assign DebugData[12] = { fw_bus_reset, runPCsaved, numIPv4Mismatch, 6'd0, numPacketError };
-assign DebugData[13] = { numSendStateInvalid, numReset, 6'd0, numStateInvalid };
+assign DebugData[12] = { fw_bus_reset, runPCsaved, 2'd0, numIPv4Mismatch, 8'd0, numPacketError };
+assign DebugData[13] = { numSendStateInvalid, numReset, 8'd0, numStateInvalid };
 assign DebugData[14] = { 6'd0, bw_wait, 7'b0, bw_left };
 assign DebugData[15] = errorStateInfo;
+`endif
 
 // For debugging block write. Note that in the current implementation, this buffer can
 // only be written via the Ethernet interface, but it can be read via Ethernet or Firewire.
@@ -1046,7 +1072,9 @@ initial begin
 end
 
 reg[4:0] runPC;    // Program counter for RunProgram
+`ifdef HAS_DEBUG_DATA
 reg[4:0] runPCsaved;
+`endif
 
 // Following data is accessible via block read from address `ADDR_ETH (0x4000)
 //    4000 - 407f (128 quadlets) FireWire packet (first 128 quadlets only)
@@ -1066,7 +1094,11 @@ begin
    else begin
       case (reg_raddr[6:5])
       2'b00:
+`ifdef HAS_DEBUG_DATA
          reg_rdata = (reg_raddr[4]==0) ? DebugData[reg_raddr[3:0]] : DebugBuffer[reg_raddr[3:0]];
+`else
+         reg_rdata = (reg_raddr[4]==0) ? "0GBD" : DebugBuffer[reg_raddr[3:0]];
+`endif
       2'b01:
          reg_rdata = {6'd0, RunProgram[reg_raddr[4:0]]};
       2'b10:
@@ -1328,7 +1360,7 @@ always @(posedge sysclk) begin
    if (ksz_reg_wen) begin
       if (ksz_req) begin
          // if previous request still pending, set error flag
-         eth_error <= 1;
+         ethFwReqError <= 1;
       end
       ksz_req <= 1;
       // Possibly overwrite previous request (note: if current state is ST_IDLE, then
@@ -1340,17 +1372,19 @@ always @(posedge sysclk) begin
    if (resetActive) begin
       resetRequest <= 0;
       FrameValid <= 0;
+      isForward <= 0;
+`ifdef HAS_DEBUG_DATA
       isEthMulticast <= 0;
       isEthBroadcast <= 0;
       RegISROther <= 16'd0;
-      isForward <= 0;
       numPacketValid <= 16'd0;
-      numPacketInvalid <= 10'd0;
+      numPacketInvalid <= 8'd0;
       numIPv4 <= 10'd0;
       numUDP <= 10'd0;
       numARP <= 8'd0;
       numICMP <= 8'd0;
       numPacketSent <= 8'd0;
+`endif
    end
 
    //******************** State Machine ********************
@@ -1359,9 +1393,11 @@ always @(posedge sysclk) begin
 
    if (stateError) begin
       // Should never happen, except for programming errors or glitches
-      numStateInvalid <= numStateInvalid + 10'd1;
+      numStateInvalid <= numStateInvalid + 8'd1;
+`ifdef HAS_DEBUG_DATA
       errorStateInfo <= {nextState, stateIndex, state};
       runPCsaved <= runPC;
+`endif
       // Go back and try again. We restore lastState because it was the
       // last error-free state. We also restore RWcnt because the determination
       // of nextState can depend on it. It can also depend on ReadData (which should
@@ -1377,7 +1413,9 @@ always @(posedge sysclk) begin
    lastState <= state;
    lastRWcnt <= RWcnt;
    state <= nextStateVector;
+`ifdef HAS_DEBUG_DATA
    stateIndex <= nextState;
+`endif
 
    // One-hot state machine implementation
    case (1'b1)
@@ -1405,7 +1443,7 @@ always @(posedge sysclk) begin
          // Previously, this was implemented to accept the reset command at any time,
          // but now it will only work in the IDLE state.
          ksz_req <= 0;
-         eth_error <= ksz_wdata[28] ? 1'd0 : eth_error;
+         ethFwReqError <= ksz_wdata[28] ? 1'd0 : ethFwReqError;
          if (!ksz_wdata[26]) begin   // if not reset
             isWrite <= ksz_wdata[25];
             isWord <= ksz_wdata[24];
@@ -1530,10 +1568,12 @@ always @(posedge sysclk) begin
       //    B3: Linkup detect
       //    B2: Energy detect
       RegISR <= ReadData;
+`ifdef HAS_DEBUG_DATA
       if (~(ReadData[15]|ReadData[13])) begin
          // Record unexpected interrupt
          RegISROther <= ReadData;
       end
+`endif
    end
 
    state[ST_IRQ_DISPATCH]:
@@ -1631,24 +1671,30 @@ always @(posedge sysclk) begin
       if (~ReadData[15] || (ReadData&16'b0011110000010011 != 16'h0)) begin
          // Error detected, so flush frame
          FrameValid <= 0;
+`ifdef HAS_DEBUG_DATA
          isEthMulticast <= 0;
          isEthBroadcast <= 0;
-         numPacketInvalid <= numPacketInvalid + 10'd1;
+         numPacketInvalid <= numPacketInvalid + 8'd1;
+`endif
          runPC <= ID_FLUSH_FRAME;
       end
       else begin
          // Valid frame, so start processing
          FrameValid <= 1;
+`ifdef HAS_DEBUG_DATA
          isEthBroadcast <= ReadData[7];
          isEthMulticast <= ReadData[6];
          numPacketValid <= numPacketValid + 16'd1;
+`endif
       end
    end
 
    state[ST_RECEIVE_FRAME_LENGTH]:
    begin
       if (ReadData[11:0] == 12'd0) begin
-         numPacketInvalid <= numPacketInvalid + 10'd1;
+`ifdef HAS_DEBUG_DATA
+         numPacketInvalid <= numPacketInvalid + 8'd1;
+`endif
          runPC <= ID_FLUSH_FRAME;
       end
       else begin
@@ -1674,11 +1720,13 @@ always @(posedge sysclk) begin
       else if (~(recvDMAreq|isDMARead)) begin
          waitInfo <= WAIT_NONE;
          if (isLocal&blockWrite) bw_wait <= 10'd0;
+`ifdef HAS_DEBUG_DATA
          // Increment counters
          numIPv4 <= numIPv4 + {9'd0, isIPv4};
          numARP <= numARP + {7'd0, isARP};
          numICMP <= numICMP + {7'd0, isICMP};
          numUDP <= numUDP + {9'd0, isUDP};
+`endif
          runPC <= ID_FLUSH_FRAME;
       end
    end
@@ -1793,7 +1841,9 @@ always @(posedge sysclk) begin
 
    state[ST_SEND_END]:
    begin
+`ifdef HAS_DEBUG_DATA
       numPacketSent <= numPacketSent + 8'd1;
+`endif
       timeSend <= timeSinceIRQ;
       if ((isInIRQ) && (FrameCount != 8'd0))
          runPC <= ID_READ_FRAME_STATUS;
@@ -1920,8 +1970,10 @@ begin
          // Always process reset
          FireWirePacketFresh <= 0;
          fwPacketDropped <= 0;
-         numIPv4Mismatch <= 10'd0;
-         numPacketError <= 10'd0;
+`ifdef HAS_DEBUG_DATA
+         numIPv4Mismatch <= 8'd0;
+`endif
+         numPacketError <= 8'd0;
          ethFrameError <= 0;
          ethIPv4Error <= 0;
          ethUDPError <= 0;
@@ -1959,7 +2011,7 @@ begin
       if (dataValid) begin
          if ((recvCnt == ID_Frame_End) && !(isRaw|isIPv4|isARP)) begin
             ethFrameError <= 1'd1;
-            numPacketError <= numPacketError + 10'd1;
+            numPacketError <= numPacketError + 8'd1;
             nextRecvState <= ST_RECEIVE_DMA_IDLE;
          end
          else if ((recvCnt == ID_ARP_End) && isARP) begin
@@ -1977,7 +2029,7 @@ begin
          else if ((recvCnt == ID_IPv4_End) && isIPv4) begin
             if ((IPv4_Version != 4'h4) || !(isUDP|isICMP)) begin
                ethIPv4Error <= 1'd1;
-               numPacketError <= numPacketError + 10'd1;
+               numPacketError <= numPacketError + 8'd1;
                nextRecvState <= ST_RECEIVE_DMA_IDLE;
             end
             else begin
@@ -1989,19 +2041,21 @@ begin
                   ReplyBuffer[ID_Rep_IPv4_Address0] <= PacketBuffer[ID_IPv4_destIP0];
                   ReplyBuffer[ID_Rep_IPv4_Address1] <= PacketBuffer[ID_IPv4_destIP1];
                end
+`ifdef HAS_DEBUG_DATA
                else if ((ip_address != IPv4_fpgaIP) && !isEthBroadcast && !isEthMulticast) begin
                   // If IP assigned, but not equal, we process the packet anyway,
                   // but keep track of the number of times this occurred.
                   // We could decide to update ip_address.
-                  numIPv4Mismatch <= numIPv4Mismatch + 10'd1;
+                  numIPv4Mismatch <= numIPv4Mismatch + 8'd1;
                end
+`endif
                nextRecvState <= ST_RECEIVE_DMA_ETHERNET_HEADERS;
             end
          end
          else if ((recvCnt == ID_UDP_End) && isUDP) begin
             if (!isPortValid) begin
                ethUDPError <= 1'd1;
-               numPacketError <= numPacketError + 10'd1;
+               numPacketError <= numPacketError + 8'd1;
                nextRecvState <= ST_RECEIVE_DMA_IDLE;
             end
             else begin
