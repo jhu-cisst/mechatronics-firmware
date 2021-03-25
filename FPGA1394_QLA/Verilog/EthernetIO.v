@@ -254,19 +254,27 @@ reg ethIPv4Error;      // 1 -> IPv4 header error (protocol not UDP or ICMP; head
 reg ethUDPError;       // 1 -> Wrong UDP port (not 1394)
 reg ethDestError;      // 1 -> Incorrect destination (FireWire destination does not begin with 0xFFC)
 reg ethAccessError;    // 1 -> Unable to access internal bus
-reg ethStateError;     // 1 -> Invalid Ethernet state
+reg ethStateError;     // 1 -> Invalid Ethernet state in top-level state machine
+reg ethSendStateError; // 1 -> Invalid Ethernet state in Send state machine
 
-// Summary of above error bits (except EthFwReqError, ethAccessError and ethStateError)
+// Summary of packet-related error bits
 wire ethSummaryError;
 assign ethSummaryError = ethFrameError | ethIPv4Error | ethUDPError | ethDestError;
 
-reg[7:0] numStateInvalid;   // Number of invalid states (for debugging)
+// Summary of internal error bits
+wire ethInternalError;
+assign ethInternalError = ethAccessError | ethStateError | ethSendStateError;
+
+`ifdef DEBOUNCE_STATES
 reg[7:0] numStateGlitch;    // Number of invalid states (for debugging)
+`endif
 reg[7:0] numReset;          // Number of times reset called
 
 `ifdef HAS_DEBUG_DATA
+`ifdef DEBOUNCE_STATES
 // For debugging
 reg[31:0] errorInfo;
+`endif
 `endif
 
 reg resetRequest;      // 1 -> reset requested (e.g., when Ethernet cable unplugged)
@@ -342,7 +350,9 @@ localparam[4:0]
 reg[4:0] state = ST_RESET_ASSERT;
 // Next state
 reg[4:0] nextState;
+`ifdef DEBOUNCE_STATES
 reg[4:0] nextStateLatched = ST_RESET_ASSERT;
+`endif
 // State to return to after ST_WAVEFORM_DATA
 reg[4:0] retState = ST_IDLE;
 
@@ -409,14 +419,14 @@ end
 assign eth_status[31] = 1'b1;            // 31: 1 -> Ethernet is present
 assign eth_status[30] = ethFwReqError;   // 30: 1 -> Could not access KSZ registers via FireWire
 assign eth_status[29] = initOK;          // 29: 1 -> Initialization OK
-assign eth_status[28] = isLocal;         // 28: 1 -> Last command was local
-assign eth_status[27] = isRemote;        // 27: 1 -> Last command was remote
-assign eth_status[26] = ethFrameError;   // 26: 1 -> Ethernet frame unsupported
-assign eth_status[25] = ethIPv4Error;    // 25: 1 -> IPv4 header error
-assign eth_status[24] = ethUDPError;     // 24: 1 -> Wrong UDP port (not 1394)
-assign eth_status[23] = ethDestError;    // 23: 1 -> Ethernet destination error
-assign eth_status[22] = ethAccessError;  // 22: 1 -> Unable to access internal bus
-assign eth_status[21] = ethStateError;   // 21: 1 -> Invalid state detected
+assign eth_status[28] = ethFrameError;   // 28: 1 -> Ethernet frame unsupported
+assign eth_status[27] = ethIPv4Error;    // 27: 1 -> IPv4 header error
+assign eth_status[26] = ethUDPError;     // 26: 1 -> Wrong UDP port (not 1394)
+assign eth_status[25] = ethDestError;    // 25: 1 -> Ethernet destination error
+assign eth_status[24] = ethAccessError;  // 24: 1 -> Unable to access internal bus
+assign eth_status[23] = ethStateError;   // 23: 1 -> Invalid state detected
+assign eth_status[22] = ethSendStateError; // 22: 1 -> Invalid send state detected
+assign eth_status[21] = 0;               // 21: Unused
 assign eth_status[20] = useUDP;          // 20: UDP mode
 assign eth_status[19] = linkStatus;      // 19: Link status
 assign eth_status[18] = eth_io_isIdle;   // 18: Ethernet I/O state machine is idle
@@ -833,8 +843,12 @@ reg isForward;
 // -----------------------------------------------
 
 wire[15:0] ExtraData[0:3];
-assign ExtraData[0] = {3'd0, ethStateError, ethSummaryError, ethAccessError, fwPacketDropped, fw_bus_reset, fw_bus_gen};
+assign ExtraData[0] = {4'd0, ethSummaryError, ethInternalError, fwPacketDropped, fw_bus_reset, fw_bus_gen};
+`ifdef DEBOUNCE_STATES
 assign ExtraData[1] = {numStateGlitch, numPacketError};
+`else
+assign ExtraData[1] = {8'd0, numPacketError};
+`endif
 assign ExtraData[2] = timeReceive;
 assign ExtraData[3] = timeSinceIRQ;
 
@@ -861,10 +875,19 @@ assign DebugData[8]  = { timeSend, timeReceive };
 assign DebugData[9]  = { 3'd0, runPC, numPacketInvalid, numPacketValid };
 assign DebugData[10] = { 6'd0, numUDP, 6'd0, numIPv4 };
 assign DebugData[11] = { 5'd0, bwState, numICMP, fw_bus_gen, numARP };
+`ifdef DEBOUNCE_STATES
 assign DebugData[12] = { 7'd0, fw_bus_reset, numIPv4Mismatch, numStateGlitch, numPacketError };
-assign DebugData[13] = { numSendStateInvalid, numReset, 3'd0, nextStateLatched, numStateInvalid };
+assign DebugData[13] = { 8'd0, numReset, 3'd0, nextStateLatched, 8'd0 };
+`else
+assign DebugData[12] = { 7'd0, fw_bus_reset, numIPv4Mismatch, 8'd0, numPacketError };
+assign DebugData[13] = { 8'd0, numReset, 8'd0, 8'd0 };
+`endif
 assign DebugData[14] = { 6'd0, bw_wait, 7'b0, bw_left };
+`ifdef DEBOUNCE_STATES
 assign DebugData[15] = errorInfo;
+`else
+assign DebugData[15] = 32'd0;
+`endif
 `endif
 
 // For debugging block write. Note that in the current implementation, this buffer can
@@ -1361,6 +1384,7 @@ always @(posedge sysclk) begin
 
    timeSinceIRQ <= timeSinceIRQ + 16'd1;
 
+`ifdef DEBOUNCE_STATES
    nextStateLatched <= nextState;
 
    if (nextState != nextStateLatched) begin
@@ -1376,6 +1400,9 @@ always @(posedge sysclk) begin
    else begin
 
    state <= nextStateLatched;
+`else
+   state <= nextState;
+`endif
 
    case (state)
 
@@ -1829,12 +1856,13 @@ always @(posedge sysclk) begin
    default:
    begin
       ethStateError <= 1;
-      numStateInvalid <= numStateInvalid + 8'd1;
    end
 
    endcase // case (state)
 
+`ifdef DEBOUNCE_STATES
    end
+`endif
 
 end
 
@@ -2215,7 +2243,6 @@ parameter[3:0]
 
 reg[3:0] sendState = ST_SEND_DMA_IDLE;
 reg[3:0] nextSendState = ST_SEND_DMA_IDLE;
-reg[7:0] numSendStateInvalid;
 
 reg[9:0] sfw_count;     // Counts words in FireWire packets (max is 1024 words, or 2048 bytes)
 reg[1:0] xcnt;          // Counts words in extra packet
@@ -2258,6 +2285,7 @@ begin
       xcnt <= 2'd0;
       if (resetActive) begin
          ethAccessError <= 0;
+         ethSendStateError <= 0;
       end
       if (sendDMAreq) begin
          isDMAWrite <= 1;
@@ -2507,7 +2535,7 @@ begin
 
    default:
    begin
-      numSendStateInvalid <= numSendStateInvalid + 8'd1;
+      ethSendStateError <= 1;
       sendState <= ST_SEND_DMA_IDLE;
    end
 
