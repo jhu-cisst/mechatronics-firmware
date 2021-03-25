@@ -240,6 +240,9 @@ assign ETH_WRn = isDMARead ? 1'b1    : (isDMAWrite ? DMA_WRn : Reg_WRn);
 assign ETH_RDn = isDMARead ? DMA_RDn : (isDMAWrite ? 1'b1 : Reg_RDn);
 assign ETH_CMD = (isDMAWrite|isDMARead) ? 1'b0 : Reg_CMD;
 
+// Register for latching ~ETH_IRQn, which is an asynchronous signal
+reg ethIrq;            // 1 -> Ethernet interrupt request
+
 reg[20:0] initCount;
 
 //******************************* End from KSZ8851.v *****************************************
@@ -260,6 +263,11 @@ assign ethSummaryError = ethFrameError | ethIPv4Error | ethUDPError | ethDestErr
 reg[7:0] numStateInvalid;   // Number of invalid states (for debugging)
 reg[7:0] numStateGlitch;    // Number of invalid states (for debugging)
 reg[7:0] numReset;          // Number of times reset called
+
+`ifdef HAS_DEBUG_DATA
+// For debugging
+reg[31:0] errorInfo;
+`endif
 
 reg resetRequest;      // 1 -> reset requested (e.g., when Ethernet cable unplugged)
 reg resetActive;       // Indicates that reset is active
@@ -408,7 +416,7 @@ assign eth_status[25] = ethIPv4Error;    // 25: 1 -> IPv4 header error
 assign eth_status[24] = ethUDPError;     // 24: 1 -> Wrong UDP port (not 1394)
 assign eth_status[23] = ethDestError;    // 23: 1 -> Ethernet destination error
 assign eth_status[22] = ethAccessError;  // 22: 1 -> Unable to access internal bus
-assign eth_status[21] = 1'b0;            // 21: Unused
+assign eth_status[21] = ethStateError;   // 21: 1 -> Invalid state detected
 assign eth_status[20] = useUDP;          // 20: UDP mode
 assign eth_status[19] = linkStatus;      // 19: Link status
 assign eth_status[18] = eth_io_isIdle;   // 18: Ethernet I/O state machine is idle
@@ -854,7 +862,7 @@ assign DebugData[11] = { 5'd0, bwState, numICMP, fw_bus_gen, numARP };
 assign DebugData[12] = { 7'd0, fw_bus_reset, numIPv4Mismatch, numStateGlitch, numPacketError };
 assign DebugData[13] = { numSendStateInvalid, numReset, 3'd0, nextStateLatched, numStateInvalid };
 assign DebugData[14] = { 6'd0, bw_wait, 7'b0, bw_left };
-assign DebugData[15] = 32'd0;
+assign DebugData[15] = errorInfo;
 `endif
 
 // For debugging block write. Note that in the current implementation, this buffer can
@@ -1165,7 +1173,7 @@ begin
          else
             nextState = ksz_wdata[27] ? ST_WAVEFORM_DATA : ST_WAVEFORM_ADDR;
       end
-      else if (~ETH_IRQn|sendReq) begin
+      else if (ethIrq|sendReq) begin
          nextState = ST_RUN_PROGRAM_EXECUTE;
       end
       else if (resetRequest) begin
@@ -1329,6 +1337,7 @@ always @(posedge sysclk) begin
       resetRequest <= 0;
       FrameValid <= 0;
       isForward <= 0;
+      ethStateError <= 0;
 `ifdef HAS_DEBUG_DATA
       isEthMulticast <= 0;
       isEthBroadcast <= 0;
@@ -1343,6 +1352,9 @@ always @(posedge sysclk) begin
 `endif
    end
 
+   // Latch asynchronous Ethernet IRQ
+   ethIrq <= ~ETH_IRQn;
+
    //******************** State Machine ********************
 
    timeSinceIRQ <= timeSinceIRQ + 16'd1;
@@ -1350,9 +1362,13 @@ always @(posedge sysclk) begin
    nextStateLatched <= nextState;
 
    if (nextState != nextStateLatched) begin
-      // Record state glitch (TEMP)
-      if (state != nextStateLatched)
+      // Record state glitch
+      if (state != nextStateLatched) begin
          numStateGlitch <= numStateGlitch + 8'd1;
+`ifdef HAS_DEBUG_DATA
+         errorInfo <= { 3'd0, state, 3'd0, nextState, 3'd0, nextStateLatched, 3'd0, runPC };
+`endif
+      end
 
    end
    else begin
@@ -1394,7 +1410,7 @@ always @(posedge sysclk) begin
             retState <= ST_IDLE;
          end
       end
-      else if (~ETH_IRQn) begin
+      else if (ethIrq) begin
          // If an interrupt transition to ST_RUN_PROGRAM_EXECUTE
          runPC <= ID_READ_INTERRUPT;
          timeSinceIRQ <= 16'd0;
@@ -1810,7 +1826,7 @@ always @(posedge sysclk) begin
 
    default:
    begin
-      ethStateError <= 1'd1;
+      ethStateError <= 1;
       numStateInvalid <= numStateInvalid + 8'd1;
    end
 
@@ -1912,11 +1928,11 @@ begin
          numIPv4Mismatch <= 8'd0;
 `endif
          numPacketError <= 8'd0;
+         eth_send_fw_req <= 0;
          ethFrameError <= 0;
          ethIPv4Error <= 0;
          ethUDPError <= 0;
          ethDestError <= 0;
-         eth_send_fw_req <= 0;
       end
       if (eth_send_fw_req) begin
          // This could have been a separate state, but would need an extra
