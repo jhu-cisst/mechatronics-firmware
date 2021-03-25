@@ -57,7 +57,7 @@ module getAddr(
 endmodule
 
 // Define following for debug data (DBG1)
-`define HAS_DEBUG_DATA
+//`define HAS_DEBUG_DATA
 
 // constants KSZ8851 chip
 `define ETH_ADDR_MARL    8'h10     // Host MAC Address Reg Low
@@ -796,7 +796,9 @@ reg[7:0] numPacketError;     // Number of packet errors (Frame, IPv4 or UDP erro
 
 reg[15:0] timeSinceIRQ;      // Time counter since last IRQ
 reg[15:0] timeReceive;       // Time when receive portion finished
+`ifdef HAS_DEBUG_DATA
 reg[15:0] timeSend;          // Time when send portion finished
+`endif
 
 wire is_ip_unassigned;
 assign is_ip_unassigned = (ip_address == IP_UNASSIGNED) ? 1'd1 : 1'd0;
@@ -1791,8 +1793,8 @@ always @(posedge sysclk) begin
    begin
 `ifdef HAS_DEBUG_DATA
       numPacketSent <= numPacketSent + 8'd1;
-`endif
       timeSend <= timeSinceIRQ;
+`endif
       if ((isInIRQ) && (FrameCount != 8'd0))
          runPC <= ID_READ_FRAME_STATUS;
    end
