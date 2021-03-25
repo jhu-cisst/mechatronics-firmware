@@ -253,7 +253,7 @@ reg ethDestError;      // 1 -> Incorrect destination (FireWire destination does 
 reg ethAccessError;    // 1 -> Unable to access internal bus
 reg ethStateError;     // 1 -> Invalid Ethernet state
 
-// Summary of above error bits (except EthFwReqError and ethAccessError)
+// Summary of above error bits (except EthFwReqError, ethAccessError and ethStateError)
 wire ethSummaryError;
 assign ethSummaryError = ethFrameError | ethIPv4Error | ethUDPError | ethDestError;
 
@@ -1243,12 +1243,12 @@ begin
 
    ST_RECEIVE_DMA_REQUEST:
    begin
-      nextState = ST_RECEIVE_DMA_WAIT;
+      nextState = isDMARead ? ST_RECEIVE_DMA_WAIT : ST_RECEIVE_DMA_REQUEST;
    end
 
    ST_RECEIVE_DMA_WAIT:
    begin
-      nextState = ~(recvDMAreq|isDMARead) ? ST_RUN_PROGRAM_EXECUTE : ST_RECEIVE_DMA_WAIT;
+      nextState = isDMARead ? ST_RECEIVE_DMA_WAIT : ST_RUN_PROGRAM_EXECUTE;
    end
 
    ST_RECEIVE_FLUSH_WAIT:
@@ -1269,12 +1269,12 @@ begin
 
    ST_SEND_DMA_REQUEST:
    begin
-      nextState = ST_SEND_DMA_WAIT;
+      nextState = isDMAWrite ? ST_SEND_DMA_WAIT : ST_SEND_DMA_REQUEST;
    end
 
    ST_SEND_DMA_WAIT:
    begin
-      nextState = ~(sendDMAreq|isDMAWrite) ? ST_RUN_PROGRAM_EXECUTE : ST_SEND_DMA_WAIT;
+      nextState = isDMAWrite ? ST_SEND_DMA_WAIT : ST_RUN_PROGRAM_EXECUTE;
    end
 
    ST_SEND_TXQ_ENQUEUE_WAIT:
@@ -1651,13 +1651,9 @@ always @(posedge sysclk) begin
 
    ST_RECEIVE_DMA_WAIT:
    begin
-      // On entry, recvDMAreq==1
-      // When isDMARead==1, set recvDMAreq=0
-      // Then, when isDMARead==0, go to next state
-      if (recvDMAreq&isDMARead) begin
-         recvDMAreq <= 0;
-      end
-      else if (~(recvDMAreq|isDMARead)) begin
+      // On entry, isDMARead==1
+      recvDMAreq <= 0;
+      if (~isDMARead) begin
          waitInfo <= WAIT_NONE;
          if (isLocal&blockWrite) bw_wait <= 10'd0;
 `ifdef HAS_DEBUG_DATA
@@ -1752,13 +1748,9 @@ always @(posedge sysclk) begin
 
    ST_SEND_DMA_WAIT:
    begin
-      // On entry, sendDMAreq==1
-      // When isDMAWrite==1, set sendDMAreq=0
-      // Then, when isDMAWrite==0, go to next state
-      if (sendDMAreq&isDMAWrite) begin
-         sendDMAreq <= 0;
-      end
-      else if (~(sendDMAreq|isDMAWrite)) begin
+      // On entry, isDMAWrite==1
+      sendDMAreq <= 0;
+      if (~isDMAWrite) begin
          waitInfo <= WAIT_NONE;
          isForward <= 1'd0;
          runPC <= ID_DISABLE_DMA;
