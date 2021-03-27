@@ -198,21 +198,14 @@ assign read_addr = { read_board, reg_raddr_offset[4:0] };
 
 wire[31:0] reg_rdata_mem;
 
-// When reading first board quadlet, check whether board info has been updated since last query
-// command. If not, set bits 15:14 to 00 and return current bcTimer. If board has been updated,
-// just return contents of memory, where bits 15:14 should be 10 and the timer value should correspond
-// to when the board information was updated (see comment below).
 assign reg_rdata_hub = is_extra ? { 2'b0, bcReadStart, 2'b0, bcTimer }
-                        : (read_addr[4:0] == 5'd0)
-                        ? {reg_rdata_mem[31:16], board_updated[read_board], 1'b0, reg_rdata_mem[13:0] }
                         : reg_rdata_mem;
 
 // When writing first board quadlet, replace lowest 16 bits as follows:
-//   Bit 15 (1) is used to indicate that the board has been updated.
-//   Bit 14 (0) is not currently used
+//   Bits 15:14 are not currently used (0)
 //   Bits 13:0  indicate the time when the board was updated (relative to the query command)
 wire[31:0] reg_wdata_mem;
-assign reg_wdata_mem = (reg_waddr[4:0] == 5'd0) ? { reg_wdata[31:16], 2'b10, bcTimer }
+assign reg_wdata_mem = (reg_waddr[4:0] == 5'd0) ? { reg_wdata[31:16], 2'b00, bcTimer }
                                                 : reg_wdata;
 
 //********************************* Hub memory **************************************

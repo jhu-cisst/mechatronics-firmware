@@ -890,11 +890,6 @@ assign DebugData[15] = 32'd0;
 `endif
 `endif
 
-// For debugging block write. Note that in the current implementation, this buffer can
-// only be written via the Ethernet interface, but it can be read via Ethernet or Firewire.
-// The address range is 4090-409f.
-reg[31:0] DebugBuffer[0:15];
-
 // Firewire packets received from host:
 //    - 16 bytes (4 quadlets) for quadlet read request
 //    - 20 bytes (5 quadlets) for quadlet write or block read request
@@ -1095,7 +1090,7 @@ reg[4:0] runPC;    // Program counter for RunProgram
 // Following data is accessible via block read from address `ADDR_ETH (0x4000)
 //    4000 - 407f (128 quadlets) FireWire packet (first 128 quadlets only)
 //    4080 - 408f (16 quadlets) Debug data
-//    4090 - 409f (16 quadlets) Debug buffer (R/W)
+//    4090 - 409f (16 quadlets) Unused
 //    40a0 - 40bf (32 quadlets) RunProgram
 //    40c0 - 40df (32 quadlets) PacketBuffer/ReplyBuffer (64 words)
 //    40e0 - 40ff (32 quadlets) ReplyIndex (64 words)
@@ -1111,9 +1106,9 @@ begin
       case (reg_raddr[6:5])
       2'b00:
 `ifdef HAS_DEBUG_DATA
-         reg_rdata = (reg_raddr[4]==0) ? DebugData[reg_raddr[3:0]] : DebugBuffer[reg_raddr[3:0]];
+         reg_rdata = (reg_raddr[4]==0) ? DebugData[reg_raddr[3:0]] : 32'd0;
 `else
-         reg_rdata = (reg_raddr[4]==0) ? "0GBD" : DebugBuffer[reg_raddr[3:0]];
+         reg_rdata = (reg_raddr[4]==0) ? "0GBD" : 32'd0;
 `endif
       2'b01:
          reg_rdata = {6'd0, RunProgram[reg_raddr[4:0]]};
@@ -1124,13 +1119,6 @@ begin
          reg_rdata = {10'd0, ReplyIndex[{reg_raddr[4:0],1'b1}], 10'd0, ReplyIndex[{reg_raddr[4:0],1'b0}]};
       endcase
    end
-end
-
-// Following is only for debugging
-always @(posedge sysclk)
-begin
-   if (eth_reg_wen && (eth_reg_waddr[15:12] == `ADDR_ETH) && (eth_reg_waddr[7:4] == 4'b1001))
-      DebugBuffer[eth_reg_waddr[3:0]] <= eth_reg_wdata;
 end
 
 // Data from Firewire packet header
