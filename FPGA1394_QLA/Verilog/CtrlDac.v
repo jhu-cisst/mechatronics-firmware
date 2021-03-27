@@ -1,6 +1,6 @@
 /*******************************************************************************
  *
- * Copyright(C) 2011-2020 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2011-2021 ERC CISST, Johns Hopkins University.
  *
  * This module controls SPI writes to a set of daisy chained dacs. It collects
  * 32-bit dac command words one-by-one from the firewire interface to create a
@@ -94,11 +94,18 @@ assign data_nop = { 8'h00, `DAC_CMD_NOP, 4'h0, `DAC_VAL_INIT };
 assign data_wru = { 8'h00, `DAC_CMD_WRU, 4'h0, reg_wdata };
 assign dac_word = mem_data[addr_dac];
 
+// Indicates that DAC channel is being addressed.
+// Check for non-zero channel number (reg_waddr[7:4]) to ignore write to global register.
+// It would be even better to check that channel number is 1-4.
+wire reg_waddr_dac;
+assign reg_waddr_dac = ((reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[7:4] != 4'd0) &&
+			(reg_waddr[3:0]==`OFF_DAC_CTRL)) ? 1'd1 : 1'd0;
+
 // register file (memory) interface
 always @(posedge(sysclk))
 begin
     // write selected register with firewire or NOP data source
-    if ((reg_wen && reg_waddr[15:12]==`ADDR_MAIN && reg_waddr[3:0]==`OFF_DAC_CTRL && ~busy) || flush)
+    if ((reg_wen && reg_waddr_dac && ~busy) || flush)
         mem_data[addr] <= data;
 end
 
@@ -106,7 +113,7 @@ end
 assign reg_rdata = mem_copy[reg_rchan-1'b1];
 always @(posedge(sysclk))
 begin
-    if (reg_wen && reg_waddr[15:12]==`ADDR_MAIN && reg_waddr[3:0]==`OFF_DAC_CTRL && ~busy)
+    if (reg_wen && reg_waddr_dac && ~busy)
         mem_copy[addr] <= data;
 end
 
@@ -114,7 +121,7 @@ end
 //   mem_data, as blk_wen and reg_wen become active at the same time for quadlet writes
 always @(posedge(sysclk))
 begin
-    trig <= (blk_wen & (reg_waddr[15:12]==`ADDR_MAIN) & (reg_waddr[3:0]==`OFF_DAC_CTRL));
+    trig <= (blk_wen & reg_waddr_dac & (reg_waddr[3:0]==`OFF_DAC_CTRL));
 end
 
 
