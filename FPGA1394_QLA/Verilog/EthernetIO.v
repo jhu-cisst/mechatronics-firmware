@@ -818,7 +818,11 @@ reg writeRequestBlock;
 reg writeRequestQuad;
 
 // Indicates that block write module is actively accessing memory
-reg bw_active;
+reg bw_local_active;
+
+// Indicates that remote block write is in process
+wire bw_remote_active;
+assign bw_remote_active = (isRemote&blockWrite&(eth_send_fw_req|eth_send_fw_ack));
 
 // Word number at which to request a block write, so that reader and writer
 // can overlap. See explanation below (search for writeRequestTrigger).
@@ -859,7 +863,7 @@ assign ExtraData[3] = timeSinceIRQ;
 wire[31:0] DebugData[0:15];
 assign DebugData[0]  = "1GBD";  // DBG1 byte-swapped
 assign DebugData[1]  = timestamp;
-assign DebugData[2]  = { writeRequestQuad, writeRequestBlock, bw_active, eth_send_isIdle,
+assign DebugData[2]  = { writeRequestQuad, writeRequestBlock, bw_local_active, eth_send_isIdle,
                          eth_recv_isIdle, ethUDPError, ethAccessError, ethIPv4Error,
                          isDMAWrite, sendDMAreq, node_id, eth_status};
 assign DebugData[3]  = { 3'd0, state, eth_send_fw_ack, eth_send_fw_req, linkStatus, retState,
@@ -916,7 +920,7 @@ reg[8:0] local_raddr;
 reg      icmp_read_en;    // 1 -> ICMP needs to read from memory
 
 assign mem_raddr = eth_send_fw_ack   ? eth_fwpkt_raddr :
-                   bw_active         ? local_raddr :
+                   bw_local_active   ? local_raddr :
                    icmp_read_en      ? sfw_count[9:1]
                                      : reg_raddr[8:0];
 assign eth_fwpkt_rdata = mem_rdata;
@@ -1099,7 +1103,7 @@ reg[4:0] runPC;    // Program counter for RunProgram
 always @(*)
 begin
    if (reg_raddr[7] == 0) begin
-      // read_error = eth_send_fw_ack|bw_active|icmp_read_en;
+      // read_error = eth_send_fw_ack|bw_local_active|icmp_read_en;
       reg_rdata = mem_rdata;
    end
    else begin
@@ -1274,8 +1278,13 @@ begin
 
    ST_RECEIVE_FLUSH_WAIT:
    begin
-      if (ReadData[0] | (isLocal&blockWrite&bw_active)) begin
-         nextState = ReadData[0] ? ST_RUN_PROGRAM_EXECUTE : ST_RECEIVE_FLUSH_WAIT;
+      if (ReadData[0]) begin
+         // Not yet finished flushing; check again
+         nextState = ST_RUN_PROGRAM_EXECUTE;
+      end
+      else if (bw_local_active | bw_remote_active) begin
+         // Flush finished, but waiting for a local or remote block write to finish
+         nextState = ST_RECEIVE_FLUSH_WAIT;
       end
       else begin
          if ((FireWirePacketFresh && (quadRead || blockRead) && (isLocal || sendExtra))
@@ -1688,7 +1697,7 @@ always @(posedge sysclk) begin
       recvDMAreq <= 0;
       if (~isDMARead) begin
          waitInfo <= WAIT_NONE;
-         if (isLocal&blockWrite) bw_wait <= 10'd0;
+         if (blockWrite) bw_wait <= 10'd0;
 `ifdef HAS_DEBUG_DATA
          // Increment counters
          numIPv4 <= numIPv4 + {9'd0, isIPv4};
@@ -1703,21 +1712,22 @@ always @(posedge sysclk) begin
    ST_RECEIVE_FLUSH_WAIT:
    begin
       // Wait for bit 0 in Register RXQCR to be cleared; also wait for
-      // local block write to finish (~bw_active).
+      // local or remote block write to finish.
       // Then enable interrupt
       //   - if a read command, start sending response
       //     (check FrameCount after send complete)
       //   - else if more frames available, receive status of next frame
       //   - else go to idle state
-      if (ReadData[0] | (isLocal&blockWrite&bw_active)) begin
-         runPC <= ID_READ_CMD_REG;  // Check again (only if ReadData[0])
+      if (ReadData[0]) begin
+         runPC <= ID_READ_CMD_REG;  // Check again
          waitInfo <= WAIT_FLUSH;
+      end
+      else if (bw_local_active | bw_remote_active) begin
          // Track time we are waiting for block write to finish.
          // Experimentally determined that it takes about 20-23 clocks to flush
          // the queue (i.e., after bw_left is latched). Thus, the ideal range
-         // for bw_left is 2-6.
-         if (bw_active&(~ReadData[0]))
-            bw_wait <= bw_wait + 10'd1;
+         // for bw_left is 2-6 (for local block write).
+         bw_wait <= bw_wait + 10'd1;
       end
       else begin
          timeReceive <= timeSinceIRQ;
@@ -2376,7 +2386,7 @@ begin
 
    ST_SEND_DMA_ICMP_DATA:
    begin
-      //read_error = eth_send_fw_ack|bw_active;
+      //read_error = eth_send_fw_ack|bw_local_active;
       `SDRegDWRSwapped <= (sfw_count[0] == 0) ? mem_rdata[31:16]
                                               : mem_rdata[15:0];
       // Increment a little earlier due to reading from memory
@@ -2584,12 +2594,12 @@ reg bwHadMemAccess;    // Indicates that Ethernet module was not accessing the m
 // Since other block writes are not broadcast, this memory conflict should never occur, but
 // the check is included just in case.
 wire bwHasMemAccess;
-assign bwHasMemAccess = bwHadMemAccess&(~eth_send_fw_ack)&bw_active;
+assign bwHasMemAccess = bwHadMemAccess&(~eth_send_fw_ack)&bw_local_active;
 
 always @(posedge sysclk)
 begin
 
-   bwHadMemAccess <= (~eth_send_fw_ack)&bw_active;
+   bwHadMemAccess <= (~eth_send_fw_ack)&bw_local_active;
    bwCnt <= (bwState == BW_IDLE)  ? 2'd0 :
             (bwState == BW_WRITE) ? 2'd1 :
                                     (bwCnt + 2'd1);
@@ -2612,7 +2622,7 @@ begin
          eth_block_wen <= 1;
       end
       else if (writeRequestBlock) begin
-         bw_active <= 1;
+         bw_local_active <= 1;
          eth_write_en <= 1;
          // Assert eth_block_wstart for 80 ns before starting local block write
          // (same timing as in Firewire module).
@@ -2625,7 +2635,7 @@ begin
          eth_reg_waddr[11:0] <= fw_dest_offset[11:0] - 12'd1;
       end
       else begin
-         bw_active <= 0;
+         bw_local_active <= 0;
          eth_write_en <= 0;
          eth_reg_wen <= 0;    // Clean up from quadlet/block writes
          eth_block_wen <= 0;
@@ -2668,7 +2678,7 @@ begin
 
    BW_BLK_WEN:
    begin
-      bw_active <= 0;   // Stop accessing memory
+      bw_local_active <= 0;   // Stop accessing memory
       // Wait 60 nsec before asserting eth_block_wen
       if (bwCnt == 2'd3) begin
          // writeRequestBlock should have been cleared by now
