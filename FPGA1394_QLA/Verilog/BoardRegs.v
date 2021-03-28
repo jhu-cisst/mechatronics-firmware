@@ -104,9 +104,9 @@ module BoardRegs(
     reg[15:0] wdog_period;      // watchdog period, user writable
     initial wdog_period = 16'h1680;  // 0x1680 == 30 msec
     reg[15:0] wdog_count;       // watchdog timer counter
-    
-    // mv good timer                                                                                                                                       
-    reg[15:0] mv_good_counter;  // mv_good counter 
+
+    // mv good timer
+    reg[15:0] mv_good_counter;  // mv_good counter
     reg[4:1] mv_amp_disable;    // mv good amp_disable
 
     assign reg_status = {

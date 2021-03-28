@@ -385,6 +385,8 @@ wire blockWrite;
 
 wire addrMain;
 
+wire isRebootCmd;   // 1 -> Reboot FPGA command received
+
 reg FrameValid;
 `ifdef HAS_DEBUG_DATA
 reg isEthMulticast;
@@ -1160,6 +1162,9 @@ assign blockWrite = (fw_tcode == `TC_BWRITE) ? 1'd1 : 1'd0;
 
 assign addrMain = (fw_dest_offset[15:12] == `ADDR_MAIN) ? 1'd1 : 1'd0;
 
+assign isRebootCmd = (addrMain && (fw_dest_offset[11:0] == 12'd0) && quadWrite
+                      && (fw_quadlet_data[21:20] == 2'b11)) ? 1'd1 : 1'd0;
+
 // Reg_CMD is 0 except when writing address to the KSZ8851
 assign Reg_CMD = (state == ST_WAVEFORM_ADDR) ? 1'd1 : 1'd0;
 // Reg_WRn is sequenced 1001 for writing address or data; held at 1 when reading data
@@ -1880,6 +1885,7 @@ reg[1:0] nextRecvState = ST_RECEIVE_DMA_IDLE;
 reg[5:0] recvCnt;       // Index into PacketBuffer
 reg[1:0] skipCnt;       // For skipping first 3 words in RXQ
 reg[9:0] rfw_count;     // Counts words in FireWire packets (max is 1024 words, or 2048 bytes)
+reg[5:0] rebootCnt;     // Counter used to delay reboot command (could reuse recvCnt)
 
 // Registers for processing of the real-time block write, which consists of one or more
 // groups of 5 quadlets, where the first 4 quadlets are DAC values and the 5th quadlet is
@@ -1966,11 +1972,19 @@ begin
          // This could have been a separate state, but would need an extra
          // bit to have 5 receive states.
          if (eth_send_fw_ack) begin
-             eth_send_fw_req <= 0;
-             // If a broadcast quadlet write (local and remote), then
-             // write it to the hardware now.
-             writeRequestQuad <= quadWrite&isLocal;
+            eth_send_fw_req <= 0;
+            // If a broadcast quadlet write (local and remote), then
+            // write it to the hardware now, except for reboot
+            writeRequestQuad <= quadWrite&isLocal&(~isRebootCmd);
          end
+         rebootCnt <= 6'd1;   // only needed if isRebootCmd is true
+      end
+      else if ((isRebootCmd&isRemote&isLocal&(~eth_send_fw_ack)) && (rebootCnt != 6'd0)) begin
+         // Wait an additional 1.3 us after eth_send_fw_ack removed to
+         // make sure Firewire packet has been transmitted
+         rebootCnt <= rebootCnt + 6'd1;
+         if (rebootCnt == 6'h3f)
+            writeRequestQuad <= 1;
       end
       else begin
          // Normal idle state. Wait for recvDMAreq to be set.
