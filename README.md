@@ -16,7 +16,7 @@ are two main Verilog modules: FPGA1394_QLA.v (for Rev 1.x) and FPGA1394Eth_QLA.v
 
 The project can be built using CMake and the Xilinx command line tools (preferred), or by loading
 one of the project files (FPGA1394-QLA.xise or FPGA1394Eth-QLA.xise) into Xilinx ISE.
-See the [wiki build instructions](https://github.com/jhu-cisst/mechatronics-firmware/wiki/FPGA-Build-Instructions.md).
+See the [wiki build instructions](https://github.com/jhu-cisst/mechatronics-firmware/wiki/FPGA-Build-Instructions).
 
 Documentation for the firmware is on the wiki: https://github.com/jhu-cisst/mechatronics-firmware/wiki
 
