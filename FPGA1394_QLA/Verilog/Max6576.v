@@ -1,6 +1,6 @@
 /*******************************************************************************
  *
- * Copyright(C) 2011-2012 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2011-2020 ERC CISST, Johns Hopkins University.
  *
  * Module: MAX6576
  *
@@ -35,45 +35,37 @@
 
 module Max6576(
     input wire clk400k,     // 400 kHz Clock
-    input wire reset,       // global reset signal
     input wire In,          // PWM output of the MAX6576
     output reg[7:0] Out,    // Temperature in 0.5C per bit
     output reg change       // Indicates the temperature is changing
 );
+    initial Out = 8'hFF;
 
     reg[3:0] sync;          // Synchronization & edge detection register
     reg[10:0] count;        // Main counter
+    initial count = 11'h3BC;
 
-always @(posedge(clk400k) or negedge(reset))
+always @(posedge(clk400k))
 begin
-    if (reset == 0) begin
-        Out <= 8'hFF;
+    sync <= { In, sync[3:1] };
+
+    // signal change on edge detect or counter overflow
+    if ((sync[1:0]==2'b10) || (count==10'h3B8))
+        change <= 1'b1;
+    else
         change <= 1'b0;
-        sync <= 0;
+
+    // on change, output the counter value and reset it to -273*4
+    if (change) begin
         count <= 11'h3BC;
-    end
-
-    else begin
-        sync <= { In, sync[3:1] };
-
-        // signal change on edge detect or counter overflow
-        if ((sync[1:0]==2'b10) || (count==10'h3B8))
-            change <= 1'b1;
+        // output count/2 if count<127*4
+        if (count[10:9] == 0)
+            Out <= count[8:1];
         else
-            change <= 1'b0;
-
-        // on change, output the counter value and reset it to -273*4
-        if (change) begin
-            count <= 11'h3BC;
-            // output count/2 if count<127*4
-            if (count[10:9] == 0)
-                Out <= count[8:1];
-            else
-                Out <= 8'hFF;
-        end
-        else
-            count <= count + 1'b1;
+            Out <= 8'hFF;
     end
+    else
+        count <= count + 1'b1;
 end
 
 endmodule

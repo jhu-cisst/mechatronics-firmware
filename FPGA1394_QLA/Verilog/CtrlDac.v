@@ -1,6 +1,6 @@
 /*******************************************************************************
  *
- * Copyright(C) 2011 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2011-2021 ERC CISST, Johns Hopkins University.
  *
  * This module controls SPI writes to a set of daisy chained dacs. It collects
  * 32-bit dac command words one-by-one from the firewire interface to create a
@@ -27,7 +27,6 @@
 module CtrlDac(
     // globals
     input wire sysclk,             // global input clock
-    input wire reset,              // global reset signal
     // spi
     output wire sclk,              // serial clock
     output wire mosi,              // serial data out
@@ -35,10 +34,10 @@ module CtrlDac(
     // regfile ctrl/addr/data
     input wire reg_wen,            // register write enable
     input wire blk_wen,            // register write enable (end-of-block)
-    input wire[15:0] reg_raddr,    // register read address
+    input wire[3:0] reg_rchan,     // register read channel (reg_raddr[7:4])
     input wire[15:0] reg_waddr,    // register write address
     output wire[31:0] reg_rdata,   // outgoing register data
-    input wire[31:0] reg_wdata,    // incoming register data
+    input wire[15:0] reg_wdata,    // incoming register data
     
     // output dac value
     output wire[15:0] dac1,        // register dac1 command current
@@ -61,14 +60,12 @@ module CtrlDac(
     wire[31:0] data_wru;           // shortcut for write/update command word
     wire[31:0] dac_word;           // command word going into dac module
 
-    reg[31:0] mem_data[0:15];      // register file for dac bitstreams
-    reg[31:0] mem_copy[0:15];      // for readback of most recent dac command
+    reg[31:0] mem_data[0:`NUM_CHANNELS-1]; // register file for dac bitstreams
+    reg[31:0] mem_copy[0:`NUM_CHANNELS-1]; // for readback of most recent dac command
+
+    integer i;
     initial begin                  // for simulation, but synthesizes too
-        mem_data[0] = 32'h00f08000;
-        mem_data[1] = 32'h00f08000;
-        mem_data[2] = 32'h00f08000;
-        mem_data[3] = 32'h00f08000;
-        mem_data[4] = 32'h00f08000;
+        for (i=0; i<`NUM_CHANNELS; i=i+1) mem_data[i] = 32'h00f08000;
     end
 
 //------------------------------------------------------------------------------
@@ -78,7 +75,6 @@ module CtrlDac(
 // dac module instantiation; note: dac is write-only
 LTC2601x4 dac(
     .clkin(sysclk),
-    .reset(reset),
     .trig(trig),
     .word(dac_word),
     .addr(addr_dac),
@@ -95,37 +91,41 @@ assign data = (busy ? data_nop : data_wru);
 
 // shortcuts for command words nop and write/update
 assign data_nop = { 8'h00, `DAC_CMD_NOP, 4'h0, `DAC_VAL_INIT };
-assign data_wru = { 8'h00, `DAC_CMD_WRU, 4'h0, reg_wdata[15:0] };
+assign data_wru = { 8'h00, `DAC_CMD_WRU, 4'h0, reg_wdata };
 assign dac_word = mem_data[addr_dac];
+
+// Indicates that DAC channel is being addressed.
+// Check for non-zero channel number (reg_waddr[7:4]) to ignore write to global register.
+// It would be even better to check that channel number is 1-4.
+wire reg_waddr_dac;
+assign reg_waddr_dac = ((reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[7:4] != 4'd0) &&
+			(reg_waddr[3:0]==`OFF_DAC_CTRL)) ? 1'd1 : 1'd0;
 
 // register file (memory) interface
 always @(posedge(sysclk))
 begin
     // write selected register with firewire or NOP data source
-    if ((reg_wen && reg_waddr[15:12]==`ADDR_MAIN && reg_waddr[3:0]==`OFF_DAC_CTRL && ~busy) || flush)
+    if ((reg_wen && reg_waddr_dac && ~busy) || flush)
         mem_data[addr] <= data;
 end
 
 // copy of register file that doesn't get overwritten with NOPs
-assign reg_rdata = mem_copy[reg_raddr[7:4]-1'b1];
+assign reg_rdata = mem_copy[reg_rchan-1'b1];
 always @(posedge(sysclk))
 begin
-    if (reg_wen && reg_waddr[15:12]==`ADDR_MAIN && reg_waddr[3:0]==`OFF_DAC_CTRL && ~busy)
+    if (reg_wen && reg_waddr_dac && ~busy)
         mem_copy[addr] <= data;
 end
 
 // delay trigger (blk_wen) by a clock to allow quadlet data to be stored into
-//   mem_data, as blk_wen and reg_wen become active at the same time
-always @(posedge(sysclk) or negedge(reset))
+//   mem_data, as blk_wen and reg_wen become active at the same time for quadlet writes
+always @(posedge(sysclk))
 begin
-    if (reset == 0)
-        trig <= 1'b0;
-    else
-        trig <= (blk_wen & (reg_waddr[15:12]==`ADDR_MAIN) & (reg_waddr[3:0]==`OFF_DAC_CTRL));
+    trig <= (blk_wen & reg_waddr_dac & (reg_waddr[3:0]==`OFF_DAC_CTRL));
 end
 
 
-// connect mem_cop to dac(1-4)
+// connect mem_copy to dac(1-4)
 assign dac1 = mem_copy[0][15:0];
 assign dac2 = mem_copy[1][15:0];
 assign dac3 = mem_copy[2][15:0];

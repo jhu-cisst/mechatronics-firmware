@@ -1,5 +1,5 @@
 The following files were generated for 'ila_prom' in directory
-/home/zihan/dev/mechatronics/firmware/FPGA1394_QLA/ipcore_dir/
+/mnt/Data/Peter/JHU/Hardware/mechatronics-firmware/FPGA1394_QLA/ipcore_dir/
 
 XCO file generator:
    Generate an XCO file for compatibility with legacy flows.
@@ -10,11 +10,14 @@ Creates an implementation netlist:
    Creates an implementation netlist for the IP.
 
    * ila_prom.cdc
-   * ila_prom.ejp
+   * ila_prom.constraints/ila_prom.ucf
+   * ila_prom.constraints/ila_prom.xdc
    * ila_prom.ncf
    * ila_prom.ngc
+   * ila_prom.ucf
    * ila_prom.v
    * ila_prom.veo
+   * ila_prom.xdc
    * ila_prom_xmdf.tcl
 
 IP Symbol Generator:

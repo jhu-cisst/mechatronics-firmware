@@ -2,7 +2,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2013-2018 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2013-2020 ERC CISST, Johns Hopkins University.
  *
  * This module performs a safety check by comparing the measured motor current
  * (cur_in) to the commanded motor current (dac_in). If the difference is too
@@ -33,7 +33,6 @@
 
 module SafetyCheck(
     input  wire clk,            // system clock
-    input  wire reset,          // global reset
     input  wire[15:0] cur_in,   // feedback current
     input  wire[15:0] dac_in,   // command current
     input  wire clear_disable,  // signal to clear amplifier disable
@@ -81,9 +80,9 @@ module SafetyCheck(
 
     
     // amp_disable
-    always @ (posedge(clk) or negedge(reset) or posedge(clear_disable))
+    always @ (posedge(clk) or posedge(clear_disable))
     begin
-        if (reset == 0 || clear_disable) begin
+        if (clear_disable) begin
             amp_disable <= 1'b0;
         end
         

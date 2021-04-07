@@ -1,6 +1,6 @@
 /*******************************************************************************
  *
- * Copyright(C) 2011-2012 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2011-2020 ERC CISST, Johns Hopkins University.
  *
  * This module serially shifts samples out to 4 LTC2601 DACs set up in a chain.
  * Transfers are initiated by a trigger signal. Commands for each dac are read
@@ -29,7 +29,6 @@
 
 module LTC2601x4(
     input wire clkin,         // system clock
-    input wire reset,         // system reset
     input wire trig,          // initiates sample transfers
     input wire[31:0] word,    // 32-bit command word from external memory
     output wire[3:0] addr,    // address of command word in external memory
@@ -40,17 +39,20 @@ module LTC2601x4(
     output wire flush         // signal to flush command word to nop
 );
 
+    initial csel = 1'b1;
+
     // local wires and registers
     reg[8:0] seqn;            // 9-bit counter for sequencing operation
     reg[31:0] data;           // capture of input command words
     wire word_edge;           // true if transfer is at command word boundary
-//    wire[5:0] count;          // debug
 
     // state machine
     reg state;
     parameter
         ST_IDLE=0,
         ST_LOOP=1;
+
+    initial state = ST_IDLE;
 
 // -----------------------------------------------------------------------------
 // hardware description
@@ -63,59 +65,48 @@ assign busy = ~csel;
 assign addr = seqn[7:6] + word_edge;
 assign flush = ((seqn[5:1]==5'b01111) ? 1'b1 : 1'b0);
 assign word_edge = ((seqn[5:1]==`SEQN_WORD) ? 1'b1 : 1'b0);
-//assign count = seqn[5:0];   // debug
 
 // state machine
-always @(posedge(clkin) or negedge(reset))
+always @(posedge(clkin))
 begin
 
-    // reset/startup initializes registers
-    if (reset == 0) begin
-        seqn <= 0;
-        csel <= 1'b1;
-        data <= 0;
+    // spi interface to dac
+    case (state)
+
+    // idle state
+    ST_IDLE: begin
+        seqn <= `SEQN_INIT;              // starting state of counter
+        if (trig) begin                  // write trigger detected
+            csel <= 1'b0;                // signal start of transfer
+            data <= word;                // latch first command word
+            state <= ST_LOOP;            // go to transfer loop state
+        end
+        else begin                       // idle state conditions
+            csel <= 1'b1;
+            data <= 0;
+            state <= ST_IDLE;
+        end
+    end
+
+    // spi transfer loop
+    ST_LOOP: begin
+        seqn <= seqn + 1'b1;             // counter, also creates sclk
+        if (sclk == 1'b1) begin          // update data on falling sclk
+            data <= (word_edge ? word : (data<<1));
+        end
+        if (seqn == `SEQN_DONE) begin    // transfer complete
+            csel <= trig;                // finalize transfer, if necessary
+            data <= 0;                   // to keep mosi line clear
+            state <= ST_IDLE;            // go back to idle state
+        end
+    end
+
+    // shouldn't get here
+    default: begin
         state <= ST_IDLE;
     end
 
-    // spi interface to dac
-    else begin
-        case (state)
-
-        // idle state
-        ST_IDLE: begin
-            seqn <= `SEQN_INIT;              // starting state of counter
-            if (trig) begin                  // write trigger detected
-                csel <= 1'b0;                // signal start of transfer
-                data <= word;                // latch first command word
-                state <= ST_LOOP;            // go to transfer loop state
-            end
-            else begin                       // idle state conditions
-                csel <= 1'b1;
-                data <= 0;
-                state <= ST_IDLE;
-            end
-        end
-
-        // spi transfer loop
-        ST_LOOP: begin
-            seqn <= seqn + 1'b1;             // counter, also creates sclk
-            if (sclk == 1'b1) begin          // update data on falling sclk
-                data <= (word_edge ? word : (data<<1));
-            end
-            if (seqn == `SEQN_DONE) begin    // transfer complete
-                csel <= trig;                // finalize transfer, if necessary
-                data <= 0;                   // to keep mosi line clear
-                state <= ST_IDLE;            // go back to idle state
-            end
-        end
-
-        // shouldn't get here
-        default: begin
-            state <= ST_IDLE;
-        end
-
-        endcase
-    end
+    endcase
 end
 
 endmodule

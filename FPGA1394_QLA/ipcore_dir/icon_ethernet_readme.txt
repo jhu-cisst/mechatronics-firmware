@@ -1,5 +1,5 @@
 The following files were generated for 'icon_ethernet' in directory
-/home/zihan/dev/mechatronics/firmware/FPGA1394_QLA/ipcore_dir/
+/mnt/Data/Peter/JHU/Hardware/mechatronics-firmware/FPGA1394_QLA/ipcore_dir/
 
 XCO file generator:
    Generate an XCO file for compatibility with legacy flows.
@@ -9,10 +9,13 @@ XCO file generator:
 Creates an implementation netlist:
    Creates an implementation netlist for the IP.
 
-   * icon_ethernet.ejp
+   * icon_ethernet.constraints/icon_ethernet.ucf
+   * icon_ethernet.constraints/icon_ethernet.xdc
    * icon_ethernet.ngc
+   * icon_ethernet.ucf
    * icon_ethernet.v
    * icon_ethernet.veo
+   * icon_ethernet.xdc
    * icon_ethernet_xmdf.tcl
 
 IP Symbol Generator:

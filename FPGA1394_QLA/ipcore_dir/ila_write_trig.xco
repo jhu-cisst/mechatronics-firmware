@@ -1,7 +1,7 @@
 ##############################################################
 #
-# Xilinx Core Generator version 13.4
-# Date: Fri Sep  6 00:36:05 2013
+# Xilinx Core Generator version 14.7
+# Date: Fri May  8 06:14:28 2020
 #
 ##############################################################
 #
@@ -31,7 +31,7 @@ SET implementationfiletype = Ngc
 SET package = fgg484
 SET removerpms = false
 SET simulationfiles = Behavioral
-SET speedgrade = -3
+SET speedgrade = -2
 SET verilogsim = true
 SET vhdlsim = false
 # END Project Options
@@ -135,7 +135,7 @@ CSET trigger_port_width_9=8
 CSET use_rpms=true
 # END Parameters
 # BEGIN Extra information
-MISC pkg_timestamp=2012-01-07T09:19:41Z
+MISC pkg_timestamp=2013-10-13T14:13:15Z
 # END Extra information
 GENERATE
-# CRC: 320fabf5
+# CRC: 77c33b9c

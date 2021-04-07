@@ -1,13 +1,16 @@
 # Output products list for <ila_eth_chip>
 ila_eth_chip.asy
 ila_eth_chip.cdc
-ila_eth_chip.ejp
+ila_eth_chip.constraints/ila_eth_chip.ucf
+ila_eth_chip.constraints/ila_eth_chip.xdc
 ila_eth_chip.gise
 ila_eth_chip.ncf
 ila_eth_chip.ngc
+ila_eth_chip.ucf
 ila_eth_chip.v
 ila_eth_chip.veo
 ila_eth_chip.xco
+ila_eth_chip.xdc
 ila_eth_chip.xise
 ila_eth_chip_flist.txt
 ila_eth_chip_readme.txt

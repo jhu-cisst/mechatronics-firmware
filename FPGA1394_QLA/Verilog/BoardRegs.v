@@ -1,6 +1,9 @@
+/* -*- Mode: Verilog; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*-   */
+/* ex: set filetype=v softtabstop=4 shiftwidth=4 tabstop=4 cindent expandtab:      */
+
 /*******************************************************************************
  *
- * Copyright(C) 2008-2017 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2008-2020 ERC CISST, Johns Hopkins University.
  *
  * This module contains a register file dedicated to general board parameters.
  * Separate register files are maintained for each I/O channel (SpiCtrl).
@@ -12,6 +15,7 @@
  *     05/08/13    Zihan Chen          Fix watchdog 
  *     05/19/13    Zihan Chen          Add mv_good 40 ms sleep
  *     09/23/15    Peter Kazanzides    Moved DOUT code to CtrlDout.v
+ *     07/03/20    Peter Kazanzides    Changing reset to reboot
  */
 
 
@@ -22,19 +26,18 @@
 `define WIDTH_WATCHDOG 8           // period = 5.208333 us (2^8 / 49.152 MHz) 
 
 module BoardRegs(
-    // global clock & reset
+    // global clock
     input  wire sysclk, 
-    input  wire clkaux,
-    output reg  reset,
+    output reg  reboot,
     
     // board input (PC writes)
     output wire[4:1] amp_disable,   // hardware connection to op amps
-    input  wire[4:1] dout,          // digital outputs
+    input  wire[31:0] dout,         // digital outputs
     input  wire dout_cfg_valid,     // digital output configuration valid
     input  wire dout_cfg_bidir,     // whether digital outputs are bidirectional (also need to be inverted)
+    output reg  dout_cfg_reset,     // reset dout_cfg_valid
     output reg pwr_enable,          // enable motor power
     output reg relay_on,            // enable relay for safety loop-through
-    output reg eth1394,             // 0: firewire mode 1: ethernet-1394 mode
     
     // board output (PC reads)
     input  wire[4:1] enc_a,         // encoder a  
@@ -49,6 +52,7 @@ module BoardRegs(
     input  wire mv_faultn,          // motor power fault (active low) from LT4356, over-voltage or over-current
     input  wire mv_good,            // motor voltage good 
     input  wire v_fault,            // encoder supply voltage fault
+    input  wire io1_8,              // unused digital I/O (not connected on QLA)
     input  wire[3:0] board_id,      // board id (rotary switch)
     input  wire[15:0] temp_sense,   // temperature sensor reading
     
@@ -63,6 +67,9 @@ module BoardRegs(
     input  wire[31:0] prom_status,
     input  wire[31:0] prom_result,
 
+    // Ethernet IP address
+    input  wire[31:0] ip_address,
+
     // Ethernet feedback
     input  wire[31:0] eth_result,
 
@@ -76,6 +83,8 @@ module BoardRegs(
     output wire pwr_enable_cmd,
     output wire[4:1] amp_enable_cmd,
 
+    output wire[31:0] reg_status,  // Status register (for reading)
+    output wire[31:0] reg_digin,   // Digital I/O register (for reading)
     output reg[31:0] reg_debug     // for debug purpose only
 );
 
@@ -85,6 +94,7 @@ module BoardRegs(
 
     // registered data
     reg[3:0] reg_disable;       // register the disable signals
+    initial reg_disable = 4'hf; // start up all disabled
     reg[15:0] phy_ctrl;         // for phy request bitstream
     reg[15:0] phy_data;         // for phy register transfer data
 
@@ -92,19 +102,29 @@ module BoardRegs(
     wire wdog_clk;              // watchdog clock
     reg  wdog_timeout;          // watchdog timeout status flag
     reg[15:0] wdog_period;      // watchdog period, user writable
+    initial wdog_period = 16'h1680;  // 0x1680 == 30 msec
     reg[15:0] wdog_count;       // watchdog timer counter
-    
-    // mv good timer                                                                                                                                       
-    reg[15:0] mv_good_counter;  // mv_good counter 
+
+    // mv good timer
+    reg[15:0] mv_good_counter;  // mv_good counter
     reg[4:1] mv_amp_disable;    // mv good amp_disable
 
-    // reset signal generation
-    reg[6:0] reset_shift;       // counts number of clocks after reset
-    reg reset_soft_trigger;     // trigger global reset when set
-    initial begin
-        reset_shift = 0;
-        reset = 1;
-    end
+    assign reg_status = {
+                // Byte 3: num channels (4), board id
+                4'd4, board_id,
+                // Byte 2: wdog timeout, 0 (was eth1394), dout_cfg_valid, dout_cfg_bidir
+                wdog_timeout, 1'd0, dout_cfg_valid, dout_cfg_bidir,
+                // mv_good, power enable, safety relay state, safety relay control
+                mv_good, pwr_enable, ~relay, relay_on,
+                // mv_fault, unused (0)
+                ~mv_faultn, 3'd0,
+                // amplifier: 1 -> amplifier on, 0 -> fault (4 axes)
+                fault,
+                // Byte 0: 1 -> amplifier enabled, 0 -> disabled
+                safety_amp_disable[4:1], ~reg_disable[3:0] };
+
+    // dout[31] indicates that waveform table is driving at least one DOUT
+    assign reg_digin = {v_fault, io1_8, dout[31], 1'b0, enc_a, enc_b, enc_i, dout[3:0], neg_limit, pos_limit, home};
 
 //------------------------------------------------------------------------------
 // hardware description
@@ -134,23 +154,10 @@ wire powerup_cmd;
 assign powerup_cmd = pwr_enable_cmd | amp_enable_cmd[4] | amp_enable_cmd[3] | amp_enable_cmd[2] | amp_enable_cmd[1];
 
 // clocked process simulating a register file
-always @(posedge(sysclk) or negedge(reset))
+always @(posedge(sysclk))
   begin
-     // what to do on reset/startup
-     if (reset == 0) begin
-        reg_rdata <= 0;          // clear read output register
-        reg_disable <= 4'hf;     // start up all disabled
-        pwr_enable <= 0;         // start up with power off
-        phy_ctrl <= 0;           // clear phy command register
-        phy_data <= 0;           // clear phy data output register
-        wdog_period <= 16'hffff; // disables watchdog by default
-        relay_on <= 0;           // start with safety relay off
-        reset_soft_trigger <= 1'b0;  // clear reset_soft_trigger
-        eth1394 <= 1'b0;    // clear eth1394 mode (i.e. normal FireWire mode)
-     end
-
     // set register values for writes
-    else if (write_main) begin
+    if (write_main) begin
         case (reg_waddr[3:0])
         `REG_STATUS: begin
             // mask reg_wdata[15:8] with [7:0] for disable (~enable) control
@@ -163,16 +170,18 @@ always @(posedge(sysclk) or negedge(reset))
             relay_on <= reg_wdata[17] ? reg_wdata[16] : relay_on;
             // mask reg_wdata[19] with [18] for pwr_enable
             pwr_enable <= reg_wdata[19] ? reg_wdata[18] : pwr_enable;
-            // mask reg_wdata[21] with [20] for soft_reset
-            reset_soft_trigger <= reg_wdata[21] ? reg_wdata[20] : 1'b0; 
-            // mask reg_wdata[23] with [22] for eth1394 mode 
-            eth1394 <= reg_wdata[23] ? reg_wdata[22] : eth1394;
+            // mask reg_wdata[21] with [20] for reboot (was reset prior to Rev 7)
+            reboot <= reg_wdata[21] ? reg_wdata[20] : 1'b0;
+            // Previously, masked reg_wdata[23] with [22] for eth1394 mode
+            // use reg_wdata[24] to reset dout_cfg_valid
+            dout_cfg_reset <= reg_wdata[24];
         end
         `REG_PHYCTRL: phy_ctrl <= reg_wdata[15:0];
         `REG_PHYDATA: phy_data <= reg_wdata[15:0];
         `REG_TIMEOUT: wdog_period <= reg_wdata[15:0];
         // Write to DOUT is handled in CtrlDout.v
         // Write to PROM command register (8) is handled in M25P16.v
+        // Write to IP address is handled in EthernetIO.v
         `REG_DEBUG:   reg_debug <= reg_wdata[31:0];
         endcase
     end
@@ -180,19 +189,7 @@ always @(posedge(sysclk) or negedge(reset))
     // return register data for reads
     else begin
         case (reg_raddr[3:0])
-        `REG_STATUS: reg_rdata <= { 
-                // Byte 3: num channels (4), board id
-                4'd4, board_id,
-                // Byte 2: wdog timeout, eth1394 mode, dout_cfg_valid, dout_cfg_bidir
-                wdog_timeout, eth1394, dout_cfg_valid, dout_cfg_bidir,
-                // mv_good, power enable, safety relay state, safety relay control      
-                mv_good, pwr_enable, ~relay, relay_on,   
-                // mv_fault, unused (0)
-                ~mv_faultn, 3'd0,
-                // amplifier: 1 -> amplifier on, 0 -> fault (4 axes)
-                fault,
-                // Byte 0: 1 -> amplifier enabled, 0 -> disabled
-                safety_amp_disable[4:1], ~reg_disable[3:0] };     
+        `REG_STATUS: reg_rdata <= reg_status;
         `REG_PHYCTRL: reg_rdata <= phy_ctrl;
         `REG_PHYDATA: reg_rdata <= phy_data;
         `REG_TIMEOUT: reg_rdata <= wdog_period;
@@ -203,7 +200,8 @@ always @(posedge(sysclk) or negedge(reset))
         `REG_PROMSTAT: reg_rdata <= prom_status;
         `REG_PROMRES: reg_rdata <= prom_result;
         `REG_DSSTAT: reg_rdata <= ds_status;
-        `REG_DIGIN: reg_rdata <= {v_fault, 3'd0, enc_a, enc_b, enc_i, dout, neg_limit, pos_limit, home};
+        `REG_DIGIN: reg_rdata <= reg_digin;
+        `REG_IPADDR: reg_rdata <= ip_address;
         `REG_ETHRES: reg_rdata <= eth_result;
         `REG_DEBUG:  reg_rdata <= reg_debug;
 
@@ -213,26 +211,28 @@ always @(posedge(sysclk) or negedge(reset))
         // Disable axes when wdog timeout or safety amp disable. Note the minor efficiency gain
         // below by combining safety_amp_disable with !wdog_timeout.
         reg_disable[3:0] <= reg_disable[3:0] | (wdog_timeout ? 4'b1111 : safety_amp_disable[4:1]);
+        // Turn off dout_cfg_reset in case it was previously set
+        dout_cfg_reset <= 1'b0;
     end
 end
 
 // --------------------------------------------------------------------------
-// Reset module
+// Watchdog
 // --------------------------------------------------------------------------
 // derive watchdog clock
 ClkDiv divWdog(sysclk, wdog_clk);
 defparam divWdog.width = `WIDTH_WATCHDOG;
 
-// watchdog timer and flag, resets via any register write
-always @(posedge(wdog_clk) or negedge(reset) or posedge(reg_wen) or posedge(powerup_cmd))
+// watchdog timer and flag, cleared via any register write
+always @(posedge(wdog_clk) or posedge(reg_wen) or posedge(powerup_cmd))
 begin
-    if (reset==0 || powerup_cmd) begin
-        wdog_count <= 0;                        // reset the timer counter
+    if (powerup_cmd) begin
+        wdog_count <= 0;                        // clear the timer counter
         wdog_timeout <= 0;                      // clear wdog_timeout
     end
     else if (reg_wen) begin
-        // reset counter on any reg write
-        wdog_count <= 0;                        // reset the timer counter
+        // clear counter on any reg write
+        wdog_count <= 0;                        // clear the timer counter
     end
     else if (wdog_period) begin
         // watchdog only works when period is set
@@ -247,13 +247,9 @@ end
 
 // to save resources use wdog_clk, period = 5.208333 us
 // 40 ms = 7680 cnts
-always @(posedge(wdog_clk) or negedge(reset))
+always @(posedge(wdog_clk))
 begin
-    if (reset == 0) begin
-        mv_amp_disable <= 4'b0000;
-        mv_good_counter <= 16'd0;
-    end
-    else if ((mv_good == 1'b1) && (mv_good_counter < 16'd7680)) begin
+    if ((mv_good == 1'b1) && (mv_good_counter < 16'd7680)) begin
         mv_good_counter <= mv_good_counter + 1'b1;
         mv_amp_disable <= 4'b1111;
     end 
@@ -264,33 +260,6 @@ begin
         mv_amp_disable <= 4'b1111;
         mv_good_counter <= 16'd0;
     end
-end
-
-   
-// --------------------------------------------------------------------------
-// Reset module
-//   - generate global reset signal, 
-//     assumes reset_shift = 0 at power up per spec
-// --------------------------------------------------------------------------
-always @(posedge(clkaux))
-begin
-    // power up with /reset inactive
-    if (reset_shift < 24) begin
-        reset_shift <= reset_shift + 1'b1;
-        reset <= 1;
-    end
-    // falling edge activates system reset
-    else if (reset_shift < 49) begin
-        reset_shift <= reset_shift + 1'b1;
-        reset <= 0;
-    end
-    // deactivate /reset to let system run
-    else if (reset_soft_trigger) begin
-        reset_shift <= 0;
-        reset <= 1;
-    end 
-    else
-        reset <= 1;
 end
 
 endmodule

@@ -1,6 +1,6 @@
 /*******************************************************************************
  *
- * Copyright(C) 2008 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2008-2020 ERC CISST, Johns Hopkins University.
  *
  * Debouncer works by changing the output only when the input remains steady
  * for a number of clock cycles (number of bits in the shift register).
@@ -16,7 +16,6 @@
 
 module Debounce(
     input  wire clk,      // clock to use for debouncing
-    input  wire reset,    // global reset signal
     input  wire sig_in,   // raw signal input
     output reg  sig_out   // debounced signal output
 );
@@ -41,12 +40,10 @@ assign all_ones = ~0;
 always @(posedge(clk))
     sig_shift <= { sig_shift[bits-2:0], sig_in };
 
-// output signal follows input only when shift register filled uniformally
-always @(posedge(clk) or negedge(reset))
+// output signal follows input only when shift register filled uniformly
+always @(posedge(clk))
 begin
-    if (reset == 0)
-        sig_out <= 0;
-    else if ((sig_shift==all_zeros) || (sig_shift==all_ones))
+    if ((sig_shift==all_zeros) || (sig_shift==all_ones))
         sig_out <= sig_shift[bits-1];
 end
 

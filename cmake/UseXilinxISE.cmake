@@ -3,9 +3,15 @@
 # This package assumes that find_package(XilinxISE) has already been called,
 # so that the XILINX_ISE programs have already been found.
 #
+# Macro: ise_ipcoregen
+# Parameters:
+#   - TARGET_NAME:        target name
+#   - XCO_SOURCE:         list of CoreGen Input files (.xco)
+#
 # Macro: ise_compile_fpga
 # Parameters:
 #   - PROJ_NAME:       the project name (most output files will use this name)
+#   - DEPENDENCIES:    dependencies for this target (e.g., IP cores)
 #   - FPGA_PARTNUM:    the FPGA part number
 #   - VERILOG_SOURCE:  list of Verilog source code (.v)
 #   - UCF_FILE:        User constraints file
@@ -17,7 +23,16 @@
 # PROJ_NAMES are FPGA1394QLA and FPGA1394EthQLA, while the corresponding PROJ_OUTPUT
 # are FPGA1394-QLA and FPGA1394Eth-QLA.
 #
-# This macro could be enhanced to accept parameters that provide options for
+# There are two implementations:
+#   - ise_compile_fpga:      this uses Xilinx XFLOW to do most of the work
+#   - ise_compile_fpga_old:  this calls the individual executable programs
+#
+# For ise_compile_fpga, the command line options are in "opt" files that are copied
+# from this directory to the build directory.
+#
+# For ise_compile_fpga_old, the command line options are included below.
+#
+# In both cases, the macros could be enhanced to accept parameters that provide options for
 # the various compilation steps. Presently, most options are left at their default
 # values, with a few exceptions noted. These settings are consistent with the ISE
 # project files, FPGA1394-QLA.xise and FPGA1394Eth-QLA.xise.
@@ -27,6 +42,91 @@ macro (ise_compile_fpga ...)
   # set all keywords and their values to ""
   set (FUNCTION_KEYWORDS
        PROJ_NAME
+       DEPENDENCIES
+       FPGA_PARTNUM
+       VERILOG_SOURCE
+       UCF_FILE
+       IPCORE_DIR
+       TOP_LEVEL
+       PROJ_OUTPUT)
+
+  # reset local variables
+  foreach(keyword ${FUNCTION_KEYWORDS})
+    set (${keyword} "")
+  endforeach(keyword)
+
+  # parse input
+  foreach (arg ${ARGV})
+    list (FIND FUNCTION_KEYWORDS ${arg} ARGUMENT_IS_A_KEYWORD)
+    if (${ARGUMENT_IS_A_KEYWORD} GREATER -1)
+      set (CURRENT_PARAMETER ${arg})
+      set (${CURRENT_PARAMETER} "")
+    else (${ARGUMENT_IS_A_KEYWORD} GREATER -1)
+      set (${CURRENT_PARAMETER} ${${CURRENT_PARAMETER}} ${arg})
+    endif (${ARGUMENT_IS_A_KEYWORD} GREATER -1)
+  endforeach (arg)
+
+  file(TO_NATIVE_PATH ${XILINX_ISE_XFLOW} XFLOW_NATIVE)
+
+  # Copy custom flow file (FLW) to build tree (customized to add promgen)
+  file (COPY "${XILINX_OPT_DIR}/${XILINX_FPGA_FLW_FILE}" DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
+
+  # Copy OPT files to build tree
+  file (COPY "${XILINX_OPT_DIR}/${XILINX_SYNTH_OPT_FILE}" DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
+  file (COPY "${XILINX_OPT_DIR}/${XILINX_IMPLEMENT_OPT_FILE}" DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
+  file (COPY "${XILINX_OPT_DIR}/${XILINX_BITGEN_OPT_FILE}" DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
+
+  # Create xflow command file (necessary because Linux shell interprets $ character following -g)
+  set (CMD_FILE "${CMAKE_CURRENT_BINARY_DIR}/${PROJ_NAME}-xflow.cmd")
+  file (WRITE  ${CMD_FILE} "-p         ${FPGA_PARTNUM}\n")
+  file (APPEND ${CMD_FILE} "-synth     ${XILINX_SYNTH_OPT_FILE}\n")
+  file (APPEND ${CMD_FILE} "-implement ${XILINX_IMPLEMENT_OPT_FILE}\n")
+  file (APPEND ${CMD_FILE} "-config    ${XILINX_BITGEN_OPT_FILE}\n")
+  file (APPEND ${CMD_FILE} "-rd        reports\n")
+  file (APPEND ${CMD_FILE} "-g         $top_level:${TOP_LEVEL}\n")
+  file (APPEND ${CMD_FILE} "-g         $ipcore_dir:${IPCORE_DIR}\n")
+  file (APPEND ${CMD_FILE} "-g         $ucf_file:${UCF_FILE}\n")
+  file (APPEND ${CMD_FILE} "-g         $proj_output:${PROJ_OUTPUT}\n")
+
+  # Prepare files used by XST (synthesis)
+  set (PRJ_FILE "${CMAKE_CURRENT_BINARY_DIR}/${PROJ_NAME}.prj")
+  file (WRITE ${PRJ_FILE} "")
+  foreach (f ${VERILOG_SOURCE})
+    file (APPEND ${PRJ_FILE} "verilog work \"${f}\"\n")
+  endforeach()
+
+  # Note: Had to add ${CMAKE_CURRENT_BINARY_DIR} to the following two custom commands
+  #       and target for CMake dependency checking to work properly.
+
+  add_custom_command (OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/${PROJ_OUTPUT}.mcs"
+                      COMMAND ${XFLOW_NATIVE} -f ${PROJ_NAME}-xflow.cmd ${PROJ_NAME}.prj
+                      DEPENDS ${VERILOG_SOURCE} ${DEPENDENCIES})
+
+  add_custom_target(${PROJ_NAME} ALL
+                    DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/${PROJ_OUTPUT}.mcs")
+
+  # Additional files to clean; ${PROJ_OUTPUT}.mcs is already handled by CMake, so here we
+  # add the other generated output files (first two lines) and various log and temporary files.
+  set(XILINX_CLEAN_FILES ${XILINX_CLEAN_FILES}
+                         ${PROJ_NAME}.ngc ${PROJ_NAME}.ngd ${PROJ_NAME}.pcf
+                         ${PROJ_NAME}_map.ncd ${PROJ_NAME}.ncd ${PROJ_NAME}.twr ${PROJ_NAME}.bit
+                         ${PROJ_NAME}.bgn ${PROJ_NAME}.bld ${PROJ_OUTPUT}.cfi ${PROJ_NAME}.drc
+                         ${PROJ_NAME}.lso ${PROJ_NAME}.pad ${PROJ_NAME}.par ${PROJ_NAME}.prm
+                         ${PROJ_NAME}.ptwx ${PROJ_NAME}.srp ${PROJ_NAME}.unroutes ${PROJ_NAME}.xpi
+                         ${PROJ_NAME}_map.map ${PROJ_NAME}_map.mrp ${PROJ_NAME}_map.ngm ${PROJ_NAME}_map.xrpt
+                         ${PROJ_NAME}_ngdbuild.xrpt ${PROJ_NAME}_pad.csv ${PROJ_NAME}_pad.txt
+                         ${PROJ_NAME}.xrpt ${PROJ_NAME}_summary.xml ${PROJ_NAME}_usage.xml)
+
+  set_directory_properties(PROPERTIES ADDITIONAL_MAKE_CLEAN_FILES "${XILINX_CLEAN_FILES}")
+
+endmacro (ise_compile_fpga)
+
+macro (ise_compile_fpga_old ...)
+
+  # set all keywords and their values to ""
+  set (FUNCTION_KEYWORDS
+       PROJ_NAME
+       DEPENDENCIES
        FPGA_PARTNUM
        VERILOG_SOURCE
        UCF_FILE
@@ -79,7 +179,7 @@ macro (ise_compile_fpga ...)
   # file (TO_NATIVE_PATH ${XST_FILE} XST_FILE_NATIVE)
 
   add_custom_target(${PROJ_NAME}-generate-xst
-                    DEPENDS ${VERILOG_SOURCE}
+                    DEPENDS ${VERILOG_SOURCE} ${DEPENDENCIES}
                     COMMENT "Scanning Verilog files")
 
   # XST Synthesis (Verilog --> NGC)
@@ -217,4 +317,52 @@ macro (ise_compile_fpga ...)
 
   set_directory_properties(PROPERTIES ADDITIONAL_MAKE_CLEAN_FILES ${XILINX_CLEAN_FILES})
 
-endmacro(ise_compile_fpga)
+endmacro(ise_compile_fpga_old)
+
+macro (ise_ipcoregen ...)
+
+  # set all keywords and their values to ""
+  set (FUNCTION_KEYWORDS
+       TARGET_NAME
+       XCO_SOURCE)
+
+  # reset local variables
+  foreach(keyword ${FUNCTION_KEYWORDS})
+    set (${keyword} "")
+  endforeach(keyword)
+
+  # parse input
+  foreach (arg ${ARGV})
+    list (FIND FUNCTION_KEYWORDS ${arg} ARGUMENT_IS_A_KEYWORD)
+    if (${ARGUMENT_IS_A_KEYWORD} GREATER -1)
+      set (CURRENT_PARAMETER ${arg})
+      set (${CURRENT_PARAMETER} "")
+    else (${ARGUMENT_IS_A_KEYWORD} GREATER -1)
+      set (${CURRENT_PARAMETER} ${${CURRENT_PARAMETER}} ${arg})
+    endif (${ARGUMENT_IS_A_KEYWORD} GREATER -1)
+  endforeach (arg)
+
+  file(TO_NATIVE_PATH ${XILINX_ISE_COREGEN} COREGEN_NATIVE)
+
+  # Copy CoreGen project file to build tree
+  file (COPY "${CMAKE_CURRENT_SOURCE_DIR}/coregen.cgp" DESTINATION "${CMAKE_CURRENT_BINARY_DIR}")
+
+  # Create batch file for CoreGen and copy xco files to build tree
+  set (COREGEN_FILE "${CMAKE_CURRENT_BINARY_DIR}/${TARGET_NAME}.cmd")
+  file (WRITE ${COREGEN_FILE} "")
+  foreach (f ${XCO_SOURCE})
+    file (COPY "${CMAKE_CURRENT_SOURCE_DIR}/${f}" DESTINATION "${CMAKE_CURRENT_BINARY_DIR}")
+    file (APPEND ${COREGEN_FILE} "EXECUTE \"${f}\"\n")
+  endforeach()
+
+  # CoreGen (XCO --> Verilog)
+  add_custom_command (OUTPUT "coregen.log"
+                      COMMAND ${COREGEN_NATIVE} -b "${TARGET_NAME}.cmd"
+                                                -p "${CMAKE_CURRENT_BINARY_DIR}"
+                      DEPENDS "${XCO_SOURCE}"
+                      COMMENT "Running COREGEN to generate IP cores")
+
+  add_custom_target(${TARGET_NAME} ALL
+                    DEPENDS "coregen.log")
+
+endmacro (ise_ipcoregen)

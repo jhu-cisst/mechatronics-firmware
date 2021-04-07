@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2012-2013 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2012-2020 ERC CISST, Johns Hopkins University.
  *
  * Module: M25P16
  *
@@ -38,7 +38,6 @@
 
 module M25P16(
     input  wire clk,                 // input clock
-    input  wire reset,               // global reset signal
     input  wire[31:0] prom_cmd,      // command input (from Firewire)
     output wire[31:0] prom_status,   // PROM interface status
     output reg[31:0] prom_result,    // result (to Firewire)
@@ -57,6 +56,8 @@ module M25P16(
     output reg prom_cs               // /CS to M25P16
 );
 
+initial prom_cs = 1'bz;
+
 // State machine
 localparam [2:0]
     PROM_IDLE = 0,
@@ -69,7 +70,9 @@ localparam [2:0]
 
 // registers
 reg       io_disabled;
+initial   io_disabled = 1'b1;
 reg[2:0]  state;           // state machine 
+initial   state = PROM_IDLE;
 reg[6:0]  seqn;            // 7-bit counter for sequencing operation
 reg[6:0]  SendCnt;         // 2*NumBits-1
 reg[6:0]  RecvCnt;         // 2*NumBits-1 (0 if no bits to receive)
@@ -113,223 +116,209 @@ assign prom_status[2:0] = state;
 assign prom_mosi = io_disabled ? 1'bz : prom_data[31];
 assign prom_sclk = io_disabled ? 1'bz : seqn[0];
 
-always @(posedge(clk) or negedge(reset))
+always @(posedge(clk))
 begin
-    if (reset == 0) begin
-        io_disabled <= 1'b1;
-        prom_cs     <= 1'bz;
-        prom_result <= 32'd0;
-        prom_debug  <= 16'd0;
-        blk_wrt     <= 1'b0;
-        wr_index    <= 7'd0;
-        rd_index    <= 7'd0;
-        state       <= PROM_IDLE;
+    // handle block read, data is muxed in top module
+    prom_rdata <= data_block[prom_blk_raddr];
+
+    // handle block write
+    if (prom_blk_wen && blk_wrt) begin       // receive one quadlet of the block write
+        if (prom_blk_waddr == wr_index[5:0]) begin
+            data_block[wr_index] <= prom_cmd;
+            // Update write index
+            wr_index <= wr_index + 1'b1;
+        end
+        else  begin // error, unexpected block write address
+            prom_debug <= { 2'b0, prom_blk_waddr, 1'b0, wr_index };
+        end
+    end
+    else if (prom_blk_end) begin
+        // finish receiving data from block write; will still be writing to PROM
+        blk_wrt <= 1'b0;
     end
 
-    else begin
+    // SPI state machine
+    case (state)
 
-        // handle block read, data is muxed in top module
-        prom_rdata <= data_block[prom_blk_raddr];
+    PROM_IDLE: begin
 
-        // handle block write
-        if (prom_blk_wen && blk_wrt) begin       // receive one quadlet of the block write
-            if (prom_blk_waddr == wr_index[5:0]) begin
-                data_block[wr_index] <= prom_cmd;
-                // Update write index
-                wr_index <= wr_index + 1'b1;
-            end
-            else  begin // error, unexpected block write address
-                prom_debug <= { 2'b0, prom_blk_waddr, 1'b0, wr_index };
-            end
+      // See Table 5: Command Set Codes (P17)
+      if (prom_reg_wen) begin
+          seqn <= 7'd0;
+          prom_data <= prom_cmd;
+          blk_wrt <= 1'b0;
+          wr_index <= 7'd0;
+          case (prom_cmd[31:24])
+             `CMD_IDLE_M25P16: begin    // Do nothing
+             end
+             `CMD_WREN_M25P16: begin    // Write Enable
+                SendCnt <= 7'd15;
+                RecvCnt <= 7'd0;
+                RecvQuadCnt <= 6'd0;
+                state <= PROM_CHIP_SELECT;
+             end
+             `CMD_WRDI_M25P16: begin    // Write Disable
+                SendCnt <= 7'd15;
+                RecvCnt <= 7'd0;
+                RecvQuadCnt <= 6'd0;
+                state <= PROM_CHIP_SELECT;
+             end
+             `CMD_RDID_M25P16: begin    // Read ID (only first 3 bytes)
+                SendCnt <= 7'd15;
+                RecvCnt <= 7'd47;
+                RecvQuadCnt <= 6'd0;
+                state <= PROM_CHIP_SELECT;
+             end
+             `CMD_RDSR_M25P16: begin    // Read Status Register
+                SendCnt <= 7'd15;
+                RecvCnt <= 7'd15;
+                RecvQuadCnt <= 6'd0;
+                state <= PROM_CHIP_SELECT;
+             end
+             `CMD_WRSR_M25P16: begin    // Write Status Register
+                SendCnt <= 7'd31;
+                RecvCnt <= 7'd0;
+                RecvQuadCnt <= 6'd0;
+                state <= PROM_CHIP_SELECT;
+             end
+             `CMD_READ_M25P16: begin    // Read Data (256 bytes)
+                SendCnt <= 7'd63;
+                RecvCnt <= 7'd63;
+                RecvQuadCnt <= 6'h3f;
+                state <= PROM_CHIP_SELECT;
+             end
+             `CMD_FTRD_M25P16: begin    // Fast Read Data (256 bytes)
+                SendCnt <= 7'd97;   // needs a dummy byte
+                RecvCnt <= 7'd63;
+                RecvQuadCnt <= 6'h3f;
+                state <= PROM_CHIP_SELECT;
+             end
+             `CMD_SERA_M25P16: begin    // Sector Erase
+                SendCnt <= 7'd63;
+                RecvCnt <= 7'd0;
+                RecvQuadCnt <= 6'd0;
+                state <= PROM_CHIP_SELECT;
+             end
+             `CMD_BERA_M25P16: begin    // Bulk Erase
+                SendCnt <= 7'd15;
+                RecvCnt <= 7'd0;
+                RecvQuadCnt <= 6'd0;
+                state <= PROM_CHIP_SELECT;
+             end
+             `CMD_DPWR_M25P16: begin    // Deep Power Down
+                SendCnt <= 7'd15;
+                RecvCnt <= 7'd0;
+                RecvQuadCnt <= 6'd0;
+                state <= PROM_CHIP_SELECT;
+             end
+             `CMD_WAKE_M25P16: begin    // Release from deep power down
+                SendCnt <= 7'd63;     // 3 dummy bytes
+                RecvCnt <= 7'd15;     // "old style" ID = 0x14
+                RecvQuadCnt <= 6'd0;
+                state <= PROM_CHIP_SELECT;
+             end
+             8'hFF: begin    // Bit I/O for debugging
+                // Format (d) (mmmm) (bbbb)   (m=mask, b=bit)
+                // Enable I/O if either mask (XMOSI or XCCLK) is set
+                io_disabled <= (prom_cmd[6:4] == 3'b0x0) ? 1'b1 : 1'b0;
+                prom_data[31] <= prom_cmd[4] ? prom_cmd[0] : prom_data[31];        // XMOSI
+                seqn[0] <= prom_cmd[6] ? prom_cmd[2] : seqn[0];                    // XCCLK
+                prom_cs <= prom_cmd[7] ? prom_cmd[3] : prom_cs;                    // XCSn
+             end
+          endcase // case (prom_cmd[31:24])
+      end // if (prom_reg_wen)
+
+      else if (prom_blk_start && !blk_wrt) begin     // start of block write
+          SendCnt <= 7'd63;
+          RecvCnt <= 7'd0;
+          blk_wrt <= 1'b1;
+          wr_index <= 7'd0;
+          prom_debug <= 16'd0;
+          // Select the chip, then stay in IDLE state until data
+          // is available to be written to PROM
+          io_disabled <= 1'b0;
+          prom_cs     <= 1'b0;
+          prom_result <= 32'd0;
+      end
+      else if (blk_wrt && (wr_index != 7'd0)) begin
+          // Data is available, so start writing to PROM
+          prom_data <= data_block[0];
+          rd_index <= 7'd1;
+          seqn <= 7'd0;
+          state <= PROM_WRITE_BLOCK;
+      end
+
+    end // case: PROM_IDLE
+
+    PROM_CHIP_SELECT: begin
+       io_disabled <= 1'b0;
+       prom_cs     <= 1'b0;
+       prom_result <= 32'd0;
+       state <= PROM_WRITE;
+    end
+
+    PROM_WRITE: begin
+        if (prom_sclk == 1'b1) begin     // update data on falling sclk
+            prom_data <= prom_data<<1;
         end
-        else if (prom_blk_end) begin 
-            // finish receiving data from block write; will still be writing to PROM
-            blk_wrt <= 1'b0;
+        if (seqn == SendCnt) begin
+           state <= (RecvCnt == 7'd0) ? PROM_CHIP_DESELECT : PROM_READ;
+           seqn <= 7'd0;
         end
+        else seqn <= seqn + 1'b1;        // counter, also creates sclk
+    end // case: PROM_WRITE
 
-        // SPI state machine 
-        case (state)
-
-        PROM_IDLE: begin
-           
-          // See Table 5: Command Set Codes (P17)
-          if (prom_reg_wen) begin
-              seqn <= 7'd0;
-              prom_data <= prom_cmd;
-              blk_wrt <= 1'b0;
-              wr_index <= 7'd0;
-              case (prom_cmd[31:24])
-                 `CMD_IDLE_M25P16: begin    // Do nothing
-                 end
-                 `CMD_WREN_M25P16: begin    // Write Enable
-                    SendCnt <= 7'd15;
-                    RecvCnt <= 7'd0;
-                    RecvQuadCnt <= 6'd0;
-                    state <= PROM_CHIP_SELECT;
-                 end
-                 `CMD_WRDI_M25P16: begin    // Write Disable
-                    SendCnt <= 7'd15;
-                    RecvCnt <= 7'd0;
-                    RecvQuadCnt <= 6'd0;
-                    state <= PROM_CHIP_SELECT;
-                 end
-                 `CMD_RDID_M25P16: begin    // Read ID (only first 3 bytes)
-                    SendCnt <= 7'd15;
-                    RecvCnt <= 7'd47;
-                    RecvQuadCnt <= 6'd0;
-                    state <= PROM_CHIP_SELECT;
-                 end
-                 `CMD_RDSR_M25P16: begin    // Read Status Register
-                    SendCnt <= 7'd15;
-                    RecvCnt <= 7'd15;
-                    RecvQuadCnt <= 6'd0;
-                    state <= PROM_CHIP_SELECT;
-                 end
-                 `CMD_WRSR_M25P16: begin    // Write Status Register
-                    SendCnt <= 7'd31;
-                    RecvCnt <= 7'd0;
-                    RecvQuadCnt <= 6'd0;
-                    state <= PROM_CHIP_SELECT;
-                 end
-                 `CMD_READ_M25P16: begin    // Read Data (256 bytes)
-                    SendCnt <= 7'd63;
-                    RecvCnt <= 7'd63;
-                    RecvQuadCnt <= 6'h3f;
-                    state <= PROM_CHIP_SELECT;
-                 end
-                 `CMD_FTRD_M25P16: begin    // Fast Read Data (256 bytes)
-                    SendCnt <= 7'd97;   // needs a dummy byte
-                    RecvCnt <= 7'd63;
-                    RecvQuadCnt <= 6'h3f;
-                    state <= PROM_CHIP_SELECT;
-                 end
-                 `CMD_SERA_M25P16: begin    // Sector Erase
-                    SendCnt <= 7'd63;
-                    RecvCnt <= 7'd0;
-                    RecvQuadCnt <= 6'd0;
-                    state <= PROM_CHIP_SELECT;
-                 end
-                 `CMD_BERA_M25P16: begin    // Bulk Erase
-                    SendCnt <= 7'd15;
-                    RecvCnt <= 7'd0;
-                    RecvQuadCnt <= 6'd0;
-                    state <= PROM_CHIP_SELECT;
-                 end
-                 `CMD_DPWR_M25P16: begin    // Deep Power Down
-                    SendCnt <= 7'd15;
-                    RecvCnt <= 7'd0;
-                    RecvQuadCnt <= 6'd0;
-                    state <= PROM_CHIP_SELECT;
-                 end
-                 `CMD_WAKE_M25P16: begin    // Release from deep power down
-                    SendCnt <= 7'd63;     // 3 dummy bytes
-                    RecvCnt <= 7'd15;     // "old style" ID = 0x14
-                    RecvQuadCnt <= 6'd0;
-                    state <= PROM_CHIP_SELECT;
-                 end
-                 8'hFF: begin    // Bit I/O for debugging
-                    // Format (d) (mmmm) (bbbb)   (m=mask, b=bit)
-                    // Enable I/O if either mask (XMOSI or XCCLK) is set
-                    io_disabled <= (prom_cmd[6:4] == 3'b0x0) ? 1'b1 : 1'b0;
-                    prom_data[31] <= prom_cmd[4] ? prom_cmd[0] : prom_data[31];        // XMOSI
-                    seqn[0] <= prom_cmd[6] ? prom_cmd[2] : seqn[0];                    // XCCLK
-                    prom_cs <= prom_cmd[7] ? prom_cmd[3] : prom_cs;                    // XCSn
-                 end
-              endcase // case (prom_cmd[31:24])
-          end // if (prom_reg_wen)
-           
-          else if (prom_blk_start && !blk_wrt) begin     // start of block write
-              SendCnt <= 7'd63;
-              RecvCnt <= 7'd0;
-              blk_wrt <= 1'b1;
-              wr_index <= 7'd0;
-              prom_debug <= 16'd0;
-              // Select the chip, then stay in IDLE state until data
-              // is available to be written to PROM
-              io_disabled <= 1'b0;
-              prom_cs     <= 1'b0;
-              prom_result <= 32'd0;
-          end
-          else if (blk_wrt && (wr_index != 7'd0)) begin
-              // Data is available, so start writing to PROM
-              prom_data <= data_block[0];
-              rd_index <= 7'd1;
-              seqn <= 7'd0;
-              state <= PROM_WRITE_BLOCK;
-          end
-
-        end // case: PROM_IDLE
-
-        PROM_CHIP_SELECT: begin
-           io_disabled <= 1'b0;
-           prom_cs     <= 1'b0;
-           prom_result <= 32'd0;
-           state <= PROM_WRITE;
+    PROM_WRITE_BLOCK: begin
+        if (prom_sclk == 1'b1) begin     // update data on falling sclk
+            prom_data <= prom_data<<1;
         end
-           
-        PROM_WRITE: begin
-            if (prom_sclk == 1'b1) begin     // update data on falling sclk
-                prom_data <= prom_data<<1;
-            end
-            if (seqn == SendCnt) begin
-               state <= (RecvCnt == 7'd0) ? PROM_CHIP_DESELECT : PROM_READ;
+        if (seqn == SendCnt) begin
+           seqn <= 7'd0;
+           // Because the writer (Firewire block) is much faster than the reader,
+           // we assume we are done when the reader catches up to the writer.
+           if (rd_index == wr_index) begin
+              // Return number of characters written
+              prom_result <= { 25'd0, rd_index };
+              state <= PROM_CHIP_DESELECT;
+           end
+           else begin
+              prom_data <= data_block[rd_index];
+              rd_index <= rd_index + 1'd1;
+           end
+        end
+        else seqn <= seqn + 1'b1;             // counter, also creates sclk
+    end // case: PROM_WRITE_BLOCK
+
+    PROM_READ: begin
+        if (prom_sclk == 1'b0) begin
+           prom_result <= { prom_result[30:0], prom_miso };
+        end
+        if (seqn == RecvCnt) begin
+           if (RecvQuadCnt != 6'd0) begin   // if reading more than one quad
                seqn <= 7'd0;
-            end
-            else seqn <= seqn + 1'b1;        // counter, also creates sclk
-        end // case: PROM_WRITE
-
-        PROM_WRITE_BLOCK: begin
-            if (prom_sclk == 1'b1) begin     // update data on falling sclk
-                prom_data <= prom_data<<1;
-            end
-            if (seqn == SendCnt) begin
-               seqn <= 7'd0;
-               // Because the writer (Firewire block) is much faster than the reader,
-               // we assume we are done when the reader catches up to the writer.
-               if (rd_index == wr_index) begin
-                  // Return number of characters written
-                  prom_result <= { 25'd0, rd_index };
-                  state <= PROM_CHIP_DESELECT;
-               end
-               else begin
-                  prom_data <= data_block[rd_index];
-                  rd_index <= rd_index + 1'd1;
-               end
-            end
-            else seqn <= seqn + 1'b1;             // counter, also creates sclk
-        end // case: PROM_WRITE_BLOCK
-
-        PROM_READ: begin
-            if (prom_sclk == 1'b0) begin
-               prom_result <= { prom_result[30:0], prom_miso };
-            end
-            if (seqn == RecvCnt) begin
-               if (RecvQuadCnt != 6'd0) begin   // if reading more than one quad
-                   seqn <= 7'd0;
-                   data_block[wr_index[5:0]] <= prom_result;
-                   prom_result <= { 25'd0, (wr_index + 1'b1) };  // number of bytes stored
-                   wr_index[5:0] <= wr_index[5:0] + 1'b1;
-               end
-               if (wr_index[5:0] == RecvQuadCnt)
-                   state <= PROM_CHIP_DESELECT;
-            end
-            else
-                seqn <= seqn + 1'b1;
+               data_block[wr_index[5:0]] <= prom_result;
+               prom_result <= { 25'd0, (wr_index + 1'b1) };  // number of bytes stored
+               wr_index[5:0] <= wr_index[5:0] + 1'b1;
+           end
+           if (wr_index[5:0] == RecvQuadCnt)
+               state <= PROM_CHIP_DESELECT;
         end
-          
-        PROM_CHIP_DESELECT: begin
-           prom_cs <= 1'b1;
-           state <= PROM_IO_DISABLE;
-        end
+        else
+            seqn <= seqn + 1'b1;
+    end
 
-        PROM_IO_DISABLE: begin
-           io_disabled <= 1'b1;
-           prom_cs <= 1'bz;
-           state <= PROM_IDLE;
-        end
+    PROM_CHIP_DESELECT: begin
+       prom_cs <= 1'b1;
+       state <= PROM_IO_DISABLE;
+    end
 
-        endcase // case (state)
-    end // else: !if(reset == 0)
+    PROM_IO_DISABLE: begin
+       io_disabled <= 1'b1;
+       prom_cs <= 1'bz;
+       state <= PROM_IDLE;
+    end
+
+    endcase // case (state)
 end
 
 endmodule

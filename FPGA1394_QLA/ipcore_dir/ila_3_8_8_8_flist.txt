@@ -1,13 +1,16 @@
 # Output products list for <ila_3_8_8_8>
 ila_3_8_8_8.asy
 ila_3_8_8_8.cdc
-ila_3_8_8_8.ejp
+ila_3_8_8_8.constraints/ila_3_8_8_8.ucf
+ila_3_8_8_8.constraints/ila_3_8_8_8.xdc
 ila_3_8_8_8.gise
 ila_3_8_8_8.ncf
 ila_3_8_8_8.ngc
+ila_3_8_8_8.ucf
 ila_3_8_8_8.v
 ila_3_8_8_8.veo
 ila_3_8_8_8.xco
+ila_3_8_8_8.xdc
 ila_3_8_8_8.xise
 ila_3_8_8_8_flist.txt
 ila_3_8_8_8_readme.txt

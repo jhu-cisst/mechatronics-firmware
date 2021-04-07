@@ -1,7 +1,7 @@
 ##############################################################
 #
-# Xilinx Core Generator version 13.4
-# Date: Sat Dec 10 16:00:01 2016
+# Xilinx Core Generator version 14.7
+# Date: Fri May  8 06:15:55 2020
 #
 ##############################################################
 #
@@ -12,7 +12,7 @@
 #
 ##############################################################
 #
-#  Generated from component: xilinx.com:ip:blk_mem_gen:6.3
+#  Generated from component: xilinx.com:ip:blk_mem_gen:7.3
 #
 ##############################################################
 #
@@ -31,12 +31,12 @@ SET implementationfiletype = Ngc
 SET package = fgg484
 SET removerpms = false
 SET simulationfiles = Behavioral
-SET speedgrade = -3
+SET speedgrade = -2
 SET verilogsim = true
 SET vhdlsim = false
 # END Project Options
 # BEGIN Select
-SELECT Block_Memory_Generator xilinx.com:ip:blk_mem_gen:6.3
+SELECT Block_Memory_Generator xilinx.com:ip:blk_mem_gen:7.3
 # END Select
 # BEGIN Parameters
 CSET additional_inputs_for_power_estimation=false
@@ -60,6 +60,7 @@ CSET error_injection_type=Single_Bit_Error_Injection
 CSET fill_remaining_memory_locations=true
 CSET interface_type=Native
 CSET load_init_file=false
+CSET mem_file=no_Mem_file_loaded
 CSET memory_type=Simple_Dual_Port_RAM
 CSET operating_mode_a=READ_FIRST
 CSET operating_mode_b=READ_FIRST
@@ -89,6 +90,7 @@ CSET reset_priority_b=CE
 CSET reset_type=SYNC
 CSET softecc=false
 CSET use_axi_id=false
+CSET use_bram_block=Stand_Alone
 CSET use_byte_write_enable=false
 CSET use_error_injection_pins=false
 CSET use_regcea_pin=false
@@ -100,7 +102,7 @@ CSET write_width_a=32
 CSET write_width_b=32
 # END Parameters
 # BEGIN Extra information
-MISC pkg_timestamp=2011-10-21T13:54:23Z
+MISC pkg_timestamp=2012-11-19T16:22:25Z
 # END Extra information
 GENERATE
-# CRC: e9bc4bfd
+# CRC: a29872df
