@@ -21,6 +21,10 @@
 
 `define HAS_ETHERNET
 
+// Define DIAGNOSTIC for diagnostic build, where DAC output is determined by
+// rotary switch setting (0-15).
+// `define DIAGNOSTIC
+
 // clock information
 // clk1394: 49.152 MHz 
 // sysclk: same as clk1394 49.152 MHz
@@ -487,6 +491,9 @@ wire[15:0] cur_cmd[1:4];
 // the dac controller manages access to the dacs
 CtrlDac dac(
     .sysclk(sysclk),
+`ifdef DIAGNOSTIC
+    .board_id(board_id),
+`endif
     .sclk(IO1[21]),
     .mosi(IO1[20]),
     .csel(IO1[22]),

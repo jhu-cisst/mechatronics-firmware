@@ -27,7 +27,11 @@
 //`define USE_CHIPSCOPE
 
 // firmware constants
-`define VERSION 32'h514C4131       // hard-wired version number "QLA1" = 0x514C4131 
+`ifdef DIAGNOSTIC
+`define VERSION 32'h54455354       // hard-wired version number "TEST" = 0x54455354
+`else
+`define VERSION 32'h514C4131       // hard-wired version number "QLA1" = 0x514C4131
+`endif
 `define FW_VERSION 32'h07          // firmware version = 7
 
 // define board components
