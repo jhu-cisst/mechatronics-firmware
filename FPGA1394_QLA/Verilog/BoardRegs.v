@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2008-2020 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2008-2021 ERC CISST, Johns Hopkins University.
  *
  * This module contains a register file dedicated to general board parameters.
  * Separate register files are maintained for each I/O channel (SpiCtrl).
@@ -15,6 +15,7 @@
  *     05/08/13    Zihan Chen          Fix watchdog 
  *     05/19/13    Zihan Chen          Add mv_good 40 ms sleep
  *     09/23/15    Peter Kazanzides    Moved DOUT code to CtrlDout.v
+ *     10/15/19    Jintan Zhang        Implemented watchdog period led feedback 
  *     07/03/20    Peter Kazanzides    Changing reset to reboot
  */
 
@@ -85,6 +86,9 @@ module BoardRegs(
 
     output wire[31:0] reg_status,  // Status register (for reading)
     output wire[31:0] reg_digin,   // Digital I/O register (for reading)
+    output reg      wdog_period_led,    // 1 -> LED1 displays wdog_period_status
+    output reg[2:0] wdog_period_status,
+    output reg wdog_timeout,       // watchdog timeout status flag
     output reg[31:0] reg_debug     // for debug purpose only
 );
 
@@ -100,7 +104,6 @@ module BoardRegs(
 
     // watchdog timer
     wire wdog_clk;              // watchdog clock
-    reg  wdog_timeout;          // watchdog timeout status flag
     reg[15:0] wdog_period;      // watchdog period, user writable
     initial wdog_period = 16'h1680;  // 0x1680 == 30 msec
     reg[15:0] wdog_count;       // watchdog timer counter
@@ -178,7 +181,7 @@ always @(posedge(sysclk))
         end
         `REG_PHYCTRL: phy_ctrl <= reg_wdata[15:0];
         `REG_PHYDATA: phy_data <= reg_wdata[15:0];
-        `REG_TIMEOUT: wdog_period <= reg_wdata[15:0];
+        `REG_TIMEOUT: {wdog_period_led, wdog_period} <= {reg_wdata[31], reg_wdata[15:0]};
         // Write to DOUT is handled in CtrlDout.v
         // Write to PROM command register (8) is handled in M25P16.v
         // Write to IP address is handled in EthernetIO.v
@@ -190,9 +193,9 @@ always @(posedge(sysclk))
     else begin
         case (reg_raddr[3:0])
         `REG_STATUS: reg_rdata <= reg_status;
-        `REG_PHYCTRL: reg_rdata <= phy_ctrl;
-        `REG_PHYDATA: reg_rdata <= phy_data;
-        `REG_TIMEOUT: reg_rdata <= wdog_period;
+        `REG_PHYCTRL: reg_rdata <= {16'd0, phy_ctrl};
+        `REG_PHYDATA: reg_rdata <= {16'd0, phy_data};
+        `REG_TIMEOUT: reg_rdata <= {wdog_period_led, 15'd0, wdog_period};
         `REG_VERSION: reg_rdata <= `VERSION;
         `REG_TEMPSNS: reg_rdata <= {16'd0, temp_sense};
         `REG_DIGIOUT: reg_rdata <= dout;
@@ -210,7 +213,11 @@ always @(posedge(sysclk))
 
         // Disable axes when wdog timeout or safety amp disable. Note the minor efficiency gain
         // below by combining safety_amp_disable with !wdog_timeout.
+`ifdef DIAGNOSTIC
+        reg_disable[3:0] <= reg_disable[3:0] | (wdog_timeout ? 4'b1111 : 4'b0000);
+`else
         reg_disable[3:0] <= reg_disable[3:0] | (wdog_timeout ? 4'b1111 : safety_amp_disable[4:1]);
+`endif
         // Turn off dout_cfg_reset in case it was previously set
         dout_cfg_reset <= 1'b0;
     end
@@ -222,6 +229,29 @@ end
 // derive watchdog clock
 ClkDiv divWdog(sysclk, wdog_clk);
 defparam divWdog.width = `WIDTH_WATCHDOG;
+
+// assign phase states to wdog_period_status
+always @(wdog_period)                           // executes if wdog_period is updated
+begin
+    if (wdog_period == 16'h0) begin
+        wdog_period_status <= `WDOG_DISABLE;      // watchdog period = 0ms
+    end
+    else if (wdog_period <= 16'h2580) begin
+        wdog_period_status <= `WDOG_PHASE_ONE;    // watchdog period between 0ms and 50 ms
+    end
+    else if (wdog_period <= 16'h4B00) begin
+        wdog_period_status <= `WDOG_PHASE_TWO;    // watchdog period between 50ms and 100 ms
+    end
+    else if (wdog_period <= 16'h7080) begin
+        wdog_period_status <= `WDOG_PHASE_THREE;  // watchdog period between 100ms and 150 ms
+    end
+    else if (wdog_period <= 16'h9600) begin
+        wdog_period_status <= `WDOG_PHASE_FOUR;   // watchdog period between 150ms and 200 ms
+    end
+    else begin
+        wdog_period_status <= `WDOG_PHASE_FIVE;   // watchdog period larger than 200ms
+    end
+end
 
 // watchdog timer and flag, cleared via any register write
 always @(posedge(wdog_clk) or posedge(reg_wen) or posedge(powerup_cmd))

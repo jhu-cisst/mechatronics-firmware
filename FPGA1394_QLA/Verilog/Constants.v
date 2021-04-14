@@ -3,12 +3,13 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2013-2020 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2013-2021 ERC CISST, Johns Hopkins University.
  *
  * Purpose: Global constants e.g. device address
  * 
  * Revision history
  *     10/26/13    Zihan Chen    Initial revision
+ *     11/14/19    Jintan Zhang  Added watchdog phase contant 
  */
  
  /**************************************************************
@@ -27,7 +28,11 @@
 //`define USE_CHIPSCOPE
 
 // firmware constants
-`define VERSION 32'h514C4131       // hard-wired version number "QLA1" = 0x514C4131 
+`ifdef DIAGNOSTIC
+`define VERSION 32'h54455354       // hard-wired version number "TEST" = 0x54455354
+`else
+`define VERSION 32'h514C4131       // hard-wired version number "QLA1" = 0x514C4131
+`endif
 `define FW_VERSION 32'h07          // firmware version = 7
 
 // define board components
@@ -109,5 +114,14 @@
 `define LREQ_REG_WR 3'd5          // register write header
 `define LREQ_ACCEL 3'd6           // async arbitration acceleration
 `define LREQ_RES 3'd7             // reserved, presumably do nothing
+
+// Watchdog period status 
+`define WDOG_DISABLE     3'b0     // watchdog period = 0ms (disabled)
+`define WDOG_TIMEOUT     3'b110   // watchdog timeout has occurred
+`define WDOG_PHASE_ONE   3'b001   // watchdog period between 0ms and 50 ms
+`define WDOG_PHASE_TWO   3'b010   // watchdog period between 50ms and 100 ms
+`define WDOG_PHASE_THREE 3'b011   // watchdog period between 100ms and 150 ms
+`define WDOG_PHASE_FOUR  3'b100   // watchdog period between 150ms and 200 ms
+`define WDOG_PHASE_FIVE  3'b101   // watchdog period larger than 200ms
 
 `endif  // _fpgaqla_constants_v_
