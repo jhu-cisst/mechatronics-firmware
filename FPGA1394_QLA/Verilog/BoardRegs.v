@@ -86,6 +86,7 @@ module BoardRegs(
 
     output wire[31:0] reg_status,  // Status register (for reading)
     output wire[31:0] reg_digin,   // Digital I/O register (for reading)
+    output reg      wdog_period_led,    // 1 -> LED1 displays wdog_period_status
     output reg[2:0] wdog_period_status,
     output reg wdog_timeout,       // watchdog timeout status flag
     output reg[31:0] reg_debug     // for debug purpose only
@@ -180,7 +181,7 @@ always @(posedge(sysclk))
         end
         `REG_PHYCTRL: phy_ctrl <= reg_wdata[15:0];
         `REG_PHYDATA: phy_data <= reg_wdata[15:0];
-        `REG_TIMEOUT: wdog_period <= reg_wdata[15:0];
+        `REG_TIMEOUT: {wdog_period_led, wdog_period} <= {reg_wdata[31], reg_wdata[15:0]};
         // Write to DOUT is handled in CtrlDout.v
         // Write to PROM command register (8) is handled in M25P16.v
         // Write to IP address is handled in EthernetIO.v
@@ -192,9 +193,9 @@ always @(posedge(sysclk))
     else begin
         case (reg_raddr[3:0])
         `REG_STATUS: reg_rdata <= reg_status;
-        `REG_PHYCTRL: reg_rdata <= phy_ctrl;
-        `REG_PHYDATA: reg_rdata <= phy_data;
-        `REG_TIMEOUT: reg_rdata <= wdog_period;
+        `REG_PHYCTRL: reg_rdata <= {16'd0, phy_ctrl};
+        `REG_PHYDATA: reg_rdata <= {16'd0, phy_data};
+        `REG_TIMEOUT: reg_rdata <= {wdog_period_led, 15'd0, wdog_period};
         `REG_VERSION: reg_rdata <= `VERSION;
         `REG_TEMPSNS: reg_rdata <= {16'd0, temp_sense};
         `REG_DIGIOUT: reg_rdata <= dout;
