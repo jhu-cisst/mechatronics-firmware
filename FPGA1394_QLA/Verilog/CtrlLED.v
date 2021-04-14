@@ -18,10 +18,8 @@
 module CtrlLED(
     input wire sysclk,
     input wire clk_12hz,
-`ifdef WDOG_LED
     input wire[2:0] wdog_period_status,
-    input wire wdog_timeout_led,
-`endif
+    input wire  wdog_timeout,
     output wire led1_grn,
     output wire led1_red,
     output wire led2_grn,
@@ -173,9 +171,9 @@ begin
 end
 
 // assign watchdog period status to led_mode  
-always @(wdog_period_status or wdog_timeout_led)
+always @(wdog_period_status or wdog_timeout)
 begin
-    if(!wdog_timeout_led) begin
+    if(!wdog_timeout) begin
         led_mode <= wdog_period_status;
     end
     else begin

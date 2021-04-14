@@ -86,12 +86,9 @@ module BoardRegs(
 
     output wire[31:0] reg_status,  // Status register (for reading)
     output wire[31:0] reg_digin,   // Digital I/O register (for reading)
-    output reg[31:0] reg_debug     // for debug purpose only
-`ifdef WDOG_LED
-    ,
     output reg[2:0] wdog_period_status,
-    output reg wdog_timeout_led
-`endif
+    output reg wdog_timeout,       // watchdog timeout status flag
+    output reg[31:0] reg_debug     // for debug purpose only
 );
 
     // -------------------------------------------------------------------------
@@ -106,14 +103,9 @@ module BoardRegs(
 
     // watchdog timer
     wire wdog_clk;              // watchdog clock
-    reg  wdog_timeout;          // watchdog timeout status flag
     reg[15:0] wdog_period;      // watchdog period, user writable
     initial wdog_period = 16'h1680;  // 0x1680 == 30 msec
     reg[15:0] wdog_count;       // watchdog timer counter
-
-`ifdef WDOG_LED
-    reg[15:0] wdog_healthy_period; // wdog_healthy_period, user writable 
-`endif
 
     // mv good timer
     reg[15:0] mv_good_counter;  // mv_good counter
@@ -237,7 +229,6 @@ end
 ClkDiv divWdog(sysclk, wdog_clk);
 defparam divWdog.width = `WIDTH_WATCHDOG;
 
-`ifdef WDOG_LED
 // assign phase states to wdog_period_status
 always @(wdog_period)                           // executes if wdog_period is updated
 begin
@@ -260,7 +251,6 @@ begin
         wdog_period_status <= `WDOG_PHASE_FIVE;   // watchdog period larger than 200ms
     end
 end
-`endif
 
 // watchdog timer and flag, cleared via any register write
 always @(posedge(wdog_clk) or posedge(reg_wen) or posedge(powerup_cmd))
@@ -280,9 +270,6 @@ begin
         end
         else begin
             wdog_timeout <= 1'b1;               // raise flag
-`ifdef WDOG_LED
-            wdog_timeout_led <= 1'b1;           // set wdog_timeout_led
-`endif
         end
     end
 end

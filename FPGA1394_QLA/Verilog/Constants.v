@@ -116,8 +116,8 @@
 `define LREQ_RES 3'd7             // reserved, presumably do nothing
 
 // Watchdog period status 
-`define WDOG_DISABLE     3'b0     // watchdog period = 0ms
-`define WDOG_TIMEOUT     3'b110   // watchdog period = 0ms
+`define WDOG_DISABLE     3'b0     // watchdog period = 0ms (disabled)
+`define WDOG_TIMEOUT     3'b110   // watchdog timeout has occurred
 `define WDOG_PHASE_ONE   3'b001   // watchdog period between 0ms and 50 ms
 `define WDOG_PHASE_TWO   3'b010   // watchdog period between 50ms and 100 ms
 `define WDOG_PHASE_THREE 3'b011   // watchdog period between 100ms and 150 ms
