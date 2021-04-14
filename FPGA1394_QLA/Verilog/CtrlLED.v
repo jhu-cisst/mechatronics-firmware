@@ -108,29 +108,24 @@ defparam led_red_pwm_2.start_phase = 200;
 //*************** Generate signals to flash LEDs (used for wdog_period display) ********************
 
 //  Set up signals to flash LEDs
-reg led_2hz_signal;     // 1.0 Hz flashing, since output toggled at 2 Hz
-reg led_1hz_signal;     // 0.5 Hz flashing, since output toggled at 1 Hz
-reg led_500mhz_signal;  // 0.25 Hz flashing, since output toggled at 0.5 Hz
-reg[4:0] led_blink_counter;
+reg[2:0] led_blink_counter;    // Counts from 0-5 to divide clk_12hz by 6
+reg[2:0] led_signals;          // Counts from 0-7, incremented at clk_12hz/6
+wire led_2hz_signal;           // 1.0 Hz flashing, since output toggled at 2 Hz
+wire led_1hz_signal;           // 0.5 Hz flashing, since output toggled at 1 Hz
+wire led_500mhz_signal;        // 0.25 Hz flashing, since output toggled at 0.5 Hz
+
+assign led_2hz_signal = led_signals[0];
+assign led_1hz_signal = led_signals[1];
+assign led_500mhz_signal = led_signals[2];
 
 always @(posedge(clk_12hz))
 begin
-    led_blink_counter <= led_blink_counter + 5'd1;
-    if (led_blink_counter == 5'd5) begin
-       led_2hz_signal <= ~led_2hz_signal;
+    if (led_blink_counter == 3'd5) begin
+       led_signals <= led_signals + 3'd1;
+       led_blink_counter <= 3'd0;
     end
-    else if (led_blink_counter == 5'd11) begin
-       led_2hz_signal <= ~led_2hz_signal;
-       led_1hz_signal <= ~led_1hz_signal;
-    end
-    else if (led_blink_counter == 5'd17) begin
-       led_2hz_signal <= ~led_2hz_signal;
-    end
-    else if (led_blink_counter == 5'd23) begin
-       led_2hz_signal <= ~led_2hz_signal;
-       led_1hz_signal <= ~led_1hz_signal;
-       led_500mhz_signal <= ~led_500mhz_signal;
-       led_blink_counter <= 5'd0;
+    else begin
+       led_blink_counter <= led_blink_counter + 3'd1;
     end
 end
 
