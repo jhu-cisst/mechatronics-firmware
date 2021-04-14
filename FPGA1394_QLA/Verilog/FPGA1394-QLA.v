@@ -540,6 +540,12 @@ wire[15:0] reg_databuf;   // Data collection status
 
 wire reboot;              // Reboot the FPGA
 
+`ifdef WDOG_LED
+// used to check status of user defined watchdog period; used to control LED 
+wire[2:0] wdog_period_status;
+wire wdog_timeout_led;
+`endif
+
 BoardRegs chan0(
     .sysclk(sysclk),
     .reboot(reboot),
@@ -583,6 +589,11 @@ BoardRegs chan0(
     .amp_enable_cmd(amp_enable_cmd),
     .reg_status(reg_status),
     .reg_digin(reg_digio)
+`ifdef WDOG_LED
+    ,
+    .wdog_period_status(wdog_period_status),
+    .wdog_timeout_led(wdog_timeout_led)
+`endif
 );
 
 // --------------------------------------------------------------------------
@@ -817,6 +828,10 @@ ClkDiv divclk12(sysclk, clk_12hz); defparam divclk12.width = 22;  // 49.152 MHz 
 CtrlLED qla_led(
     .sysclk(sysclk),
     .clk_12hz(clk_12hz),
+`ifdef WDOG_LED
+    .wdog_period_status(wdog_period_status),
+    .wdog_timeout_led(wdog_timeout_led),
+`endif
     .led1_grn(IO2[1]),
     .led1_red(IO2[3]),
     .led2_grn(IO2[5]),
