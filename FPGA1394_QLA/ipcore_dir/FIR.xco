@@ -1,0 +1,112 @@
+##############################################################
+#
+# Xilinx Core Generator version 14.7
+# Date: Wed Apr 14 15:46:45 2021
+#
+##############################################################
+#
+#  This file contains the customisation parameters for a
+#  Xilinx CORE Generator IP GUI. It is strongly recommended
+#  that you do not manually alter this file as it may cause
+#  unexpected and unsupported behavior.
+#
+##############################################################
+#
+#  Generated from component: xilinx.com:ip:fir_compiler:6.3
+#
+##############################################################
+#
+# BEGIN Project Options
+SET addpads = false
+SET asysymbol = true
+SET busformat = BusFormatAngleBracketNotRipped
+SET createndf = false
+SET designentry = Verilog
+SET device = xc6slx45
+SET devicefamily = spartan6
+SET flowvendor = Other
+SET formalverification = false
+SET foundationsym = false
+SET implementationfiletype = Ngc
+SET package = fgg484
+SET removerpms = false
+SET simulationfiles = Behavioral
+SET speedgrade = -2
+SET verilogsim = true
+SET vhdlsim = false
+# END Project Options
+# BEGIN Select
+SELECT FIR_Compiler xilinx.com:ip:fir_compiler:6.3
+# END Select
+# BEGIN Parameters
+CSET bestprecision=true
+CSET channel_sequence=Basic
+CSET clock_frequency=6.144
+CSET coefficient_buffer_type=Automatic
+CSET coefficient_file=no_coe_file_loaded
+CSET coefficient_fractional_bits=20
+CSET coefficient_reload=false
+CSET coefficient_sets=1
+CSET coefficient_sign=Unsigned
+CSET coefficient_structure=Inferred
+CSET coefficient_width=16
+CSET coefficientsource=Vector
+CSET coefficientvector=0.014308,0.017565,0.02092,0.024275,0.027728,0.030985,0.034241,0.037201,0.039964,0.042431,0.044504,0.046181,0.047365,0.048155,0.048352,0.048155,0.047365,0.046181,0.044504,0.042431,0.039964,0.037201,0.034241,0.030985,0.027728,0.024275,0.02092,0.017565,0.014308
+CSET columnconfig=1
+CSET component_name=FIR
+CSET data_buffer_type=Automatic
+CSET data_fractional_bits=0
+CSET data_has_tlast=Not_Required
+CSET data_sign=Unsigned
+CSET data_tuser_width=1
+CSET data_width=16
+CSET decimation_rate=1
+CSET displayreloadorder=false
+CSET filter_architecture=Systolic_Multiply_Accumulate
+CSET filter_selection=1
+CSET filter_type=Single_Rate
+CSET gen_mif_files=false
+CSET gen_mif_from_coe=false
+CSET gen_mif_from_spec=false
+CSET gui_behaviour=Coregen
+CSET hardwareoversamplingrate=1
+CSET has_aclken=false
+CSET has_aresetn=false
+CSET input_buffer_type=Automatic
+CSET inter_column_pipe_length=4
+CSET interpolation_rate=1
+CSET m_data_has_tready=false
+CSET m_data_has_tuser=Not_Required
+CSET multi_column_support=Automatic
+CSET num_reload_slots=1
+CSET number_channels=1
+CSET number_paths=1
+CSET optimization_goal=Area
+CSET output_buffer_type=Automatic
+CSET output_rounding_mode=Full_Precision
+CSET output_width=36
+CSET passband_max=0.5
+CSET passband_min=0.0
+CSET pattern_list=P4-0,P4-1,P4-2,P4-3,P4-4
+CSET preference_for_other_storage=Automatic
+CSET quantization=Quantize_Only
+CSET rate_change_type=Integer
+CSET ratespecification=Frequency_Specification
+CSET reload_file=no_coe_file_loaded
+CSET reset_data_vector=true
+CSET s_config_method=Single
+CSET s_config_sync_mode=On_Vector
+CSET s_data_has_fifo=true
+CSET s_data_has_tuser=Not_Required
+CSET sample_frequency=0.1193
+CSET sampleperiod=1
+CSET select_pattern=All
+CSET stopband_max=1.0
+CSET stopband_min=0.5
+CSET zero_pack_factor=1
+# END Parameters
+# BEGIN Extra information
+MISC pkg_timestamp=2013-07-22T10:45:45Z
+# END Extra information
+GENERATE
+# CRC: 8fc79d8c

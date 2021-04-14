@@ -1,0 +1,20 @@
+# Output products list for <FIR>
+FIR.asy
+FIR.gise
+FIR.mif
+FIR.ngc
+FIR.sym
+FIR.v
+FIR.veo
+FIR.xco
+FIR.xise
+FIR\cmodel\fir_compiler_v6_3_bitacc_cmodel_lin.zip
+FIR\cmodel\fir_compiler_v6_3_bitacc_cmodel_lin64.zip
+FIR\cmodel\fir_compiler_v6_3_bitacc_cmodel_nt.zip
+FIR\cmodel\fir_compiler_v6_3_bitacc_cmodel_nt64.zip
+FIR\doc\ds795_fir_compiler.pdf
+FIR\doc\fir_compiler_v6_3_readme.txt
+FIR\doc\fir_compiler_v6_3_vinfo.html
+FIR_flist.txt
+FIR_xmdf.tcl
+demo_tb\tb_FIR.vhd
