@@ -280,7 +280,9 @@ begin
         end
         else begin
             wdog_timeout <= 1'b1;               // raise flag
+`ifdef WDOG_LED
             wdog_timeout_led <= 1'b1;           // set wdog_timeout_led
+`endif
         end
     end
 end

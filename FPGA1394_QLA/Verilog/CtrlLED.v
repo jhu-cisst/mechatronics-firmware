@@ -195,5 +195,3 @@ assign led1_red = (led_mode == `WDOG_TIMEOUT) ? 1'b1 :
 `endif
 
 endmodule
-
-
