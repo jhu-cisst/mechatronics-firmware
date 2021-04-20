@@ -287,15 +287,58 @@ assign reg_adc_data = {pot_fb[reg_raddr[7:4]], cur_fb[reg_raddr[7:4]]};
 
 assign reg_rd[`OFF_ADC_DATA] = reg_adc_data;
 
+// ----------------------------------------------------------------------------
+// Read/Write of commanded current (cur_cmd)
+// This is now done outside CtrlDac to support digital control implementations.
+// ----------------------------------------------------------------------------
+
+reg[15:0] cur_cmd[1:`NUM_CHANNELS];
+
+// Check for non-zero channel number (reg_waddr[7:4]) to ignore write to global register.
+// It would be even better to check that channel number is 1-(`NUM_CHANNELS-1).
+wire reg_waddr_dac;
+assign reg_waddr_dac = ((reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[7:4] != 4'd0) &&
+                        (reg_waddr[3:0]==`OFF_DAC_CTRL)) ? 1'd1 : 1'd0;
+
+wire dac_busy;
+reg cur_cmd_updated;
+
+`ifdef DIAGNOSTIC
+
+always @(posedge(sysclk))
+begin
+    cur_cmd[1] <= { board_id, 12'h000 };
+    cur_cmd[2] <= { board_id, 12'h000 };
+    cur_cmd[3] <= { board_id, 12'h000 };
+    cur_cmd[4] <= { board_id, 12'h000 };
+    cur_cmd_updated <= ~dac_busy;
+end
+
+`else
+
+reg cur_cmd_req;
+
+always @(posedge(sysclk))
+begin
+    if (reg_waddr_dac) begin
+        if (reg_wen) begin
+            cur_cmd[reg_waddr[7:4]] <= reg_wdata[15:0];
+        end
+        cur_cmd_req <= blk_wen;
+    end
+    else if (cur_cmd_req&(~dac_busy)) begin
+        cur_cmd_req <= 0;
+    end
+    cur_cmd_updated <= cur_cmd_req&(~dac_busy);
+end
+
+`endif
+
+assign reg_rd[`OFF_DAC_CTRL] = cur_cmd[reg_raddr[7:4]];
+
 // --------------------------------------------------------------------------
 // dacs
 // --------------------------------------------------------------------------
-
-// local wire for dac
-wire[31:0] reg_rdac;
-assign reg_rd[`OFF_DAC_CTRL] = reg_rdac;   // dac reads
-
-wire[15:0] cur_cmd[1:4];
 
 // the dac controller manages access to the dacs
 CtrlDac dac(
@@ -303,20 +346,12 @@ CtrlDac dac(
     .sclk(IO1[21]),
     .mosi(IO1[20]),
     .csel(IO1[22]),
-    .reg_wen(reg_wen),
-    .blk_wen(blk_wen),
-    .reg_rchan(reg_raddr[7:4]),
-    .reg_waddr(reg_waddr),
-    .reg_rdata(reg_rdac),
-`ifdef DIAGNOSTIC
-    .reg_wdata({ board_id, 12'h000 }),
-`else
-    .reg_wdata(reg_wdata[15:0]),
-`endif
     .dac1(cur_cmd[1]),
     .dac2(cur_cmd[2]),
     .dac3(cur_cmd[3]),
-    .dac4(cur_cmd[4])
+    .dac4(cur_cmd[4]),
+    .busy(dac_busy),
+    .data_ready(cur_cmd_updated)
 );
 
 
