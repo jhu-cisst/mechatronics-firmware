@@ -1,6 +1,6 @@
 /*******************************************************************************
  *
- * Copyright(C) 2011-2020 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2011-2021 ERC CISST, Johns Hopkins University.
  *
  * This module incorporates the 4 PID blocks controlling the motor current
  * of one channel of the QLA baord each. It serves as central unit responsible
@@ -29,22 +29,22 @@ module Controller_block(
       input  wire          [15:0] reg_raddr,    // register read address
 
       //controller inputs
-      input  wire          [15:0] bits_fb1,     // feedback bits
-      input  wire          [15:0] bits_fb2,     // feedback bits
-      input  wire          [15:0] bits_fb3,     // feedback bits
-      input  wire          [15:0] bits_fb4,     // feedback bits
+      input  wire          [15:0] bits_fb1,     // current feedback bits
+      input  wire          [15:0] bits_fb2,     // current feedback bits
+      input  wire          [15:0] bits_fb3,     // current feedback bits
+      input  wire          [15:0] bits_fb4,     // current feedback bits
 
       input  wire          [24:0] enc_fb1,      // position feedback bits
       input  wire          [24:0] enc_fb2,      // position feedback bits
       input  wire          [24:0] enc_fb3,      // position feedback bits
       input  wire          [24:0] enc_fb4,      // position feedback bits
 
-      //output
-      output wire          [15:0] bits_cmd1,    // commanded bits for safety check
-      output wire          [15:0] bits_cmd2,    // commanded bits for safety check
-      output wire          [15:0] bits_cmd3,    // commanded bits for safety check
-      output wire          [15:0] bits_cmd4,    // commanded bits for safety check
+      input wire           [15:0] bits_cmd1,    // commanded current from host
+      input wire           [15:0] bits_cmd2,    // commanded current from host
+      input wire           [15:0] bits_cmd3,    // commanded current from host
+      input wire           [15:0] bits_cmd4,    // commanded current from host
 
+      //output
       output wire          [15:0] cont_out1,    // controller output in bits
       output wire          [15:0] cont_out2,    // controller output in bits
       output wire          [15:0] cont_out3,    // controller output in bits
@@ -65,7 +65,6 @@ reg [1:4] pos_cont_en;
 // INTERMEDIATE REGISTERS
 reg [24:0] pos_fb[1:4]; //register storing the values until they are updated, every 10th time new current values are available
 reg [24:0] pos_cmd[1:4]; //register storing the values until they are updated
-reg [15:0] cur_cmd[1:4]; //register storing the values until they are updated --> TO DO: INITIALIZE WITH 0!
 reg [24:0] pos_controller_output[1:4]; //for debugging
 
 wire out_ready_x4 [1:4];  //one joint flag, if all 4 PI_controllers have new values at the same time --> should be the case as 4x the same is instantiated.
@@ -99,10 +98,11 @@ reg [15:0] cf_out_Pos[1:4];
 
 //ASSIGNMENTS
 // outputs for safety check
-assign bits_cmd1 = cur_cmd[1];
-assign bits_cmd2 = cur_cmd[2];
-assign bits_cmd3 = cur_cmd[3];
-assign bits_cmd4 = cur_cmd[4];
+wire[15:0] cur_cmd[1:4];
+assign cur_cmd[1] = bits_cmd1;
+assign cur_cmd[2] = bits_cmd2;
+assign cur_cmd[3] = bits_cmd3;
+assign cur_cmd[4] = bits_cmd4;
 
 //assignments for current controller input
 assign wire_cur_cont_in[1] = (pos_cont_en[1]) ? wire_pos_cont_out[1] : cur_cmd[1];
@@ -231,12 +231,6 @@ initial begin
    cf_out_Pos[3] = 1; //  155; //ax2
    cf_out_Pos[4] = 1; // 9200; //ax3-6
 
-   //outputs
-   cur_cmd[1] = 16'h8000;
-   cur_cmd[2] = 16'h8000;
-   cur_cmd[3] = 16'h8000;
-   cur_cmd[4] = 16'h8000;
-
    //command the current value to cause position controller output to be 0 and prevent movement
    pos_cmd[1] = {enc_fb1[24:0]};
    pos_cmd[2] = {enc_fb2[24:0]};
@@ -308,14 +302,6 @@ always @(posedge(clk))
 begin
 
    // write selected register with firewire or NOP data source
-   if (reg_wen && reg_waddr[15:12]==`ADDR_MAIN) begin //if data available and valid
-
-         if (reg_waddr[3:0]==`OFF_CMD_CUR) //write commanded current to register
-            cur_cmd[reg_waddr[7:4]] = { 16'h00, reg_wdata[15:0] }; //write the data matrix entry corresponding to the channel
-
-   end
-
-   // write selected register with firewire or NOP data source
    if (reg_wen && reg_waddr[15:12]==`ADDR_CTRL) begin //if data available and valid
 
         if (reg_waddr[3:0]==`OFF_CO_CMD_FB) begin //write conversion offsets for commanded current and feedback current converted to a 16 bit value
@@ -366,20 +352,16 @@ end
 
 
 //READING BACK
-assign reg_rdata = (reg_raddr[15:12]==`ADDR_MAIN) ?
-                     (reg_raddr[3:0]  ==`OFF_CMD_CUR)                 ? cur_cmd[reg_raddr[7:4]] : 32'h0                                   // commanded current
-                   :
-                     (reg_raddr[15:12]==`ADDR_CTRL) ?
-                        (reg_raddr[3:0]  ==`OFF_CO_CMD_FB)            ? {co_cmd[reg_waddr[7:4]], co_fbBits[reg_waddr[7:4]]}   :           // conversion offsets co_cur_cmd and co_cur_fbBits
-                        (reg_raddr[3:0]  ==`OFF_CTRL_CURR_Kp_KiT)     ? {Kp_Curr[reg_raddr[7:4]], KiT_Curr[reg_raddr[7:4]]}   :           // Kp and Ki*T (already bit-shifted) for motor current controller
-                        (reg_raddr[3:0]  ==`OFF_CTRL_CURR_KdT)        ? {KdT_Curr[reg_raddr[7:4]],16'h0}                      :           // Kd/T for motor current controller
-                        (reg_raddr[3:0]  ==`OFF_CTRL_POS_Kp_KiT)      ? {Kp_Pos[reg_raddr[7:4]], KiT_Pos[reg_raddr[7:4]]}     :           // Kp and Ki*T (already bit-shifted) for position controller
-                        (reg_raddr[3:0]  ==`OFF_CTRL_POS_KdT_CF_OUT)  ? {KdT_Pos[reg_raddr[7:4]], cf_out_Pos[reg_raddr[7:4]]} :           // Kd/T and conversion factor depending on joint for position controller
-                        (reg_raddr[3:0]  ==`OFF_OUT_POS_CMD)          ? {7'd0, pos_cmd[reg_raddr[7:4]]}                       :           // commanded position
-                        (reg_raddr[3:0]  ==`OFF_OUT_POS_OUT)          ? {7'd0, pos_controller_output[reg_raddr[7:4]]}         :           // output of position PID which is reference input for motor current PID (for debugging)
-                        (reg_raddr[3:0]  ==`OFF_CTRL_SHIFTS)          ? {pos_cont_en[reg_raddr[7:4]],7'h0, N_shift_Curr_Kp[reg_waddr[7:4]], N_shift_Curr_KiT[reg_waddr[7:4]], N_shift_Curr_KdT[reg_waddr[7:4]], N_shift_Pos_Kp [reg_waddr[7:4]], N_shift_Pos_KiT [reg_waddr[7:4]], N_shift_Pos_KdT[reg_waddr[7:4]]}        : 32'h0     // POS CONT ENABLE AND N_shifts for the 6 controller gains
-                     :
-                     32'd0;
+assign reg_rdata = (reg_raddr[15:12]==`ADDR_CTRL) ?
+          (reg_raddr[3:0]  ==`OFF_CO_CMD_FB)            ? {co_cmd[reg_waddr[7:4]], co_fbBits[reg_waddr[7:4]]}   :   // conversion offsets co_cur_cmd and co_cur_fbBits
+          (reg_raddr[3:0]  ==`OFF_CTRL_CURR_Kp_KiT)     ? {Kp_Curr[reg_raddr[7:4]], KiT_Curr[reg_raddr[7:4]]}   :   // Kp and Ki*T (already bit-shifted) for motor current controller
+          (reg_raddr[3:0]  ==`OFF_CTRL_CURR_KdT)        ? {KdT_Curr[reg_raddr[7:4]],16'h0}                      :   // Kd/T for motor current controller
+          (reg_raddr[3:0]  ==`OFF_CTRL_POS_Kp_KiT)      ? {Kp_Pos[reg_raddr[7:4]], KiT_Pos[reg_raddr[7:4]]}     :   // Kp and Ki*T (already bit-shifted) for position controller
+          (reg_raddr[3:0]  ==`OFF_CTRL_POS_KdT_CF_OUT)  ? {KdT_Pos[reg_raddr[7:4]], cf_out_Pos[reg_raddr[7:4]]} :   // Kd/T and conversion factor depending on joint for position controller
+          (reg_raddr[3:0]  ==`OFF_OUT_POS_CMD)          ? {7'd0, pos_cmd[reg_raddr[7:4]]}                       :   // commanded position
+          (reg_raddr[3:0]  ==`OFF_OUT_POS_OUT)          ? {7'd0, pos_controller_output[reg_raddr[7:4]]}         :   // output of position PID which is reference input for motor current PID (for debugging)
+          (reg_raddr[3:0]  ==`OFF_CTRL_SHIFTS)          ? {pos_cont_en[reg_raddr[7:4]],7'h0, N_shift_Curr_Kp[reg_waddr[7:4]], N_shift_Curr_KiT[reg_waddr[7:4]], N_shift_Curr_KdT[reg_waddr[7:4]], N_shift_Pos_Kp [reg_waddr[7:4]], N_shift_Pos_KiT [reg_waddr[7:4]], N_shift_Pos_KdT[reg_waddr[7:4]]}        : 32'h0     // POS CONT ENABLE AND N_shifts for the 6 controller gains
+       : 32'd0;
 
 
 // INSTANTIATION:
@@ -388,14 +370,13 @@ PID_Controller #(.pos_ctrl(0))
 PID_Controller1(
    .clk(clk),
    .val_ready(val_ready),
-   //.bits_cmd(cur_cmd[1]),
    //.bits_cmd(wire_pos_cont_out[1]),
    .bits_cmd(wire_cur_cont_in[1]),
    .bits_fb(bits_fb1),
    .co_cmd(co_cmd[1]),
    .co_fbBits(co_fbBits[1]),
    .co_out(co_cmd[1]),
-   .cf_out(5),
+   .cf_out(16'd5),
    .Kp(Kp_Curr[1]),
    .KiT(KiT_Curr[1]),
    .KdT(KdT_Curr[1]),
@@ -413,14 +394,13 @@ PID_Controller #(.pos_ctrl(0))
 PID_Controller2(
    .clk(clk),
    .val_ready(val_ready),
-   //.bits_cmd(cur_cmd[2]),
    //.bits_cmd(wire_pos_cont_out[2]),
    .bits_cmd(wire_cur_cont_in[2]),
    .bits_fb(bits_fb2),
    .co_cmd(co_cmd[2]),
    .co_fbBits(co_fbBits[2]),
    .co_out(co_cmd[2]),
-   .cf_out(5),
+   .cf_out(16'd5),
    .Kp(Kp_Curr[2]),
    .KiT(KiT_Curr[2]),
    .KdT(KdT_Curr[2]),
@@ -438,14 +418,13 @@ PID_Controller #(.pos_ctrl(0))
 PID_Controller3(
    .clk(clk),
    .val_ready(val_ready),
-   //.bits_cmd(cur_cmd[3]),
    //.bits_cmd(wire_pos_cont_out[3]),
    .bits_cmd(wire_cur_cont_in[3]),
    .bits_fb(bits_fb3),
    .co_cmd(co_cmd[3]),
    .co_fbBits(co_fbBits[3]),
    .co_out(co_cmd[3]),
-   .cf_out(5),
+   .cf_out(16'd5),
    .Kp(Kp_Curr[3]),
    .KiT(KiT_Curr[3]),
    .KdT(KdT_Curr[3]),
@@ -463,14 +442,13 @@ PID_Controller #(.pos_ctrl(0))
 PID_Controller4(
    .clk(clk),
    .val_ready(val_ready),
-   //.bits_cmd(cur_cmd[4]),
    //.bits_cmd(wire_pos_cont_out[4]),
    .bits_cmd(wire_cur_cont_in[4]),
    .bits_fb(bits_fb4),
    .co_cmd(co_cmd[4]),
    .co_fbBits(co_fbBits[4]),
    .co_out(co_cmd[4]),
-   .cf_out(5),
+   .cf_out(16'd5),
    .Kp(Kp_Curr[4]),
    .KiT(KiT_Curr[4]),
    .KdT(KdT_Curr[4]),
@@ -492,8 +470,8 @@ PID_POS1(
    .val_ready(val_ready),
    .bits_cmd(pos_cmd[1]),
    .bits_fb(pos_fb[1]),
-   .co_cmd(0),
-   .co_fbBits(0),
+   .co_cmd(16'd0),
+   .co_fbBits(16'd0),
    .co_out(co_cmd[1]),
    .cf_out(cf_out_Pos[1]),
    .Kp(Kp_Pos[1]),
@@ -516,8 +494,8 @@ PID_POS2(
    .val_ready(val_ready),
    .bits_cmd(pos_cmd[2]),
    .bits_fb(pos_fb[2]),
-   .co_cmd(0),
-   .co_fbBits(0),
+   .co_cmd(16'd0),
+   .co_fbBits(16'd0),
    .co_out(co_cmd[2]),
    .cf_out(cf_out_Pos[2]),
    .Kp(Kp_Pos[2]),
@@ -540,8 +518,8 @@ PID_POS3(
    .val_ready(val_ready),
    .bits_cmd(pos_cmd[3]),
    .bits_fb(pos_fb[3]),
-   .co_cmd(0),
-   .co_fbBits(0),
+   .co_cmd(16'd0),
+   .co_fbBits(16'd0),
    .co_out(co_cmd[3]),
    .cf_out(cf_out_Pos[3]),
    .Kp(Kp_Pos[3]),
@@ -564,8 +542,8 @@ PID_POS4(
    .val_ready(val_ready),
    .bits_cmd(pos_cmd[4]),
    .bits_fb(pos_fb[4]),
-   .co_cmd(0),
-   .co_fbBits(0),
+   .co_cmd(16'd0),
+   .co_fbBits(16'd0),
    .co_out(co_cmd[4]),
    .cf_out(cf_out_Pos[4]),
    .Kp(Kp_Pos[4]),

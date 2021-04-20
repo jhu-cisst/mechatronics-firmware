@@ -296,12 +296,61 @@ assign reg_adc_data = {pot_fb[reg_raddr[7:4]], cur_fb[reg_raddr[7:4]]};
 
 assign reg_rd[`OFF_ADC_DATA] = reg_adc_data;
 
+// ----------------------------------------------------------------------------
+// Read/Write of commanded current (cur_cmd)
+// This is now done outside CtrlDac to support digital control implementations.
+// ----------------------------------------------------------------------------
+
+reg[15:0] cur_cmd[1:`NUM_CHANNELS];
+
+// Check for non-zero channel number (reg_waddr[7:4]) to ignore write to global register.
+// It would be even better to check that channel number is 1-(`NUM_CHANNELS-1).
+wire reg_waddr_dac;
+assign reg_waddr_dac = ((reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[7:4] != 4'd0) &&
+                        (reg_waddr[3:0]==`OFF_DAC_CTRL)) ? 1'd1 : 1'd0;
+
+wire dac_busy;
+reg cur_cmd_updated;
+
+`ifdef DIAGNOSTIC
+
+always @(posedge(sysclk))
+begin
+    cur_cmd[1] <= { board_id, 12'h000 };
+    cur_cmd[2] <= { board_id, 12'h000 };
+    cur_cmd[3] <= { board_id, 12'h000 };
+    cur_cmd[4] <= { board_id, 12'h000 };
+    cur_cmd_updated <= ~dac_busy;
+end
+
+`else
+
+reg cur_cmd_req;
+
+always @(posedge(sysclk))
+begin
+    if (reg_waddr_dac) begin
+        if (reg_wen) begin
+            cur_cmd[reg_waddr[7:4]] <= reg_wdata[15:0];
+        end
+        cur_cmd_req <= blk_wen;
+    end
+    else if (cur_cmd_req&(~dac_busy)) begin
+        cur_cmd_req <= 0;
+    end
+    cur_cmd_updated <= cur_cmd_req&(~dac_busy);
+end
+
+`endif
+
+// OFF_CMD_CUR same as OFF_DAC_CTRL
+assign reg_rd[`OFF_CMD_CUR] = cur_cmd[reg_raddr[7:4]];
+
 // --------------------------------------------------------------------------
 // current controller
 // --------------------------------------------------------------------------
 
 //outputs
-wire[15:0] cur_cmd_ctrl[1:4];  // current commanded value
 wire[15:0] cur_cont[1:4];      // current controller output
 wire       cont_out_ready;     // controller values available
 
@@ -312,13 +361,12 @@ Controller_block CtrlCur(
    .reg_wdata(reg_wdata),     // incoming register data
    .reg_waddr(reg_waddr),     // register write address
    .reg_wen(reg_wen),         // register write enable
-   //.reg_rdata(reg_rcmd),    // outgoing register data
    .reg_rdata(reg_rCtrlCurr),    // outgoing register data
    .reg_raddr(reg_raddr),     // register read address
-   .bits_cmd1(cur_cmd_ctrl[1]),    // output for safety check
-   .bits_cmd2(cur_cmd_ctrl[2]),
-   .bits_cmd3(cur_cmd_ctrl[3]),
-   .bits_cmd4(cur_cmd_ctrl[4]),
+   .bits_cmd1(cur_cmd[1]),    // commanded current from host
+   .bits_cmd2(cur_cmd[2]),
+   .bits_cmd3(cur_cmd[3]),
+   .bits_cmd4(cur_cmd[4]),
    .bits_fb1(cur_fb[1]),      // ADC values
    .bits_fb2(cur_fb[2]),
    .bits_fb3(cur_fb[3]),
@@ -334,17 +382,23 @@ Controller_block CtrlCur(
    .out_ready(cont_out_ready) //flag to show new values ready (AND of 4 separate ready-flags being '1' for 1 clock cycle only when new controller values have been calculated every 8.667us)
 );
 
+// Value sent to dac is either output of digital current controller (cur_cont)
+// or commanded current specified by host (cur_cmd). The latter case corresponds
+// to analog current control, as implemented by the QLA hardware.
+wire[15:0] dac_cmd[1:4];
+assign dac_cmd[1] = dig_cur_ctrl ? cur_cont[1] : cur_cmd[1];
+assign dac_cmd[2] = dig_cur_ctrl ? cur_cont[2] : cur_cmd[2];
+assign dac_cmd[3] = dig_cur_ctrl ? cur_cont[3] : cur_cmd[3];
+assign dac_cmd[4] = dig_cur_ctrl ? cur_cont[4] : cur_cmd[4];
+   
+assign reg_rd[`OFF_DAC_VOLT] = dac_cmd[reg_raddr[7:4]];
+
+wire dac_cmd_ready;
+assign dac_cmd_ready = dig_cur_ctrl ? cont_out_ready : cur_cmd_updated;
+
 // --------------------------------------------------------------------------
 // dacs
 // --------------------------------------------------------------------------
-
-// local wire for dac
-wire[31:0] reg_rdac;
-// OFF_CMD_CUR same as OFF_DAC_CTRL
-assign reg_rd[`OFF_CMD_CUR] = dig_cur_ctrl ? reg_rCtrlCurr : reg_rdac;
-assign reg_rd[`OFF_DAC_VOLT] = dig_cur_ctrl ? reg_rdac : 32'd0;
-
-wire[15:0] cur_cmd_dac[1:4];
 
 // the dac controller manages access to the dacs
 CtrlDac dac(
@@ -352,31 +406,13 @@ CtrlDac dac(
     .sclk(IO1[21]),
     .mosi(IO1[20]),
     .csel(IO1[22]),
-    // Current control mode
-    .dig_cur_ctrl(dig_cur_ctrl),
-    // Data from digital controller
-    .cont_val1(cur_cont[1]),
-    .cont_val2(cur_cont[2]),
-    .cont_val3(cur_cont[3]),
-    .cont_val4(cur_cont[4]),
-    .val_ready(cont_out_ready),
-    // Data from host (analog controller)
-    .reg_wen(reg_wen),
-    .blk_wen(blk_wen),
-    .reg_waddr(reg_waddr),
-`ifdef DIAGNOSTIC
-    .reg_wdata({ board_id, 12'h000 }),
-`else
-    .reg_wdata(reg_wdata[15:0]),
-`endif
-    .reg_rchan(reg_raddr[7:4]),
-    .reg_rdata(reg_rdac),
-    .dac1(cur_cmd_dac[1]),
-    .dac2(cur_cmd_dac[2]),
-    .dac3(cur_cmd_dac[3]),
-    .dac4(cur_cmd_dac[4])
+    .dac1(dac_cmd[1]),
+    .dac2(dac_cmd[2]),
+    .dac3(dac_cmd[3]),
+    .dac4(dac_cmd[4]),
+    .busy(dac_busy),
+    .data_ready(dac_cmd_ready)
 );
-
 
 // --------------------------------------------------------------------------
 // encoders
@@ -706,12 +742,6 @@ WriteRtData rt_write(
 // safety check 
 //    1. get adc feedback current & dac command current
 //    2. check if cur_fb > 2 * cur_cmd
-wire[15:0] cur_cmd[1:4];
-assign cur_cmd[1] = dig_cur_ctrl ? cur_cmd_ctrl[1] : cur_cmd_dac[1];
-assign cur_cmd[2] = dig_cur_ctrl ? cur_cmd_ctrl[2] : cur_cmd_dac[2];
-assign cur_cmd[3] = dig_cur_ctrl ? cur_cmd_ctrl[3] : cur_cmd_dac[3];
-assign cur_cmd[4] = dig_cur_ctrl ? cur_cmd_ctrl[4] : cur_cmd_dac[4];
-
 SafetyCheck safe1(
     .clk(sysclk),
     .cur_in(cur_fb[1]),
