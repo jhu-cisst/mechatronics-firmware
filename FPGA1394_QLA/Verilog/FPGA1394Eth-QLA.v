@@ -491,9 +491,6 @@ wire[15:0] cur_cmd[1:4];
 // the dac controller manages access to the dacs
 CtrlDac dac(
     .sysclk(sysclk),
-`ifdef DIAGNOSTIC
-    .board_id(board_id),
-`endif
     .sclk(IO1[21]),
     .mosi(IO1[20]),
     .csel(IO1[22]),
@@ -502,7 +499,11 @@ CtrlDac dac(
     .reg_rchan(reg_raddr[7:4]),
     .reg_waddr(reg_waddr),
     .reg_rdata(reg_rdac),
+`ifdef DIAGNOSTIC
+    .reg_wdata({ board_id, 12'h000 }),
+`else
     .reg_wdata(reg_wdata[15:0]),
+`endif
     .dac1(cur_cmd[1]),
     .dac2(cur_cmd[2]),
     .dac3(cur_cmd[3]),
