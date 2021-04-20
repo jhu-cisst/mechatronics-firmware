@@ -3,12 +3,13 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2013-2020 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2013-2021 ERC CISST, Johns Hopkins University.
  *
  * Purpose: Global constants e.g. device address
  * 
  * Revision history
  *     10/26/13    Zihan Chen          Initial revision
+ *     11/14/19    Jintan Zhang        Added watchdog phase contant 
  *     07/31/20    Stefan Kohlgrueber  Revised to support digital control
  */
  
@@ -28,13 +29,23 @@
 //`define USE_CHIPSCOPE
 
 // firmware constants
-`define VERSION 32'h514C4131       // hard-wired version number "QLA1" = 0x514C4131 
+`ifdef DIAGNOSTIC
+`define VERSION 32'h54455354       // hard-wired version number "TEST" = 0x54455354
+`else
+`define VERSION 32'h514C4131       // hard-wired version number "QLA1" = 0x514C4131
+`endif
 `define FW_VERSION 32'h07          // firmware version = 7
 
 // define board components
 `define NUM_CHANNELS 4             // number of channels on QLA
 `define NUM_PER_CHN_FIELDS 6       // number of per-channel entries in block read
                                    // (4 in Firmware Rev 1-6, 6 in Firmware Rev 7+)
+// Number of quadlets in real-time block read (not including Firewire header and CRC)
+//    Rev 4-6: 16 (should have been 20)
+//    Rev 7:   28
+`define NUM_RT_READ_QUADS (4+`NUM_CHANNELS*`NUM_PER_CHN_FIELDS)
+// Number of quadlets in broadcast real-time block; includes sequence number
+`define NUM_BC_READ_QUADS (1+`NUM_RT_READ_QUADS)
 
 // address space  
 `define ADDR_MAIN     4'h0         // board reg & device reg
@@ -45,7 +56,8 @@
 `define ADDR_FW       4'h5         // firewire packet address space
 `define ADDR_DS       4'h6         // Dallas 1-wire memory (dV instrument)
 `define ADDR_DATA_BUF 4'h7         // Data buffer address space
-`define ADDR_CTRL     4'h8         // closed-loop control
+`define ADDR_WAVEFORM 4'h8         // Waveform table address space (DOUT waveforms)
+`define ADDR_CTRL     4'h9         // Closed-loop control
 
 // channel 0 (board) registers
 `define REG_STATUS   4'd0          // board id (8), fault (8), enable/masks (16)
@@ -65,11 +77,12 @@
 `define REG_DEBUG    4'd15         // Debug register for testing 
 
 // device register file offsets from channel base
-// For additional fields, please see dev_addr in FireWire.v to send back data in the correct slot
+// For additional fields, please update SampleData.v to send back data in the correct slot
 `define OFF_ADC_DATA  4'h0         // adc data register offset (pot + cur)
-`define OFF_CMD_CUR   4'h1         // commanded current bits //SK- XXX: was OFF_DAC_CTRL before change
-`define OFF_POT_CTRL  4'h2         // pot control register offset
-`define OFF_POT_DATA  4'h3         // pot data register offset
+`define OFF_CMD_CUR   4'h1         // commanded current bits (digital current control)
+`define OFF_DAC_CTRL  4'h1         // dac control register offset (analog current control)
+`define OFF_UNUSED_02 4'h2         // (was pot control register offset)
+`define OFF_UNUSED_03 4'h3         // (was pot data register offset)
 `define OFF_ENC_LOAD  4'h4         // enc data preload offset
 `define OFF_ENC_DATA  4'h5         // enc quadrature register offset
 `define OFF_PER_DATA  4'h6         // enc period register offset
@@ -77,23 +90,25 @@
 `define OFF_DOUT_CTRL 4'h8         // dout hi/lo period (16-bits hi, 16-bits lo)
 `define OFF_QTR5_DATA 4'h9         // enc most recent quarter offset
 `define OFF_RUN_DATA  4'hA         // enc running counter offset
-`define OFF_DAC_VOLT  4'hB         // dac bits actually sent //SK - XXX
+`define OFF_DAC_VOLT  4'hB         // dac bits actually sent (digital current control)
+`define OFF_UNUSED_12 4'hC
+`define OFF_UNUSED_13 4'hD
+`define OFF_UNUSED_14 4'hE
+`define OFF_UNUSED_15 4'hF
 
+// Controller register fields, offsets within ADDR_CTRL
+`define OFF_CO_CMD_FB               4'h0  // conversion offsets bits to amps for cur_cmd (high 16 bits) and cur_fb (low 16 bits)
+`define OFF_CTRL_CURR_Kp_KiT        4'h1  // Kp and Ki*T both *2^N_shift for CL current PID controller
+`define OFF_CTRL_CURR_KdT           4'h2  // Kd/T *2^N_shift for CL current PID controller
 
-// Controller register fields, as there is not a sufficient amount to include them in the main fields
-`define OFF_CO_CMD_FB               4'h0  // conversion offsets bits to amps for cur_cmd (high 16 bits) and cur_fb (low 16 bits) //SK - XXX
-`define OFF_CTRL_CURR_Kp_KiT        4'h1  // Kp and Ki*T both *2^N_shift for CL current PID controller //SK - XXX
-`define OFF_CTRL_CURR_KdT           4'h2  // Kd/T *2^N_shift for CL current PID controller //SK - XXX
-
-`define OFF_CTRL_POS_Kp_KiT         4'h3  // Kp and Ki*T both *2^N_shift for CL position PID controller //SK - XXX
-`define OFF_CTRL_POS_KdT_CF_OUT     4'h4  // Kd/T *2^N_shift for CL position PID controller and output conversion factor //SK - XXX
+`define OFF_CTRL_POS_Kp_KiT         4'h3  // Kp and Ki*T both *2^N_shift for CL position PID controller
+`define OFF_CTRL_POS_KdT_CF_OUT     4'h4  // Kd/T *2^N_shift for CL position PID controller and output conversion factor
 `define OFF_OUT_POS_CMD             4'h5  // Commanded position value
 
 `define OFF_OUT_POS_OUT             4'h6  // PID_Pos output, solely intended for debugging
 `define OFF_CTRL_SHIFTS             4'h7  // [31] = POSITION CONTORL ENABLE, [23:0] reserved for the shifts of the controller gains
                                           // [23:20] N_shift_Cur_Kp, [19:16] N_shift_Cur_KiT, [15:12] N_shift_Cur_KdT,
                                           // [11: 8] N_shift_Pos_Kp, [ 7: 4] N_shift_Pos_KiT, [ 3: 0] N_shift_Pos_KdT,
-
 
 `define ENC_MIDRANGE 24'h800000    // encoder mid-range value
 
@@ -116,5 +131,14 @@
 `define LREQ_REG_WR 3'd5          // register write header
 `define LREQ_ACCEL 3'd6           // async arbitration acceleration
 `define LREQ_RES 3'd7             // reserved, presumably do nothing
+
+// Watchdog period status 
+`define WDOG_DISABLE     3'b0     // watchdog period = 0ms (disabled)
+`define WDOG_TIMEOUT     3'b110   // watchdog timeout has occurred
+`define WDOG_PHASE_ONE   3'b001   // watchdog period between 0ms and 50 ms
+`define WDOG_PHASE_TWO   3'b010   // watchdog period between 50ms and 100 ms
+`define WDOG_PHASE_THREE 3'b011   // watchdog period between 100ms and 150 ms
+`define WDOG_PHASE_FOUR  3'b100   // watchdog period between 150ms and 200 ms
+`define WDOG_PHASE_FIVE  3'b101   // watchdog period larger than 200ms
 
 `endif  // _fpgaqla_constants_v_

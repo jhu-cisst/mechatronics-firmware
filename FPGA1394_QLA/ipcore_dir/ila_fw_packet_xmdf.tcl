@@ -45,11 +45,16 @@ utilities_xmdf::xmdfSetData $instance FileSet $fcount type AnyView
 incr fcount
 
 
+utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path ila_fw_packet.constraints/ila_fw_packet.ucf
+utilities_xmdf::xmdfSetData $instance FileSet $fcount type Ucf
+incr fcount
+
+
 utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path ila_fw_packet.ncf
 utilities_xmdf::xmdfSetData $instance FileSet $fcount type Ncf
 incr fcount
 
-utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path ila_fw_packet.xdc
+utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path ila_fw_packet.constraints/ila_fw_packet.xdc
 utilities_xmdf::xmdfSetData $instance FileSet $fcount type Xdc
 incr fcount
 

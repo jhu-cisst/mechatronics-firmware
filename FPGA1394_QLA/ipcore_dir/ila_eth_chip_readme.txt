@@ -1,5 +1,5 @@
 The following files were generated for 'ila_eth_chip' in directory
-/home/zihan/dev/mechatronics/firmware/FPGA1394_QLA/ipcore_dir/
+/mnt/Data/Peter/JHU/Hardware/mechatronics-firmware/FPGA1394_QLA/ipcore_dir/
 
 XCO file generator:
    Generate an XCO file for compatibility with legacy flows.
@@ -10,11 +10,14 @@ Creates an implementation netlist:
    Creates an implementation netlist for the IP.
 
    * ila_eth_chip.cdc
-   * ila_eth_chip.ejp
+   * ila_eth_chip.constraints/ila_eth_chip.ucf
+   * ila_eth_chip.constraints/ila_eth_chip.xdc
    * ila_eth_chip.ncf
    * ila_eth_chip.ngc
+   * ila_eth_chip.ucf
    * ila_eth_chip.v
    * ila_eth_chip.veo
+   * ila_eth_chip.xdc
    * ila_eth_chip_xmdf.tcl
 
 IP Symbol Generator:

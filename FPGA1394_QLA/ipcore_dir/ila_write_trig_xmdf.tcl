@@ -45,11 +45,16 @@ utilities_xmdf::xmdfSetData $instance FileSet $fcount type AnyView
 incr fcount
 
 
+utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path ila_write_trig.constraints/ila_write_trig.ucf
+utilities_xmdf::xmdfSetData $instance FileSet $fcount type Ucf
+incr fcount
+
+
 utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path ila_write_trig.ncf
 utilities_xmdf::xmdfSetData $instance FileSet $fcount type Ncf
 incr fcount
 
-utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path ila_write_trig.xdc
+utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path ila_write_trig.constraints/ila_write_trig.xdc
 utilities_xmdf::xmdfSetData $instance FileSet $fcount type Xdc
 incr fcount
 

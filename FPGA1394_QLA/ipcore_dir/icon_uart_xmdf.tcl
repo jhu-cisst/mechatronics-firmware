@@ -40,12 +40,16 @@ utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path icon_uart.as
 utilities_xmdf::xmdfSetData $instance FileSet $fcount type asy
 incr fcount
 
-utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path icon_uart.xdc
-utilities_xmdf::xmdfSetData $instance FileSet $fcount type Xdc
+utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path icon_uart.constraints/icon_uart.ucf
+utilities_xmdf::xmdfSetData $instance FileSet $fcount type Ucf
 incr fcount
 
 utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path icon_uart.ncf
 utilities_xmdf::xmdfSetData $instance FileSet $fcount type Ncf
+incr fcount
+
+utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path icon_uart.constraints/icon_uart.xdc
+utilities_xmdf::xmdfSetData $instance FileSet $fcount type Xdc
 incr fcount
 
 utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path icon_uart.xcf

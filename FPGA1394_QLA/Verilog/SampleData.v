@@ -3,12 +3,13 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2020 Johns Hopkins University.
+ * Copyright(C) 2020-2021 Johns Hopkins University.
  *
  * This module samples the feedback data for the real-time block read packet.
- * Revision history
  *
+ * Revision history
  *     01/26/20    Peter Kazanzides    Initial revision
+ *     01/27/21    Peter Kazanzides    Removed write to hub
  */
 
 `include "Constants.v"
@@ -16,7 +17,7 @@
 module SampleData(
     input wire        clk,         // system clock
     input wire        doSample,    // signal to trigger sampling
-    output reg        isBusy,      // 1 -> busy sampling
+    output wire       isBusy,      // 1 -> busy sampling
     input wire[31:0]  reg_status,  // Status register
     input wire[31:0]  reg_digio,   // Digital I/O feedback
     input wire[31:0]  reg_temp,    // Temperature feedback
@@ -29,18 +30,10 @@ module SampleData(
     input wire[31:0]  enc_run,     // Encoder running counter
     input wire[4:0]   blk_addr,    // Address for accessing RT_Feedback
     output wire[31:0] blk_data,    // Currently selected block data
-    output reg[31:0]  timestamp    // timestamp counter register
+    output reg[31:0]  timestamp,   // timestamp counter register
+    input wire[15:0]  bc_sequence, // broadcast sequence number
+    input wire[15:0]  bc_board_mask // broadcast board mask
     );
-
-reg ts_reset;                  // timestamp counter reset signal
-// Timestamp counts number of clocks between block reads
-always @(posedge clk or posedge ts_reset)
-begin
-    if (ts_reset)
-        timestamp <= 0;
-    else
-        timestamp <= timestamp + 1'b1;
-end
 
 // Number of quadlets in block response:
 //   1 (timestamp) + 3 (global regs) + num_channels*num_offsets
@@ -51,8 +44,15 @@ end
 
 reg[31:0] RT_Feedback[0:31];
 
+localparam[1:0]
+   SD_IDLE = 2'd0,
+   SD_SAMPLING = 2'd1;
+
+reg[1:0] state;
+
 assign blk_data = RT_Feedback[blk_addr];
-     
+assign isBusy = (state != SD_IDLE);
+
 // -------------------------------------------------------
 // Sample data for block read
 // -------------------------------------------------------
@@ -63,35 +63,46 @@ assign blk_data = RT_Feedback[blk_addr];
 // 2) The data are better synchronized.
 // 3) It simplifies the Ethernet/Firewire state machine.
 
-always @(posedge clk or posedge doSample)
+always @(posedge clk)
 begin
-   if (doSample == 1) begin
-      chan <= 4'd1;
-      isBusy <= 1'd1;
-   end
-   else if (isBusy) begin
-      chan <= chan + 4'd1;
-      if (chan == 4'd1) begin
-         RT_Feedback[0] <= timestamp;
-         RT_Feedback[1] <= reg_status;
-         RT_Feedback[2] <= reg_digio;
-         RT_Feedback[3] <= reg_temp;
-         ts_reset <= 1;
+   timestamp <= (isBusy && (chan == 4'd1)) ? 32'd0 : timestamp + 1'b1;
+   case (state)
+
+      SD_IDLE:
+      begin
+         if (doSample) begin
+            chan <= 4'd1;
+            state <= SD_SAMPLING;
+         end
       end
-      if (chan == 4'd5) begin
-         isBusy <= 1'd0;
+
+      SD_SAMPLING:
+      begin
+         chan <= chan + 4'd1;
+         if (chan == 4'd1) begin
+            RT_Feedback[0] <= timestamp;
+            RT_Feedback[1] <= reg_status;
+            RT_Feedback[2] <= reg_digio;
+            RT_Feedback[3] <= reg_temp;
+         end
+         if (chan == 4'd5) begin
+            state <= SD_IDLE;
+         end
+         else begin
+            // For chan = 1,2,3,4
+            RT_Feedback[3+chan] <= adc_in;
+            RT_Feedback[7+chan] <= enc_pos;
+            RT_Feedback[11+chan] <= enc_period;
+            RT_Feedback[15+chan] <= enc_qtr1;
+            RT_Feedback[19+chan] <= enc_qtr5;
+            RT_Feedback[23+chan] <= enc_run;
+         end
       end
-      else begin
-         // For chan = 1,2,3,4
-         ts_reset <= 0;
-         RT_Feedback[3+chan] <= adc_in;
-         RT_Feedback[7+chan] <= enc_pos;
-         RT_Feedback[11+chan] <= enc_period;
-         RT_Feedback[15+chan] <= enc_qtr1;
-         RT_Feedback[19+chan] <= enc_qtr5;
-         RT_Feedback[23+chan] <= enc_run;
-      end
-   end
+
+      default:
+         state <= SD_IDLE;
+
+   endcase
 end    
 
 endmodule

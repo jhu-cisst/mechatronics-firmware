@@ -3,7 +3,7 @@
 
 /*******************************************************************************    
  *
- * Copyright(C) 2011-2020 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2011-2021 ERC CISST, Johns Hopkins University.
  *
  * This is the top level module for the FPGA1394-QLA motor controller interface.
  *
@@ -18,6 +18,12 @@
  */
 
 `timescale 1ns / 1ps
+
+`define HAS_ETHERNET
+
+// Define DIAGNOSTIC for diagnostic build, where DAC output is determined by
+// rotary switch setting (0-15).
+// `define DIAGNOSTIC
 
 // clock information
 // clk1394: 49.152 MHz 
@@ -63,39 +69,55 @@ module FPGA1394EthQLA
     output           XCSn
 );
 
+    // Whether analog or digital current control
+    // For now, hard-code for analog current control
+    wire dig_cur_ctrl;
+    assign dig_cur_ctrl = 1'b0;
+
     // -------------------------------------------------------------------------
     // local wires to tie the instantiated modules and I/Os
     //
 
-    wire eth1394;               // 1: eth1394 mode 0: firewire mode
     wire lreq_trig;             // phy request trigger
     wire fw_lreq_trig;          // phy request trigger from FireWire
     wire eth_lreq_trig;         // phy request trigger from Ethernet
     wire[2:0] lreq_type;        // phy request type
     wire[2:0] fw_lreq_type;     // phy request type from FireWire
     wire[2:0] eth_lreq_type;    // phy request type from Ethernet
-    wire reg_wen;               // register write signal
+    reg reg_wen;                // register write signal
     wire fw_reg_wen;            // register write signal from FireWire
     wire eth_reg_wen;           // register write signal from Ethernet
-    wire blk_wen;               // block write enable
+    wire bw_reg_wen;            // register write signal from WriteRtData
+    reg blk_wen;                // block write enable
     wire fw_blk_wen;            // block write enable from FireWire
     wire eth_blk_wen;           // block write enable from Ethernet
-    wire blk_wstart;            // block write start
+    wire bw_blk_wen;            // block write enable from WriteRtData
+    reg blk_wstart;             // block write start
     wire fw_blk_wstart;         // block write start from FireWire
     wire eth_blk_wstart;        // block write start from Ethernet
+    wire bw_blk_wstart;         // block write start from WriteRtData
     wire[15:0] reg_raddr;       // 16-bit reg read address
     wire[15:0] fw_reg_raddr;    // 16-bit reg read address from FireWire
     wire[15:0] eth_reg_raddr;   // 16-bit reg read address from Ethernet
-    wire[15:0] reg_waddr;       // 16-bit reg write address
+    reg[15:0] reg_waddr;        // 16-bit reg write address
     wire[15:0] fw_reg_waddr;    // 16-bit reg write address from FireWire
     wire[15:0] eth_reg_waddr;   // 16-bit reg write address from Ethernet
+    wire[7:0] bw_reg_waddr;     // 16-bit reg write address from WriteRtData
     wire[31:0] reg_rdata;       // reg read data
-    wire[31:0] reg_wdata;       // reg write data
+    reg[31:0] reg_wdata;        // reg write data
     wire[31:0] fw_reg_wdata;    // reg write data from FireWire
     wire[31:0] eth_reg_wdata;   // reg write data from Ethernet
+    wire[31:0] bw_reg_wdata;    // reg write data from WriteRtData
     wire[31:0] reg_rd[0:15];
     wire eth_read_en;           // 1 -> Ethernet is driving reg_raddr to read from board registers
+    // Following two wires indicate which module is driving the write bus
+    // (reg_waddr, reg_wdata, reg_wen, blk_wen, blk_wstart).
+    // If neither is active, then Firewire is driving the write bus.
+    wire eth_write_en;          // 1 -> Ethernet is driving write bus
+    wire bw_write_en;           // 1 -> WriteRtData (real-time block write) is driving write bus
     wire[5:0] node_id;          // 6-bit phy node id
+    wire[3:0] board_id;         // 4-bit board id
+    assign board_id = ~wenid;
 
 //------------------------------------------------------------------------------
 // hardware description
@@ -103,7 +125,7 @@ module FPGA1394EthQLA
 
 BUFG clksysclk(.I(clk1394), .O(sysclk));
 
-// Wires for sampling block read data
+// Wires for sampling block read data (shared between Ethernet and Firewire)
 wire sample_start;        // Start sampling read data
 wire sample_busy;         // 1 -> data sampler has control of bus
 wire[3:0] sample_chan;    // Channel for sampling
@@ -111,33 +133,77 @@ wire[4:0] sample_raddr;   // Address in sample_data buffer
 wire[31:0] sample_rdata;  // Output from sample_data buffer
 wire[31:0] timestamp;     // Timestamp used when sampling
 
+// For real-time write
+reg        rt_wen;
+wire       fw_rt_wen;
+wire       eth_rt_wen;
+reg[2:0]   rt_waddr;
+wire[2:0]  fw_rt_waddr;
+wire[2:0]  eth_rt_waddr;
+reg[31:0]  rt_wdata;
+wire[31:0] fw_rt_wdata;
+wire[31:0] eth_rt_wdata;
+
+// Manage access to data sampling between Ethernet and Firewire.
+// As with most shared Ethernet/Firewire functionality, it is assumed that
+// only one interface will be receiving packets from the host PC, so this is
+// likely to fail if the host PC sends packets by both Ethernet and Firewire.
+wire fw_sample_start;
 wire eth_sample_start;
-assign sample_start = eth_sample_start & ~sample_busy;
+assign sample_start = (eth_sample_start|fw_sample_start) & ~sample_busy;
+
+wire eth_sample_read;      // 1 -> Ethernet module has control of sample_raddr
+wire[4:0] fw_sample_raddr;
+wire[4:0] eth_sample_raddr;
+assign sample_raddr = eth_sample_read ? eth_sample_raddr : fw_sample_raddr;
 
 assign reg_raddr = sample_busy ? {`ADDR_MAIN, 4'd0, sample_chan, 4'd0} :
                    eth_read_en ? eth_reg_raddr :
                    fw_reg_raddr;
-assign reg_waddr = (eth_reg_wen | eth_blk_wen) ? eth_reg_waddr : fw_reg_waddr;
-assign reg_wdata = (eth_reg_wen | eth_blk_wen) ? eth_reg_wdata : fw_reg_wdata;
-assign reg_wen = fw_reg_wen | eth_reg_wen;
-assign blk_wen = fw_blk_wen | eth_blk_wen;
-assign blk_wstart = fw_blk_wstart | eth_blk_wstart;
+
+// Multiplexing of write bus between WriteRtData (bw = real-time block write module),
+// Ethernet (eth) and Firewire.
+always @(*)
+begin
+   if (bw_write_en) begin
+      reg_wen = bw_reg_wen;
+      blk_wen = bw_blk_wen;
+      blk_wstart = bw_blk_wstart;
+      reg_waddr = {8'd0, bw_reg_waddr};
+      reg_wdata = bw_reg_wdata;
+   end
+   else if (eth_write_en) begin
+      reg_wen = eth_reg_wen;
+      blk_wen = eth_blk_wen;
+      blk_wstart = eth_blk_wstart;
+      reg_waddr = eth_reg_waddr;
+      reg_wdata = eth_reg_wdata;
+   end
+   else begin
+      reg_wen = fw_reg_wen;
+      blk_wen = fw_blk_wen;
+      blk_wstart = fw_blk_wstart;
+      reg_waddr = fw_reg_waddr;
+      reg_wdata = fw_reg_wdata;
+   end
+end
+
 // Following is for debugging; it is a little risky to allow Ethernet to
 // access the FireWire PHY registers without some type of arbitration.
 assign lreq_trig = eth_lreq_trig | fw_lreq_trig;
 assign lreq_type = eth_lreq_trig ? eth_lreq_type : fw_lreq_type;
 
-// Mux routing read data based on read address
-//   See Constants.v for detail
-//     addr[15:12]  main | hub | prom | prom_qla | eth | firewire | dallas
+wire[31:0] reg_rdata_hub;      // reg_rdata_hub is for hub memory
+wire[31:0] reg_rdata_prom;     // reg_rdata_prom is for block reads from PROM
+wire[31:0] reg_rdata_prom_qla; // reads from QLA prom
+wire[31:0] reg_rdata_eth;      // for eth memory access
+wire[31:0] reg_rdata_fw;       // for fw memory access
+wire[31:0] reg_rdata_ds;       // for DS2505 memory access
+wire[31:0] reg_rdata_chan0;    // 'channel 0' is a special axis that contains various board I/Os
 
-// route HubReg data to global reg_rdata
-wire [31:0] reg_rdata_hub;      // reg_rdata_hub is for hub memory
-wire [31:0] reg_rdata_prom;     // reg_rdata_prom is for block reads from PROM
-wire [31:0] reg_rdata_prom_qla; // reads from QLA prom
-wire [31:0] reg_rdata_eth;      // for eth memory access
-wire [31:0] reg_rdata_fw;       // for fw memory access
-wire [31:0] reg_rdata_ds;       // for DS2505 memory access
+// Mux routing read data based on read address
+//   See Constants.v for details
+//     addr[15:12]  main | hub | prom | prom_qla | eth | firewire | dallas | databuf | waveform
 assign reg_rdata = (reg_raddr[15:12]==`ADDR_HUB) ? (reg_rdata_hub) :
                   ((reg_raddr[15:12]==`ADDR_PROM) ? (reg_rdata_prom) :
                   ((reg_raddr[15:12]==`ADDR_PROM_QLA) ? (reg_rdata_prom_qla) : 
@@ -145,7 +211,16 @@ assign reg_rdata = (reg_raddr[15:12]==`ADDR_HUB) ? (reg_rdata_hub) :
                   ((reg_raddr[15:12]==`ADDR_FW) ? (reg_rdata_fw) :
                   ((reg_raddr[15:12]==`ADDR_DS) ? (reg_rdata_ds) :
                   ((reg_raddr[15:12]==`ADDR_DATA_BUF) ? (reg_rdata_databuf) :
-                  ((reg_raddr[7:4]==4'd0) ? reg_rdata_chan0 : reg_rd[reg_raddr[3:0]])))))));
+                  ((reg_raddr[15:12]==`ADDR_WAVEFORM) ? (reg_rtable) :
+                  ((reg_raddr[7:4]==4'd0) ? reg_rdata_chan0 : reg_rd[reg_raddr[3:0]]))))))));
+
+// Unused channel offsets
+assign reg_rd[`OFF_UNUSED_02] = 32'd0;
+assign reg_rd[`OFF_UNUSED_03] = 32'd0;
+assign reg_rd[`OFF_UNUSED_12] = 32'd0;
+assign reg_rd[`OFF_UNUSED_13] = 32'd0;
+assign reg_rd[`OFF_UNUSED_14] = 32'd0;
+assign reg_rd[`OFF_UNUSED_15] = 32'd0;
 
 // 1394 phy low reset, never reset
 assign reset_phy = 1'b1; 
@@ -158,12 +233,16 @@ assign ETH_CSn = 0;         // Always select
 // By default, R45 is not populated, so driving this pin has no effect.
 assign ETH_8n = 1;          // 16-bit bus
 
-// IO1[8] is not used on QLA
-assign IO1[8] = 1'bz;
-
 // --------------------------------------------------------------------------
 // hub register module
 // --------------------------------------------------------------------------
+
+wire[15:0] bc_sequence;
+wire[15:0] bc_board_mask;
+//wire       bc_request;
+wire       hub_write_trig;
+wire       hub_write_trig_reset;
+wire       fw_idle;
 
 HubReg hub(
     .sysclk(sysclk),
@@ -171,7 +250,14 @@ HubReg hub(
     .reg_raddr(reg_raddr),
     .reg_waddr(reg_waddr),
     .reg_rdata(reg_rdata_hub),
-    .reg_wdata(reg_wdata)
+    .reg_wdata(reg_wdata),
+    .sequence(bc_sequence),
+    .board_mask(bc_board_mask),
+    //.hub_reg_wen(bc_request),
+    .board_id(board_id),
+    .write_trig(hub_write_trig),
+    .write_trig_reset(hub_write_trig_reset),
+    .fw_idle(fw_idle)
 );
 
 
@@ -180,25 +266,27 @@ HubReg hub(
 // --------------------------------------------------------------------------
 wire eth_send_fw_req;
 wire eth_send_fw_ack;
-wire[6:0] eth_fwpkt_raddr;
+wire[8:0] eth_fwpkt_raddr;
 wire[31:0] eth_fwpkt_rdata;
 wire[15:0] eth_fwpkt_len;
 wire[15:0] eth_host_fw_addr;
 
 wire eth_send_req;
 wire eth_send_ack;
-wire [6:0] eth_send_addr;
-wire [31:0] eth_send_data;
-wire [15:0] eth_send_len;
-   
+wire[8:0]  eth_send_addr;
+wire[15:0] eth_send_len;
+
+wire fw_bus_reset;
+
+wire[8:0] eth_send_addr_mux;
+assign eth_send_addr_mux = eth_send_ack ? eth_send_addr : reg_raddr[8:0];
 
 // phy-link interface
 PhyLinkInterface phy(
     .sysclk(sysclk),         // in: global clk  
-    .eth1394(eth1394),       // in: eth1394 mode
-    .board_id(~wenid),       // in: board id (rotary switch)
+    .board_id(board_id),     // in: board id (rotary switch)
     .node_id(node_id),       // out: phy node id
-    
+
     .ctl_ext(ctl),           // bi: phy ctl lines
     .data_ext(data),         // bi: phy data lines
     
@@ -219,16 +307,36 @@ PhyLinkInterface phy(
     .eth_fw_addr(eth_host_fw_addr),    // in: eth fw host address (e.g., ffd0)
 
     // Request from Firewire to send Ethernet packet
+    // Note that if !eth_send_ack, then the Firewire packet memory
+    // is accessible via reg_raddr/reg_rdata.
     .eth_send_req(eth_send_req),
     .eth_send_ack(eth_send_ack),
-    // .eth_send_addr(reg_raddr[6:0]),
-    // .eth_send_data(reg_rdata_fw),
-    .eth_send_addr(eth_send_addr),
-    .eth_send_data(eth_send_data),
+    .eth_send_addr(eth_send_addr_mux),
+    .eth_send_data(reg_rdata_fw),
     .eth_send_len(eth_send_len),
-                     
+
+    // Signal indicating bus reset in process
+    .fw_bus_reset(fw_bus_reset),
+
     .lreq_trig(fw_lreq_trig),  // out: phy request trigger
-    .lreq_type(fw_lreq_type)   // out: phy request type
+    .lreq_type(fw_lreq_type),  // out: phy request type
+
+    .rx_bc_sequence(bc_sequence),  // in: broadcast sequence num
+    .rx_bc_fpga(bc_board_mask),    // in: mask of boards involved in broadcast read
+    .write_trig(hub_write_trig),   // in: 1 -> broadcast write this board's hub data
+    .write_trig_reset(hub_write_trig_reset),
+    .fw_idle(fw_idle),
+
+    // Interface for real-time block write
+    .fw_rt_wen(fw_rt_wen),
+    .fw_rt_waddr(fw_rt_waddr),
+    .fw_rt_wdata(fw_rt_wdata),
+
+    // Interface for sampling data (for block read)
+    .sample_start(fw_sample_start),   // 1 -> start sampling for block read
+    .sample_busy(sample_busy),        // Sampling in process
+    .sample_raddr(fw_sample_raddr),   // Read address for sampled data
+    .sample_rdata(sample_rdata)       // Sampled data (for block read)
 );
 
 
@@ -255,7 +363,7 @@ wire[31:0] ip_address;
 EthernetIO EthernetTransfers(
     .sysclk(sysclk),          // in: global clock
 
-    .board_id(~wenid),        // in: board id (rotary switch)
+    .board_id(board_id),      // in: board id (rotary switch)
     .node_id(node_id),        // in: phy node id
 
     // Interface to KSZ8851
@@ -294,6 +402,7 @@ EthernetIO EthernetTransfers(
     .eth_reg_wen(eth_reg_wen),         // out: reg write enable
     .eth_block_wen(eth_blk_wen),       // out: blk write enable
     .eth_block_wstart(eth_blk_wstart), // out: blk write start
+    .eth_write_en(eth_write_en),       // out: write bus enable
 
     // Low-level Firewire PHY access
     .lreq_trig(eth_lreq_trig),   // out: phy request trigger
@@ -311,13 +420,22 @@ EthernetIO EthernetTransfers(
     .sendReq(eth_send_req),
     .sendAck(eth_send_ack),
     .sendAddr(eth_send_addr),
-    .sendData(eth_send_data),
+    .sendData(reg_rdata_fw),
     .sendLen(eth_send_len),
+
+    // Signal from Firewire indicating bus reset in process
+    .fw_bus_reset(fw_bus_reset),
+
+    // Interface for real-time block write
+    .eth_rt_wen(eth_rt_wen),
+    .eth_rt_waddr(eth_rt_waddr),
+    .eth_rt_wdata(eth_rt_wdata),
 
     // Interface for sampling data (for block read)
     .sample_start(eth_sample_start),   // 1 -> start sampling for block read
     .sample_busy(sample_busy),         // Sampling in process
-    .sample_raddr(sample_raddr),       // Read address for sampled data
+    .sample_read(eth_sample_read),     // 1 -> reading from sample memory
+    .sample_raddr(eth_sample_raddr),   // Read address for sampled data
     .sample_rdata(sample_rdata),       // Sampled data (for block read)
     .timestamp(timestamp)              // timestamp
 );
@@ -371,6 +489,7 @@ assign reg_rd[`OFF_ADC_DATA] = reg_adc_data;
 // local wire for dac
 wire[31:0] reg_rdac;
 assign reg_rd[`OFF_DAC_CTRL] = reg_rdac;   // dac reads
+assign reg_rd[`OFF_DAC_VOLT] = dig_cur_ctrl ? reg_rdac : 32'd0;
 
 wire[15:0] cur_cmd[1:4];
 
@@ -380,12 +499,19 @@ CtrlDac dac(
     .sclk(IO1[21]),
     .mosi(IO1[20]),
     .csel(IO1[22]),
+    // Current control mode
+    .dig_cur_ctrl(dig_cur_ctrl),
+    // Data from host (analog controller)
     .reg_wen(reg_wen),
     .blk_wen(blk_wen),
-    .reg_raddr(reg_raddr),
     .reg_waddr(reg_waddr),
+`ifdef DIAGNOSTIC
+    .reg_wdata({ board_id, 12'h000 }),
+`else
+    .reg_wdata(reg_wdata[15:0]),
+`endif
+    .reg_rchan(reg_raddr[7:4]),
     .reg_rdata(reg_rdac),
-    .reg_wdata(reg_wdata),
     .dac1(cur_cmd[1]),
     .dac2(cur_cmd[2]),
     .dac3(cur_cmd[3]),
@@ -434,11 +560,13 @@ assign reg_rd[`OFF_RUN_DATA] = reg_run_data;     // running counter
 
 wire[31:0] reg_rdout;
 assign reg_rd[`OFF_DOUT_CTRL] = reg_rdout;
+wire[31:0] reg_rtable;
 
 // DOUT hardware configuration
 wire dout_config_valid;
 wire dout_config_bidir;
-wire[3:0] dout;
+wire dout_config_reset;
+wire[31:0] dout;
 wire dir12_cd;
 wire dir34_cd;
 
@@ -471,6 +599,7 @@ CtrlDout cdout(
     .reg_raddr(reg_raddr),
     .reg_waddr(reg_waddr),
     .reg_rdata(reg_rdout),
+    .table_rdata(reg_rtable),
     .reg_wdata(reg_wdata),
     .reg_wen(reg_wen),
     .dout(dout),
@@ -479,7 +608,8 @@ CtrlDout cdout(
     .dir12_reg(dir12_cd),
     .dir34_reg(dir34_cd),
     .dout_cfg_valid(dout_config_valid),
-    .dout_cfg_bidir(dout_config_bidir)
+    .dout_cfg_bidir(dout_config_bidir),
+    .dout_cfg_reset(dout_config_reset)
 );
 
 // --------------------------------------------------------------------------
@@ -600,22 +730,28 @@ wire[4:1] safety_amp_disable;
 wire pwr_enable_cmd;
 wire[4:1] amp_enable_cmd;
 
-// 'channel 0' is a special axis that contains various board I/Os
-wire[31:0] reg_rdata_chan0;
-
 wire[31:0] reg_status;    // Status register
 wire[31:0] reg_digio;     // Digital I/O register
 wire[15:0] tempsense;     // Temperature sensor
+wire[15:0] reg_databuf;   // Data collection status
+
+wire reboot;              // Reboot the FPGA
+
+// used to check status of user defined watchdog period; used to control LED 
+wire      wdog_period_led;
+wire[2:0] wdog_period_status;
+wire wdog_timeout;
 
 BoardRegs chan0(
     .sysclk(sysclk),
+    .reboot(reboot),
     .amp_disable({IO2[38],IO2[36],IO2[34],IO2[32]}),
     .dout(dout),
     .dout_cfg_valid(dout_config_valid),
     .dout_cfg_bidir(dout_config_bidir),
+    .dout_cfg_reset(dout_config_reset),
     .pwr_enable(IO1[32]),
     .relay_on(IO1[31]),
-    .eth1394(eth1394),
     .enc_a({IO2[17], IO2[19], IO2[21], IO2[23]}),    // axis 4:1
     .enc_b({IO2[10], IO2[12], IO2[13], IO2[15]}),
     .enc_i({IO2[2], IO2[4], IO2[6], IO2[8]}),
@@ -627,7 +763,8 @@ BoardRegs chan0(
     .mv_faultn(IO1[7]),
     .mv_good(IO2[11]),
     .v_fault(IO1[9]),
-    .board_id(~wenid),
+    .io1_8(IO1[8]),
+    .board_id(board_id),
     .temp_sense(tempsense),
     .reg_raddr(reg_raddr),
     .reg_waddr(reg_waddr),
@@ -647,7 +784,10 @@ BoardRegs chan0(
     .pwr_enable_cmd(pwr_enable_cmd),
     .amp_enable_cmd(amp_enable_cmd),
     .reg_status(reg_status),
-    .reg_digin(reg_digio)
+    .reg_digin(reg_digio),
+    .wdog_period_led(wdog_period_led),
+    .wdog_period_status(wdog_period_status),
+    .wdog_timeout(wdog_timeout)
 );
 
 // --------------------------------------------------------------------------
@@ -660,7 +800,7 @@ SampleData sampler(
     .isBusy(sample_busy),
     .reg_status(reg_status),
     .reg_digio(reg_digio),
-    .reg_temp({16'd0, tempsense}),
+    .reg_temp({reg_databuf, tempsense}),
     .chan(sample_chan),
     .adc_in(reg_adc_data),
     .enc_pos(reg_quad_data),
@@ -670,7 +810,40 @@ SampleData sampler(
     .enc_run(reg_run_data),
     .blk_addr(sample_raddr),
     .blk_data(sample_rdata),
-    .timestamp(timestamp)
+    .timestamp(timestamp),
+    .bc_sequence(bc_sequence),
+    .bc_board_mask(bc_board_mask)
+);
+
+// --------------------------------------------------------------------------
+// Write data for real-time block
+// --------------------------------------------------------------------------
+
+always @(*)
+begin
+   if (eth_rt_wen) begin
+      rt_wen = eth_rt_wen;
+      rt_waddr = eth_rt_waddr;
+      rt_wdata = eth_rt_wdata;
+   end
+   else begin
+      rt_wen = fw_rt_wen;
+      rt_waddr = fw_rt_waddr;
+      rt_wdata = fw_rt_wdata;
+   end
+end
+
+WriteRtData rt_write(
+    .clk(sysclk),
+    .rt_write_en(rt_wen),       // Write enable
+    .rt_write_addr(rt_waddr),   // Write address (0-4)
+    .rt_write_data(rt_wdata),   // Write data
+    .bw_write_en(bw_write_en),
+    .bw_reg_wen(bw_reg_wen),
+    .bw_block_wen(bw_blk_wen),
+    .bw_block_wstart(bw_blk_wstart),
+    .bw_reg_waddr(bw_reg_waddr),
+    .bw_reg_wdata(bw_reg_wdata)
 );
 
 // ----------------------------------------------------------------------------
@@ -709,6 +882,13 @@ SafetyCheck safe4(
     .amp_disable(safety_amp_disable[4])
 );
 
+// --------------------------------------------------------------------------
+// Reboot
+// --------------------------------------------------------------------------
+Reboot fpga_reboot(
+     .clk(clkadc),     // Use 12 MHz clock (cannot be more than 20 MHz)
+     .reboot(reboot)
+);
 
 // --------------------------------------------------------------------------
 // Data Buffer
@@ -727,7 +907,10 @@ DataBuffer data_buffer(
     .reg_wdata(reg_wdata),          // write data
     .reg_wen(reg_wen),              // write enable
     .reg_raddr(reg_raddr),          // read address
-    .reg_rdata(reg_rdata_databuf)   // read data
+    .reg_rdata(reg_rdata_databuf),  // read data
+    // status and timestamp
+    .databuf_status(reg_databuf),   // status for SampleData
+    .ts(timestamp)                  // timestamp from SampleData
 );
 
 //------------------------------------------------------------------------------
@@ -768,6 +951,9 @@ ClkDiv divclk12(sysclk, clk_12hz); defparam divclk12.width = 22;  // 49.152 MHz 
 CtrlLED qla_led(
     .sysclk(sysclk),
     .clk_12hz(clk_12hz),
+    .wdog_period_led(wdog_period_led),
+    .wdog_period_status(wdog_period_status),
+    .wdog_timeout(wdog_timeout),
     .led1_grn(IO2[1]),
     .led1_red(IO2[3]),
     .led2_grn(IO2[5]),

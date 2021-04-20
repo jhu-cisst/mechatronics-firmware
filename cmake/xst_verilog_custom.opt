@@ -1,0 +1,45 @@
+FLOWTYPE = FPGA_SYNTHESIS;
+#########################################################
+## Filename: xst_verilog.opt
+##
+## Verilog Option File for XST targeted for speed
+## This works for FPGA devices.
+##
+## Version: 13.1
+## $Header: /devl/xcs/repo/env/Jobs/Xflow/data/optionfiles/spartan6_xst_verilog_speed.opt,v 1.3 2011/01/07 21:14:39 rvklair Exp $
+#########################################################
+#
+# Options for XST
+#
+#
+Program xst
+-ifn <design>_xst.scr;            # input XST script file
+-ofn <design>_xst.log;            # output XST log file
+-intstyle silent;                 # Message Reporting Style: ise, xflow, or silent
+#
+# The options listed under ParamFile are the XST Properties that can be set by the 
+# user. To turn on an option, uncomment by removing the '#' in front of the switch.
+#
+ParamFile: <design>_xst.scr
+"run";
+#
+# Global Synthesis Options
+#
+"-ifn <synthdesign>";             # Input/Project File Name
+# PK: removed "-ifmt Verilog" because it is not compatible with PRJ file and anyway
+#     Xilinx recommends mixed design (default)
+#"-ifmt Verilog";                  # Input Format
+"-ofn <design>";                  # Output File Name 
+"-ofmt ngc";	         	      # Output File Format
+"-p <partname>";                  # Target Device
+# PK: added following line
+"-top $top_level";                # Top level module
+"-opt_level 1";                   # Optimization Effort Criteria
+                                  # 1 (Normal) or 2 (High)
+"-opt_mode SPEED";                # Optimization Criteria
+                                  # AREA or SPEED
+End ParamFile
+End Program xst
+#
+# See XST USER Guide Chapter 8 (Command Line Mode) for all XST options
+#

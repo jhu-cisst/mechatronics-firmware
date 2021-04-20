@@ -1,5 +1,5 @@
 The following files were generated for 'icon_uart' in directory
-/home/zihan/dev/mechatronics/firmware/FPGA1394_QLA/ipcore_dir/
+/mnt/Data/Peter/JHU/Hardware/mechatronics-firmware/FPGA1394_QLA/ipcore_dir/
 
 XCO file generator:
    Generate an XCO file for compatibility with legacy flows.
@@ -9,10 +9,13 @@ XCO file generator:
 Creates an implementation netlist:
    Creates an implementation netlist for the IP.
 
-   * icon_uart.ejp
+   * icon_uart.constraints/icon_uart.ucf
+   * icon_uart.constraints/icon_uart.xdc
    * icon_uart.ngc
+   * icon_uart.ucf
    * icon_uart.v
    * icon_uart.veo
+   * icon_uart.xdc
    * icon_uart_xmdf.tcl
 
 IP Symbol Generator:

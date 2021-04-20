@@ -31,6 +31,7 @@
  *     9/23/15    Peter Kazanzides  Initial implementation
  *     4/21/16    Peter Kazanzides  Added support for QLA Rev 1.4
  *     4/07/17    Jie Ying Wu       Minor changes so PWM finishes its current period before changing duty cycle
+ *    12/13/20    Peter Kazanzides  Added waveform table
  */
 
 `include "Constants.v" 
@@ -40,16 +41,23 @@ module CtrlDout(
     input  wire[15:0] reg_raddr,  // register file read addr from outside 
     input  wire[15:0] reg_waddr,  // register file write addr from outside 
     output wire[31:0] reg_rdata,  // outgoing register file data
+    output wire[31:0] table_rdata,  // outgoing table data
     input  wire[31:0] reg_wdata,  // incoming register file data
     input  wire reg_wen,          // write enable signal from outside world
-    output wire[4:1] dout,        // digital outputs
+    output wire[31:0] dout,       // digital outputs
     input  wire dir12_read,       // direction control for channels 1-2 (QLA Rev 1.4+)
     input  wire dir34_read,       // direction control for channels 3-4 (QLA Rev 1.4+)
     output reg  dir12_reg,        // direction control for channels 1-2 (QLA Rev 1.4+)
     output reg  dir34_reg,        // direction control for channels 3-4 (QLA Rev 1.4+)
-    output reg dout_cfg_valid,    // 1 -> DOUT configuration valid
-    output reg dout_cfg_bidir     // 1 -> new DOUT hardware (bidirectional control)
-);    
+    output reg  dout_cfg_valid,   // 1 -> DOUT configuration valid
+    output reg  dout_cfg_bidir,   // 1 -> new DOUT hardware (bidirectional control)
+    input  wire dout_cfg_reset    // 1 -> reset dout_cfg_valid
+);
+
+initial begin
+  dout_cfg_valid = 0;
+  dout_cfg_bidir = 0;
+end
 
 wire dout_set;           // write to digital output bit (masked by reg_wdata[8:11])             
 assign dout_set = (reg_wen && (reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[7:4] == 4'd0) & (reg_waddr[3:0] == `REG_DIGIOUT)) ? 1'd1 : 1'd0;
@@ -58,7 +66,94 @@ assign dout_set_en[1] = dout_set && reg_wdata[8];
 assign dout_set_en[2] = dout_set && reg_wdata[9];
 assign dout_set_en[3] = dout_set && reg_wdata[10];
 assign dout_set_en[4] = dout_set && reg_wdata[11];
-             
+
+wire dout_pwm[1:4];      // DOUT from PWM module (also handles regular DOUT setting)
+
+// Whether to enable waveform table output for each DOUT.
+// To use the waveform table, the host should first fill the table (by block write to `ADDR_WAVEFORM)
+// and then write to `REG_DIGIOUT, setting the most significant bit (to enable waveform output)
+// and the mast bits (reg[wdata[8:11]) for each digital output that should be driven by the table.
+reg[3:0] dout_waveform_en;
+
+// Whether any digital output is configured to be driven by the table
+wire dout_waveform_any;
+assign dout_waveform_any = dout_waveform_en[0]|dout_waveform_en[1]|dout_waveform_en[2]|dout_waveform_en[3];
+
+// Assign the digital output to be either from the waveform table (if dout_waveform_en and entry_valid)
+// or from the PWM module.
+assign dout[0] = (dout_waveform_en[0]&entry_valid) ? table_rdata[0] : dout_pwm[1];
+assign dout[1] = (dout_waveform_en[1]&entry_valid) ? table_rdata[1] : dout_pwm[2];
+assign dout[2] = (dout_waveform_en[2]&entry_valid) ? table_rdata[2] : dout_pwm[3];
+assign dout[3] = (dout_waveform_en[3]&entry_valid) ? table_rdata[3] : dout_pwm[4];
+
+assign dout[15:4] = 12'd0;
+assign dout[25:16] = table_raddr;
+assign dout[29:26] = 4'd0;
+assign dout[30] = dout_waveform_any&entry_valid;
+assign dout[31] = dout_waveform_any;
+
+//************************** DOUT Waveform Table **********************************
+
+wire dout_table_wen;
+assign dout_table_wen = (reg_wen && (reg_waddr[15:12]==`ADDR_WAVEFORM)) ? 1'd1 : 1'd0;
+
+reg[9:0] table_raddr;     // Table read address (10 bits)
+
+reg[22:0] table_cnt;      // Used to count duration of table output
+
+// Whether a valid table entry
+wire entry_valid;
+assign entry_valid = table_rdata[31];
+
+// Last count for table entry (23 bits):
+//    0        -> 1 sysclk (~20.3 ns)
+//    0x7fffff -> 8,388,608 sysclk (~170.7 ms)
+wire[22:0] end_cnt;
+assign end_cnt = table_rdata[30:8];
+
+// Table of DOUT values to be written.
+// This table is 1024 x 32
+// Format:  Valid(1), EndCnt(23), 0(4), DOUT(4)
+Dual_port_RAM_32X1024 dout_table(
+                       .clka(sysclk),
+                       .ena(1'b1),
+                       .wea(dout_table_wen),
+                       .addra(reg_waddr[9:0]),
+                       .dina(reg_wdata),
+                       .clkb(sysclk),
+                       .enb(1'b1),
+                       .addrb(dout_waveform_any ? table_raddr : reg_raddr[9:0]),
+                       .doutb(table_rdata)
+                      );
+
+always @(posedge sysclk)
+begin
+   if (dout_set) begin
+      // If bit 31 set, enable DOUT based on mask bits reg_wdata[11:8]
+      dout_waveform_en <= reg_wdata[31] ? reg_wdata[11:8] : 4'd0;
+      table_raddr <= 10'd0;
+      table_cnt <= 23'd0;
+   end
+   else if (dout_waveform_any&entry_valid) begin
+      // If driving at least one DOUT from the waveform table
+      if (table_cnt == end_cnt) begin
+         table_raddr <= table_raddr + 10'd1;
+         table_cnt <= 23'd0;
+      end
+      else begin
+         table_cnt <= table_cnt + 23'd1;
+      end
+   end
+   else begin
+      // Idle
+      dout_waveform_en <= 4'd0;
+      table_raddr <= 10'd0;
+      table_cnt <= 23'd0;
+   end
+end
+
+
+
 wire dout_ctrl;           // write to control register (hi/low times)
 assign dout_ctrl = (reg_wen && (reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[3:0]==`OFF_DOUT_CTRL)) ? 1'd1 : 1'd0;
 wire dout_ctrl_en[1:4];   // enable signal for each digital output control register
@@ -68,14 +163,14 @@ assign dout_ctrl_en[3] = (dout_ctrl && (reg_waddr[7:4] == 4'd3)) ? 1'd1 : 1'd0;
 assign dout_ctrl_en[4] = (dout_ctrl && (reg_waddr[7:4] == 4'd4)) ? 1'd1 : 1'd0;
 
 wire [31:0] reg_rd[1:4];  // read control register (hi/low times)
-assign reg_rdata = (reg_raddr[3:0]==`OFF_DOUT_CTRL) ? reg_rd[reg_raddr[7:4]] : 32'd0;
+assign reg_rdata = (reg_raddr[3:0] == `OFF_DOUT_CTRL) ? reg_rd[reg_raddr[7:4]] : 32'd0;
 // Note: reading of digital output state is done in BoardRegs.v
 
 // Instantiate module for each digital output      
-DoutPWM DoutPWM1(sysclk, reg_rd[1], dout_ctrl_en[1], reg_wdata, dout_set_en[1], reg_wdata[0], dout[1]);
-DoutPWM DoutPWM2(sysclk, reg_rd[2], dout_ctrl_en[2], reg_wdata, dout_set_en[2], reg_wdata[1], dout[2]);
-DoutPWM DoutPWM3(sysclk, reg_rd[3], dout_ctrl_en[3], reg_wdata, dout_set_en[3], reg_wdata[2], dout[3]);
-DoutPWM DoutPWM4(sysclk, reg_rd[4], dout_ctrl_en[4], reg_wdata, dout_set_en[4], reg_wdata[3], dout[4]);
+DoutPWM DoutPWM1(sysclk, reg_rd[1], dout_ctrl_en[1], reg_wdata, dout_set_en[1], reg_wdata[0], dout_pwm[1]);
+DoutPWM DoutPWM2(sysclk, reg_rd[2], dout_ctrl_en[2], reg_wdata, dout_set_en[2], reg_wdata[1], dout_pwm[2]);
+DoutPWM DoutPWM3(sysclk, reg_rd[3], dout_ctrl_en[3], reg_wdata, dout_set_en[3], reg_wdata[2], dout_pwm[3]);
+DoutPWM DoutPWM4(sysclk, reg_rd[4], dout_ctrl_en[4], reg_wdata, dout_set_en[4], reg_wdata[3], dout_pwm[4]);
 
 // The following code is for a configuration check. QLA Version 1.4 has bidirectional transceivers instead of the
 // MOSFET drivers used in prior versions of the QLA. We can detect this by checking the state of the two
@@ -89,24 +184,44 @@ DoutPWM DoutPWM4(sysclk, reg_rd[4], dout_ctrl_en[4], reg_wdata, dout_set_en[4], 
 // we also need to invert the dout signals for backward compatibility with the older QLA version, which inverted
 // the DOUT signals in hardware (due to the MOSFET).
 //
-// Note that QLA Rev 1.4+ allows the DOUT pins to be used as inputs, but this is not currently supported by the firmware.
+// Note that QLA Rev 1.4+ allows the DOUT pins to be used as inputs, but this is not currently supported by the firmware,
+// except that the DS2505 module can set ds_enable to take over DOUT3 and DIR34 for the 1-wire interface.
+
+// Following counter used during initialization to detect DOUT configuration
+// (12 bits --> about 80 usec)
+reg[11:0] dout_cfg_cnt;
+
+reg  wasOldQLA;
+reg  wasNewQLA;
+wire isOldQLA;
+wire isNewQLA;
+// dir12_read==0 && dir34_read==0  --> New QLA (Rev 1.4+)
+// dir12_read==1 && dir34_read==1  --> Old QLA
+assign isOldQLA = dir12_read&dir34_read;
+assign isNewQLA = ~(dir12_read|dir34_read);
 
 always @(posedge(sysclk))
 begin
-   if (!dout_cfg_valid) begin
-      if ((dir12_read == 1'b0) && (dir34_read == 1'b0)) begin
-         // If QLA Rev 1.4 detected, start driving outputs
-         dout_cfg_bidir <= 1'b1;
-         dir12_reg <= 1'b1;
-         dir34_reg <= 1'b1;
+   if (dout_cfg_reset) begin
+      dout_cfg_valid <= 1'b0;
+      dout_cfg_bidir <= 1'b0;
+      dout_cfg_cnt <= 12'd0;
+   end
+   else if (!dout_cfg_valid) begin
+      wasOldQLA <= isOldQLA;
+      wasNewQLA <= isNewQLA;
+      // Increment counter only when isOldQLA or isNewQLA is consistent with previous state
+      dout_cfg_cnt <= ((wasOldQLA&isOldQLA)|(wasNewQLA&isNewQLA)) ? (dout_cfg_cnt + 12'd1) : 12'd0;
+
+      if (dout_cfg_cnt == 12'hfff) begin
+         dout_cfg_bidir <= isNewQLA;
          dout_cfg_valid <= 1'b1;
+         if (isNewQLA) begin
+            // If QLA Rev 1.4+ detected, start driving outputs
+            dir12_reg <= 1'b1;
+            dir34_reg <= 1'b1;
+         end
       end
-      else if ((dir12_read == 1'b1) && (dir34_read == 1'b1)) begin
-         // Older version of QLA
-         // dout_cfg_bidir is already set to 0 during reset
-         dout_cfg_valid <= 1'b1;
-      end
-      // Else we keep checking...
    end
 end
 

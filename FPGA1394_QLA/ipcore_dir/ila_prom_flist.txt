@@ -1,13 +1,16 @@
 # Output products list for <ila_prom>
 ila_prom.asy
 ila_prom.cdc
-ila_prom.ejp
+ila_prom.constraints/ila_prom.ucf
+ila_prom.constraints/ila_prom.xdc
 ila_prom.gise
 ila_prom.ncf
 ila_prom.ngc
+ila_prom.ucf
 ila_prom.v
 ila_prom.veo
 ila_prom.xco
+ila_prom.xdc
 ila_prom.xise
 ila_prom_flist.txt
 ila_prom_readme.txt

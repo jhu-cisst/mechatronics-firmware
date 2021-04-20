@@ -1,14 +1,14 @@
 ///////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2016 Xilinx, Inc.
+// Copyright (c) 2020 Xilinx, Inc.
 // All Rights Reserved
 ///////////////////////////////////////////////////////////////////////////////
 //   ____  ____
 //  /   /\/   /
 // /___/  \  /    Vendor     : Xilinx
-// \   \   \/     Version    : 13.4
+// \   \   \/     Version    : 14.7
 //  \   \         Application: Xilinx CORE Generator
 //  /   /         Filename   : icon_ethernet.veo
-// /___/   /\     Timestamp  : Sun Dec 04 18:32:46 EST 2016
+// /___/   /\     Timestamp  : Fri May 08 02:04:55 EDT 2020
 // \   \  /  \
 //  \___\/\___\
 //

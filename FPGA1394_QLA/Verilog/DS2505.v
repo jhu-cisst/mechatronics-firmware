@@ -78,7 +78,7 @@ reg[7:0]  num_bytes;       // Number of bytes to read
 wire      ds_reg_wen;      // main quadlet reg interface
 assign ds_reg_wen = (reg_waddr == {`ADDR_MAIN, 8'd0, `REG_DSSTAT}) ? reg_wen : 1'b0;
 
-reg[31:0] mem_data[0:64];  // Up to 64 quadlets (256 bytes) read from chip, provided via block read
+reg[31:0] mem_data[0:63];  // Up to 64 quadlets (256 bytes) read from chip, provided via block read
 
 wire[5:0] ds_blk_raddr;    // memory block read address (0-63)
 assign ds_blk_raddr = reg_raddr[5:0];

@@ -1,5 +1,5 @@
 The following files were generated for 'ila_enc' in directory
-/home/zihan/dev/mechatronics/firmware/FPGA1394_QLA/ipcore_dir/
+/mnt/Data/Peter/JHU/Hardware/mechatronics-firmware/FPGA1394_QLA/ipcore_dir/
 
 XCO file generator:
    Generate an XCO file for compatibility with legacy flows.
@@ -10,12 +10,20 @@ Creates an implementation netlist:
    Creates an implementation netlist for the IP.
 
    * ila_enc.cdc
-   * ila_enc.ejp
+   * ila_enc.constraints/ila_enc.ucf
+   * ila_enc.constraints/ila_enc.xdc
    * ila_enc.ncf
    * ila_enc.ngc
+   * ila_enc.ucf
    * ila_enc.v
    * ila_enc.veo
+   * ila_enc.xdc
    * ila_enc_xmdf.tcl
+
+Creates an HDL instantiation template:
+   Creates an HDL instantiation template for the IP.
+
+   * ila_enc.veo
 
 IP Symbol Generator:
    Generate an IP symbol based on the current project options'.

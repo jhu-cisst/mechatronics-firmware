@@ -1,5 +1,5 @@
 The following files were generated for 'chipscope_icon' in directory
-/home/zihan/dev/mechatronics/firmware/FPGA1394_QLA/ipcore_dir/
+/mnt/Data/Peter/JHU/Hardware/mechatronics-firmware/FPGA1394_QLA/ipcore_dir/
 
 XCO file generator:
    Generate an XCO file for compatibility with legacy flows.
@@ -9,10 +9,13 @@ XCO file generator:
 Creates an implementation netlist:
    Creates an implementation netlist for the IP.
 
-   * chipscope_icon.ejp
+   * chipscope_icon.constraints/chipscope_icon.ucf
+   * chipscope_icon.constraints/chipscope_icon.xdc
    * chipscope_icon.ngc
+   * chipscope_icon.ucf
    * chipscope_icon.v
    * chipscope_icon.veo
+   * chipscope_icon.xdc
    * chipscope_icon_xmdf.tcl
 
 IP Symbol Generator:

@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2008-2020 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2008-2021 ERC CISST, Johns Hopkins University.
  *
  * This module contains a register file dedicated to general board parameters.
  * Separate register files are maintained for each I/O channel (SpiCtrl).
@@ -15,7 +15,8 @@
  *     05/08/13    Zihan Chen          Fix watchdog 
  *     05/19/13    Zihan Chen          Add mv_good 40 ms sleep
  *     09/23/15    Peter Kazanzides    Moved DOUT code to CtrlDout.v
- *     01/22/20    Peter Kazanzides    Removing reset (including software-generated reset)
+ *     10/15/19    Jintan Zhang        Implemented watchdog period led feedback 
+ *     07/03/20    Peter Kazanzides    Changing reset to reboot
  */
 
 
@@ -28,15 +29,16 @@
 module BoardRegs(
     // global clock
     input  wire sysclk, 
+    output reg  reboot,
     
     // board input (PC writes)
     output wire[4:1] amp_disable,   // hardware connection to op amps
-    input  wire[4:1] dout,          // digital outputs
+    input  wire[31:0] dout,         // digital outputs
     input  wire dout_cfg_valid,     // digital output configuration valid
     input  wire dout_cfg_bidir,     // whether digital outputs are bidirectional (also need to be inverted)
+    output reg  dout_cfg_reset,     // reset dout_cfg_valid
     output reg pwr_enable,          // enable motor power
     output reg relay_on,            // enable relay for safety loop-through
-    output reg eth1394,             // 0: firewire mode 1: ethernet-1394 mode
     
     // board output (PC reads)
     input  wire[4:1] enc_a,         // encoder a  
@@ -51,6 +53,7 @@ module BoardRegs(
     input  wire mv_faultn,          // motor power fault (active low) from LT4356, over-voltage or over-current
     input  wire mv_good,            // motor voltage good 
     input  wire v_fault,            // encoder supply voltage fault
+    input  wire io1_8,              // unused digital I/O (not connected on QLA)
     input  wire[3:0] board_id,      // board id (rotary switch)
     input  wire[15:0] temp_sense,   // temperature sensor reading
     
@@ -83,6 +86,9 @@ module BoardRegs(
 
     output wire[31:0] reg_status,  // Status register (for reading)
     output wire[31:0] reg_digin,   // Digital I/O register (for reading)
+    output reg      wdog_period_led,    // 1 -> LED1 displays wdog_period_status
+    output reg[2:0] wdog_period_status,
+    output reg wdog_timeout,       // watchdog timeout status flag
     output reg[31:0] reg_debug     // for debug purpose only
 );
 
@@ -98,20 +104,19 @@ module BoardRegs(
 
     // watchdog timer
     wire wdog_clk;              // watchdog clock
-    reg  wdog_timeout;          // watchdog timeout status flag
     reg[15:0] wdog_period;      // watchdog period, user writable
-    initial wdog_period = 16'hffff;  // disables watchdog by default
+    initial wdog_period = 16'h1680;  // 0x1680 == 30 msec
     reg[15:0] wdog_count;       // watchdog timer counter
-    
-    // mv good timer                                                                                                                                       
-    reg[15:0] mv_good_counter;  // mv_good counter 
+
+    // mv good timer
+    reg[15:0] mv_good_counter;  // mv_good counter
     reg[4:1] mv_amp_disable;    // mv good amp_disable
 
     assign reg_status = {
                 // Byte 3: num channels (4), board id
                 4'd4, board_id,
-                // Byte 2: wdog timeout, eth1394 mode, dout_cfg_valid, dout_cfg_bidir
-                wdog_timeout, eth1394, dout_cfg_valid, dout_cfg_bidir,
+                // Byte 2: wdog timeout, 0 (was eth1394), dout_cfg_valid, dout_cfg_bidir
+                wdog_timeout, 1'd0, dout_cfg_valid, dout_cfg_bidir,
                 // mv_good, power enable, safety relay state, safety relay control
                 mv_good, pwr_enable, ~relay, relay_on,
                 // mv_fault, unused (0)
@@ -121,7 +126,8 @@ module BoardRegs(
                 // Byte 0: 1 -> amplifier enabled, 0 -> disabled
                 safety_amp_disable[4:1], ~reg_disable[3:0] };
 
-    assign reg_digin = {v_fault, 3'd0, enc_a, enc_b, enc_i, dout, neg_limit, pos_limit, home};
+    // dout[31] indicates that waveform table is driving at least one DOUT
+    assign reg_digin = {v_fault, io1_8, dout[31], 1'b0, enc_a, enc_b, enc_i, dout[3:0], neg_limit, pos_limit, home};
 
 //------------------------------------------------------------------------------
 // hardware description
@@ -167,15 +173,15 @@ always @(posedge(sysclk))
             relay_on <= reg_wdata[17] ? reg_wdata[16] : relay_on;
             // mask reg_wdata[19] with [18] for pwr_enable
             pwr_enable <= reg_wdata[19] ? reg_wdata[18] : pwr_enable;
-            // mask reg_wdata[21] with [20] for soft_reset
-            // NOTE: Removing software reset in Rev 7
-            // reset_soft_trigger <= reg_wdata[21] ? reg_wdata[20] : 1'b0;
-            // mask reg_wdata[23] with [22] for eth1394 mode
-            eth1394 <= reg_wdata[23] ? reg_wdata[22] : eth1394;
+            // mask reg_wdata[21] with [20] for reboot (was reset prior to Rev 7)
+            reboot <= reg_wdata[21] ? reg_wdata[20] : 1'b0;
+            // Previously, masked reg_wdata[23] with [22] for eth1394 mode
+            // use reg_wdata[24] to reset dout_cfg_valid
+            dout_cfg_reset <= reg_wdata[24];
         end
         `REG_PHYCTRL: phy_ctrl <= reg_wdata[15:0];
         `REG_PHYDATA: phy_data <= reg_wdata[15:0];
-        `REG_TIMEOUT: wdog_period <= reg_wdata[15:0];
+        `REG_TIMEOUT: {wdog_period_led, wdog_period} <= {reg_wdata[31], reg_wdata[15:0]};
         // Write to DOUT is handled in CtrlDout.v
         // Write to PROM command register (8) is handled in M25P16.v
         // Write to IP address is handled in EthernetIO.v
@@ -187,9 +193,9 @@ always @(posedge(sysclk))
     else begin
         case (reg_raddr[3:0])
         `REG_STATUS: reg_rdata <= reg_status;
-        `REG_PHYCTRL: reg_rdata <= phy_ctrl;
-        `REG_PHYDATA: reg_rdata <= phy_data;
-        `REG_TIMEOUT: reg_rdata <= wdog_period;
+        `REG_PHYCTRL: reg_rdata <= {16'd0, phy_ctrl};
+        `REG_PHYDATA: reg_rdata <= {16'd0, phy_data};
+        `REG_TIMEOUT: reg_rdata <= {wdog_period_led, 15'd0, wdog_period};
         `REG_VERSION: reg_rdata <= `VERSION;
         `REG_TEMPSNS: reg_rdata <= {16'd0, temp_sense};
         `REG_DIGIOUT: reg_rdata <= dout;
@@ -207,7 +213,13 @@ always @(posedge(sysclk))
 
         // Disable axes when wdog timeout or safety amp disable. Note the minor efficiency gain
         // below by combining safety_amp_disable with !wdog_timeout.
+`ifdef DIAGNOSTIC
+        reg_disable[3:0] <= reg_disable[3:0] | (wdog_timeout ? 4'b1111 : 4'b0000);
+`else
         reg_disable[3:0] <= reg_disable[3:0] | (wdog_timeout ? 4'b1111 : safety_amp_disable[4:1]);
+`endif
+        // Turn off dout_cfg_reset in case it was previously set
+        dout_cfg_reset <= 1'b0;
     end
 end
 
@@ -217,6 +229,29 @@ end
 // derive watchdog clock
 ClkDiv divWdog(sysclk, wdog_clk);
 defparam divWdog.width = `WIDTH_WATCHDOG;
+
+// assign phase states to wdog_period_status
+always @(wdog_period)                           // executes if wdog_period is updated
+begin
+    if (wdog_period == 16'h0) begin
+        wdog_period_status <= `WDOG_DISABLE;      // watchdog period = 0ms
+    end
+    else if (wdog_period <= 16'h2580) begin
+        wdog_period_status <= `WDOG_PHASE_ONE;    // watchdog period between 0ms and 50 ms
+    end
+    else if (wdog_period <= 16'h4B00) begin
+        wdog_period_status <= `WDOG_PHASE_TWO;    // watchdog period between 50ms and 100 ms
+    end
+    else if (wdog_period <= 16'h7080) begin
+        wdog_period_status <= `WDOG_PHASE_THREE;  // watchdog period between 100ms and 150 ms
+    end
+    else if (wdog_period <= 16'h9600) begin
+        wdog_period_status <= `WDOG_PHASE_FOUR;   // watchdog period between 150ms and 200 ms
+    end
+    else begin
+        wdog_period_status <= `WDOG_PHASE_FIVE;   // watchdog period larger than 200ms
+    end
+end
 
 // watchdog timer and flag, cleared via any register write
 always @(posedge(wdog_clk) or posedge(reg_wen) or posedge(powerup_cmd))

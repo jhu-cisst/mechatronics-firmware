@@ -3,7 +3,7 @@
 
 /*******************************************************************************    
  *
- * Copyright(C) 2011-2020 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2011-2021 ERC CISST, Johns Hopkins University.
  *
  * This is the top level module for the FPGA1394-QLA motor controller interface.
  *
@@ -17,6 +17,10 @@
  */
 
 `timescale 1ns / 1ps
+
+// Define DIAGNOSTIC for diagnostic build, where DAC output is determined by
+// rotary switch setting (0-15).
+// `define DIAGNOSTIC
 
 // clock information
 // clk1394: 49.152 MHz 
@@ -56,53 +60,130 @@ module FPGA1394QLA
     output           XCSn
 );
 
+    // Whether analog or digital current control
+    // For now, hard-code for digital current control
+    wire dig_cur_ctrl;
+    assign dig_cur_ctrl = 1'b1;
+
     // -------------------------------------------------------------------------
     // local wires to tie the instantiated modules and I/Os
     //
 
-    wire eth1394;               // 1: eth1394 mode 0: firewire mode
     wire lreq_trig;             // phy request trigger
     wire[2:0] lreq_type;        // phy request type
-    wire reg_wen;               // register write signal
-    wire blk_wen;               // block write enable
-    wire blk_wstart;            // block write start
+    reg reg_wen;                // register write signal
+    wire fw_reg_wen;            // register write signal from FireWire
+    wire bw_reg_wen;            // register write signal from WriteRtData
+    reg blk_wen;                // block write enable
+    wire fw_blk_wen;            // block write enable from FireWire
+    wire bw_blk_wen;            // block write enable from WriteRtData
+    reg blk_wstart;             // block write start
+    wire fw_blk_wstart;         // block write start from FireWire
+    wire bw_blk_wstart;         // block write start from WriteRtData
     wire[15:0] reg_raddr;       // 16-bit reg read address
-    wire[15:0] reg_waddr;       // 16-bit reg write address
+    wire[15:0] fw_reg_raddr;    // 16-bit reg read address from FireWire
+    reg[15:0] reg_waddr;        // 16-bit reg write address
+    wire[15:0] fw_reg_waddr;    // 16-bit reg write address from FireWire
+    wire[7:0] bw_reg_waddr;     // 16-bit reg write address from WriteRtData
     wire[31:0] reg_rdata;       // reg read data
-    wire[31:0] reg_wdata;       // reg write data
+    reg[31:0] reg_wdata;        // reg write data
+    wire[31:0] fw_reg_wdata;    // reg write data from FireWire
+    wire[31:0] bw_reg_wdata;    // reg write data from WriteRtData
     wire[31:0] reg_rd[0:15];
+    // Following wire indicates which module is driving the write bus
+    // (reg_waddr, reg_wdata, reg_wen, blk_wen, blk_wstart).
+    // If bw_write_en is 0, then Firewire is driving the write bus.
+    wire bw_write_en;           // 1 -> WriteRtData (real-time block write) is driving write bus
+    wire[3:0] board_id;         // 4-bit board id
+    assign board_id = ~wenid;
 
 //------------------------------------------------------------------------------
 // hardware description
 //
-wire[31:0] reg_rdata_hub;       // route HubReg data to global reg_rdata
-wire[31:0] reg_rdata_prom;      // reg_rdata_prom is for block reads from PROM
-wire[31:0] reg_rdata_prom_qla;  // reads from QLA prom
-wire [31:0] reg_rdata_ds;       // for DS2505 memory access
-wire[31:0] reg_rdata_chan0;     // 'channel 0' is a special axis that contains various board I/Os
 
 BUFG clksysclk(.I(clk1394), .O(sysclk));
 
+// Wires for sampling block read data
+wire sample_start;        // Start sampling read data
+wire sample_busy;         // 1 -> data sampler has control of bus
+wire[3:0] sample_chan;    // Channel for sampling
+wire[4:0] sample_raddr;   // Address in sample_data buffer
+wire[31:0] sample_rdata;  // Output from sample_data buffer
+wire[31:0] timestamp;     // Timestamp used when sampling
+
+// For real-time write
+wire       rt_wen;
+wire[2:0]  rt_waddr;
+wire[31:0] rt_wdata;
+
+// For data sampling
+wire fw_sample_start;
+assign sample_start = fw_sample_start & ~sample_busy;
+
+assign reg_raddr = sample_busy ? {`ADDR_MAIN, 4'd0, sample_chan, 4'd0} : fw_reg_raddr;
+
+// Multiplexing of write bus between WriteRtData (bw = real-time block write module)
+// and Firewire.
+always @(*)
+begin
+   if (bw_write_en) begin
+      reg_wen = bw_reg_wen;
+      blk_wen = bw_blk_wen;
+      blk_wstart = bw_blk_wstart;
+      reg_waddr = {8'd0, bw_reg_waddr};
+      reg_wdata = bw_reg_wdata;
+   end
+   else begin
+      reg_wen = fw_reg_wen;
+      blk_wen = fw_blk_wen;
+      blk_wstart = fw_blk_wstart;
+      reg_waddr = fw_reg_waddr;
+      reg_wdata = fw_reg_wdata;
+   end
+end
+
+wire[31:0] reg_rdata_hub;      // reg_rdata_hub is for hub memory
+wire[31:0] reg_rdata_prom;     // reg_rdata_prom is for block reads from PROM
+wire[31:0] reg_rdata_prom_qla; // reads from QLA prom
+wire[31:0] reg_rdata_ds;       // for DS2505 memory access
+wire[31:0] reg_rdata_chan0;    // 'channel 0' is a special axis that contains various board I/Os
+
+//Reading back the commanded current value from the controller block
+wire[31:0] reg_rCtrlCurr; //reg_rdata output of CtrlCurr module block
+
 // Mux routing read data based on read address
-//   See Constants.v for detail
-//     addr[15:12]  main | hub | prom | prom_qla | eth | firewire | dallas
+//   See Constants.v for details
+//     addr[15:12]  main | hub | prom | prom_qla | eth | firewire | dallas | databuf | waveform | ctrl
 assign reg_rdata = (reg_raddr[15:12]==`ADDR_HUB) ? (reg_rdata_hub) :
                   ((reg_raddr[15:12]==`ADDR_PROM) ? (reg_rdata_prom) :
                   ((reg_raddr[15:12]==`ADDR_PROM_QLA) ? (reg_rdata_prom_qla) : 
                   ((reg_raddr[15:12]==`ADDR_DS) ? (reg_rdata_ds) :
                   ((reg_raddr[15:12]==`ADDR_DATA_BUF) ? (reg_rdata_databuf) :
-                  ((reg_raddr[7:4]==4'd0) ? reg_rdata_chan0 : reg_rd[reg_raddr[3:0]])))));
+                  ((reg_raddr[15:12]==`ADDR_WAVEFORM) ? (reg_rtable) :
+                  ((reg_raddr[15:12]==`ADDR_CTRL) ? (reg_rCtrlCurr) :
+                  ((reg_raddr[7:4]==4'd0) ? reg_rdata_chan0 : reg_rd[reg_raddr[3:0]])))))));
 
+// Unused channel offsets
+assign reg_rd[`OFF_UNUSED_02] = 32'd0;
+assign reg_rd[`OFF_UNUSED_03] = 32'd0;
+assign reg_rd[`OFF_UNUSED_12] = 32'd0;
+assign reg_rd[`OFF_UNUSED_13] = 32'd0;
+assign reg_rd[`OFF_UNUSED_14] = 32'd0;
+assign reg_rd[`OFF_UNUSED_15] = 32'd0;
 
 // 1394 phy low reset, never reset
 assign reset_phy = 1'b1; 
 
-// IO1[8] is not used on QLA
-assign IO1[8] = 1'bz;
-
 // --------------------------------------------------------------------------
 // hub register module
 // --------------------------------------------------------------------------
+
+wire[15:0] bc_sequence;
+wire[15:0] bc_board_mask;
+//wire       bc_request;
+wire       hub_write_trig;
+wire       hub_write_trig_reset;
+wire       fw_idle;
 
 HubReg hub(
     .sysclk(sysclk),
@@ -110,7 +191,14 @@ HubReg hub(
     .reg_raddr(reg_raddr),
     .reg_waddr(reg_waddr),
     .reg_rdata(reg_rdata_hub),
-    .reg_wdata(reg_wdata)
+    .reg_wdata(reg_wdata),
+    .sequence(bc_sequence),
+    .board_mask(bc_board_mask),
+    //.hub_reg_wen(bc_request),
+    .board_id(board_id),
+    .write_trig(hub_write_trig),
+    .write_trig_reset(hub_write_trig_reset),
+    .fw_idle(fw_idle)
 );
 
 
@@ -118,38 +206,42 @@ HubReg hub(
 // firewire modules
 // --------------------------------------------------------------------------
 
-`ifdef USE_CHIPSCOPE
-wire [35:0] control_fw;
-icon_prom icon(
-    .CONTROL0(control_fw)
-);
-`endif
-
 // phy-link interface
 PhyLinkInterface phy(
     .sysclk(sysclk),         // in: global clk  
-    .eth1394(eth1394),       // in: eth1394 mode
-    .board_id(~wenid),       // in: board id (rotary switch)
-    
+    .board_id(board_id),     // in: board id (rotary switch)
+
     .ctl_ext(ctl),           // bi: phy ctl lines
     .data_ext(data),         // bi: phy data lines
     
-    .reg_wen(reg_wen),       // out: reg write signal
-    .blk_wen(blk_wen),       // out: block write signal
-    .blk_wstart(blk_wstart), // out: block write is starting
+    .reg_wen(fw_reg_wen),       // out: reg write signal
+    .blk_wen(fw_blk_wen),       // out: block write signal
+    .blk_wstart(fw_blk_wstart), // out: block write is starting
 
-    .reg_raddr(reg_raddr),   // out: register address
-    .reg_waddr(reg_waddr),   // out: register address
-    .reg_rdata(reg_rdata),   // in:  read data to external register
-    .reg_wdata(reg_wdata),   // out: write data to external register
+    .reg_raddr(fw_reg_raddr),  // out: register address
+    .reg_waddr(fw_reg_waddr),  // out: register address
+    .reg_rdata(reg_rdata),     // in:  read data to external register
+    .reg_wdata(fw_reg_wdata),  // out: write data to external register
 
     .lreq_trig(lreq_trig),   // out: phy request trigger
-    .lreq_type(lreq_type)    // out: phy request type
+    .lreq_type(lreq_type),   // out: phy request type
 
-`ifdef USE_CHIPSCOPE
-    ,
-    .ila_control(control_fw) // inout: ila control
-`endif
+    .rx_bc_sequence(bc_sequence),  // in: broadcast sequence num
+    .rx_bc_fpga(bc_board_mask),    // in: mask of boards involved in broadcast read
+    .write_trig(hub_write_trig),   // in: 1 -> broadcast write this board's hub data
+    .write_trig_reset(hub_write_trig_reset),
+    .fw_idle(fw_idle),
+
+    // Interface for real-time block write
+    .fw_rt_wen(rt_wen),
+    .fw_rt_waddr(rt_waddr),
+    .fw_rt_wdata(rt_wdata),
+
+    // Interface for sampling data (for block read)
+    .sample_start(fw_sample_start),   // 1 -> start sampling for block read
+    .sample_busy(sample_busy),        // Sampling in process
+    .sample_raddr(sample_raddr),      // Read address for sampled data
+    .sample_rdata(sample_rdata)       // Sampled data (for block read)
 );
 
 
@@ -159,10 +251,8 @@ PhyRequest phyreq(
     .lreq(lreq),              // out: phy request line
     .trigger(lreq_trig),      // in: phy request trigger
     .rtype(lreq_type),        // in: phy request type
-    .data(reg_wdata[11:0])    // in: phy request data
+    .data(fw_reg_wdata[11:0]) // in: phy request data
 );
-
-
 
 // --------------------------------------------------------------------------
 // adcs: pot + current 
@@ -204,90 +294,16 @@ CtrlAdc adc(
 wire[31:0] reg_adc_data;
 assign reg_adc_data = {pot_fb[reg_raddr[7:4]], cur_fb[reg_raddr[7:4]]};
 
-//assign reg_rd[`OFF_ADC_DATA] = reg_adc_data; //SK commented 27.07.2020 - replaced by CTRL assignment
-
-//if reg_raddr[15:12]==`ADDR_CTRL, write field 0 (OFF_CMD_CUR) of ADDR_CTRL, else (ADDR_MAIN), write field 0 of ADDR_MAIN (ADC)
-//assign reg_rd[`OFF_ADC_DATA] = (reg_raddr[15:12]==`ADDR_CTRL) ? reg_rCtrlCurr : reg_adc_data;
+assign reg_rd[`OFF_ADC_DATA] = reg_adc_data;
 
 // --------------------------------------------------------------------------
-// current controller //SK: XXX - whole section new
+// current controller
 // --------------------------------------------------------------------------
-
-//Reading back the commanded current value form the controller block
-wire[31:0] reg_rCtrlCurr; //reg_rdata output of CtrlCurr module block
-
-// old version without ADDR_CTRL space:
-//assign reg_rd[`OFF_CMD_CUR] = (reg_raddr[3:0]  ==`OFF_CMD_CUR) ? reg_rCtrlCurr : 32'h0;
-//assign reg_rd[`OFF_CO_CMD_FB] = (reg_raddr[3:0]  ==`OFF_CO_CMD_FB) ? reg_rCtrlCurr : 32'h0;
-//assign reg_rd[`OFF_CTRL_CURR_Kp_KiT] = (reg_raddr[3:0]  ==`OFF_CTRL_CURR_Kp_KiT) ? reg_rCtrlCurr : 32'h0;
-//assign reg_rd[`OFF_CTRL_CURR_KdT] = (reg_raddr[3:0]  ==`OFF_CTRL_CURR_KdT) ? reg_rCtrlCurr : 32'h0;
-
-//field 0 of ADDR_MAIN or ADDR_CTRL
-assign reg_rd[`OFF_CO_CMD_FB] =  (reg_raddr[15:12] == `ADDR_CTRL)   ?
-                                 (reg_raddr[ 3: 0] == `OFF_CO_CMD_FB) ? reg_rCtrlCurr : 32'h0
-                                 :
-                                 (reg_raddr[15:12] == `ADDR_MAIN)   ?
-                                    (reg_raddr[ 3: 0] == `OFF_ADC_DATA) ? reg_adc_data : 32'h0
-                                    : 32'h0;
-//field 1 of ADDR_MAIN or ADDR_CTRL
-assign reg_rd[`OFF_CTRL_CURR_Kp_KiT] = (reg_raddr[15:12] == `ADDR_CTRL)   ?
-                                 (reg_raddr[ 3: 0] == `OFF_CTRL_CURR_Kp_KiT) ? reg_rCtrlCurr : 32'h0 //reg_rCtrlCurr has the Kp and KiT internally
-                                 :
-                                 (reg_raddr[15:12] == `ADDR_MAIN)   ?
-                                    (reg_raddr[ 3: 0] == `OFF_CMD_CUR) ? reg_rCtrlCurr : 32'h0 //reg_rCtrlCurr has the commanded current cur_cmd internally
-                                    : 32'h0;
-
-//field 2 of ADDR_MAIN or ADDR_CTRL
-assign reg_rd[`OFF_CTRL_CURR_KdT] = (reg_raddr[15:12] == `ADDR_CTRL)   ?
-                                 (reg_raddr[ 3: 0] == `OFF_CTRL_CURR_KdT) ? reg_rCtrlCurr : 32'h0
-                                 :
-                                 (reg_raddr[15:12] == `ADDR_MAIN)   ?
-                                    (reg_raddr[ 3: 0] == `OFF_POT_CTRL) ? 32'h0 : 32'h0 //POT_CTRL does not have a wire yet
-                                    : 32'h0;
-
-//field 3 of ADDR_MAIN or ADDR_CTRL
-assign reg_rd[`OFF_CTRL_POS_Kp_KiT] = (reg_raddr[15:12] == `ADDR_CTRL)   ?
-                                 (reg_raddr[ 3: 0] == `OFF_CTRL_POS_Kp_KiT) ? reg_rCtrlCurr : 32'h0
-                                 :
-                                 (reg_raddr[15:12] == `ADDR_MAIN)   ?
-                                    (reg_raddr[ 3: 0] == `OFF_POT_DATA) ? pot_fb[reg_raddr[7:4]] : 32'h0
-                                    : 32'h0;
-
-//field 4 of ADDR_MAIN or ADDR_CTRL
-assign reg_rd[`OFF_CTRL_POS_KdT_CF_OUT] = (reg_raddr[15:12] == `ADDR_CTRL)   ?
-                                 (reg_raddr[ 3: 0] == `OFF_CTRL_POS_KdT_CF_OUT) ? reg_rCtrlCurr : 32'h0
-                                 :
-                                 (reg_raddr[15:12] == `ADDR_MAIN)   ?
-                                    (reg_raddr[ 3: 0] == `OFF_ENC_LOAD) ? reg_preload : 32'h0
-                                    : 32'h0;
-
-//field 5 of ADDR_MAIN or ADDR_CTRL
-assign reg_rd[`OFF_OUT_POS_CMD] = (reg_raddr[15:12] == `ADDR_CTRL)   ?
-                                 (reg_raddr[ 3: 0] == `OFF_OUT_POS_CMD) ? reg_rCtrlCurr : 32'h0
-                                 :
-                                 (reg_raddr[15:12] == `ADDR_MAIN)   ?
-                                    (reg_raddr[ 3: 0] == `OFF_ENC_DATA) ? reg_quad_data : 32'h0
-                                    : 32'h0;
-//field 6 of ADDR_MAIN or ADDR_CTRL
-assign reg_rd[`OFF_OUT_POS_OUT] = (reg_raddr[15:12] == `ADDR_CTRL)   ?
-                                 (reg_raddr[ 3: 0] == `OFF_OUT_POS_OUT) ? reg_rCtrlCurr : 32'h0
-                                 :
-                                 (reg_raddr[15:12] == `ADDR_MAIN)   ?
-                                    (reg_raddr[ 3: 0] == `OFF_PER_DATA) ? reg_perd_data : 32'h0
-                                    : 32'h0;
-
-//field 7 of ADDR_MAIN or ADDR_CTRL
-assign reg_rd[`OFF_CTRL_SHIFTS] = (reg_raddr[15:12] == `ADDR_CTRL)   ?
-                                 (reg_raddr[ 3: 0] == `OFF_CTRL_SHIFTS) ? reg_rCtrlCurr : 32'h0
-                                 :
-                                 (reg_raddr[15:12] == `ADDR_MAIN)   ?
-                                    (reg_raddr[ 3: 0] == `OFF_QTR1_DATA) ? reg_qtr1_data : 32'h0
-                                    : 32'h0;
 
 //outputs
-wire[15:0] cur_cmd[1:4];  //current commanded value
-wire[15:0] cur_cont[1:4]; //current controller output
-wire       cont_out_ready; //controller values available
+wire[15:0] cur_cmd_ctrl[1:4];  // current commanded value
+wire[15:0] cur_cont[1:4];      // current controller output
+wire       cont_out_ready;     // controller values available
 
 //Instantiation
 Controller_block CtrlCur(
@@ -299,10 +315,10 @@ Controller_block CtrlCur(
    //.reg_rdata(reg_rcmd),    // outgoing register data
    .reg_rdata(reg_rCtrlCurr),    // outgoing register data
    .reg_raddr(reg_raddr),     // register read address
-   .bits_cmd1(cur_cmd[1]),    // output for safety check
-   .bits_cmd2(cur_cmd[2]),
-   .bits_cmd3(cur_cmd[3]),
-   .bits_cmd4(cur_cmd[4]),
+   .bits_cmd1(cur_cmd_ctrl[1]),    // output for safety check
+   .bits_cmd2(cur_cmd_ctrl[2]),
+   .bits_cmd3(cur_cmd_ctrl[3]),
+   .bits_cmd4(cur_cmd_ctrl[4]),
    .bits_fb1(cur_fb[1]),      // ADC values
    .bits_fb2(cur_fb[2]),
    .bits_fb3(cur_fb[3]),
@@ -318,15 +334,17 @@ Controller_block CtrlCur(
    .out_ready(cont_out_ready) //flag to show new values ready (AND of 4 separate ready-flags being '1' for 1 clock cycle only when new controller values have been calculated every 8.667us)
 );
 
-
 // --------------------------------------------------------------------------
-// dacs //SK: XXX - cut away some ports and added them to the controller
+// dacs
 // --------------------------------------------------------------------------
 
 // local wire for dac
 wire[31:0] reg_rdac;
-assign reg_rd[`OFF_DAC_VOLT] = reg_rdac;   // dac reads // SK: XXX changed from 'OFF_DAC_CTRL and from reg_rdac
+// OFF_CMD_CUR same as OFF_DAC_CTRL
+assign reg_rd[`OFF_CMD_CUR] = dig_cur_ctrl ? reg_rCtrlCurr : reg_rdac;
+assign reg_rd[`OFF_DAC_VOLT] = dig_cur_ctrl ? reg_rdac : 32'd0;
 
+wire[15:0] cur_cmd_dac[1:4];
 
 // the dac controller manages access to the dacs
 CtrlDac dac(
@@ -334,13 +352,29 @@ CtrlDac dac(
     .sclk(IO1[21]),
     .mosi(IO1[20]),
     .csel(IO1[22]),
-    .val_ready(cont_out_ready),
+    // Current control mode
+    .dig_cur_ctrl(dig_cur_ctrl),
+    // Data from digital controller
     .cont_val1(cur_cont[1]),
     .cont_val2(cur_cont[2]),
     .cont_val3(cur_cont[3]),
     .cont_val4(cur_cont[4]),
-    .reg_raddr(reg_raddr),
-    .reg_rdata(reg_rdac)
+    .val_ready(cont_out_ready),
+    // Data from host (analog controller)
+    .reg_wen(reg_wen),
+    .blk_wen(blk_wen),
+    .reg_waddr(reg_waddr),
+`ifdef DIAGNOSTIC
+    .reg_wdata({ board_id, 12'h000 }),
+`else
+    .reg_wdata(reg_wdata[15:0]),
+`endif
+    .reg_rchan(reg_raddr[7:4]),
+    .reg_rdata(reg_rdac),
+    .dac1(cur_cmd_dac[1]),
+    .dac2(cur_cmd_dac[2]),
+    .dac3(cur_cmd_dac[3]),
+    .dac4(cur_cmd_dac[4])
 );
 
 
@@ -355,6 +389,8 @@ wire[31:0] reg_qtr1_data;
 wire[31:0] reg_qtr5_data;
 wire[31:0] reg_run_data;
 
+// All 4 channels of quadrature data (encoder position).
+// Used for digital control.
 wire[24:0] enc_fb[1:4];
 
 // encoder controller: the thing that manages encoder reads and preloads
@@ -378,10 +414,10 @@ CtrlEnc enc(
     .enc_data4(enc_fb[4])
 );
 
-//assign reg_rd[`OFF_ENC_LOAD] = reg_preload;      // preload // SK - commented on 28.07.2020 - replaced by entry the CTRL section field 4
-//assign reg_rd[`OFF_ENC_DATA] = reg_quad_data;    // quadrature // SK - commented on 03.08.2020 - replaced by entry the CTRL section field 5
-//assign reg_rd[`OFF_PER_DATA] = reg_perd_data;    // period // SK - commented on 09.08.2020 - replaced by entry the CTRL section field 6
-//assign reg_rd[`OFF_QTR1_DATA] = reg_qtr1_data;   // last quarter cycle  // SK - commented on 11.08.2020 - replaced by entry the CTRL section field 7
+assign reg_rd[`OFF_ENC_LOAD] = reg_preload;      // preload
+assign reg_rd[`OFF_ENC_DATA] = reg_quad_data;    // quadrature
+assign reg_rd[`OFF_PER_DATA] = reg_perd_data;    // period
+assign reg_rd[`OFF_QTR1_DATA] = reg_qtr1_data;   // last quarter cycle
 assign reg_rd[`OFF_QTR5_DATA] = reg_qtr5_data;   // quarter cycle 5 edges ago
 assign reg_rd[`OFF_RUN_DATA] = reg_run_data;     // running counter
 
@@ -391,11 +427,13 @@ assign reg_rd[`OFF_RUN_DATA] = reg_run_data;     // running counter
 
 wire[31:0] reg_rdout;
 assign reg_rd[`OFF_DOUT_CTRL] = reg_rdout;
+wire[31:0] reg_rtable;
 
 // DOUT hardware configuration
 wire dout_config_valid;
 wire dout_config_bidir;
-wire[3:0] dout;
+wire dout_config_reset;
+wire[31:0] dout;
 wire dir12_cd;
 wire dir34_cd;
 
@@ -428,6 +466,7 @@ CtrlDout cdout(
     .reg_raddr(reg_raddr),
     .reg_waddr(reg_waddr),
     .reg_rdata(reg_rdout),
+    .table_rdata(reg_rtable),
     .reg_wdata(reg_wdata),
     .reg_wen(reg_wen),
     .dout(dout),
@@ -436,7 +475,8 @@ CtrlDout cdout(
     .dir12_reg(dir12_cd),
     .dir34_reg(dir34_cd),
     .dout_cfg_valid(dout_config_valid),
-    .dout_cfg_bidir(dout_config_bidir)
+    .dout_cfg_bidir(dout_config_bidir),
+    .dout_cfg_reset(dout_config_reset)
 );
 
 // --------------------------------------------------------------------------
@@ -448,9 +488,6 @@ wire clk400k_raw, clk400k;
 ClkDivI divtemp(clk40m, clk400k_raw);
 defparam divtemp.div = 100;
 BUFG clktemp(.I(clk400k_raw), .O(clk400k));
-
-// route temperature data into BoardRegs module for readout
-wire[15:0] tempsense;
 
 // tempsense module instantiations
 Max6576 T1(
@@ -563,15 +600,28 @@ wire[4:1] amp_enable_cmd;
 wire[31:0] Eth_Result;
 assign  Eth_Result = 32'b0;
 
+wire[31:0] reg_status;    // Status register
+wire[31:0] reg_digio;     // Digital I/O register
+wire[15:0] tempsense;     // Temperature sensor
+wire[15:0] reg_databuf;   // Data collection status
+
+wire reboot;              // Reboot the FPGA
+
+// used to check status of user defined watchdog period; used to control LED 
+wire      wdog_period_led;
+wire[2:0] wdog_period_status;
+wire wdog_timeout;
+
 BoardRegs chan0(
     .sysclk(sysclk),
+    .reboot(reboot),
     .amp_disable({IO2[38],IO2[36],IO2[34],IO2[32]}),
     .dout(dout),
     .dout_cfg_valid(dout_config_valid),
     .dout_cfg_bidir(dout_config_bidir),
+    .dout_cfg_reset(dout_config_reset),
     .pwr_enable(IO1[32]),
     .relay_on(IO1[31]),
-    .eth1394(eth1394),
     .enc_a({IO2[17], IO2[19], IO2[21], IO2[23]}),    // axis 4:1
     .enc_b({IO2[10], IO2[12], IO2[13], IO2[15]}),
     .enc_i({IO2[2], IO2[4], IO2[6], IO2[8]}),
@@ -583,7 +633,8 @@ BoardRegs chan0(
     .mv_faultn(IO1[7]),
     .mv_good(IO2[11]),
     .v_fault(IO1[9]),
-    .board_id(~wenid),
+    .io1_8(IO1[8]),
+    .board_id(board_id),
     .temp_sense(tempsense),
     .reg_raddr(reg_raddr),
     .reg_waddr(reg_waddr),
@@ -601,13 +652,66 @@ BoardRegs chan0(
     .safety_amp_disable(safety_amp_disable),
 `endif
     .pwr_enable_cmd(pwr_enable_cmd),
-    .amp_enable_cmd(amp_enable_cmd)
+    .amp_enable_cmd(amp_enable_cmd),
+    .reg_status(reg_status),
+    .reg_digin(reg_digio),
+    .wdog_period_led(wdog_period_led),
+    .wdog_period_status(wdog_period_status),
+    .wdog_timeout(wdog_timeout)
+);
+
+// --------------------------------------------------------------------------
+// Sample data for block read
+// --------------------------------------------------------------------------
+
+SampleData sampler(
+    .clk(sysclk),
+    .doSample(sample_start),
+    .isBusy(sample_busy),
+    .reg_status(reg_status),
+    .reg_digio(reg_digio),
+    .reg_temp({reg_databuf, tempsense}),
+    .chan(sample_chan),
+    .adc_in(reg_adc_data),
+    .enc_pos(reg_quad_data),
+    .enc_period(reg_perd_data),
+    .enc_qtr1(reg_qtr1_data),
+    .enc_qtr5(reg_qtr5_data),
+    .enc_run(reg_run_data),
+    .blk_addr(sample_raddr),
+    .blk_data(sample_rdata),
+    .timestamp(timestamp),
+    .bc_sequence(bc_sequence),
+    .bc_board_mask(bc_board_mask)
+);
+
+// --------------------------------------------------------------------------
+// Write data for real-time block
+// --------------------------------------------------------------------------
+
+WriteRtData rt_write(
+    .clk(sysclk),
+    .rt_write_en(rt_wen),       // Write enable
+    .rt_write_addr(rt_waddr),   // Write address (0-4)
+    .rt_write_data(rt_wdata),   // Write data
+    .bw_write_en(bw_write_en),
+    .bw_reg_wen(bw_reg_wen),
+    .bw_block_wen(bw_blk_wen),
+    .bw_block_wstart(bw_blk_wstart),
+    .bw_reg_waddr(bw_reg_waddr),
+    .bw_reg_wdata(bw_reg_wdata)
 );
 
 // ----------------------------------------------------------------------------
 // safety check 
 //    1. get adc feedback current & dac command current
 //    2. check if cur_fb > 2 * cur_cmd
+wire[15:0] cur_cmd[1:4];
+assign cur_cmd[1] = dig_cur_ctrl ? cur_cmd_ctrl[1] : cur_cmd_dac[1];
+assign cur_cmd[2] = dig_cur_ctrl ? cur_cmd_ctrl[2] : cur_cmd_dac[2];
+assign cur_cmd[3] = dig_cur_ctrl ? cur_cmd_ctrl[3] : cur_cmd_dac[3];
+assign cur_cmd[4] = dig_cur_ctrl ? cur_cmd_ctrl[4] : cur_cmd_dac[4];
+
 SafetyCheck safe1(
     .clk(sysclk),
     .cur_in(cur_fb[1]),
@@ -640,6 +744,13 @@ SafetyCheck safe4(
     .amp_disable(safety_amp_disable[4])
 );
 
+// --------------------------------------------------------------------------
+// Reboot
+// --------------------------------------------------------------------------
+Reboot fpga_reboot(
+     .clk(clkadc),     // Use 12 MHz clock (cannot be more than 20 MHz)
+     .reboot(reboot)
+);
 
 // --------------------------------------------------------------------------
 // Data Buffer
@@ -658,7 +769,10 @@ DataBuffer data_buffer(
     .reg_wdata(reg_wdata),          // write data
     .reg_wen(reg_wen),              // write enable
     .reg_raddr(reg_raddr),          // read address
-    .reg_rdata(reg_rdata_databuf)   // read data
+    .reg_rdata(reg_rdata_databuf),  // read data
+    // status and timestamp
+    .databuf_status(reg_databuf),   // status for SampleData
+    .ts(timestamp)                  // timestamp from SampleData
 );
 
 //------------------------------------------------------------------------------
@@ -784,6 +898,9 @@ ClkDiv divclk12(sysclk, clk_12hz); defparam divclk12.width = 22;  // 49.152 MHz 
 CtrlLED qla_led(
     .sysclk(sysclk),
     .clk_12hz(clk_12hz),
+    .wdog_period_led(wdog_period_led),
+    .wdog_period_status(wdog_period_status),
+    .wdog_timeout(wdog_timeout),
     .led1_grn(IO2[1]),
     .led1_red(IO2[3]),
     .led2_grn(IO2[5]),

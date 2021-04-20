@@ -22,7 +22,7 @@
 *     devices, or systems.  Use in such applications are expressly             *
 *     prohibited.                                                              *
 *                                                                              *
-*     (c) Copyright 1995-2013 Xilinx, Inc.                                     *
+*     (c) Copyright 1995-2020 Xilinx, Inc.                                     *
 *     All rights reserved.                                                     *
 *******************************************************************************/
 // You must compile the wrapper file hub_mem_gen.v when simulating
@@ -56,7 +56,7 @@ output [31 : 0] doutb;
 
 // synthesis translate_off
 
-  BLK_MEM_GEN_V6_3 #(
+  BLK_MEM_GEN_V7_3 #(
     .C_ADDRA_WIDTH(9),
     .C_ADDRB_WIDTH(9),
     .C_ALGORITHM(1),
@@ -64,7 +64,7 @@ output [31 : 0] doutb;
     .C_AXI_SLAVE_TYPE(0),
     .C_AXI_TYPE(1),
     .C_BYTE_SIZE(9),
-    .C_COMMON_CLK(0),
+    .C_COMMON_CLK(1),
     .C_DEFAULT_DATA("0"),
     .C_DISABLE_WARN_BHV_COLL(0),
     .C_DISABLE_WARN_BHV_RANGE(0),
@@ -84,6 +84,7 @@ output [31 : 0] doutb;
     .C_HAS_RSTB(0),
     .C_HAS_SOFTECC_INPUT_REGS_A(0),
     .C_HAS_SOFTECC_OUTPUT_REGS_B(0),
+    .C_INIT_FILE("BlankString"),
     .C_INIT_FILE_NAME("no_coe_file_loaded"),
     .C_INITA_VAL("0"),
     .C_INITB_VAL("0"),
@@ -102,6 +103,7 @@ output [31 : 0] doutb;
     .C_RSTRAM_A(0),
     .C_RSTRAM_B(0),
     .C_SIM_COLLISION_CHECK("ALL"),
+    .C_USE_BRAM_BLOCK(0),
     .C_USE_BYTE_WEA(0),
     .C_USE_BYTE_WEB(0),
     .C_USE_DEFAULT_DATA(1),
@@ -111,8 +113,8 @@ output [31 : 0] doutb;
     .C_WEB_WIDTH(1),
     .C_WRITE_DEPTH_A(512),
     .C_WRITE_DEPTH_B(512),
-    .C_WRITE_MODE_A("WRITE_FIRST"),
-    .C_WRITE_MODE_B("WRITE_FIRST"),
+    .C_WRITE_MODE_A("READ_FIRST"),
+    .C_WRITE_MODE_B("READ_FIRST"),
     .C_WRITE_WIDTH_A(32),
     .C_WRITE_WIDTH_B(32),
     .C_XDEVICEFAMILY("spartan6")
