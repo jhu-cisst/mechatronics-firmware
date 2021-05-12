@@ -35,7 +35,7 @@ module DS2505(
     input  wire rxd,                 // uart rxd port
     input  wire dout_cfg_bidir,      // 1 -> bidirectional I/O available
     input  wire ds_data_in,          // 1-wire interface, data in
-    output reg ds_data_out,          // 1-wire interface, data out
+    output reg ds_data_out,          // 1-wire interface, data out (also TxD)
     output reg ds_dir,               // direction for 1-wire interface (0=input to FPGA, 1=output from FPGA)
     output reg ds_enable             // enables this module to drive the digital I/O line
 );
@@ -97,15 +97,16 @@ reg[10:0] mem_addr;        // memory address for reading
 reg[7:0]  num_bytes;       // Number of bytes to read
 
 reg       use_ds2480b;
-reg[7:0]  expected_rxd;
-reg[9:0]  tx_data;
-reg[9:0]  rx_data;
-reg[7:0]  reset_cnt;
-reg       rxd_dly1;
+reg[7:0]  expected_rxd;    // expected response (from configuration command)
+reg[9:0]  tx_data;         // Transmit byte -- needs to be 10 bits -- could be merged with out_byte later
+reg[7:0]  reset_cnt;       // limits number of resets allowed (avoid infinite loop)
+reg       rxd_dly1;        // following three used to generate rxd_pulse
 reg       rxd_dly2;
-reg       rxd_pulse;
-reg       DS2480B_ok;
-reg[3:0]  cnt_bit;
+reg       rxd_pulse;       // 1 indicates RxD falling edge
+reg       DS2480B_ok;      // DS2480B configuration successfully done
+reg[3:0]  cnt_bit;         // index into bytes sent/received
+reg[2:0]  unexpected_idx;  // indicates when unexpected response received (if non-zero)
+
 //for debugging
 //reg       status;
 //reg[31:0] ds_data;
@@ -129,7 +130,8 @@ assign ds_status[23:16] = rise_time;
 assign ds_status[15] = use_ds2480b;
 assign ds_status[14] = DS2480B_ok;
 assign ds_status[13] = (state == DS_IDLE) ? 1'b0 : 1'b1;  // 0 if idle, 1 if busy
-assign ds_status[12:9] = 4'd0;
+assign ds_status[12] = 1'd0;
+assign ds_status[11:9] = unexpected_idx;
 assign ds_status[8:4] = state;
 assign ds_status[3] = dout_cfg_bidir;
 assign ds_status[2:1] = ds_reset;
@@ -171,6 +173,9 @@ begin
                    ds_enable <= 1'd1;
                    //status <= reg_wdata[3];
                    use_ds2480b <= reg_wdata[2];
+                   // If using DS2480B, if configuration already done, reset 1-wire interface,
+                   // otherwise go to DS2480B configuration.
+                   // If not using DS2480B, then just reset 1-wire interface (DS_RESET_BEGIN)
                    state <= reg_wdata[2] ? (DS2480B_ok ? DS_RESET_1_WIRE : DS_RESET_2480B) : DS_RESET_BEGIN;
                    mem_addr <= reg_wdata[26:16];  // 11-bit address (0-2047 bytes)
                    rise_time <= 8'hff;
@@ -316,17 +321,25 @@ begin
        // does not include the ramp down time. After sampling data, wait for maximum
        // slot time (120 usec) and minimum recovery time (1 usec).
        if (use_ds2480b) begin
-          if ((cnt == 13'd2560) && (!rxd) && (cnt_bit == 0))
+          if ((cnt == 13'd2560) && (!rxd) && (cnt_bit == 0)) begin
+             // 1/2 bit delay (2560=5120/2) -- goal is to ignore start bit (rxd=0)
              cnt <= 0;
-          else if ((cnt == 'd5120) && (cnt_bit < 8)) begin
+          end
+          else if ((cnt == 'd5120) && (cnt_bit < 8)) begin  // 5120 is 9600 baud
              cnt <= 0;
              cnt_bit <= cnt_bit + 1;
              in_byte[cnt_bit] <= rxd;
           end
           else if ((cnt_bit == 8) && (cnt == 13'd7680)) begin
+             // 7680 = 5120+2560 -- goal is to ignore (wait for) stop bit
              cnt <= 0;
              cnt_bit <= 0;
-             state <= (in_byte == expected_rxd) ? next_state : DS_RESET_2480B;
+             if ((unexpected_idx == 3'd0) || (in_byte == expected_rxd)) begin
+                state <= next_state;
+             end
+             else begin
+                state <= DS_RESET_2480B;
+             end
           end
           else
              cnt <= cnt + 1;
@@ -360,6 +373,7 @@ begin
           state <= rxd_pulse ? DS_READ_BYTE : DS_READ_PROM_START;
        else
           state <= DS_READ_BYTE;
+       unexpected_idx <= 3'd0;
        next_state <= DS_READ_PROM;
        num_bytes[2:0] <= 3'd0;
     end
@@ -369,6 +383,7 @@ begin
           state <= rxd_pulse ? DS_READ_BYTE : DS_READ_PROM;
        else
           state <= DS_READ_BYTE;
+       unexpected_idx <= 3'd0;
        next_state <= DS_READ_PROM;
        num_bytes[2:0] <= num_bytes[2:0] + 3'd1;
        if (num_bytes[2:0] == 3'd0) begin
@@ -408,6 +423,7 @@ begin
           state <= rxd_pulse ? DS_READ_BYTE : DS_READ_MEM_START;
        else
           state <= DS_READ_BYTE;
+       unexpected_idx <= 3'd0;
        next_state <= DS_READ_MEM;
        num_bytes <= 8'd0;
     end
@@ -417,6 +433,7 @@ begin
           state <= rxd_pulse ? DS_READ_BYTE : DS_READ_MEM;
        else
           state <= DS_READ_BYTE;
+       unexpected_idx <= 3'd0;
        next_state <= DS_READ_MEM;
        num_bytes <= num_bytes + 8'd1;
        mem_data[num_bytes[7:2]] <= (mem_data[num_bytes[7:2]] << 8) | in_byte;
@@ -426,6 +443,7 @@ begin
        end
     end
 
+    // Could change to DS_SET_RESET_2480B
     DS_RESET_2480B: begin
        // TDX send 0xc1 to DS2480B TXD port at speed of 9600kps including start bit low and stop bit high 104.2 us  5120 master clock cycles
        tx_data <= {1'b1, 8'hC1, 1'b0};
@@ -434,10 +452,13 @@ begin
        reset_cnt <= reset_cnt + 1;
     end
 
+    // Could change to DS_RESP_RESET_2480B
     DS_WAIT_2MS: begin
+       // DS2480B responds with CD (C5), 9600 baud
+       // Could add check for this
        if (cnt < 130000) begin
-          state <= DS_WAIT_2MS;
-          cnt <= cnt +1;
+          state <= DS_WAIT_2MS;    // 2 ms based on measurement
+          cnt <= cnt + 1;
        end
        else begin
           state <= DS_SET_PDSRC;
@@ -456,6 +477,7 @@ begin
 
     DS_RESP_PDSRC: begin
        expected_rxd <= 8'h16;
+       unexpected_idx <= 3'd1;
        state <= rxd_pulse ? DS_READ_BYTE : DS_RESP_PDSRC;
        next_state <=  DS_SET_W1LD;
     end
@@ -469,6 +491,7 @@ begin
 
     DS_RESP_W1LD:  begin
        expected_rxd <= 8'h44;
+       unexpected_idx <= 3'd2;
        state <= rxd_pulse ? DS_READ_BYTE : DS_RESP_W1LD;
        next_state <= DS_SET_W0RT;
     end
@@ -482,8 +505,8 @@ begin
 
     DS_RESP_W0RT:  begin
        expected_rxd <= 8'h5A;
+       unexpected_idx <= 3'd3;
        state <= rxd_pulse ? DS_READ_BYTE : DS_RESP_W0RT;
-       //next_state <= (in_byte==expected_rxd) ? DS_SET_RBR : DS_RESET_2480B;
        next_state <= DS_SET_RBR;
     end
 
@@ -492,25 +515,14 @@ begin
        //ds_data[7:0] <= in_byte;
        state <= DS_WRITE_BYTE;
        next_state <= DS_RESP_RBR;
-       //state <= DS_SET_DATA_MODE;
     end
 
     DS_RESP_RBR:   begin
-       if (cnt < 130000) begin
-          state <= DS_WAIT_2MS;
-          cnt <= cnt +1;
-       end
-       else begin
-          state <= DS_SET_1_WRITE;
-          //state <= DS_SET_DATA_MODE;
-          cnt <= 0;
-       end 
+       // expected_rxd <= 8'hCD;
+       unexpected_idx <= 3'd0;
+       state <= rxd_pulse ? DS_READ_BYTE : DS_RESP_RBR;
+       next_state <= DS_SET_1_WRITE;
     end
-
-    /*  expected_rxd <= 8'hCD;
-        state <= rxd_pulse ? DS_READ_BYTE : DS_RESP_RBR;
-        next_state <= DS_SET_1_WRITE;
-        end */
 
     DS_SET_1_WRITE: begin
        //ds_data[15:8] <=  in_byte;
@@ -522,6 +534,7 @@ begin
 
     DS_RESP_1_WRITE:   begin
        expected_rxd <= 8'h93;
+       unexpected_idx <= 3'd4;
        state <= rxd_pulse ? DS_READ_BYTE : DS_RESP_1_WRITE;
        next_state <= DS_RESET_1_WIRE;
     end
@@ -536,8 +549,8 @@ begin
 
     DS_RESP_1_WIRE:    begin
        expected_rxd <= 8'hCD;
+       unexpected_idx <= 3'd5;
        state <= rxd_pulse ? DS_READ_BYTE : DS_RESP_1_WIRE;
-       //next_state <= DS_SET_DATA_MODE;
        next_state <= DS_SET_DATA_MODE;
     end
 
@@ -545,6 +558,9 @@ begin
        //ds_data[31:24] <=  in_byte;
        tx_data <= {1'b1, 8'hE1, 1'b0};
        state <=  DS_WRITE_BYTE;
+       // Note that there is at least 480 microseconds between DS_RESET_1_WIRE
+       // and transition to DS_READ_ROM because at 9600 baud, each command
+       // takes about 1 msec.
        next_state <= DS_READ_ROM;
     end
 
