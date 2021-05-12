@@ -545,6 +545,7 @@ DS2505 ds_instrument(
     .ds_status(ds_status),
     .reg_wen(reg_wen),
 
+    .rxd(IO2[29]),
     .dout_cfg_bidir(dout_config_bidir),
 
     .ds_data_in(IO1[17]),

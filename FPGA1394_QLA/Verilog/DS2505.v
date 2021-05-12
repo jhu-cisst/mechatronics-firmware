@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2018-2020 Johns Hopkins University.
+ * Copyright(C) 2018-2021 Johns Hopkins University.
  *
  * Module: DS2505
  *
@@ -17,6 +17,7 @@
  * 
  * Revision history
  *      8/29/18     Peter Kazanzides    Initial revision
+ *      6/19/20     Shi Xin Sun         Adding support for DS2480B driver chip
  */
 
  `include "Constants.v"
@@ -31,6 +32,7 @@ module DS2505(
     output wire[31:0] ds_status,     // interface status (to BoardRegs)
     input  wire reg_wen,             // write enable signal
 
+    input  wire rxd,                 // uart rxd port
     input  wire dout_cfg_bidir,      // 1 -> bidirectional I/O available
     input  wire ds_data_in,          // 1-wire interface, data in
     output reg ds_data_out,          // 1-wire interface, data out
@@ -41,9 +43,9 @@ module DS2505(
 initial ds_data_out = 1'b1;
 
 // State machine
-localparam[3:0]
+localparam[4:0]
     DS_IDLE = 0,
-    DS_RESET_BEGIN = 1,
+    DS_RESET_BEGIN = 1,      // DS2505 related states
     DS_RESET_END = 2,
     DS_RESET_ACK_WAIT = 3,
     DS_RESET_ACK_CHECK = 4,
@@ -55,11 +57,30 @@ localparam[3:0]
     DS_SET_ADDR_LOW = 10,
     DS_SET_ADDR_HIGH = 11,
     DS_READ_MEM_START = 12,
-    DS_READ_MEM = 13;
+    DS_READ_MEM = 13,
+    DS_RESET_2480B = 14,  // DS2480 related states
+    DS_WAIT_2MS  = 15,
+    DS_SET_PDSRC = 16,
+    DS_RESP_PDSRC = 17,
+    DS_SET_W1LD = 18,
+    DS_RESP_W1LD = 19,
+    DS_SET_W0RT = 20,
+    DS_RESP_W0RT =21,
+    DS_SET_RBR = 22,
+    DS_RESP_RBR = 23,
+    DS_SET_1_WRITE = 24,
+    DS_RESP_1_WRITE = 25,
+    DS_RESET_1_WIRE = 26,
+    DS_RESP_1_WIRE = 27,
+    DS_SET_DATA_MODE = 28,
+    DS_READ_ROM = 29,
+    DS_SET_ID_ADDR_LOW = 30,
+    DS_SET_ID_ADDR_HIGH = 31;
+
 
 // Local registers and wires
-reg[3:0]  state;           // state machine 
-reg[3:0]  next_state;      // keeps track of next state
+reg[4:0]  state;           // state machine
+reg[4:0]  next_state;      // keeps track of next state
 initial begin
     state = DS_IDLE;
     next_state = DS_IDLE;
@@ -68,12 +89,26 @@ end
 reg[7:0]  out_byte;        // output byte to write to DS2505
 reg[7:0]  in_byte;         // input byte read from DS2505
 reg[7:0]  family_code;     // family code for DS2505 (0x0B)
-reg[15:0] cnt;             // counter for timing
+reg[16:0] cnt;             // counter for timing
 reg[7:0]  rise_time;       // measured rise time (for debugging)
 initial   rise_time = 8'hff;
 reg[1:0]  ds_reset;        // 0=not attempted, 1=success, 2=failed (rise-time), 3=failed (no ack from DS2505)
 reg[10:0] mem_addr;        // memory address for reading
 reg[7:0]  num_bytes;       // Number of bytes to read
+
+reg       use_ds2480b;
+reg[7:0]  expected_rxd;
+reg[9:0]  tx_data;
+reg[9:0]  rx_data;
+reg[7:0]  reset_cnt;
+reg       rxd_dly1;
+reg       rxd_dly2;
+reg       rxd_pulse;
+reg       DS2480B_ok;
+reg[3:0]  cnt_bit;
+//for debugging
+//reg       status;
+//reg[31:0] ds_data;
 
 wire      ds_reg_wen;      // main quadlet reg interface
 assign ds_reg_wen = (reg_waddr == {`ADDR_MAIN, 8'd0, `REG_DSSTAT}) ? reg_wen : 1'b0;
@@ -91,13 +126,21 @@ assign ds_blk_raddr = reg_raddr[5:0];
    
 assign ds_status[31:24] = family_code;
 assign ds_status[23:16] = rise_time;
-assign ds_status[15:12] = 4'd0;
-assign ds_status[11:8] = next_state;
-assign ds_status[7:4] = state;
+assign ds_status[15] = use_ds2480b;
+assign ds_status[14] = DS2480B_ok;
+assign ds_status[13] = (state == DS_IDLE) ? 1'b0 : 1'b1;  // 0 if idle, 1 if busy
+assign ds_status[12:9] = 4'd0;
+assign ds_status[8:4] = state;
 assign ds_status[3] = dout_cfg_bidir;
 assign ds_status[2:1] = ds_reset;
 assign ds_status[0] = ds_enable;
-   
+
+always@(posedge clk)
+begin
+    rxd_dly1 <= rxd;
+    rxd_dly2 <= rxd_dly1;
+    rxd_pulse <= (~rxd_dly1) & rxd_dly2;
+end
 
 always @(posedge(clk))
 begin
@@ -116,6 +159,9 @@ begin
           //           01 -> enable interface (take control of DOUT3)
           //           10 -> enable, initialize and read first 64 bytes from memory address
           //           11 -> continue reading next 64 bytes
+          //         bit 2
+          //            0 -> direct 1-wire interface
+          //            1 -> interface via DS2480B driver
           //         bits 26:16
           //           11-bit address (0-2047 bytes)
           case (reg_wdata[1:0])
@@ -123,18 +169,20 @@ begin
             2'b01: ds_enable <= 1'd1;
             2'b10: begin
                    ds_enable <= 1'd1;
-                   state <= DS_RESET_BEGIN;
+                   //status <= reg_wdata[3];
+                   use_ds2480b <= reg_wdata[2];
+                   state <= reg_wdata[2] ? (DS2480B_ok ? DS_RESET_1_WIRE : DS_RESET_2480B) : DS_RESET_BEGIN;
                    mem_addr <= reg_wdata[26:16];  // 11-bit address (0-2047 bytes)
                    rise_time <= 8'hff;
                    ds_reset <= 2'd0;
                    ds_dir <= 1'b1;       // enable driver
                    ds_data_out <= 1'b0;  // start reset pulse
-                   cnt <= 16'd0;
+                   cnt <= 17'd0;
                    end
             2'b11: begin
                    // ds_enable should already be 1
                    state <= DS_READ_MEM_START;
-                   cnt <= 16'd0;
+                   cnt <= 17'd0;
                    end
           endcase
        end
@@ -219,27 +267,45 @@ begin
        // Then, release (tri-state) the line and wait until a total of 90 usec
        // (4424 counts) have passed to satisfy the slot time and recovery time
        // requirements.
-       `cnt13 <= `cnt13 + 13'd1;
-       if (`cnt13 == 13'd0) begin
-          ds_dir <= 1'b1;           // Enable FPGA output
-          ds_data_out <= 1'b0;      // pulse data line low
-          // Pulse low for 80 usec (3932 counts) or 8 usec (393 counts) depending on
-          // state of bit.
-       end
-       else if ((out_byte[0] && (`cnt13 == 13'd393)) ||
-                (!out_byte[0] && (`cnt13 == 13'd3932))) begin
-          ds_dir <= 1'b0;
-       end
-       else if (`cnt13 == 13'd4424) begin
-          // Total slot needs to be at least 60 usec (no more than 120 usec),
-          // so make sure we wait 90 usec. This includes some time for recovery.
-          if (`cnt3 == 3'd7) begin
-             state <= next_state;
-             cnt <= 16'd0;
+       if (use_ds2480b) begin
+          ds_dir <= 1'b1;
+          ds_data_out <= tx_data[cnt_bit];
+          if (cnt == 13'd5120) begin  // 5120 clock cycle is 9600kps
+              if (cnt_bit == 'd9) begin
+                  cnt_bit <= 0;
+                  state <= next_state;
+                  cnt <= 0;
+              end
+              else begin
+                  cnt_bit <= cnt_bit + 1;
+                  cnt <= 0;
+              end
           end
-          else begin
-             `cnt3 <= `cnt3 + 3'd1;
-             out_byte <= (out_byte >> 1);
+          else cnt <= cnt + 1;
+       end
+       else begin
+          `cnt13 <= `cnt13 + 13'd1;
+          if (`cnt13 == 13'd0) begin
+             ds_dir <= 1'b1;           // Enable FPGA output
+             ds_data_out <= 1'b0;      // pulse data line low
+             // Pulse low for 80 usec (3932 counts) or 8 usec (393 counts) depending on
+             // state of bit.
+          end
+          else if ((out_byte[0] && (`cnt13 == 13'd393)) ||
+                   (!out_byte[0] && (`cnt13 == 13'd3932))) begin
+             ds_dir <= 1'b0;
+          end
+          else if (`cnt13 == 13'd4424) begin
+             // Total slot needs to be at least 60 usec (no more than 120 usec),
+             // so make sure we wait 90 usec. This includes some time for recovery.
+             if (`cnt3 == 3'd7) begin
+                state <= next_state;
+                cnt <= 16'd0;
+             end
+             else begin
+                `cnt3 <= `cnt3 + 3'd1;
+                out_byte <= (out_byte >> 1);
+             end
           end
        end
     end
@@ -249,36 +315,60 @@ begin
        // sampling data. We have a little extra time because the < 1 usec requirement
        // does not include the ramp down time. After sampling data, wait for maximum
        // slot time (120 usec) and minimum recovery time (1 usec).
-       `cnt13 <= `cnt13 + 13'd1;
-       if (`cnt13 == 13'd0) begin
-          ds_dir <= 1'b1;           // Enable FPGA output
-          ds_data_out <= 1'b0;      // pulse data line low
-       end
-       if (`cnt13 == 13'd49) begin        // 49 counts is about 1 usec
-          ds_dir <= 1'b0;       // Tri-state FPGA output
-       end
-       else if (`cnt13 == 13'd737) begin  // 737 counts is about 15 usec
-          in_byte[`cnt3] <= ds_data_in;       // read input
-       end
-       else if (`cnt13 == 13'd5948) begin    // 5948 counts is about 121 usec
-          if (`cnt3 == 3'd7) begin
-             state <= next_state;
-             cnt <= 16'd0;
+       if (use_ds2480b) begin
+          if ((cnt == 13'd2560) && (!rxd) && (cnt_bit == 0))
+             cnt <= 0;
+          else if ((cnt == 'd5120) && (cnt_bit < 8)) begin
+             cnt <= 0;
+             cnt_bit <= cnt_bit + 1;
+             in_byte[cnt_bit] <= rxd;
           end
-          else begin
-             `cnt3 <= `cnt3 + 3'd1;
+          else if ((cnt_bit == 8) && (cnt == 13'd7680)) begin
+             cnt <= 0;
+             cnt_bit <= 0;
+             state <= (in_byte == expected_rxd) ? next_state : DS_RESET_2480B;
+          end
+          else
+             cnt <= cnt + 1;
+       end
+       else begin
+          `cnt13 <= `cnt13 + 13'd1;
+          if (`cnt13 == 13'd0) begin
+             ds_dir <= 1'b1;                 // Enable FPGA output
+             ds_data_out <= 1'b0;            // pulse data line low
+          end
+          if (`cnt13 == 13'd49) begin        // 49 counts is about 1 usec
+             ds_dir <= 1'b0;                // Tri-state FPGA output
+          end
+          else if (`cnt13 == 13'd737) begin  // 737 counts is about 15 usec
+             in_byte[`cnt3] <= ds_data_in;  // read input
+          end
+          else if (`cnt13 == 13'd5948) begin // 5948 counts is about 121 usec
+             if (`cnt3 == 3'd7) begin
+                state <= next_state;
+                cnt <= 16'd0;
+             end
+             else begin
+                `cnt3 <= `cnt3 + 3'd1;
+             end
           end
        end
     end
 
     DS_READ_PROM_START: begin
-       state <= DS_READ_BYTE;
+       if (use_ds2480b)
+          state <= rxd_pulse ? DS_READ_BYTE : DS_READ_PROM_START;
+       else
+          state <= DS_READ_BYTE;
        next_state <= DS_READ_PROM;
        num_bytes[2:0] <= 3'd0;
     end
 
     DS_READ_PROM: begin
-       state <= DS_READ_BYTE;
+       if (use_ds2480b)
+          state <= rxd_pulse ? DS_READ_BYTE : DS_READ_PROM;
+       else
+          state <= DS_READ_BYTE;
        next_state <= DS_READ_PROM;
        num_bytes[2:0] <= num_bytes[2:0] + 3'd1;
        if (num_bytes[2:0] == 3'd0) begin
@@ -286,32 +376,47 @@ begin
        end
        else if (num_bytes[2:0] == 3'd7) begin
           state <= DS_WRITE_BYTE;
-          out_byte <= 8'hF0;   // Read Memory command
+          if (use_ds2480b)
+             tx_data <= {1'b1, 8'hF0, 1'b0};
+          else
+             out_byte <= 8'hF0;   // Read Memory command
           next_state <= DS_SET_ADDR_LOW;
           num_bytes[2:0] <= 3'd0;
        end
     end
 
     DS_SET_ADDR_LOW: begin
-       out_byte <= mem_addr[7:0];           // Memory address (low byte)
+       if (use_ds2480b)
+          tx_data <= {1'b1, mem_addr[7:0], 1'b0};
+       else
+          out_byte <= mem_addr[7:0];           // Memory address (low byte)
        state <= DS_WRITE_BYTE;
        next_state <= DS_SET_ADDR_HIGH;
     end
 
     DS_SET_ADDR_HIGH: begin
-       out_byte <= {5'd0, mem_addr[10:8]};  // Memory address (high byte)
+       if (use_ds2480b)
+          tx_data <= {6'h20, mem_addr[10:8], 1'b0};
+       else
+          out_byte <= {5'd0, mem_addr[10:8]};  // Memory address (high byte)
        state <= DS_WRITE_BYTE;
        next_state <= DS_READ_MEM_START;
     end
 
     DS_READ_MEM_START: begin
-       state <= DS_READ_BYTE;
+       if (use_ds2480b)
+          state <= rxd_pulse ? DS_READ_BYTE : DS_READ_MEM_START;
+       else
+          state <= DS_READ_BYTE;
        next_state <= DS_READ_MEM;
        num_bytes <= 8'd0;
     end
 
     DS_READ_MEM: begin
-       state <= DS_READ_BYTE;
+       if (use_ds2480b)
+          state <= rxd_pulse ? DS_READ_BYTE : DS_READ_MEM;
+       else
+          state <= DS_READ_BYTE;
        next_state <= DS_READ_MEM;
        num_bytes <= num_bytes + 8'd1;
        mem_data[num_bytes[7:2]] <= (mem_data[num_bytes[7:2]] << 8) | in_byte;
@@ -319,6 +424,147 @@ begin
           state <= DS_IDLE;
           next_state <= DS_IDLE;
        end
+    end
+
+    DS_RESET_2480B: begin
+       // TDX send 0xc1 to DS2480B TXD port at speed of 9600kps including start bit low and stop bit high 104.2 us  5120 master clock cycles
+       tx_data <= {1'b1, 8'hC1, 1'b0};
+       state <= (reset_cnt == 8'hFF) ? DS_IDLE: DS_WRITE_BYTE;
+       next_state <= DS_WAIT_2MS;
+       reset_cnt <= reset_cnt + 1;
+    end
+
+    DS_WAIT_2MS: begin
+       if (cnt < 130000) begin
+          state <= DS_WAIT_2MS;
+          cnt <= cnt +1;
+       end
+       else begin
+          state <= DS_SET_PDSRC;
+          //state <= DS_RESET_1_WIRE;
+          //state <= DS_SET_DATA_MODE;
+          //state <= DS_SET_1_WRITE;
+          cnt <= 0;
+       end
+    end
+
+    DS_SET_PDSRC: begin
+       tx_data <= {1'b1, 8'h17, 1'b0};
+       state <= DS_WRITE_BYTE;
+       next_state <= DS_RESP_PDSRC;
+    end
+
+    DS_RESP_PDSRC: begin
+       expected_rxd <= 8'h16;
+       state <= rxd_pulse ? DS_READ_BYTE : DS_RESP_PDSRC;
+       next_state <=  DS_SET_W1LD;
+    end
+
+    DS_SET_W1LD: begin
+       tx_data <= {1'b1, 8'h45, 1'b0};
+       //ds_status[7:0] <= in_byte;
+       state <= DS_WRITE_BYTE;
+       next_state <= DS_RESP_W1LD;
+    end
+
+    DS_RESP_W1LD:  begin
+       expected_rxd <= 8'h44;
+       state <= rxd_pulse ? DS_READ_BYTE : DS_RESP_W1LD;
+       next_state <= DS_SET_W0RT;
+    end
+
+    DS_SET_W0RT: begin
+       tx_data <= {1'b1, 8'h5B, 1'b0};
+       //ds_status[15:8] <= in_byte;
+       state <= DS_WRITE_BYTE;
+       next_state <= DS_RESP_W0RT;
+    end
+
+    DS_RESP_W0RT:  begin
+       expected_rxd <= 8'h5A;
+       state <= rxd_pulse ? DS_READ_BYTE : DS_RESP_W0RT;
+       //next_state <= (in_byte==expected_rxd) ? DS_SET_RBR : DS_RESET_2480B;
+       next_state <= DS_SET_RBR;
+    end
+
+    DS_SET_RBR: begin
+       tx_data <= {1'b1, 8'h0F, 1'b0};
+       //ds_data[7:0] <= in_byte;
+       state <= DS_WRITE_BYTE;
+       next_state <= DS_RESP_RBR;
+       //state <= DS_SET_DATA_MODE;
+    end
+
+    DS_RESP_RBR:   begin
+       if (cnt < 130000) begin
+          state <= DS_WAIT_2MS;
+          cnt <= cnt +1;
+       end
+       else begin
+          state <= DS_SET_1_WRITE;
+          //state <= DS_SET_DATA_MODE;
+          cnt <= 0;
+       end 
+    end
+
+    /*  expected_rxd <= 8'hCD;
+        state <= rxd_pulse ? DS_READ_BYTE : DS_RESP_RBR;
+        next_state <= DS_SET_1_WRITE;
+        end */
+
+    DS_SET_1_WRITE: begin
+       //ds_data[15:8] <=  in_byte;
+       tx_data <= {1'b1, 8'h91, 1'b0};
+       //ds_status[31:24] <=  in_byte;
+       state <= DS_WRITE_BYTE;
+       next_state <= DS_RESP_1_WRITE;
+    end
+
+    DS_RESP_1_WRITE:   begin
+       expected_rxd <= 8'h93;
+       state <= rxd_pulse ? DS_READ_BYTE : DS_RESP_1_WRITE;
+       next_state <= DS_RESET_1_WIRE;
+    end
+
+    DS_RESET_1_WIRE:  begin
+       //ds_data[23:16] <=  in_byte;
+       DS2480B_ok <= 1;
+       tx_data <= {1'b1, 8'hC5, 1'b0};
+       state <= DS_WRITE_BYTE;
+       next_state <= DS_RESP_1_WIRE;
+    end
+
+    DS_RESP_1_WIRE:    begin
+       expected_rxd <= 8'hCD;
+       state <= rxd_pulse ? DS_READ_BYTE : DS_RESP_1_WIRE;
+       //next_state <= DS_SET_DATA_MODE;
+       next_state <= DS_SET_DATA_MODE;
+    end
+
+    DS_SET_DATA_MODE:  begin
+       //ds_data[31:24] <=  in_byte;
+       tx_data <= {1'b1, 8'hE1, 1'b0};
+       state <=  DS_WRITE_BYTE;
+       next_state <= DS_READ_ROM;
+    end
+
+    DS_READ_ROM:   begin
+       tx_data <= {1'b1, 8'h33, 1'b0};
+       state <=  DS_WRITE_BYTE;
+       next_state <= DS_SET_ID_ADDR_LOW;
+    end
+
+    DS_SET_ID_ADDR_LOW: begin
+       tx_data <= {1'b1, 8'h00, 1'b0};
+       state <= DS_WRITE_BYTE;
+       next_state <= DS_SET_ID_ADDR_HIGH;
+    end
+
+    DS_SET_ID_ADDR_HIGH: begin
+       tx_data <= {1'b1, 8'h00, 1'b0};
+       state <= DS_WRITE_BYTE;
+       next_state <= DS_READ_PROM_START;
+       num_bytes <= 0;
     end
 
     endcase // case (state)
