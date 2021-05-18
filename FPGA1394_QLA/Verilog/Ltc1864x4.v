@@ -45,7 +45,8 @@ module Ltc1864x4(
     output reg OutReady,      // 1 -> New ADC values available
     output reg sclk,          // sclk signal to all the ADCs
     output reg conv,          // conv signal to all the ADCs
-    input wire[3:0] miso      // miso inputs from the ADC
+    input wire[3:0] miso,     // miso inputs from the ADC
+	 output reg data_tvalid    // data valid signal for fir filter
 );
 
     initial conv = 1'b1;
@@ -61,6 +62,7 @@ begin
     seqn <= (seqn<7'h67) ? (seqn+1'b1) : 1'b0;
     conv <= (seqn<7'h22) ? 1'b0 : 1'b1;
     sclk <= ((seqn>7'h00)&&(seqn<7'h23)) ? seqn[0] : 1'b1;
+	 data_tvalid <= ((seqn>7'h23)&&(seqn<7'h26)) ? 1'b1 : 0;  // only stay high for one period of clkfir, otherwise same data is fed to filter twice
 
     // Continuously capture incoming data on every alternating input sequence
     if (~seqn[0]) begin

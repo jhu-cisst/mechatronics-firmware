@@ -470,12 +470,46 @@ CtrlAdc adc(
     .pot2(pot_fb[2]),
     .pot3(pot_fb[3]),
     .pot4(pot_fb[4]),
-    .pot_ready(pot_fb_wen)
+    .pot_ready(pot_fb_wen),
+	 .pot_data_valid(pot_data_valid),
+	 .cur_data_valid(cur_data_valid)
+);
+
+
+// --------------------------------------------------------------------------
+// adc filter
+// --------------------------------------------------------------------------
+// ~6.144 MHz clock for fir filter
+ClkDiv div3clk(sysclk, clkdiv3);
+defparam div3clk.width = 3;
+BUFG firclk(.I(clkdiv3), .O(clkfir));
+
+wire [15:0] raw_pot_data;
+wire [15:0] raw_cur_data;
+wire [15:0] filtered_pot_data;
+wire [15:0] filtered_cur_data;
+
+assign raw_pot_data = pot_fb[reg_raddr[7:4]];
+assign raw_cur_data = cur_fb[reg_raddr[7:4]];
+
+FirFilter firpot(
+    .clkfir(clkfir),    
+	 .clkadc(clkadc),
+    .data_valid(pot_data_valid),
+	 .raw_data(raw_pot_data),
+	 .filtered_data(filtered_pot_data)
+);
+
+FirFilter fircur(
+    .clkfir(clkfir),    
+	 .clkadc(clkadc),
+    .data_valid(cur_data_valid),
+	 .raw_data(raw_cur_data),
+	 .filtered_data(filtered_cur_data)
 );
 
 wire[31:0] reg_adc_data;
-assign reg_adc_data = {pot_fb[reg_raddr[7:4]], cur_fb[reg_raddr[7:4]]};
-
+assign reg_adc_data = {filtered_pot_data, filtered_cur_data};
 assign reg_rd[`OFF_ADC_DATA] = reg_adc_data;
 
 // ----------------------------------------------------------------------------
