@@ -65,9 +65,15 @@ FIR your_instance_name (
   .aclk(aclk), // input aclk
   .s_axis_data_tvalid(s_axis_data_tvalid), // input s_axis_data_tvalid
   .s_axis_data_tready(s_axis_data_tready), // output s_axis_data_tready
+  .s_axis_data_tuser(s_axis_data_tuser), // input [1 : 0] s_axis_data_tuser
   .s_axis_data_tdata(s_axis_data_tdata), // input [15 : 0] s_axis_data_tdata
+  .s_axis_config_tvalid(s_axis_config_tvalid), // input s_axis_config_tvalid
+  .s_axis_config_tready(s_axis_config_tready), // output s_axis_config_tready
+  .s_axis_config_tdata(s_axis_config_tdata), // input [7 : 0] s_axis_config_tdata
   .m_axis_data_tvalid(m_axis_data_tvalid), // output m_axis_data_tvalid
-  .m_axis_data_tdata(m_axis_data_tdata) // output [39 : 0] m_axis_data_tdata
+  .m_axis_data_tuser(m_axis_data_tuser), // output [1 : 0] m_axis_data_tuser
+  .m_axis_data_tdata(m_axis_data_tdata), // output [39 : 0] m_axis_data_tdata
+  .event_s_data_chanid_incorrect(event_s_data_chanid_incorrect) // output event_s_data_chanid_incorrect
 );
 // INST_TAG_END ------ End INSTANTIATION Template ---------
 

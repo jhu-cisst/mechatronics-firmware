@@ -10,9 +10,25 @@ LINE Normal 0 112 32 112
 PIN 0 112 LEFT 36
 PINATTR PinName s_axis_data_tready
 PINATTR Polarity OUT
+LINE Wide 0 176 32 176
+PIN 0 176 LEFT 36
+PINATTR PinName s_axis_data_tuser[1:0]
+PINATTR Polarity IN
 LINE Wide 0 208 32 208
 PIN 0 208 LEFT 36
 PINATTR PinName s_axis_data_tdata[15:0]
+PINATTR Polarity IN
+LINE Normal 0 240 32 240
+PIN 0 240 LEFT 36
+PINATTR PinName s_axis_config_tvalid
+PINATTR Polarity IN
+LINE Normal 0 272 32 272
+PIN 0 272 LEFT 36
+PINATTR PinName s_axis_config_tready
+PINATTR Polarity OUT
+LINE Wide 0 336 32 336
+PIN 0 336 LEFT 36
+PINATTR PinName s_axis_config_tdata[7:0]
 PINATTR Polarity IN
 LINE Normal 0 496 32 496
 PIN 0 496 LEFT 36
@@ -22,8 +38,16 @@ LINE Normal 1056 80 1024 80
 PIN 1056 80 RIGHT 36
 PINATTR PinName m_axis_data_tvalid
 PINATTR Polarity OUT
+LINE Wide 1056 176 1024 176
+PIN 1056 176 RIGHT 36
+PINATTR PinName m_axis_data_tuser[1:0]
+PINATTR Polarity OUT
 LINE Wide 1056 208 1024 208
 PIN 1056 208 RIGHT 36
 PINATTR PinName m_axis_data_tdata[39:0]
+PINATTR Polarity OUT
+LINE Normal 1056 304 1024 304
+PIN 1056 304 RIGHT 36
+PINATTR PinName event_s_data_chanid_incorrect
 PINATTR Polarity OUT
 

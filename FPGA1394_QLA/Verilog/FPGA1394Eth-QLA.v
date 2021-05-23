@@ -470,46 +470,51 @@ CtrlAdc adc(
     .pot2(pot_fb[2]),
     .pot3(pot_fb[3]),
     .pot4(pot_fb[4]),
-    .pot_ready(pot_fb_wen),
-	 .pot_data_valid(pot_data_valid),
-	 .cur_data_valid(cur_data_valid)
+    .pot_ready(pot_fb_wen)
 );
 
 
 // --------------------------------------------------------------------------
 // adc filter
 // --------------------------------------------------------------------------
-// ~6.144 MHz clock for fir filter
-ClkDiv div3clk(sysclk, clkdiv3);
-defparam div3clk.width = 3;
-BUFG firclk(.I(clkdiv3), .O(clkfir));
+// using adc clock for fir ip clock
 
-wire [15:0] raw_pot_data;
-wire [15:0] raw_cur_data;
-wire [15:0] filtered_pot_data;
-wire [15:0] filtered_cur_data;
-
-assign raw_pot_data = pot_fb[reg_raddr[7:4]];
-assign raw_cur_data = cur_fb[reg_raddr[7:4]];
-
+// pot filter 
 FirFilter firpot(
-    .clkfir(clkfir),    
-	 .clkadc(clkadc),
-    .data_valid(pot_data_valid),
-	 .raw_data(raw_pot_data),
-	 .filtered_data(filtered_pot_data)
+    .clkfir(clkadc),    
+    .data_ready(pot_fb_wen),
+	 .input1(pot_fb[1]),
+	 .input2(pot_fb[2]),
+	 .input3(pot_fb[3]),
+	 .input4(pot_fb[4]),
+	 .output1(filt_pot_fb[1]),
+	 .output2(filt_pot_fb[2]),
+	 .output3(filt_pot_fb[3]),
+	 .output4(filt_pot_fb[4])
 );
 
+// local wire for filt_pot_fb(1-4)
+wire[15:0] filt_pot_fb[1:4];
+
+// cur filter 
 FirFilter fircur(
-    .clkfir(clkfir),    
-	 .clkadc(clkadc),
-    .data_valid(cur_data_valid),
-	 .raw_data(raw_cur_data),
-	 .filtered_data(filtered_cur_data)
+    .clkfir(clkadc),    
+    .data_ready(cur_fb_wen),
+	 .input1(cur_fb[1]),
+	 .input2(cur_fb[2]),
+	 .input3(cur_fb[3]),
+	 .input4(cur_fb[4]),
+	 .output1(filt_cur_fb[1]),
+	 .output2(filt_cur_fb[2]),
+	 .output3(filt_cur_fb[3]),
+	 .output4(filt_cur_fb[4])
 );
+
+// local wire for filt_cur_fb(1-4)
+wire[15:0] filt_cur_fb[1:4];
 
 wire[31:0] reg_adc_data;
-assign reg_adc_data = {filtered_pot_data, filtered_cur_data};
+assign reg_adc_data = {filt_pot_fb[reg_raddr[7:4]], filt_cur_fb[reg_raddr[7:4]]};
 assign reg_rd[`OFF_ADC_DATA] = reg_adc_data;
 
 // ----------------------------------------------------------------------------

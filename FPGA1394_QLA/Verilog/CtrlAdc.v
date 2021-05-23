@@ -27,9 +27,7 @@ module CtrlAdc(
     output wire[15:0] pot2,        // pot axis 2
     output wire[15:0] pot3,        // pot axis 3
     output wire[15:0] pot4,        // pot axis 4
-    output wire       pot_ready,   // new pot data available
-	 output wire pot_data_valid,    // pot data valid signal for fir filter
-	 output wire cur_data_valid     // cur data valid signal for fir filter
+    output wire       pot_ready    // new pot data available
 );
 
 
@@ -55,8 +53,7 @@ Ltc1864x4 adc_pot(
     .OutReady(pot_ready),
     .sclk(sclk[1]),
     .conv(conv[1]),
-    .miso(miso_pot),
-	 .data_tvalid(pot_data_valid)
+    .miso(miso_pot)
 );
 
 // cur feedback module
@@ -69,8 +66,7 @@ Ltc1864x4 adc_cur(
     .OutReady(cur_ready),
     .sclk(sclk[2]),
     .conv(conv[2]),
-    .miso(miso_cur),
-	 .data_tvalid(cur_data_valid)
+    .miso(miso_cur)
 );
 
 endmodule
