@@ -479,6 +479,9 @@ CtrlAdc adc(
 // --------------------------------------------------------------------------
 // using adc clock for fir ip clock
 
+// local wire for filt_pot_fb(1-4)
+wire[15:0] filt_pot_fb[1:4];
+
 // pot filter 
 FirFilter firpot(
     .clkfir(clkadc),    
@@ -493,8 +496,8 @@ FirFilter firpot(
 	 .output4(filt_pot_fb[4])
 );
 
-// local wire for filt_pot_fb(1-4)
-wire[15:0] filt_pot_fb[1:4];
+// local wire for filt_cur_fb(1-4)
+wire[15:0] filt_cur_fb[1:4];
 
 // cur filter 
 FirFilter fircur(
@@ -509,9 +512,6 @@ FirFilter fircur(
 	 .output3(filt_cur_fb[3]),
 	 .output4(filt_cur_fb[4])
 );
-
-// local wire for filt_cur_fb(1-4)
-wire[15:0] filt_cur_fb[1:4];
 
 wire[31:0] reg_adc_data;
 assign reg_adc_data = {filt_pot_fb[reg_raddr[7:4]], filt_cur_fb[reg_raddr[7:4]]};

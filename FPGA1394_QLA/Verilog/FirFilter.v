@@ -61,8 +61,10 @@ reg         s_axis_config_tvalid;
 wire [39:0] m_axis_data_tdata;
 wire        m_axis_data_tvalid;
 reg  [1:0]  s_axis_data_tuser;
+wire [1:0]  m_axis_data_tuser;
 wire        event_s_data_chanid_incorrect;
 
+// config data set to 4 <=> sequence: 0->1->2->3
 initial    s_axis_config_tdata = 4;
 initial    s_axis_config_tvalid = 1;
 
