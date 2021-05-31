@@ -16,6 +16,7 @@ FIR\doc\ds795_fir_compiler.pdf
 FIR\doc\fir_compiler_v6_3_readme.txt
 FIR\doc\fir_compiler_v6_3_vinfo.html
 FIR_flist.txt
+FIR_reload_order.txt
 FIR_xmdf.tcl
 _xmsgs\pn_parser.xmsgs
 demo_tb\tb_FIR.vhd

@@ -91,6 +91,10 @@ utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path FIR.xco
 utilities_xmdf::xmdfSetData $instance FileSet $fcount type coregen_ip
 incr fcount
 
+utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path FIR_reload_order.txt
+utilities_xmdf::xmdfSetData $instance FileSet $fcount type text
+incr fcount
+
 utilities_xmdf::xmdfSetData $instance FileSet $fcount relative_path FIR_xmdf.tcl
 utilities_xmdf::xmdfSetData $instance FileSet $fcount type AnyView
 incr fcount

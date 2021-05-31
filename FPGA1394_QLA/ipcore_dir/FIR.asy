@@ -30,6 +30,22 @@ LINE Wide 0 336 32 336
 PIN 0 336 LEFT 36
 PINATTR PinName s_axis_config_tdata[7:0]
 PINATTR Polarity IN
+LINE Normal 0 368 32 368
+PIN 0 368 LEFT 36
+PINATTR PinName s_axis_reload_tvalid
+PINATTR Polarity IN
+LINE Normal 0 400 32 400
+PIN 0 400 LEFT 36
+PINATTR PinName s_axis_reload_tready
+PINATTR Polarity OUT
+LINE Normal 0 432 32 432
+PIN 0 432 LEFT 36
+PINATTR PinName s_axis_reload_tlast
+PINATTR Polarity IN
+LINE Wide 0 464 32 464
+PIN 0 464 LEFT 36
+PINATTR PinName s_axis_reload_tdata[15:0]
+PINATTR Polarity IN
 LINE Normal 0 496 32 496
 PIN 0 496 LEFT 36
 PINATTR PinName aclk
@@ -49,5 +65,13 @@ PINATTR Polarity OUT
 LINE Normal 1056 304 1024 304
 PIN 1056 304 RIGHT 36
 PINATTR PinName event_s_data_chanid_incorrect
+PINATTR Polarity OUT
+LINE Normal 1056 400 1024 400
+PIN 1056 400 RIGHT 36
+PINATTR PinName event_s_reload_tlast_missing
+PINATTR Polarity OUT
+LINE Normal 1056 432 1024 432
+PIN 1056 432 RIGHT 36
+PINATTR PinName event_s_reload_tlast_unexpected
 PINATTR Polarity OUT
 

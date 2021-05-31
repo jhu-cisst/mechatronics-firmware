@@ -70,10 +70,16 @@ FIR your_instance_name (
   .s_axis_config_tvalid(s_axis_config_tvalid), // input s_axis_config_tvalid
   .s_axis_config_tready(s_axis_config_tready), // output s_axis_config_tready
   .s_axis_config_tdata(s_axis_config_tdata), // input [7 : 0] s_axis_config_tdata
+  .s_axis_reload_tvalid(s_axis_reload_tvalid), // input s_axis_reload_tvalid
+  .s_axis_reload_tready(s_axis_reload_tready), // output s_axis_reload_tready
+  .s_axis_reload_tlast(s_axis_reload_tlast), // input s_axis_reload_tlast
+  .s_axis_reload_tdata(s_axis_reload_tdata), // input [15 : 0] s_axis_reload_tdata
   .m_axis_data_tvalid(m_axis_data_tvalid), // output m_axis_data_tvalid
   .m_axis_data_tuser(m_axis_data_tuser), // output [1 : 0] m_axis_data_tuser
   .m_axis_data_tdata(m_axis_data_tdata), // output [39 : 0] m_axis_data_tdata
-  .event_s_data_chanid_incorrect(event_s_data_chanid_incorrect) // output event_s_data_chanid_incorrect
+  .event_s_data_chanid_incorrect(event_s_data_chanid_incorrect), // output event_s_data_chanid_incorrect
+  .event_s_reload_tlast_missing(event_s_reload_tlast_missing), // output event_s_reload_tlast_missing
+  .event_s_reload_tlast_unexpected(event_s_reload_tlast_unexpected) // output event_s_reload_tlast_unexpected
 );
 // INST_TAG_END ------ End INSTANTIATION Template ---------
 

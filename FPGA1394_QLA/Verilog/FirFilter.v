@@ -3,6 +3,9 @@
 module FirFilter(
     input wire        clkfir,
     input wire        data_ready,
+	 input wire        reload_valid,
+	 input wire        reload_last,
+	 input wire [15:0] coeff,
 	 input wire [15:0] input1,
 	 input wire [15:0] input2,
 	 input wire [15:0] input3,
@@ -10,18 +13,19 @@ module FirFilter(
 	 output reg [15:0] output1,
 	 output reg [15:0] output2,
 	 output reg [15:0] output3,
-	 output reg [15:0] output4
+	 output reg [15:0] output4,
+	 output wire       reload_ready
 );
 
 // local wires
-reg         pot_fb_tvalid;
+reg         fb_tvalid;
 reg  [2:0]  num_channel;
 reg  [5:0]  counter;
 wire [15:0] input_data [3:0];
 
 initial counter       = 0;
 initial num_channel   = 1;
-initial pot_fb_tvalid = 0;
+initial fb_tvalid = 0;
 
 assign input_data[0] = input1;
 assign input_data[1] = input2;
@@ -33,19 +37,19 @@ assign input_data[3] = input4;
 // number is odd and symmetric, the # of cycles = (num_coeff - 1)/2
 // in this case, we waited some extra cycles for stability
 always @(posedge(clkfir)) begin
-	if (data_ready) begin
-	   pot_fb_tvalid <= 1;
+	if (data_ready && reload_valid == 0) begin
+	   fb_tvalid <= 1;
 		num_channel <= 1;
 		counter <= 1;
 	end 
 	
 	if (counter > 0 && counter < 20) begin
-		pot_fb_tvalid <= 0;
+		fb_tvalid <= 0;
 		counter <= counter + 1;
 	end
 	
-	if (num_channel <= 3 && counter >= 20) begin
-	   pot_fb_tvalid <= 1;
+	if (num_channel <= 3 && counter >= 20 && reload_valid == 0) begin
+	   fb_tvalid <= 1;
 		num_channel <= num_channel + 1;
 		counter <= 1;
 	end
@@ -63,41 +67,50 @@ wire        m_axis_data_tvalid;
 reg  [1:0]  s_axis_data_tuser;
 wire [1:0]  m_axis_data_tuser;
 wire        event_s_data_chanid_incorrect;
+wire        event_s_reload_tlast_missing;
+wire        event_s_reload_tlast_unexpected;
+
 
 // config data set to 4 <=> sequence: 0->1->2->3
 initial    s_axis_config_tdata = 4;
 initial    s_axis_config_tvalid = 1;
-
-assign     config_tready = s_axis_config_tready;
-assign     config_tvalid = s_axis_config_tvalid;
-assign     sready = s_axis_data_tready;
 
 // config channel sequence
 always @(posedge(clkfir)) begin
 	if (s_axis_config_tready) begin
 		s_axis_config_tvalid <= 0;
 	end
+	// send same config packet after coeff reload
+	if (reload_last) begin
+		s_axis_config_tvalid <= 1;
+	end
 end
 
 // feed data sequentially to each channel
-always @(posedge(pot_fb_tvalid)) begin
+always @(posedge(fb_tvalid)) begin
 	s_axis_data_tdata <= input_data[num_channel-1];
 	s_axis_data_tuser <= num_channel - 1;
 end
 
 FIR filter (
-  .aclk(clkfir),                                                // input aclk
-  .s_axis_data_tvalid(pot_fb_tvalid),                           // input s_axis_data_tvalid
-  .s_axis_data_tready(s_axis_data_tready),                      // output s_axis_data_tready
-  .s_axis_data_tuser(s_axis_data_tuser),                        // input [1 : 0] s_axis_data_tuser
-  .s_axis_data_tdata(s_axis_data_tdata),                        // input [15 : 0] s_axis_data_tdata
-  .s_axis_config_tvalid(s_axis_config_tvalid),                  // input s_axis_config_tvalid
-  .s_axis_config_tready(s_axis_config_tready),                  // output s_axis_config_tready
-  .s_axis_config_tdata(s_axis_config_tdata),                    // input [7 : 0] s_axis_config_tdata
-  .m_axis_data_tvalid(m_axis_data_tvalid),                      // output m_axis_data_tvalid
-  .m_axis_data_tuser(m_axis_data_tuser),                        // output [1 : 0] m_axis_data_tuser
-  .m_axis_data_tdata(m_axis_data_tdata),                        // output [39 : 0] m_axis_data_tdata
-  .event_s_data_chanid_incorrect(event_s_data_chanid_incorrect) // output event_s_data_chanid_incorrect
+  .aclk(clkfir),                                                    // input aclk
+  .s_axis_data_tvalid(fb_tvalid),                                   // input s_axis_data_tvalid
+  .s_axis_data_tready(s_axis_data_tready),                          // output s_axis_data_tready
+  .s_axis_data_tuser(s_axis_data_tuser),                            // input [1 : 0] s_axis_data_tuser
+  .s_axis_data_tdata(s_axis_data_tdata),                            // input [15 : 0] s_axis_data_tdata
+  .s_axis_config_tvalid(s_axis_config_tvalid),                      // input s_axis_config_tvalid
+  .s_axis_config_tready(s_axis_config_tready),                      // output s_axis_config_tready
+  .s_axis_config_tdata(s_axis_config_tdata),                        // input [7 : 0] s_axis_config_tdata
+  .s_axis_reload_tvalid(reload_valid),                              // input s_axis_reload_tvalid
+  .s_axis_reload_tready(reload_ready),                              // output s_axis_reload_tready
+  .s_axis_reload_tlast(reload_last),                                // input s_axis_reload_tlast
+  .s_axis_reload_tdata(coeff),                                      // input [15 : 0] s_axis_reload_tdata
+  .m_axis_data_tvalid(m_axis_data_tvalid),                          // output m_axis_data_tvalid
+  .m_axis_data_tuser(m_axis_data_tuser),                            // output [1 : 0] m_axis_data_tuser
+  .m_axis_data_tdata(m_axis_data_tdata),                            // output [39 : 0] m_axis_data_tdata
+  .event_s_data_chanid_incorrect(event_s_data_chanid_incorrect),    // output event_s_data_chanid_incorrect)
+  .event_s_reload_tlast_missing(event_s_reload_tlast_missing),      // output event_s_reload_tlast_missing
+  .event_s_reload_tlast_unexpected(event_s_reload_tlast_unexpected) // output event_s_reload_tlast_unexpected
 );
 
 // select 16 bits data 

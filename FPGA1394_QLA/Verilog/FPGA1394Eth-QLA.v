@@ -479,13 +479,83 @@ CtrlAdc adc(
 // --------------------------------------------------------------------------
 // using adc clock for fir ip clock
 
-// local wire for filt_pot_fb(1-4)
+// local wires for coefficient reload
+wire        pot_reload_wen;
+reg         pot_reload_valid;
+reg         pot_reload_last;
+reg  [3:0]  pot_save_counter;
+reg  [15:0] pot_coeff_arr [14:0];
+reg  [15:0] pot_coeff;
+reg  [3:0]  pot_reload_counter;
+
+wire        cur_reload_wen;
+reg         cur_reload_valid;
+reg         cur_reload_last;
+reg  [3:0]  cur_save_counter;
+reg  [15:0] cur_coeff_arr [14:0];
+reg  [15:0] cur_coeff;
+reg  [3:0]  cur_reload_counter;
+
+initial     pot_reload_valid = 0;
+initial     pot_coeff = 0;
+initial     pot_save_counter = 0;
+initial     pot_reload_counter = 0;
+initial     pot_reload_last = 0;
+initial     cur_reload_valid = 0;
+initial     cur_coeff = 0;
+initial     cur_save_counter = 0;
+initial     cur_reload_counter = 0;
+initial     cur_reload_last = 0;
+
+// local wire for filt_pot
 wire[15:0] filt_pot_fb[1:4];
+	
+// save coefficent in intermediate array
+always @(posedge(clk1394)) begin
+	if (pot_reload_wen && pot_save_counter <= 14) begin
+		pot_coeff_arr[pot_save_counter] <= reg_wdata;
+      pot_save_counter <= pot_save_counter + 1;
+	end
+	if (pot_reload_valid) begin
+		pot_save_counter <= 0;
+	end
+end
+
+// handles pot filter coefficient reload
+always @(posedge(clkadc)) begin
+	// save complete, start reload
+	if (pot_save_counter > 14) begin
+		pot_reload_valid <= 1;
+		pot_coeff <= pot_coeff_arr[pot_reload_counter]; // load in first coeff to avoid ipcore accpet x as input
+		pot_reload_counter <= pot_reload_counter + 1;
+		pot_reload_last <= 0;
+	end
+	// sequentially load in coefficient 
+	if (pot_reload_valid && pot_reload_ready) begin
+		pot_coeff <= pot_coeff_arr[pot_reload_counter];
+		pot_reload_counter <= pot_reload_counter + 1;
+	end
+	// deassert reload_tvalid and reset reload counter
+	if (pot_reload_counter > 14) begin
+		pot_reload_valid <= 0;
+		pot_reload_counter <= 0;
+	end
+	// handle tlast (should be optional)
+	if (pot_reload_counter == 13) begin
+		pot_reload_last <= 1;
+	end
+	if (pot_reload_counter > 13) begin
+	   pot_reload_last <= 0;
+	end
+end
 
 // pot filter 
 FirFilter firpot(
     .clkfir(clkadc),    
     .data_ready(pot_fb_wen),
+	 .reload_valid(pot_reload_valid),
+	 .reload_last(pot_reload_last),
+	 .coeff(pot_coeff),
 	 .input1(pot_fb[1]),
 	 .input2(pot_fb[2]),
 	 .input3(pot_fb[3]),
@@ -493,16 +563,59 @@ FirFilter firpot(
 	 .output1(filt_pot_fb[1]),
 	 .output2(filt_pot_fb[2]),
 	 .output3(filt_pot_fb[3]),
-	 .output4(filt_pot_fb[4])
+	 .output4(filt_pot_fb[4]),
+	 .reload_ready(pot_reload_ready)
 );
 
-// local wire for filt_cur_fb(1-4)
+// local wire for filt_cur
 wire[15:0] filt_cur_fb[1:4];
+
+// save coefficent in intermediate array
+always @(posedge(clk1394)) begin
+	if (cur_reload_wen && cur_save_counter <= 14) begin
+		cur_coeff_arr[cur_save_counter] <= reg_wdata;
+      cur_save_counter <= cur_save_counter + 1;
+	end
+	if (cur_reload_valid) begin
+		cur_save_counter <= 0;
+	end
+end
+
+// handles pot filter coefficient reload
+always @(posedge(clkadc)) begin
+	// save complete, start reload
+	if (cur_save_counter > 14) begin
+		cur_reload_valid <= 1;
+		cur_coeff <= cur_coeff_arr[cur_reload_counter]; // load in first coeff to avoid ipcore accpet x as input
+		cur_reload_counter <= cur_reload_counter + 1;
+		cur_reload_last <= 0;
+	end
+	// sequentially load in coefficient 
+	if (cur_reload_valid && cur_reload_ready) begin
+		cur_coeff <= cur_coeff_arr[cur_reload_counter];
+		cur_reload_counter <= cur_reload_counter + 1;
+	end
+	// deassert reload_tvalid and reset reload counter
+	if (cur_reload_counter > 14) begin
+		cur_reload_valid <= 0;
+		cur_reload_counter <= 0;
+	end
+	// handle tlast (should be optional)
+	if (cur_reload_counter == 13) begin
+		cur_reload_last <= 1;
+	end
+	if (cur_reload_counter > 13) begin
+	   cur_reload_last <= 0;
+	end
+end
 
 // cur filter 
 FirFilter fircur(
     .clkfir(clkadc),    
     .data_ready(cur_fb_wen),
+	 .reload_valid(cur_reload_valid),
+	 .reload_last(cur_reload_last),
+	 .coeff(cur_coeff),
 	 .input1(cur_fb[1]),
 	 .input2(cur_fb[2]),
 	 .input3(cur_fb[3]),
@@ -510,7 +623,8 @@ FirFilter fircur(
 	 .output1(filt_cur_fb[1]),
 	 .output2(filt_cur_fb[2]),
 	 .output3(filt_cur_fb[3]),
-	 .output4(filt_cur_fb[4])
+	 .output4(filt_cur_fb[4]),
+	 .reload_ready(cur_reload_ready)
 );
 
 wire[31:0] reg_adc_data;
