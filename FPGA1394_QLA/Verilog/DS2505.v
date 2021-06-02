@@ -319,8 +319,8 @@ begin
           end
           else if ((cnt == 'd5120) && (cnt_bit < 8)) begin  // 5120 is 9600 baud
              cnt <= 0;
-             cnt_bit <= cnt_bit + 4'd1;
              in_byte[cnt_bit] <= rxd;
+             cnt_bit <= cnt_bit + 4'd1;
           end
           else if ((cnt_bit == 8) && (cnt == 13'd7680)) begin
              // 7680 = 5120+2560 -- goal is to ignore (wait for) stop bit
@@ -376,23 +376,23 @@ begin
     end
 
     DS_READ_PROM: begin
-       if ((~use_ds2480b)|rxd_pulse) begin
+       if (use_ds2480b) begin
           state <= DS_READ_BYTE;
           next_state <= DS_READ_PROM;
-          unexpected_idx <= 3'd0;
-          num_bytes[2:0] <= num_bytes[2:0] + 3'd1;
+          unexpected_idx <= 3'd0;         
           if (num_bytes[2:0] == 3'd0) begin
              family_code <= in_byte;
-          end
+          end         
           else if (num_bytes[2:0] == 3'd7) begin
              state <= DS_WRITE_BYTE;
              if (use_ds2480b)
-                tx_data <= {1'b1, 8'hF0, 1'b0};
+                tx_data <= {1'b1, 8'hFF, 1'b0};
              else
                 out_byte <= 8'hF0;   // Read Memory command
              next_state <= DS_SET_ADDR_LOW;
              num_bytes[2:0] <= 3'd0;
           end
+          num_bytes[2:0] <= num_bytes[2:0] + 3'd1;
        end
     end
 
@@ -557,7 +557,7 @@ begin
     DS_READ_ROM:   begin
        tx_data <= {1'b1, 8'h33, 1'b0};
        state <=  DS_WRITE_BYTE;
-       next_state <= DS_SET_ID_ADDR_LOW;
+       next_state <= DS_SET_ID_ADDR_HIGH;
     end
 
     DS_SET_ID_ADDR_LOW: begin
@@ -567,7 +567,7 @@ begin
     end
 
     DS_SET_ID_ADDR_HIGH: begin
-       tx_data <= {1'b1, 8'h00, 1'b0};
+       tx_data <= {1'b1, 8'hff, 1'b0};
        state <= DS_WRITE_BYTE;
        next_state <= DS_READ_PROM_START;
        num_bytes <= 0;
