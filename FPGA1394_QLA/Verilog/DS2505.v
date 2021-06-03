@@ -557,12 +557,13 @@ begin
     DS_READ_ROM:   begin
        tx_data <= {1'b1, 8'h33, 1'b0};
        state <=  DS_WRITE_BYTE;
-       next_state <= DS_SET_ID_ADDR_HIGH;
+       next_state <= DS_SET_ID_ADDR_LOW;
     end
 
     DS_SET_ID_ADDR_LOW: begin
-       tx_data <= {1'b1, 8'h00, 1'b0};
-       state <= DS_WRITE_BYTE;
+       expected_rxd <= 8'h33;
+       unexpected_idx <= 3'd6;
+       state <= rxd_pulse ? DS_READ_BYTE : DS_SET_ID_ADDR_LOW;
        next_state <= DS_SET_ID_ADDR_HIGH;
     end
 
