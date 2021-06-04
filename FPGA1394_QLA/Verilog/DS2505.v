@@ -370,18 +370,31 @@ begin
           state <= rxd_pulse ? DS_READ_BYTE : DS_READ_PROM_START;
        else
           state <= DS_READ_BYTE;
+       expected_rxd <= 8'hf0;
+       unexpected_idx <= 3'd4;
        next_state <= DS_READ_PROM;
-       unexpected_idx <= 3'd0;
+       //unexpected_idx <= 3'd0;
        num_bytes[2:0] <= 3'd0;
     end
 
     DS_READ_PROM: begin
        if (use_ds2480b) begin
-          state <= DS_READ_BYTE;
-          next_state <= DS_READ_PROM;
+          //state <= DS_READ_BYTE;
+          //next_state <= DS_READ_PROM;
           unexpected_idx <= 3'd0;         
           if (num_bytes[2:0] == 3'd0) begin
-             family_code <= in_byte;
+             family_code <= 8'h0B;
+             state <= DS_SET_ADDR_LOW;
+             num_bytes[2:0] <= num_bytes[2:0] + 3'd1;
+          end
+          else if (num_bytes[2:0] == 3'd1) begin
+             state <= rxd_pulse ? DS_READ_BYTE : DS_READ_PROM;
+             next_state <= DS_SET_ADDR_HIGH;
+          end
+          else if (num_bytes[2:0] == 3'd2) begin
+             state <= rxd_pulse ? DS_READ_BYTE : DS_READ_PROM;
+             next_state <= DS_READ_MEM_START;
+             num_bytes <= 8'd0;
           end         
           else if (num_bytes[2:0] == 3'd7) begin
              state <= DS_WRITE_BYTE;
@@ -392,7 +405,6 @@ begin
              next_state <= DS_SET_ADDR_LOW;
              num_bytes[2:0] <= 3'd0;
           end
-          num_bytes[2:0] <= num_bytes[2:0] + 3'd1;
        end
     end
 
@@ -402,7 +414,7 @@ begin
        else
           out_byte <= mem_addr[7:0];           // Memory address (low byte)
        state <= DS_WRITE_BYTE;
-       next_state <= DS_SET_ADDR_HIGH;
+       next_state <= DS_READ_PROM;
     end
 
     DS_SET_ADDR_HIGH: begin
@@ -411,23 +423,22 @@ begin
        else
           out_byte <= {5'd0, mem_addr[10:8]};  // Memory address (high byte)
        state <= DS_WRITE_BYTE;
-       next_state <= DS_READ_MEM_START;
+       next_state <= DS_READ_PROM;
+       num_bytes[2:0] <= num_bytes[2:0] + 3'd1;
     end
 
     DS_READ_MEM_START: begin
+       state <= DS_WRITE_BYTE;
        if (use_ds2480b)
-          state <= rxd_pulse ? DS_READ_BYTE : DS_READ_MEM_START;
-       else
-          state <= DS_READ_BYTE;
+          tx_data <= {1'b1, 8'hFF, 1'b0};
        next_state <= DS_READ_MEM;
-       unexpected_idx <= 3'd0;
-       num_bytes <= 8'd0;
+       unexpected_idx <= 3'd0; 
     end
 
     DS_READ_MEM: begin
        if ((~use_ds2480b)|rxd_pulse) begin
           state <= DS_READ_BYTE;
-          next_state <= DS_READ_MEM;
+          next_state <= DS_READ_MEM_START;
           unexpected_idx <= 3'd0;
           num_bytes <= num_bytes + 8'd1;
           mem_data[num_bytes[7:2]] <= (mem_data[num_bytes[7:2]] << 8) | in_byte;
@@ -555,20 +566,20 @@ begin
     end
 
     DS_READ_ROM:   begin
-       tx_data <= {1'b1, 8'h33, 1'b0};
+       tx_data <= {1'b1, 8'hcc, 1'b0};
        state <=  DS_WRITE_BYTE;
        next_state <= DS_SET_ID_ADDR_LOW;
     end
 
     DS_SET_ID_ADDR_LOW: begin
-       expected_rxd <= 8'h33;
+       expected_rxd <= 8'hcc;
        unexpected_idx <= 3'd6;
        state <= rxd_pulse ? DS_READ_BYTE : DS_SET_ID_ADDR_LOW;
        next_state <= DS_SET_ID_ADDR_HIGH;
     end
 
     DS_SET_ID_ADDR_HIGH: begin
-       tx_data <= {1'b1, 8'hff, 1'b0};
+       tx_data <= {1'b1, 8'hf0, 1'b0};
        state <= DS_WRITE_BYTE;
        next_state <= DS_READ_PROM_START;
        num_bytes <= 0;
