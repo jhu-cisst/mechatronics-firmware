@@ -42,7 +42,7 @@ module DS2505(
 
 initial ds_data_out = 1'b1;
 
-// State machine
+// State machine arguments
 localparam[4:0]
     DS_IDLE = 0,
     DS_RESET_BEGIN = 1,      // DS2505 related states
@@ -60,16 +60,18 @@ localparam[4:0]
     DS_READ_MEM = 13,
     DS_RESET_2480B = 14,  // DS2480 related states
     DS_WAIT_2MS  = 15,
-    DS_SET_PDSRC = 16,
-    DS_RESP_PDSRC = 17,
-    DS_SET_W1LD = 18,
-    DS_RESP_W1LD = 19,
-    DS_SET_W0RT = 20,
-    DS_RESP_W0RT =21,
-    DS_SET_RBR = 22,
-    DS_RESP_RBR = 23,
-    DS_SET_1_WRITE = 24,
-    DS_RESP_1_WRITE = 25,
+    DS_RUN_PROGRAM = 16,
+    DS_CHECK_BYTE = 17,
+   //  DS_SET_PDSRC = 16,
+   //  DS_RESP_PDSRC = 17,
+   //  DS_SET_W1LD = 18,
+   //  DS_RESP_W1LD = 19,
+   //  DS_SET_W0RT = 20,
+   //  DS_RESP_W0RT =21,
+   //  DS_SET_RBR = 22,
+   //  DS_RESP_RBR = 23,
+   //  DS_SET_1_WRITE = 24,
+   //  DS_RESP_1_WRITE = 25,
     DS_RESET_1_WIRE = 26,
     DS_RESP_1_WIRE = 27,
     DS_SET_DATA_MODE = 28,
@@ -134,6 +136,20 @@ assign ds_status[3] = dout_cfg_bidir;
 assign ds_status[2:1] = ds_reset;
 assign ds_status[0] = ds_enable;
 
+reg[15:0]  ds_program[0:4];    // Maybe could be "wire" instead of "reg" (should be okay for either as comb logic)
+reg[2:0]   progCnt;            // Program counter
+
+
+//commands and expected responses
+initial begin
+    ds_program[0] = { 8'h17, 8'h16 };    // DS_SET_PDSRC, DS_RESP_PDSRC
+    ds_program[1] = { 8'h45, 8'h44 };    // DS_SET_W1LD, DS_RESP_W1LD
+    ds_program[2] = { 8'h5B, 8'h5A };    // DS_SET_W0RT, DS_RESP_W0RT
+    ds_program[3] = { 8'h0F, 8'h00 };    // DS_SET_RBR, DS_RESP_RBR (not sure about value)
+    ds_program[4] = { 8'h91, 8'h93 };    // DS_SET_1_WRITE, DS_RESP_1_WRITE
+end
+
+//state machine logic blocks
 always@(posedge clk)
 begin
     rxd_dly1 <= rxd;
@@ -454,7 +470,7 @@ begin
     end
 
     // Could change to DS_RESP_RESET_2480B
-    DS_WAIT_2MS: begin
+    DS_WAIT_2MS: begin  // Existing state, just change to set progCnt = 0 and transition to DS_RUN_PROGRAM
        // DS2480B responds with CD (C5), 9600 baud
        // Could add check for this
        if (cnt < 130000) begin
@@ -462,78 +478,92 @@ begin
           cnt <= cnt + 17'd1;
        end
        else begin
-          state <= DS_SET_PDSRC;
+          state <= DS_RUN_PROGRAM;
           //state <= DS_RESET_1_WIRE;
           //state <= DS_SET_DATA_MODE;
           //state <= DS_SET_1_WRITE;
           cnt <= 17'd0;
+          progCnt <= 0;
        end
     end
 
-    DS_SET_PDSRC: begin
-       tx_data <= {1'b1, 8'h17, 1'b0};
-       state <= DS_WRITE_BYTE;
-       next_state <= DS_RESP_PDSRC;
+    DS_RUN_PROGRAM: begin  // New state that "executes" ds_program
+       tx_data <= {1'b1, ds_program[progCnt][15:8], 1'b0};
+       expected_rxd <= ds_program[progCnt][7:0];
+       unexpected_idx <= progCnt + 3'd1;  // optional, for debugging
+       progCnt <= progCnt + 3'd1;
+       next_state <= DS_CHECK_BYTE;
     end
 
-    DS_RESP_PDSRC: begin
-       expected_rxd <= 8'h16;
-       unexpected_idx <= 3'd1;
-       state <= rxd_pulse ? DS_READ_BYTE : DS_RESP_PDSRC;
-       next_state <=  DS_SET_W1LD;
+    DS_CHECK_BYTE: begin   // New state that calls DS_READ_BYTE
+       state <= rxd_pulse ? DS_READ_BYTE : DS_CHECK_BYTE;
+       next_state <= (progCnt == 5) ? DS_RESET_1_WIRE : DS_RUN_PROGRAM;
     end
 
-    DS_SET_W1LD: begin
-       tx_data <= {1'b1, 8'h45, 1'b0};
-       state <= DS_WRITE_BYTE;
-       next_state <= DS_RESP_W1LD;
-    end
+   //  DS_SET_PDSRC: begin
+   //     tx_data <= {1'b1, 8'h17, 1'b0};
+   //     state <= DS_WRITE_BYTE;
+   //     next_state <= DS_RESP_PDSRC;
+   //  end
 
-    DS_RESP_W1LD:  begin
-       expected_rxd <= 8'h44;
-       unexpected_idx <= 3'd2;
-       state <= rxd_pulse ? DS_READ_BYTE : DS_RESP_W1LD;
-       next_state <= DS_SET_W0RT;
-    end
+   //  DS_RESP_PDSRC: begin
+   //     expected_rxd <= 8'h16;
+   //     unexpected_idx <= 3'd1;
+   //     state <= rxd_pulse ? DS_READ_BYTE : DS_RESP_PDSRC;
+   //     next_state <=  DS_SET_W1LD;
+   //  end
 
-    DS_SET_W0RT: begin
-       tx_data <= {1'b1, 8'h5B, 1'b0};
-       state <= DS_WRITE_BYTE;
-       next_state <= DS_RESP_W0RT;
-    end
+   //  DS_SET_W1LD: begin
+   //     tx_data <= {1'b1, 8'h45, 1'b0};
+   //     state <= DS_WRITE_BYTE;
+   //     next_state <= DS_RESP_W1LD;
+   //  end
 
-    DS_RESP_W0RT:  begin
-       expected_rxd <= 8'h5A;
-       unexpected_idx <= 3'd3;
-       state <= rxd_pulse ? DS_READ_BYTE : DS_RESP_W0RT;
-       next_state <= DS_SET_RBR;
-    end
+   //  DS_RESP_W1LD:  begin
+   //     expected_rxd <= 8'h44;
+   //     unexpected_idx <= 3'd2;
+   //     state <= rxd_pulse ? DS_READ_BYTE : DS_RESP_W1LD;
+   //     next_state <= DS_SET_W0RT;
+   //  end
 
-    DS_SET_RBR: begin
-       tx_data <= {1'b1, 8'h0F, 1'b0};
-       state <= DS_WRITE_BYTE;
-       next_state <= DS_RESP_RBR;
-    end
+   //  DS_SET_W0RT: begin
+   //     tx_data <= {1'b1, 8'h5B, 1'b0};
+   //     state <= DS_WRITE_BYTE;
+   //     next_state <= DS_RESP_W0RT;
+   //  end
 
-    DS_RESP_RBR:   begin
-       // expected_rxd <= 8'hCD;
-       unexpected_idx <= 3'd0;
-       state <= rxd_pulse ? DS_READ_BYTE : DS_RESP_RBR;
-       next_state <= DS_SET_1_WRITE;
-    end
+   //  DS_RESP_W0RT:  begin
+   //     expected_rxd <= 8'h5A;
+   //     unexpected_idx <= 3'd3;
+   //     state <= rxd_pulse ? DS_READ_BYTE : DS_RESP_W0RT;
+   //     next_state <= DS_SET_RBR;
+   //  end
 
-    DS_SET_1_WRITE: begin
-       tx_data <= {1'b1, 8'h91, 1'b0};
-       state <= DS_WRITE_BYTE;
-       next_state <= DS_RESP_1_WRITE;
-    end
+   //  DS_SET_RBR: begin
+   //     tx_data <= {1'b1, 8'h0F, 1'b0};
+   //     state <= DS_WRITE_BYTE;
+   //     next_state <= DS_RESP_RBR;
+   //  end
 
-    DS_RESP_1_WRITE:   begin
-       expected_rxd <= 8'h93;
-       unexpected_idx <= 3'd4;
-       state <= rxd_pulse ? DS_READ_BYTE : DS_RESP_1_WRITE;
-       next_state <= DS_RESET_1_WIRE;
-    end
+   //  DS_RESP_RBR:   begin
+   //     // expected_rxd <= 8'hCD;
+   //     unexpected_idx <= 3'd0;
+   //     state <= rxd_pulse ? DS_READ_BYTE : DS_RESP_RBR;
+   //     next_state <= DS_SET_1_WRITE;
+   //  end
+
+   //  DS_SET_1_WRITE: begin
+   //     tx_data <= {1'b1, 8'h91, 1'b0};
+   //     state <= DS_WRITE_BYTE;
+   //     next_state <= DS_RESP_1_WRITE;
+   //  end
+
+   //  DS_RESP_1_WRITE:   begin
+   //     expected_rxd <= 8'h93;
+   //     unexpected_idx <= 3'd4;
+   //     state <= rxd_pulse ? DS_READ_BYTE : DS_RESP_1_WRITE;
+   //     next_state <= DS_RESET_1_WIRE;
+   //  end
 
     DS_RESET_1_WIRE:  begin
        DS2480B_ok <= 1;
