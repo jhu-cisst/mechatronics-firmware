@@ -190,14 +190,9 @@ begin
     end
 
     DS_RESET_BEGIN: begin
-       if (cnt == 16'd30000) begin   // 30,000 counts is about 610 usec
-          state <= DS_RESET_END;
-          ds_dir <= 1'b0;    // tri-state bi-directional transceiver (input to FPGA)
-          cnt <= 16'd0;
-       end
-       else begin
-          cnt <= cnt + 16'd1;
-       end
+       tx_data <= {1'b1, 8'hE3, 1'b0};
+       state <= DS_WRITE_BYTE;
+       next_state <= DS_IDLE;
     end
 
     DS_RESET_END: begin
@@ -443,8 +438,8 @@ begin
           num_bytes <= num_bytes + 8'd1;
           mem_data[num_bytes[7:2]] <= (mem_data[num_bytes[7:2]] << 8) | in_byte;
           if (num_bytes == 8'hff) begin
-             state <= DS_IDLE;
-             next_state <= DS_IDLE;
+             state <= DS_RESET_BEGIN;
+             //next_state <= DS_IDLE;
           end
        end
     end
