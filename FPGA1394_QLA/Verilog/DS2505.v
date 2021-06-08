@@ -52,32 +52,19 @@ localparam[4:0]
     DS_RESET_RECOVER = 5,
     DS_WRITE_BYTE = 6,
     DS_READ_BYTE = 7,
-    DS_READ_PROM_START = 8,
-    DS_READ_PROM = 9,
-    DS_SET_ADDR_LOW = 10,
-    DS_SET_ADDR_HIGH = 11,
-    DS_READ_MEM_START = 12,
-    DS_READ_MEM = 13,
-    DS_RESET_2480B = 14,  // DS2480 related states
-    DS_WAIT_2MS  = 15,
-    DS_RUN_PROGRAM = 16,
-    DS_CHECK_BYTE = 17,
-   //  DS_SET_PDSRC = 16,
-   //  DS_RESP_PDSRC = 17,
-   //  DS_SET_W1LD = 18,
-   //  DS_RESP_W1LD = 19,
-   //  DS_SET_W0RT = 20,
-   //  DS_RESP_W0RT =21,
-   //  DS_SET_RBR = 22,
-   //  DS_RESP_RBR = 23,
-   //  DS_SET_1_WRITE = 24,
-   //  DS_RESP_1_WRITE = 25,
-    DS_RESET_1_WIRE = 26,
-    DS_RESP_1_WIRE = 27,
-    DS_SET_DATA_MODE = 28,
-    DS_READ_ROM = 29,
-    DS_SET_ID_ADDR_LOW = 30,
-    DS_SET_ID_ADDR_HIGH = 31;
+    DS_RESET_2480B = 8,  // DS2480 related states
+    DS_WAIT_2MS_1_WIRE  = 9,
+    DS_RUN_1_WIRE_CONFIG_FUNC_BLK = 10,  // DS2480 configuring 1-wire in flexible mode functional block
+    DS_CHECK_BYTE_1_WIRE_CONFIG = 11,
+    DS_RESET_1_WIRE = 12,
+    DS_RESP_1_WIRE = 13,
+    DS_SET_DATA_MODE = 14,
+    DS_WAIT_2MS_READ_MEM = 15,
+    DS_RUN_READ_PREP_FUNC_BLK = 16,  // DS2480 preparing for memory read functional block
+    DS_CHECK_BYTE_READ_PREP = 17,
+    DS_READ_MEM_START = 18,
+    DS_READ_MEM_TIME_SLOT_CMD = 19,
+    DS_READ_MEM = 20;
 
 
 // Local registers and wires
@@ -136,17 +123,24 @@ assign ds_status[3] = dout_cfg_bidir;
 assign ds_status[2:1] = ds_reset;
 assign ds_status[0] = ds_enable;
 
-reg[15:0]  ds_program[0:4];    // Maybe could be "wire" instead of "reg" (should be okay for either as comb logic)
-reg[2:0]   progCnt;            // Program counter
+reg[15:0]  ds_program[0:8];    // Maybe could be "wire" instead of "reg" (should be okay for either as comb logic)
+reg[3:0]   progCnt;            // Program counter
 
 
-//commands and expected responses
+//program that handle commands sending and expected responses receiving
 initial begin
+    // Program States:
+    //   0:4 -> DS2480B 1-wire configuration in flexible mode
+    //   5:8 -> DS2480 preparing for memory read 
     ds_program[0] = { 8'h17, 8'h16 };    // DS_SET_PDSRC, DS_RESP_PDSRC
     ds_program[1] = { 8'h45, 8'h44 };    // DS_SET_W1LD, DS_RESP_W1LD
     ds_program[2] = { 8'h5B, 8'h5A };    // DS_SET_W0RT, DS_RESP_W0RT
     ds_program[3] = { 8'h0F, 8'h00 };    // DS_SET_RBR, DS_RESP_RBR (not sure about value)
     ds_program[4] = { 8'h91, 8'h93 };    // DS_SET_1_WRITE, DS_RESP_1_WRITE
+    ds_program[5] = { 8'hCC, 8'hCC };    // DS_SKIP_ROM, DS_RESP_SKIP_ROM
+    ds_program[6] = { 8'hF0, 8'hF0 };    // DS_READ_MEM_CMD, DS_RESP_READ_MEM_CMD
+    ds_program[7] = { mem_addr[7:0], mem_addr[7:0] };    // DS_SET_ADDR_LOW, DS_RESP_ADDR_LOW
+    ds_program[8] = { {5'h0, mem_addr[10:8]}, {5'h0, mem_addr[10:8]} };    // DS_SET_ADDR_HIGH, DS_RESP_ADDR_HIGH
 end
 
 //state machine logic blocks
@@ -265,7 +259,8 @@ begin
           if (cnt == 16'd24576) begin // 24,576 counts is about 500 usec
              state <= DS_WRITE_BYTE;
              out_byte <= 8'h33;   // Read PROM command
-             next_state <= DS_READ_PROM_START;
+             // previously here's DS_READ_PROM_START, maybe need to recover in the future
+             next_state <= DS_IDLE;
              cnt <= 16'd0;
           end
        end
@@ -376,109 +371,25 @@ begin
        end
     end
 
-    DS_READ_PROM_START: begin
-       if (use_ds2480b)
-          state <= rxd_pulse ? DS_READ_BYTE : DS_READ_PROM_START;
-       else
-          state <= DS_READ_BYTE;
-       expected_rxd <= 8'hf0;
-       unexpected_idx <= 3'd4;
-       next_state <= DS_READ_PROM;
-       //unexpected_idx <= 3'd0;
-       num_bytes[2:0] <= 3'd0;
-    end
-
-    DS_READ_PROM: begin
-       if (use_ds2480b) begin
-          //state <= DS_READ_BYTE;
-          //next_state <= DS_READ_PROM;
-          unexpected_idx <= 3'd0;         
-          if (num_bytes[2:0] == 3'd0) begin
-             family_code <= 8'h0B;
-             state <= DS_SET_ADDR_LOW;
-             num_bytes[2:0] <= num_bytes[2:0] + 3'd1;
-          end
-          else if (num_bytes[2:0] == 3'd1) begin
-             state <= rxd_pulse ? DS_READ_BYTE : DS_READ_PROM;
-             next_state <= DS_SET_ADDR_HIGH;
-          end
-          else if (num_bytes[2:0] == 3'd2) begin
-             state <= rxd_pulse ? DS_READ_BYTE : DS_READ_PROM;
-             next_state <= DS_READ_MEM_START;
-             num_bytes <= 8'd0;
-          end         
-          else if (num_bytes[2:0] == 3'd7) begin
-             state <= DS_WRITE_BYTE;
-             if (use_ds2480b)
-                tx_data <= {1'b1, 8'hFF, 1'b0};
-             else
-                out_byte <= 8'hF0;   // Read Memory command
-             next_state <= DS_SET_ADDR_LOW;
-             num_bytes[2:0] <= 3'd0;
-          end
-       end
-    end
-
-    DS_SET_ADDR_LOW: begin
-       if (use_ds2480b)
-          tx_data <= {1'b1, mem_addr[7:0], 1'b0};
-       else
-          out_byte <= mem_addr[7:0];           // Memory address (low byte)
-       state <= DS_WRITE_BYTE;
-       next_state <= DS_READ_PROM;
-    end
-
-    DS_SET_ADDR_HIGH: begin
-       if (use_ds2480b)
-          tx_data <= {6'h20, mem_addr[10:8], 1'b0};
-       else
-          out_byte <= {5'd0, mem_addr[10:8]};  // Memory address (high byte)
-       state <= DS_WRITE_BYTE;
-       next_state <= DS_READ_PROM;
-       num_bytes[2:0] <= num_bytes[2:0] + 3'd1;
-    end
-
-    DS_READ_MEM_START: begin
-       state <= DS_WRITE_BYTE;
-       if (use_ds2480b)
-          tx_data <= {1'b1, 8'hFF, 1'b0};
-       next_state <= DS_READ_MEM;
-       unexpected_idx <= 3'd0; 
-    end
-
-    DS_READ_MEM: begin
-       if ((~use_ds2480b)|rxd_pulse) begin
-          state <= DS_READ_BYTE;
-          next_state <= DS_READ_MEM_START;
-          unexpected_idx <= 3'd0;
-          num_bytes <= num_bytes + 8'd1;
-          mem_data[num_bytes[7:2]] <= (mem_data[num_bytes[7:2]] << 8) | in_byte;
-          if (num_bytes == 8'hff) begin
-             state <= DS_RESET_BEGIN;
-             //next_state <= DS_IDLE;
-          end
-       end
-    end
-
     // Could change to DS_SET_RESET_2480B
     DS_RESET_2480B: begin
        // TDX send 0xc1 to DS2480B TXD port at speed of 9600kps including start bit low and stop bit high 104.2 us  5120 master clock cycles
        tx_data <= {1'b1, 8'hC1, 1'b0};
        state <= (reset_cnt == 8'hFF) ? DS_IDLE: DS_WRITE_BYTE;
-       next_state <= DS_WAIT_2MS;
+       next_state <= DS_WAIT_2MS_1_WIRE;
        reset_cnt <= reset_cnt + 8'd1;
     end
 
     // Could change to DS_RESP_RESET_2480B
-    DS_WAIT_2MS: begin  // Existing state, just change to set progCnt = 0 and transition to DS_RUN_PROGRAM
+    DS_WAIT_2MS_1_WIRE: begin  // Existing state, just change to set progCnt = 0 and transition to DS_RUN_1_WIRE_CONFIG_FUNC_BLK
        // DS2480B responds with CD (C5), 9600 baud
        // Could add check for this
        if (cnt < 130000) begin
-          state <= DS_WAIT_2MS;    // 2 ms based on measurement
+          state <= DS_WAIT_2MS_1_WIRE;    // 2 ms based on measurement
           cnt <= cnt + 17'd1;
        end
        else begin
-          state <= DS_RUN_PROGRAM;
+          state <= DS_RUN_1_WIRE_CONFIG_FUNC_BLK;
           //state <= DS_RESET_1_WIRE;
           //state <= DS_SET_DATA_MODE;
           //state <= DS_SET_1_WRITE;
@@ -487,83 +398,19 @@ begin
        end
     end
 
-    DS_RUN_PROGRAM: begin  // New state that "executes" ds_program
+    DS_RUN_1_WIRE_CONFIG_FUNC_BLK: begin  // New state that "executes" DS_RUN_1_WIRE_CONFIG_FUNC_BLK
        tx_data <= {1'b1, ds_program[progCnt][15:8], 1'b0};
        expected_rxd <= ds_program[progCnt][7:0];
        unexpected_idx <= progCnt + 3'd1;  // optional, for debugging
        progCnt <= progCnt + 3'd1;
-       next_state <= DS_CHECK_BYTE;
+       state <= DS_WRITE_BYTE;
+       next_state <= DS_CHECK_BYTE_1_WIRE_CONFIG;
     end
 
-    DS_CHECK_BYTE: begin   // New state that calls DS_READ_BYTE
-       state <= rxd_pulse ? DS_READ_BYTE : DS_CHECK_BYTE;
-       next_state <= (progCnt == 5) ? DS_RESET_1_WIRE : DS_RUN_PROGRAM;
+    DS_CHECK_BYTE_1_WIRE_CONFIG: begin   // New state that calls DS_READ_BYTE
+       state <= rxd_pulse ? DS_READ_BYTE : DS_CHECK_BYTE_1_WIRE_CONFIG;
+       next_state <= (progCnt == 3'd5) ? DS_RESET_1_WIRE : DS_RUN_1_WIRE_CONFIG_FUNC_BLK;
     end
-
-   //  DS_SET_PDSRC: begin
-   //     tx_data <= {1'b1, 8'h17, 1'b0};
-   //     state <= DS_WRITE_BYTE;
-   //     next_state <= DS_RESP_PDSRC;
-   //  end
-
-   //  DS_RESP_PDSRC: begin
-   //     expected_rxd <= 8'h16;
-   //     unexpected_idx <= 3'd1;
-   //     state <= rxd_pulse ? DS_READ_BYTE : DS_RESP_PDSRC;
-   //     next_state <=  DS_SET_W1LD;
-   //  end
-
-   //  DS_SET_W1LD: begin
-   //     tx_data <= {1'b1, 8'h45, 1'b0};
-   //     state <= DS_WRITE_BYTE;
-   //     next_state <= DS_RESP_W1LD;
-   //  end
-
-   //  DS_RESP_W1LD:  begin
-   //     expected_rxd <= 8'h44;
-   //     unexpected_idx <= 3'd2;
-   //     state <= rxd_pulse ? DS_READ_BYTE : DS_RESP_W1LD;
-   //     next_state <= DS_SET_W0RT;
-   //  end
-
-   //  DS_SET_W0RT: begin
-   //     tx_data <= {1'b1, 8'h5B, 1'b0};
-   //     state <= DS_WRITE_BYTE;
-   //     next_state <= DS_RESP_W0RT;
-   //  end
-
-   //  DS_RESP_W0RT:  begin
-   //     expected_rxd <= 8'h5A;
-   //     unexpected_idx <= 3'd3;
-   //     state <= rxd_pulse ? DS_READ_BYTE : DS_RESP_W0RT;
-   //     next_state <= DS_SET_RBR;
-   //  end
-
-   //  DS_SET_RBR: begin
-   //     tx_data <= {1'b1, 8'h0F, 1'b0};
-   //     state <= DS_WRITE_BYTE;
-   //     next_state <= DS_RESP_RBR;
-   //  end
-
-   //  DS_RESP_RBR:   begin
-   //     // expected_rxd <= 8'hCD;
-   //     unexpected_idx <= 3'd0;
-   //     state <= rxd_pulse ? DS_READ_BYTE : DS_RESP_RBR;
-   //     next_state <= DS_SET_1_WRITE;
-   //  end
-
-   //  DS_SET_1_WRITE: begin
-   //     tx_data <= {1'b1, 8'h91, 1'b0};
-   //     state <= DS_WRITE_BYTE;
-   //     next_state <= DS_RESP_1_WRITE;
-   //  end
-
-   //  DS_RESP_1_WRITE:   begin
-   //     expected_rxd <= 8'h93;
-   //     unexpected_idx <= 3'd4;
-   //     state <= rxd_pulse ? DS_READ_BYTE : DS_RESP_1_WRITE;
-   //     next_state <= DS_RESET_1_WIRE;
-   //  end
 
     DS_RESET_1_WIRE:  begin
        DS2480B_ok <= 1;
@@ -582,32 +429,62 @@ begin
     DS_SET_DATA_MODE:  begin
        tx_data <= {1'b1, 8'hE1, 1'b0};
        state <=  DS_WRITE_BYTE;
-       // Note that there is at least 480 microseconds between DS_RESET_1_WIRE
-       // and transition to DS_READ_ROM because at 9600 baud, each command
-       // takes about 1 msec.
-       next_state <= DS_READ_ROM;
+       next_state <= DS_WAIT_2MS_READ_MEM;
        // Set ds_reset to indicate that 1-wire reset (via DS2480B) was successful
        ds_reset <= 2'd1;
     end
 
-    DS_READ_ROM:   begin
-       tx_data <= {1'b1, 8'hcc, 1'b0};
-       state <=  DS_WRITE_BYTE;
-       next_state <= DS_SET_ID_ADDR_LOW;
+    DS_WAIT_2MS_READ_MEM: begin  // After entering data mode, wait 2 ms, transition to DS_RUN_READ_PREP_FUNC_BLK
+       if (cnt < 130000) begin
+          state <= DS_WAIT_2MS_READ_MEM;    // 2 ms based on measurement
+          cnt <= cnt + 17'd1;
+       end
+       else begin
+          state <= DS_RUN_READ_PREP_FUNC_BLK;
+          cnt <= 17'd0;
+          unexpected_idx <= 1;  // optiional for debugging, start with 1 since 0 will skip read check
+       end
     end
 
-    DS_SET_ID_ADDR_LOW: begin
-       expected_rxd <= 8'hcc;
-       unexpected_idx <= 3'd6;
-       state <= rxd_pulse ? DS_READ_BYTE : DS_SET_ID_ADDR_LOW;
-       next_state <= DS_SET_ID_ADDR_HIGH;
-    end
-
-    DS_SET_ID_ADDR_HIGH: begin
-       tx_data <= {1'b1, 8'hf0, 1'b0};
+    DS_RUN_READ_PREP_FUNC_BLK: begin  // This state sends essential args to start reading memory
+       tx_data <= {1'b1, ds_program[progCnt][15:8], 1'b0};
+       expected_rxd <= ds_program[progCnt][7:0];
+       unexpected_idx <= unexpected_idx + 3'd1;  // optional, for debugging
+       progCnt <= progCnt + 3'd1;
        state <= DS_WRITE_BYTE;
-       next_state <= DS_READ_PROM_START;
-       num_bytes <= 0;
+       next_state <= DS_CHECK_BYTE_READ_PREP;
+    end
+
+    DS_CHECK_BYTE_READ_PREP: begin   // New state that calls DS_READ_BYTE
+       state <= rxd_pulse ? DS_READ_BYTE : DS_CHECK_BYTE_READ_PREP;
+       next_state <= (progCnt == 3'd9) ? DS_READ_MEM_START : DS_RUN_READ_PREP_FUNC_BLK;
+    end
+
+    DS_READ_MEM_START: begin
+       family_code <= 8'h0B;
+       num_bytes <= 8'd0;
+       unexpected_idx <= 3'd0;  // skip read check
+       state <= DS_READ_MEM_TIME_SLOT_CMD;
+    end
+
+    DS_READ_MEM_TIME_SLOT_CMD: begin
+       if (use_ds2480b)
+          tx_data <= {1'b1, 8'hFF, 1'b0};
+       state <= DS_WRITE_BYTE;
+       next_state <= DS_READ_MEM;
+    end
+
+    DS_READ_MEM: begin
+       if ((~use_ds2480b)|rxd_pulse) begin
+          state <= DS_READ_BYTE;
+          next_state <= DS_READ_MEM_TIME_SLOT_CMD;
+          num_bytes <= num_bytes + 8'd1;
+          mem_data[num_bytes[7:2]] <= (mem_data[num_bytes[7:2]] << 8) | in_byte;
+          if (num_bytes == 8'hff) begin
+             state <= DS_RESET_BEGIN;  // back to command mode
+             //next_state <= DS_IDLE;
+          end
+       end
     end
 
     endcase // case (state)
