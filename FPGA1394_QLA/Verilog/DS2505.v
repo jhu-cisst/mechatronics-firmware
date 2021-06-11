@@ -53,19 +53,30 @@ localparam[4:0]
     DS_WRITE_BYTE = 6,
     DS_READ_BYTE = 7,
     DS_RESET_2480B = 8,  // DS2480 related states
-    DS_WAIT_2MS_1_WIRE  = 9,
-    DS_RUN_1_WIRE_CONFIG_FUNC_BLK = 10,  // DS2480 configuring 1-wire in flexible mode functional block
+    DS_WAIT_2MS_FOR_2480_RESET = 9,
+    DS_1_WIRE_CONFIG_FUNC_BLK = 10,  // DS2480 configuring 1-wire in flexible mode functional block
     DS_CHECK_BYTE_1_WIRE_CONFIG = 11,
-    DS_RESET_1_WIRE = 12,
-    DS_RESP_1_WIRE = 13,
-    DS_SET_DATA_MODE = 14,
-    DS_WAIT_2MS_READ_MEM = 15,
-    DS_RUN_READ_PREP_FUNC_BLK = 16,  // DS2480 preparing for memory read functional block
-    DS_CHECK_BYTE_READ_PREP = 17,
-    DS_READ_MEM_START = 18,
-    DS_READ_MEM_TIME_SLOT_CMD = 19,
-    DS_READ_MEM = 20;
 
+    /////////////////////////////////////////////////
+    // DS_IDLE directly jumps here
+    ////////////////////////////////////////////////
+    DS_MASTER_RESET = 12,
+    DS_WRITE_BYTE_4800 = 13,  // Send 00 in 4800 baud to enable master reset and synchronize ds2480b
+    DS_RESET_1_WIRE = 14,
+    DS_WAIT_2MS_FOR_RESET = 15,  // No response
+    DS_SET_DATA_MODE = 16,
+    DS_WAIT_2MS_FOR_DATA_MODE = 17,  // No response
+    DS_READ_PREP_FUNC_BLK = 18,  // DS2480 preparing for memory read functional block
+    DS_CHECK_BYTE_READ_PREP = 19,
+    DS_READ_MEM_START = 20,
+    DS_READ_MEM_TIME_SLOT_CMD = 21,  // Countinuously send 0xFF to read data from memory
+    DS_READ_MEM = 22,
+    DS_SET_CMD_MODE = 23,
+    DS_WAIT_2MS_RESET = 24,  // No response
+    DS_RESET_1_WIRE_AGAIN = 25,
+    DS_RESP_1_WIRE_AGAIN = 26;  // should be 0xCD
+    
+    
 
 // Local registers and wires
 reg[4:0]  state;           // state machine
@@ -123,25 +134,35 @@ assign ds_status[3] = dout_cfg_bidir;
 assign ds_status[2:1] = ds_reset;
 assign ds_status[0] = ds_enable;
 
-reg[15:0]  ds_program[0:8];    // Maybe could be "wire" instead of "reg" (should be okay for either as comb logic)
+wire[15:0]  ds_program[0:8];    // Maybe could be "wire" instead of "reg" (should be okay for either as comb logic)
 reg[3:0]   progCnt;            // Program counter
 
 
 //program that handle commands sending and expected responses receiving
-initial begin
-    // Program States:
-    //   0:4 -> DS2480B 1-wire configuration in flexible mode
-    //   5:8 -> DS2480 preparing for memory read 
-    ds_program[0] = { 8'h17, 8'h16 };    // DS_SET_PDSRC, DS_RESP_PDSRC
-    ds_program[1] = { 8'h45, 8'h44 };    // DS_SET_W1LD, DS_RESP_W1LD
-    ds_program[2] = { 8'h5B, 8'h5A };    // DS_SET_W0RT, DS_RESP_W0RT
-    ds_program[3] = { 8'h0F, 8'h00 };    // DS_SET_RBR, DS_RESP_RBR (not sure about value)
-    ds_program[4] = { 8'h91, 8'h93 };    // DS_SET_1_WRITE, DS_RESP_1_WRITE
-    ds_program[5] = { 8'hCC, 8'hCC };    // DS_SKIP_ROM, DS_RESP_SKIP_ROM
-    ds_program[6] = { 8'hF0, 8'hF0 };    // DS_READ_MEM_CMD, DS_RESP_READ_MEM_CMD
-    ds_program[7] = { mem_addr[7:0], mem_addr[7:0] };    // DS_SET_ADDR_LOW, DS_RESP_ADDR_LOW
-    ds_program[8] = { {5'h0, mem_addr[10:8]}, {5'h0, mem_addr[10:8]} };    // DS_SET_ADDR_HIGH, DS_RESP_ADDR_HIGH
-end
+// initial begin
+//     // Program States:
+//     //   0:4 -> DS2480B 1-wire configuration in flexible mode
+//     //   5:8 -> DS2480 preparing for memory read 
+//     ds_program[0] = { 8'h17, 8'h16 };    // DS_SET_PDSRC, DS_RESP_PDSRC
+//     ds_program[1] = { 8'h45, 8'h44 };    // DS_SET_W1LD, DS_RESP_W1LD
+//     ds_program[2] = { 8'h5B, 8'h5A };    // DS_SET_W0RT, DS_RESP_W0RT
+//     ds_program[3] = { 8'h0F, 8'h00 };    // DS_SET_RBR, DS_RESP_RBR (not sure about value)
+//     ds_program[4] = { 8'h91, 8'h93 };    // DS_SET_1_WRITE, DS_RESP_1_WRITE
+//     ds_program[5] = { 8'hCC, 8'hCC };    // DS_SKIP_ROM, DS_RESP_SKIP_ROM
+//     ds_program[6] = { 8'hF0, 8'hF0 };    // DS_READ_MEM_CMD, DS_RESP_READ_MEM_CMD
+// end
+
+assign ds_program[0] = { 8'h17, 8'h16 };    // DS_SET_PDSRC, DS_RESP_PDSRC
+assign ds_program[1] = { 8'h45, 8'h44 };    // DS_SET_W1LD, DS_RESP_W1LD
+assign ds_program[2] = { 8'h5B, 8'h5A };    // DS_SET_W0RT, DS_RESP_W0RT
+assign ds_program[3] = { 8'h0F, 8'h00 };    // DS_SET_RBR, DS_RESP_RBR (not sure about value)
+assign ds_program[4] = { 8'h91, 8'h93 };    // DS_SET_1_WRITE, DS_RESP_1_WRITE
+assign ds_program[5] = { 8'hCC, 8'hCC };    // DS_SKIP_ROM, DS_RESP_SKIP_ROM
+assign ds_program[6] = { 8'hF0, 8'hF0 };    // DS_READ_MEM_CMD, DS_RESP_READ_MEM_CMD
+assign ds_program[7] = { mem_addr[7:0], mem_addr[7:0] };    // DS_SET_ADDR_LOW, DS_RESP_ADDR_LOW
+assign ds_program[8] = { {5'h0, mem_addr[10:8]}, {5'h0, mem_addr[10:8]} };    // DS_SET_ADDR_HIGH, DS_RESP_ADDR_HIGH  
+
+initial DS2480B_ok <= 1'b1;
 
 //state machine logic blocks
 always@(posedge clk)
@@ -182,7 +203,7 @@ begin
                    // If using DS2480B, if configuration already done, reset 1-wire interface,
                    // otherwise go to DS2480B configuration.
                    // If not using DS2480B, then just reset 1-wire interface (DS_RESET_BEGIN)
-                   state <= reg_wdata[2] ? (DS2480B_ok ? DS_RESET_1_WIRE : DS_RESET_2480B) : DS_RESET_BEGIN;
+                   state <= reg_wdata[2] ? (DS2480B_ok ? DS_MASTER_RESET : DS_RESET_2480B) : DS_RESET_BEGIN;
                    mem_addr <= reg_wdata[26:16];  // 11-bit address (0-2047 bytes)
                    rise_time <= 8'hff;
                    ds_reset <= 2'd0;
@@ -376,20 +397,20 @@ begin
        // TDX send 0xc1 to DS2480B TXD port at speed of 9600kps including start bit low and stop bit high 104.2 us  5120 master clock cycles
        tx_data <= {1'b1, 8'hC1, 1'b0};
        state <= (reset_cnt == 8'hFF) ? DS_IDLE: DS_WRITE_BYTE;
-       next_state <= DS_WAIT_2MS_1_WIRE;
+       next_state <= DS_WAIT_2MS_FOR_2480_RESET;
        reset_cnt <= reset_cnt + 8'd1;
     end
 
     // Could change to DS_RESP_RESET_2480B
-    DS_WAIT_2MS_1_WIRE: begin  // Existing state, just change to set progCnt = 0 and transition to DS_RUN_1_WIRE_CONFIG_FUNC_BLK
+    DS_WAIT_2MS_FOR_2480_RESET: begin  // Existing state, just change to set progCnt = 0 and transition to DS_1_WIRE_CONFIG_FUNC_BLK
        // DS2480B responds with CD (C5), 9600 baud
        // Could add check for this
        if (cnt < 130000) begin
-          state <= DS_WAIT_2MS_1_WIRE;    // 2 ms based on measurement
+          state <= DS_WAIT_2MS_FOR_2480_RESET;    // 2 ms based on measurement
           cnt <= cnt + 17'd1;
        end
        else begin
-          state <= DS_RUN_1_WIRE_CONFIG_FUNC_BLK;
+          state <= DS_1_WIRE_CONFIG_FUNC_BLK;
           //state <= DS_RESET_1_WIRE;
           //state <= DS_SET_DATA_MODE;
           //state <= DS_SET_1_WRITE;
@@ -398,7 +419,7 @@ begin
        end
     end
 
-    DS_RUN_1_WIRE_CONFIG_FUNC_BLK: begin  // New state that "executes" DS_RUN_1_WIRE_CONFIG_FUNC_BLK
+    DS_1_WIRE_CONFIG_FUNC_BLK: begin  // New state that "executes" DS_1_WIRE_CONFIG_FUNC_BLK
        tx_data <= {1'b1, ds_program[progCnt][15:8], 1'b0};
        expected_rxd <= ds_program[progCnt][7:0];
        unexpected_idx <= progCnt + 3'd1;  // optional, for debugging
@@ -409,44 +430,76 @@ begin
 
     DS_CHECK_BYTE_1_WIRE_CONFIG: begin   // New state that calls DS_READ_BYTE
        state <= rxd_pulse ? DS_READ_BYTE : DS_CHECK_BYTE_1_WIRE_CONFIG;
-       next_state <= (progCnt == 3'd5) ? DS_RESET_1_WIRE : DS_RUN_1_WIRE_CONFIG_FUNC_BLK;
+       next_state <= (progCnt == 3'd5) ? DS_RESET_1_WIRE : DS_1_WIRE_CONFIG_FUNC_BLK;
+    end
+
+
+    /////////////////////////////////////////////////////////////////////////////////////////////
+    // In this version the state machine actually starts here
+    /////////////////////////////////////////////////////////////////////////////////////////////
+    DS_MASTER_RESET:   begin
+       tx_data <= {1'b1, 8'h00, 1'b0};
+       state <= DS_WRITE_BYTE_4800;
+       next_state <= DS_RESET_1_WIRE;
+    end
+
+    DS_WRITE_BYTE_4800: begin
+          ds_dir <= 1'b1;
+          ds_data_out <= tx_data[cnt_bit];
+          if (cnt == 14'd10240) begin  // 10240 clock cycle is 4800 baud
+              if (cnt_bit == 'd9) begin
+                  cnt_bit <= 0;
+                  state <= next_state;
+                  cnt <= 0;
+              end
+              else begin
+                  cnt_bit <= cnt_bit + 4'd1;
+                  cnt <= 0;
+              end
+          end
+          else cnt <= cnt + 16'd1;
     end
 
     DS_RESET_1_WIRE:  begin
        DS2480B_ok <= 1;
-       tx_data <= {1'b1, 8'hC5, 1'b0};
+       tx_data <= {1'b1, 8'hC1, 1'b0};
        state <= DS_WRITE_BYTE;
-       next_state <= DS_RESP_1_WIRE;
+       next_state <= DS_WAIT_2MS_FOR_RESET;
     end
 
-    DS_RESP_1_WIRE:    begin
-       expected_rxd <= 8'hCD;
-       unexpected_idx <= 3'd5;
-       state <= rxd_pulse ? DS_READ_BYTE : DS_RESP_1_WIRE;
-       next_state <= DS_SET_DATA_MODE;
+    DS_WAIT_2MS_FOR_RESET:    begin
+       if (cnt < 130000) begin
+          state <= DS_WAIT_2MS_FOR_RESET;    // 2 ms based on measurement
+          cnt <= cnt + 17'd1;
+       end
+       else begin
+          state <= DS_SET_DATA_MODE;
+          cnt <= 17'd0;
+       end
     end
 
     DS_SET_DATA_MODE:  begin
        tx_data <= {1'b1, 8'hE1, 1'b0};
        state <=  DS_WRITE_BYTE;
-       next_state <= DS_WAIT_2MS_READ_MEM;
+       next_state <= DS_WAIT_2MS_FOR_DATA_MODE;
        // Set ds_reset to indicate that 1-wire reset (via DS2480B) was successful
        ds_reset <= 2'd1;
     end
 
-    DS_WAIT_2MS_READ_MEM: begin  // After entering data mode, wait 2 ms, transition to DS_RUN_READ_PREP_FUNC_BLK
+    DS_WAIT_2MS_FOR_DATA_MODE: begin  // After entering data mode, wait 2 ms, transition to DS_READ_PREP_FUNC_BLK
        if (cnt < 130000) begin
-          state <= DS_WAIT_2MS_READ_MEM;    // 2 ms based on measurement
+          state <= DS_WAIT_2MS_FOR_DATA_MODE;    // 2 ms based on measurement
           cnt <= cnt + 17'd1;
        end
        else begin
-          state <= DS_RUN_READ_PREP_FUNC_BLK;
+          state <= DS_READ_PREP_FUNC_BLK;
           cnt <= 17'd0;
           unexpected_idx <= 1;  // optiional for debugging, start with 1 since 0 will skip read check
+          progCnt <= 3'd5;  // to avoid that DS2480B being configured so that progCnt not equals to 5
        end
     end
 
-    DS_RUN_READ_PREP_FUNC_BLK: begin  // This state sends essential args to start reading memory
+    DS_READ_PREP_FUNC_BLK: begin  // This state sends essential args to start reading memory
        tx_data <= {1'b1, ds_program[progCnt][15:8], 1'b0};
        expected_rxd <= ds_program[progCnt][7:0];
        unexpected_idx <= unexpected_idx + 3'd1;  // optional, for debugging
@@ -457,7 +510,7 @@ begin
 
     DS_CHECK_BYTE_READ_PREP: begin   // New state that calls DS_READ_BYTE
        state <= rxd_pulse ? DS_READ_BYTE : DS_CHECK_BYTE_READ_PREP;
-       next_state <= (progCnt == 3'd9) ? DS_READ_MEM_START : DS_RUN_READ_PREP_FUNC_BLK;
+       next_state <= (progCnt == 3'd9) ? DS_READ_MEM_START : DS_READ_PREP_FUNC_BLK;
     end
 
     DS_READ_MEM_START: begin
@@ -480,11 +533,40 @@ begin
           next_state <= DS_READ_MEM_TIME_SLOT_CMD;
           num_bytes <= num_bytes + 8'd1;
           mem_data[num_bytes[7:2]] <= (mem_data[num_bytes[7:2]] << 8) | in_byte;
-          if (num_bytes == 8'hff) begin
-             state <= DS_RESET_BEGIN;  // back to command mode
+          if (num_bytes == 8'h07) begin
+             state <= DS_SET_CMD_MODE;  // back to command mode
              //next_state <= DS_IDLE;
           end
        end
+    end
+
+    DS_SET_CMD_MODE:  begin
+       tx_data <= {1'b1, 8'hE3, 1'b0};
+       state <=  DS_WRITE_BYTE;
+       next_state <= DS_WAIT_2MS_RESET;
+    end
+
+    DS_WAIT_2MS_RESET: begin  // After entering data mode, wait 2 ms, transition to DS_READ_PREP_FUNC_BLK
+       if (cnt < 130000) begin
+          state <= DS_WAIT_2MS_RESET;    // 2 ms based on measurement
+          cnt <= cnt + 17'd1;
+       end
+       else begin
+          state <= DS_RESET_1_WIRE_AGAIN;
+          cnt <= 17'd0;
+       end
+    end
+
+    DS_RESET_1_WIRE_AGAIN:  begin
+       tx_data <= {1'b1, 8'hC1, 1'b0};
+       state <= DS_WRITE_BYTE;
+       next_state <= DS_RESP_1_WIRE_AGAIN;
+    end
+
+    DS_RESP_1_WIRE_AGAIN:    begin
+       expected_rxd <= 8'hCD;
+       state <= rxd_pulse ? DS_READ_BYTE : DS_RESP_1_WIRE_AGAIN;
+       next_state <= DS_IDLE;
     end
 
     endcase // case (state)
