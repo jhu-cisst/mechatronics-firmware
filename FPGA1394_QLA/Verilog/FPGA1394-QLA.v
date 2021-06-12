@@ -534,24 +534,42 @@ QLA25AA128 prom_qla(
 // --------------------------------------------------------------------------
 wire[31:0] ds_status;
 
-DS2505 ds_instrument(
+ds_CtrlDallas ds_instrument(
+    // .clk(sysclk),
+
+    // // address & wen
+    // .reg_raddr(reg_raddr),
+    // .reg_waddr(reg_waddr),
+    // .reg_wdata(reg_wdata),
+    // .reg_rdata(reg_rdata_ds),
+    // .ds_status(ds_status),
+    // .reg_wen(reg_wen),
+
+    // .rxd(IO2[29]),
+    // .dout_cfg_bidir(dout_config_bidir),
+
+    // .ds_data_in(IO1[17]),
+    // .ds_data_out(dout3_ds),
+    // .ds_dir(dir34_ds),
+    // .ds_enable(ds_enable)
     .clk(sysclk),
 
     // address & wen
-    .reg_raddr(reg_raddr),
-    .reg_waddr(reg_waddr),
-    .reg_wdata(reg_wdata),
-    .reg_rdata(reg_rdata_ds),
-    .ds_status(ds_status),
-    .reg_wen(reg_wen),
 
-    .rxd(IO2[29]),
-    .dout_cfg_bidir(dout_config_bidir),
+    // .reg_raddr(reg_raddr),
+    // .reg_waddr(reg_waddr),
+    // .reg_wdata(reg_wdata),
+    .inst_id(reg_rdata_ds),
+    // .ds_status(ds_status),
+    // .reg_wen(reg_wen),
 
-    .ds_data_in(IO1[17]),
-    .ds_data_out(dout3_ds),
-    .ds_dir(dir34_ds),
-    .ds_enable(ds_enable)
+    .dlsrxd(IO2[29]),
+    // .dout_cfg_bidir(dout_config_bidir),
+
+    //.ds_data_in(IO1[17]),
+    .dlstxd(dout3_ds)
+    // .ds_dir(dir34_ds),
+    // .ds_enable(ds_enable)
 );
 
 

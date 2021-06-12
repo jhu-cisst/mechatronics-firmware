@@ -612,7 +612,8 @@ wire dir34_ds;
 // Note that ds_enable==1 implies that dout_config_bidir==1. Also, DS2505 output (dout3_ds) does not
 // need to be inverted.
 assign IO1[16] = dout_config_bidir ^ dout[3];
-assign IO1[17] = ds_enable ? (dir34_ds ? dout3_ds : 1'bz) : (dout_config_bidir ^ dout[2]);
+//assign IO1[17] = ds_enable ? (dir34_ds ? dout3_ds : 1'bz) : (dout_config_bidir ^ dout[2]);
+assign IO1[17] = dout3_ds;
 assign IO1[18] = dout_config_bidir ^ dout[1];
 assign IO1[19] = dout_config_bidir ^ dout[0];
 
@@ -726,24 +727,28 @@ QLA25AA128 prom_qla(
 // --------------------------------------------------------------------------
 wire[31:0] ds_status;
 
-DS2505 ds_instrument(
+ds_CtrlDallas ds_instrument(
+    // .clk(sysclk),
+
+    // // address & wen
+    // .reg_raddr(reg_raddr),
+    // .reg_waddr(reg_waddr),
+    // .reg_wdata(reg_wdata),
+    // .reg_rdata(reg_rdata_ds),
+    // .ds_status(ds_status),
+    // .reg_wen(reg_wen),
+
+    // .rxd(IO2[29]),
+    // .dout_cfg_bidir(dout_config_bidir),
+
+    // .ds_data_in(IO1[17]),
+    // .ds_data_out(dout3_ds),
+    // .ds_dir(dir34_ds),
+    // .ds_enable(ds_enable)
     .clk(sysclk),
-
-    // address & wen
-    .reg_raddr(reg_raddr),
-    .reg_waddr(reg_waddr),
-    .reg_wdata(reg_wdata),
-    .reg_rdata(reg_rdata_ds),
-    .ds_status(ds_status),
-    .reg_wen(reg_wen),
-
-    .rxd(IO2[29]),
-    .dout_cfg_bidir(dout_config_bidir),
-
-    .ds_data_in(IO1[17]),
-    .ds_data_out(dout3_ds),
-    .ds_dir(dir34_ds),
-    .ds_enable(ds_enable)
+    .inst_id(reg_rdata_ds),
+    .dlsrxd(IO2[29]),
+    .dlstxd(dout3_ds)
 );
 
 

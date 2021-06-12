@@ -16,15 +16,13 @@
  
  `timescale 1ns / 1ps
  
- module CtrlDallas(
-    input  wire        clk,       // 5 MHz clock
-    input  wire        reset,
+ module ds_CtrlDallas(
+    input  wire        clk,       // 50 MHz system clock
     input  wire        dlsrxd,    // to UART from Dallas 1-wire interface chip
 
     output reg  [31:0] inst_id,
-    output wire        dlstxd,
-    
-    output reg         master_reset
+    output wire        dlstxd
+
 );   // from UART to Dallas 1-wire interface chip
     
     // Right shift 
@@ -46,6 +44,11 @@
     reg         start; 
     reg         written;
     reg         received;       //Since comm clock so much slower, reg to keep track if new data received
+
+    wire        reset;    
+    reg         master_reset;
+    reg         clk_5m;    // customized 5 MHz clock
+    reg   [3:0] count;
 
     parameter INIT       = 3'd0,
               RESET_CMD  = 3'd1,
@@ -70,11 +73,24 @@
         temp_id      <= 32'h12345678;
         written      <= 1'b0;
     end
+
+    assign  reset = 1'd0;   // always disable reset
+    initial clk_5m <= 1'b0;  // init 5M clock
+
+    // generate 5MHz clock
+    always @ (posedge clk) begin
+           if (count == 4) begin
+              count <= 0;
+              clk_5m <= ~clk_5m;
+           end
+           else
+              count <= count+1;
+    end
     
     // Convert parallel data to RS232 format serial stream
-    CtrlUart uart_comm(
+    ds_CtrlUart uart_comm(
         // Input
-        .clk(clk),
+        .clk(clk_5m),
         .reset(reset),
         .pwr_cycle(master_reset),
         .ser_in(dlsrxd),
@@ -88,7 +104,7 @@
     );
    
     // Continuously send read command and address for the instrument ID location
-    always @(posedge clk) begin
+    always @(posedge clk_5m) begin
         if (tx_busy) begin      // Wait for confirmation that tdata has been queued to transmit
             received <= 1'b1;
         end
