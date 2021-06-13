@@ -17,7 +17,7 @@
  `timescale 1ns / 1ps
  
  module ds_CtrlDallas(
-    input  wire        clk,       // 50 MHz system clock
+    input  wire        clk,       // 25 MHz system clock
     input  wire        dlsrxd,    // to UART from Dallas 1-wire interface chip
 
     output reg  [31:0] inst_id,
@@ -47,8 +47,9 @@
 
     wire        reset;    
     reg         master_reset;
-    reg         clk_5m;    // customized 5 MHz clock
-    reg   [3:0] count;
+    //reg         clk_5m;    // customized 5 MHz clock
+    //reg   [3:0] count;
+    wire        clk_5m;   // required to be wire type for synthesis
 
     parameter INIT       = 3'd0,
               RESET_CMD  = 3'd1,
@@ -75,17 +76,23 @@
     end
 
     assign  reset = 1'd0;   // always disable reset
-    initial clk_5m <= 1'b0;  // init 5M clock
+    // initial clk_5m <= 1'b0;  // init 5M clock
 
-    // generate 5MHz clock
-    always @ (posedge clk) begin
-           if (count == 4) begin
-              count <= 0;
-              clk_5m <= ~clk_5m;
-           end
-           else
-              count <= count+1;
-    end
+    // // generate 5MHz clock
+    // always @ (posedge clk) begin
+    //        if (count == 4) begin
+    //           count <= 0;
+    //           clk_5m <= ~clk_5m;
+    //        end
+    //        else
+    //           count <= count+1;
+    // end
+    
+    // module for generating 5Mhz clock from 25M sysclk
+    div_odd div_5(
+        .clk(clk),
+        .clk_out(clk_5m)
+    );
     
     // Convert parallel data to RS232 format serial stream
     ds_CtrlUart uart_comm(
@@ -253,4 +260,56 @@
     always @(posedge latch) begin
         inst_id[31:0] <= temp_id[31:0];
     end
+endmodule
+
+////////////////////////////////////////////////
+// Divider by 5 functional module (25M -> 5M)
+////////////////////////////////////////////////
+module div_odd(
+    input  wire        clk,       // 25 Mhz sys clock
+    output wire        clk_out    // 5 Mhz baud base clock
+ );
+
+    reg   [2:0] cnt_p;
+    reg   clk_p;
+    reg   [2:0] cnt_n;
+    reg   clk_n;
+
+    initial begin
+        cnt_p        <= 3'd0;
+        clk_p        <= 0;
+        cnt_n        <= 3'd0;
+        clk_n        <= 0;
+    end
+ 
+    //----------count the posedge---------------------
+
+    always @ (posedge clk) 
+        if(cnt_p == 3'd4)
+            cnt_p <= 3'd0;
+        else 
+            cnt_p <= cnt_p + 1'b1;
+
+    always @ (posedge clk) 
+        if((cnt_p == 3'd2) || (cnt_p == 3'd4))
+            clk_p <= ~ clk_p;
+
+    //---------------------------------------------
+
+    //----------count the negedge------------------
+
+    always @ (negedge clk) 
+        if(cnt_n == 3'd4) 
+            cnt_n <= 3'd0;
+        else
+            cnt_n <= cnt_n + 1'b1;
+    
+    always @ (negedge clk) 
+        if((cnt_n == 3'd2) || (cnt_n == 3'd4)) 
+            clk_n <= ~clk_n;
+
+    //----------------------------------------------
+
+    assign clk_out = clk_p | clk_n;
+
 endmodule

@@ -44,12 +44,16 @@ set (VERILOG_SOURCE_COMMON "${VERILOG_SOURCE_DIR}/ClkDiv.v"
                            "${VERILOG_SOURCE_DIR}/CtrlDac.v"
                            "${VERILOG_SOURCE_DIR}/CtrlAdc.v"
                            "${VERILOG_SOURCE_DIR}/BoardRegs.v"
-                           "${VERILOG_SOURCE_DIR}/DS2505.v"
+                           "${VERILOG_SOURCE_DIR}/ds_CtrlDallas.v"
                            "${VERILOG_SOURCE_DIR}/WriteRtData.v"
                            "${VERILOG_SOURCE_DIR}/SampleData.v"
                            "${VERILOG_SOURCE_DIR}/DataBuffer.v"
                            "${IPCORE_BINARY_DIR}/Dual_port_RAM_32X1024.v"
-                           "${VERILOG_SOURCE_DIR}/Reboot.v")
+                           "${VERILOG_SOURCE_DIR}/Reboot.v"
+                           "${VERILOG_SOURCE_DIR}/ds_CtrlUart.v"
+                           "${VERILOG_SOURCE_DIR}/ds_GenBaud.v"
+                           "${VERILOG_SOURCE_DIR}/ds_UartRx.v"
+                           "${VERILOG_SOURCE_DIR}/ds_UartTx.v")
 
 # Verilog source files for Rev 1 firmware
 set (VERILOG_SOURCE_REV1 "${VERILOG_SOURCE_DIR}/FPGA1394-QLA.v"

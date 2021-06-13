@@ -745,7 +745,7 @@ ds_CtrlDallas ds_instrument(
     // .ds_data_out(dout3_ds),
     // .ds_dir(dir34_ds),
     // .ds_enable(ds_enable)
-    .clk(sysclk),
+    .clk(clk25m),
     .inst_id(reg_rdata_ds),
     .dlsrxd(IO2[29]),
     .dlstxd(dout3_ds)
