@@ -159,8 +159,8 @@ assign ds_program[3] = { 8'h0F, 8'h00 };    // DS_SET_RBR, DS_RESP_RBR (not sure
 assign ds_program[4] = { 8'h91, 8'h93 };    // DS_SET_1_WRITE, DS_RESP_1_WRITE
 assign ds_program[5] = { 8'hCC, 8'hCC };    // DS_SKIP_ROM, DS_RESP_SKIP_ROM
 assign ds_program[6] = { 8'hF0, 8'hF0 };    // DS_READ_MEM_CMD, DS_RESP_READ_MEM_CMD
-assign ds_program[7] = { mem_addr[7:0], mem_addr[7:0] };    // DS_SET_ADDR_LOW, DS_RESP_ADDR_LOW
-assign ds_program[8] = { {5'h0, mem_addr[10:8]}, {5'h0, mem_addr[10:8]} };    // DS_SET_ADDR_HIGH, DS_RESP_ADDR_HIGH  
+assign ds_program[7] = { 8'h00, 8'h00 };    // DS_SET_ADDR_LOW, DS_RESP_ADDR_LOW
+assign ds_program[8] = { 8'h00, 8'h00 };    // DS_SET_ADDR_HIGH, DS_RESP_ADDR_HIGH  
 
 initial DS2480B_ok <= 1'b1;
 
@@ -213,7 +213,7 @@ begin
                    end
             2'b11: begin
                    // ds_enable should already be 1
-                   state <= DS_READ_MEM_START;
+                   state <= DS_RESET_1_WIRE;
                    cnt <= 17'd0;
                    end
           endcase
@@ -494,7 +494,7 @@ begin
        else begin
           state <= DS_READ_PREP_FUNC_BLK;
           cnt <= 17'd0;
-          unexpected_idx <= 1;  // optiional for debugging, start with 1 since 0 will skip read check
+          unexpected_idx <= 0;  // optiional for debugging, start with 1 since 0 will skip read check
           progCnt <= 3'd5;  // to avoid that DS2480B being configured so that progCnt not equals to 5
        end
     end
@@ -502,7 +502,7 @@ begin
     DS_READ_PREP_FUNC_BLK: begin  // This state sends essential args to start reading memory
        tx_data <= {1'b1, ds_program[progCnt][15:8], 1'b0};
        expected_rxd <= ds_program[progCnt][7:0];
-       unexpected_idx <= unexpected_idx + 3'd1;  // optional, for debugging
+       //unexpected_idx <= unexpected_idx + 3'd1;  // optional, for debugging
        progCnt <= progCnt + 3'd1;
        state <= DS_WRITE_BYTE;
        next_state <= DS_CHECK_BYTE_READ_PREP;
@@ -533,7 +533,7 @@ begin
           next_state <= DS_READ_MEM_TIME_SLOT_CMD;
           num_bytes <= num_bytes + 8'd1;
           mem_data[num_bytes[7:2]] <= (mem_data[num_bytes[7:2]] << 8) | in_byte;
-          if (num_bytes == 8'h07) begin
+          if (num_bytes == 8'hfe) begin
              state <= DS_SET_CMD_MODE;  // back to command mode
              //next_state <= DS_IDLE;
           end
