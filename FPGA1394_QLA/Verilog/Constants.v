@@ -10,6 +10,7 @@
  * Revision history
  *     10/26/13    Zihan Chen    Initial revision
  *     11/14/19    Jintan Zhang  Added watchdog phase contant 
+ *     19/06/21    Jintan Zhang  Added FIR address space
  */
  
  /**************************************************************
@@ -56,6 +57,7 @@
 `define ADDR_DS       4'h6         // Dallas 1-wire memory (dV instrument)
 `define ADDR_DATA_BUF 4'h7         // Data buffer address space
 `define ADDR_WAVEFORM 4'h8         // Waveform table address space (DOUT waveforms)
+`define ADDR_FIR      4'h9         // FIR Filter coefficient address space
 
 // channel 0 (board) registers
 `define REG_STATUS   4'd0          // board id (8), fault (8), enable/masks (16)
