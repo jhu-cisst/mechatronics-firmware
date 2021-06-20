@@ -453,6 +453,7 @@ wire       cur_fb_wen;
 
 // local wire for pot_fb(1-4)
 wire[15:0] pot_fb[1:4];
+wire[15:0] pot_fb_tmp[1:4];
 wire       pot_fb_wen;
 
 // adc controller routes conversion results according to address
@@ -473,6 +474,10 @@ CtrlAdc adc(
     .pot_ready(pot_fb_wen)
 );
 
+assign pot_fb_tmp[1] = 16'h6666;
+assign pot_fb_tmp[2] = 16'h7777;
+assign pot_fb_tmp[3] = 16'h5555;
+assign pot_fb_tmp[4] = 16'h4444;
 
 // --------------------------------------------------------------------------
 // adc filter

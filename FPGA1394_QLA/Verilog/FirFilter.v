@@ -18,62 +18,35 @@ module FirFilter(
 );
 
 // local wires
-reg         fb_tvalid;
-reg  [2:0]  num_channel;
-reg  [5:0]  counter;
-wire [15:0] input_data [3:0];
+reg          fb_tvalid;
 
-initial counter       = 0;
-initial num_channel   = 1;
-initial fb_tvalid = 0;
+initial      fb_tvalid = 0;
 
-assign input_data[0] = input1;
-assign input_data[1] = input2;
-assign input_data[2] = input3;
-assign input_data[3] = input4;
-
-// feed data into 4 channel by waiting minimum cycles 
-// needed to process one input. Usually when the coeff
-// number is odd and symmetric, the # of cycles = (num_coeff - 1)/2
-// in this case, we waited some extra cycles for stability
+// generate tvalid signal according to adc data_ready
 always @(posedge(clkfir)) begin
 	if (data_ready && reload_valid == 0) begin
-	   fb_tvalid <= 1;
-		num_channel <= 1;
-		counter <= 1;
-	end 
-	
-	if (counter > 0 && counter < 20) begin
+	   fb_tvalid <= 1'b1;
+	end else begin
 		fb_tvalid <= 0;
-		counter <= counter + 1;
-	end
-	
-	if (num_channel <= 3 && counter >= 20 && reload_valid == 0) begin
-	   fb_tvalid <= 1;
-		num_channel <= num_channel + 1;
-		counter <= 1;
 	end
 end
 
 // functional part
 // local wires
-reg  [15:0] s_axis_data_tdata;
-wire        s_axis_data_tready; 
-wire        s_axis_config_tready;
-reg  [4:0]  s_axis_config_tdata;
-reg         s_axis_config_tvalid;
-wire [39:0] m_axis_data_tdata;
-wire        m_axis_data_tvalid;
-reg  [1:0]  s_axis_data_tuser;
-wire [1:0]  m_axis_data_tuser;
-wire        event_s_data_chanid_incorrect;
-wire        event_s_reload_tlast_missing;
-wire        event_s_reload_tlast_unexpected;
+reg  [63:0]  s_axis_data_tdata;
+wire         s_axis_data_tready; 
+wire         s_axis_config_tready;
+reg  [7:0]   s_axis_config_tdata;
+reg          s_axis_config_tvalid;
+wire [159:0] m_axis_data_tdata;
+wire         m_axis_data_tvalid;
+wire         event_s_reload_tlast_missing;
+wire         event_s_reload_tlast_unexpected;
 
-
-// config data set to 4 <=> sequence: 0->1->2->3
-initial    s_axis_config_tdata = 4;
-initial    s_axis_config_tvalid = 1;
+// config data, required for coefficient reload, 
+// data content is irrelavent since it is not used
+initial      s_axis_config_tdata = 7'd0;
+initial      s_axis_config_tvalid = 1'b1;
 
 // config channel sequence
 always @(posedge(clkfir)) begin
@@ -82,22 +55,22 @@ always @(posedge(clkfir)) begin
 	end
 	// send same config packet after coeff reload
 	if (reload_last) begin
-		s_axis_config_tvalid <= 1;
+		s_axis_config_tvalid <= 1'b1;
 	end
 end
 
 // feed data sequentially to each channel
 always @(posedge(fb_tvalid)) begin
-	s_axis_data_tdata <= input_data[num_channel-1];
-	s_axis_data_tuser <= num_channel - 1;
+	if (s_axis_data_tready) begin
+	    s_axis_data_tdata <= {input4, input3, input2, input1};
+   end
 end
 
 FIR filter (
   .aclk(clkfir),                                                    // input aclk
   .s_axis_data_tvalid(fb_tvalid),                                   // input s_axis_data_tvalid
   .s_axis_data_tready(s_axis_data_tready),                          // output s_axis_data_tready
-  .s_axis_data_tuser(s_axis_data_tuser),                            // input [1 : 0] s_axis_data_tuser
-  .s_axis_data_tdata(s_axis_data_tdata),                            // input [15 : 0] s_axis_data_tdata
+  .s_axis_data_tdata(s_axis_data_tdata),                            // input [63 : 0] s_axis_data_tdata
   .s_axis_config_tvalid(s_axis_config_tvalid),                      // input s_axis_config_tvalid
   .s_axis_config_tready(s_axis_config_tready),                      // output s_axis_config_tready
   .s_axis_config_tdata(s_axis_config_tdata),                        // input [7 : 0] s_axis_config_tdata
@@ -106,24 +79,17 @@ FIR filter (
   .s_axis_reload_tlast(reload_last),                                // input s_axis_reload_tlast
   .s_axis_reload_tdata(coeff),                                      // input [15 : 0] s_axis_reload_tdata
   .m_axis_data_tvalid(m_axis_data_tvalid),                          // output m_axis_data_tvalid
-  .m_axis_data_tuser(m_axis_data_tuser),                            // output [1 : 0] m_axis_data_tuser
-  .m_axis_data_tdata(m_axis_data_tdata),                            // output [39 : 0] m_axis_data_tdata
-  .event_s_data_chanid_incorrect(event_s_data_chanid_incorrect),    // output event_s_data_chanid_incorrect)
+  .m_axis_data_tdata(m_axis_data_tdata),                            // output [159 : 0] m_axis_data_tdata
   .event_s_reload_tlast_missing(event_s_reload_tlast_missing),      // output event_s_reload_tlast_missing
   .event_s_reload_tlast_unexpected(event_s_reload_tlast_unexpected) // output event_s_reload_tlast_unexpected
 );
 
 // select 16 bits data 
 always@(posedge(m_axis_data_tvalid)) begin
-	if (m_axis_data_tuser == 0) begin
-		output1 <= m_axis_data_tdata[35:20];
-	end else if (m_axis_data_tuser == 1) begin
-	   output2 <= m_axis_data_tdata[35:20];
-	end else if (m_axis_data_tuser == 2) begin
-	   output3 <= m_axis_data_tdata[35:20];
-	end else if (m_axis_data_tuser == 3) begin
-	   output4 <= m_axis_data_tdata[35:20];
-	end
+	output1 <= m_axis_data_tdata[35:20];
+	output2 <= m_axis_data_tdata[75:60];
+	output3 <= m_axis_data_tdata[115:100];
+	output4 <= m_axis_data_tdata[155:140];
 end
 
 endmodule

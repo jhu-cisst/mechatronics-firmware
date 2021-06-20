@@ -25,9 +25,29 @@
     <file xil_pn:fileType="FILE_ASY" xil_pn:name="FIR.asy" xil_pn:origination="imported"/>
     <file xil_pn:fileType="FILE_SYMBOL" xil_pn:name="FIR.sym" xil_pn:origination="imported"/>
     <file xil_pn:fileType="FILE_VEO" xil_pn:name="FIR.veo" xil_pn:origination="imported"/>
-    <file xil_pn:fileType="FILE_USERDOC" xil_pn:name="FIR_reload_order.txt" xil_pn:origination="imported"/>
   </files>
 
-  <transforms xmlns="http://www.xilinx.com/XMLSchema"/>
+  <transforms xmlns="http://www.xilinx.com/XMLSchema">
+    <transform xil_pn:end_ts="1621358473" xil_pn:name="TRAN_copyInitialToXSTAbstractSynthesis" xil_pn:start_ts="1621358473">
+      <status xil_pn:value="SuccessfullyRun"/>
+      <status xil_pn:value="ReadyToRun"/>
+    </transform>
+    <transform xil_pn:end_ts="1624062626" xil_pn:name="TRAN_schematicsToHdl" xil_pn:prop_ck="6779725349061013078" xil_pn:start_ts="1624062626">
+      <status xil_pn:value="SuccessfullyRun"/>
+      <status xil_pn:value="ReadyToRun"/>
+    </transform>
+    <transform xil_pn:end_ts="1624062626" xil_pn:name="TRAN_regenerateCores" xil_pn:prop_ck="5929411984684338340" xil_pn:start_ts="1624062626">
+      <status xil_pn:value="SuccessfullyRun"/>
+      <status xil_pn:value="ReadyToRun"/>
+    </transform>
+    <transform xil_pn:end_ts="1624062626" xil_pn:name="TRAN_SubProjectAbstractToPreProxy" xil_pn:start_ts="1624062626">
+      <status xil_pn:value="SuccessfullyRun"/>
+      <status xil_pn:value="ReadyToRun"/>
+    </transform>
+    <transform xil_pn:end_ts="1624062626" xil_pn:name="TRAN_xawsTohdl" xil_pn:prop_ck="6682994175823005464" xil_pn:start_ts="1624062626">
+      <status xil_pn:value="SuccessfullyRun"/>
+      <status xil_pn:value="ReadyToRun"/>
+    </transform>
+  </transforms>
 
 </generated_project>
