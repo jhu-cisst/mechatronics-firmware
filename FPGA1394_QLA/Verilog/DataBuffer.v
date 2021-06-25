@@ -16,101 +16,156 @@
 `include "Constants.v"
 
 module DataBuffer(
-    input             clk,
-    // write interface
-    input  wire       cur_fb_wen,   // motor current feedback data ready
-    input  wire[15:0] cur_fb,       // motor current feedback
-    output reg[3:0]   chan,         // selected data channel
-    // CPU interface
-    input  wire[15:0] reg_waddr,    // register write address
-    input  wire[31:0] reg_wdata,    // register write
-    input  wire       reg_wen,      // register write enable
-    input  wire[15:0] reg_raddr,    // register read address
-    output wire[31:0] reg_rdata,    // read data
-    // Status
-    output wire[15:0] databuf_status,
-    // Timestamp
-    input  wire[31:0] ts
+    input                clkbuffer,
+    input  wire [31:0]   ts,               // Timestamp
+    input  wire          data_fb_wen,      // channel 1~4 data ready
+    input  wire [15:0]   input_data1,      // channel 1 data
+    input  wire [15:0]   input_data2,      // channel 2 data
+    input  wire [15:0]   input_data3,      // channel 3 data
+    input  wire [15:0]   input_data4,      // channel 4 data
+    input  wire [15:0]   reg_waddr,
+    input  wire [31:0]   reg_wdata,
+    input  wire          reg_wen,
+    input  wire [15:0]   reg_raddr,
+    output wire [31:0]   reg_rdata,
+    output wire [15:0]   databuf_status
 );
 
-initial chan = 4'd1;
+// local wires
+reg         collecting;
+// RAM specific
+reg         buf_wen;
+reg [9 :0]  buf_waddr [4:1];
+reg [31:0]  buf_wdata [4:1];
+// Synchronization specific 
+reg         data_fb_wen_last;
+reg         data_fb_pending;
+wire        data_fb_trigger;
 
-reg       collecting;
-reg       buf_wr;
-reg[9:0]  buf_wr_addr;
-reg[31:0] buf_wr_data;
-reg       cur_fb_wen_last;
-reg       cur_fb_pending;
+integer ii;
+initial     begin
+    for (ii = 1; ii < `NUM_CHANNELS+1; ii = ii + 1) buf_waddr[ii] = 0;
+end
 
-wire      cur_fb_trigger;
-assign    cur_fb_trigger = (cur_fb_wen == 1) && (cur_fb_wen_last == 0) ? 1'b1 : 1'b0;
-
-assign    databuf_status = { collecting, 1'b0, chan, buf_wr_addr };
+assign      data_fb_trigger = (data_fb_wen == 1) && (data_fb_wen_last == 0) ? 1'b1 : 1'b0;
+assign      databuf_status = { collecting, 1'b0, reg_raddr[10], buf_waddr[reg_raddr[10]] };
 
 // Indicate whether timestamp has more than 14 bits
-wire     ts_over14;
-assign   ts_over14 = (ts[31:14] == 18'd0) ? 1'b0 : 1'b1;
+wire        ts_over14;
+assign      ts_over14 = (ts[31:14] == 18'd0) ? 1'b0 : 1'b1;
 
 // Note that the data collection bit (30) is used to start/stop data collection.
-wire cur_cmd_wen;    // Write enable for commanded current
-// Write the command current to the buffer when:
+// Write the command signal to the buffer when:
 //   1) Collection bit set (reg_wdata[30]), but not already collecting
-//   2) Collection in process and writing current to the correct channel
-assign cur_cmd_wen = reg_wen && (reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[3:0]==`OFF_DAC_CTRL);
+//   2) Collection in process and writing signal to the correct channel
+// Write enable for commanded signal
+wire        data_cmd_wen;    
+assign      data_cmd_wen = reg_wen && (reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[3:0]==`OFF_DAC_CTRL);
 
-wire[31:0] mem_read;
 // Read data:
 //   7000-73ff  memory
 //   7400-77ff  memory (wrapping for circular buffer)
 //   7800       status register
 // all other addresses return 0
-assign reg_rdata = (reg_raddr[11] == 1'b0) ? mem_read :
-                   (reg_raddr[11:0] == 12'h800) ? { 16'd0, databuf_status }
-                   : 32'd0;
 
-Dual_port_RAM_32X1024 Dual_port_RAM_32X1024(
-    .clka(clk),
-    .ena(1'b1),
-    .wea(buf_wr),
-    .addra(buf_wr_addr),
-    .dina(buf_wr_data),
-    .clkb(clk),
-    .enb(1'b1),
-    .addrb(reg_raddr[9:0]),
-    .doutb(mem_read)
-);
+// 12th bit of reg_raddr dedicated to channel selection
+wire[31:0]  mem_read [4:1];
+assign      reg_rdata = (reg_raddr[11] == 1'b0) ? ((reg_raddr[10] == `OFF_RAM_CHAN1) ? mem_read[1] : (reg_raddr[10] == `OFF_RAM_CHAN2) ? mem_read[2] :
+                                                   (reg_raddr[10] == `OFF_RAM_CHAN3) ? mem_read[3] : (reg_raddr[10] == `OFF_RAM_CHAN4) ? mem_read[4] : 32'b0): 
+                                                  (reg_raddr[11:0] == 12'h800) ? { 16'd0, databuf_status } : 32'd0;
 
 // --------------------------------------------
 // buffer write address and data gen
 // --------------------------------------------
 
-always @(posedge clk)
+always @(posedge clkbuffer)
 begin
-    if (cur_cmd_wen) begin     // if new cmd values which fit criteria
-        if (!collecting && reg_wdata[30]) begin  // rising edge collecting
-            chan <= reg_waddr[7:4];   // update channel
-            buf_wr_addr <= 10'd0;     // reset address
+    // if new cmd values which fit criteria
+    if (data_cmd_wen) begin
+        // if collection hasn't started and PC commanded collection
+        // reset all buffer address to 0 with channel offsets
+        if (!collecting && reg_wdata[30]) begin
+            // reset channel 1~4 buffer write address
+            for (ii = 1; ii < `NUM_CHANNELS+1; ii = ii + 1) buf_waddr[ii] <= 10'd0;
             collecting <= 1;
         end
-        else if (reg_waddr[7:4] == chan) begin
-            buf_wr_addr <= buf_wr_addr+reg_wdata[30];
+        else begin
+            for (ii = 1; ii < `NUM_CHANNELS+1; ii = ii + 1) buf_waddr[ii] <= buf_waddr[ii] + reg_wdata[30];
             collecting <= reg_wdata[30];
         end
-        buf_wr <= reg_wdata[30];
-        buf_wr_data <= {1'b0, ts_over14, ts[13:0], reg_wdata[15:0]};
-        if (reg_wdata[30]&cur_fb_trigger)
-            cur_fb_pending <= 1;
+        buf_wen <= reg_wdata[30];
+        // write commanded signal
+        for (ii = 1; ii < `NUM_CHANNELS+1; ii = ii + 1) buf_wdata[ii] <= {1'b0, ts_over14, ts[13:0], reg_wdata[15:0]};
+        // prepare to save pending ADC reading (collected when writing commanded signal) 
+        if (reg_wdata[30] & data_fb_trigger)
+            data_fb_pending <= 1;
     end
-    else if ((collecting&cur_fb_trigger)|cur_fb_pending) begin
-        buf_wr_data <= {1'b1, ts_over14, ts[13:0], cur_fb};
-        buf_wr <= 1;
-        buf_wr_addr <= buf_wr_addr+1;
-        cur_fb_pending <= 0;
+    else if ((collecting & data_fb_trigger) | data_fb_pending) begin
+        // enable buffer write
+        buf_wen <= 1;
+        // write ADC readings
+        buf_wdata[1] <= {1'b1, ts_over14, ts[13:0], input_data1};
+        buf_wdata[2] <= {1'b1, ts_over14, ts[13:0], input_data2};
+        buf_wdata[3] <= {1'b1, ts_over14, ts[13:0], input_data3};
+        buf_wdata[4] <= {1'b1, ts_over14, ts[13:0], input_data4};
+        // increment buffer write address for new ADC value
+        for (ii = 1; ii < `NUM_CHANNELS+1; ii = ii + 1) buf_waddr[ii] <= buf_waddr[ii] + 1;
+        // reset pending state 
+        data_fb_pending <= 0;
     end
     else begin
-        buf_wr <= 0;
+        buf_wen <= 0;
     end
-    cur_fb_wen_last <= cur_fb_wen; //update ADC edge detection flag for next cycle
+    // update ADC edge detection flag for next cycle
+    data_fb_wen_last <= data_fb_wen; 
 end
+
+Dual_port_RAM_32X1024 Dual_port_RAM_32X1024_chan1(
+    .clka(clkbuffer),
+    .ena(1'b1),
+    .wea(buf_wen),
+    .addra(buf_waddr[1]),
+    .dina(buf_wdata[1]),
+    .clkb(clkbuffer),
+    .enb(1'b1),
+    .addrb(reg_raddr[9:0]),
+    .doutb(mem_read[1])
+);
+
+Dual_port_RAM_32X1024 Dual_port_RAM_32X1024_chan2(
+    .clka(clkbuffer),
+    .ena(1'b1),
+    .wea(buf_wen),
+    .addra(buf_waddr[2]),
+    .dina(buf_wdata[2]),
+    .clkb(clkbuffer),
+    .enb(1'b1),
+    .addrb(reg_raddr[9:0]),
+    .doutb(mem_read[2])
+);
+
+Dual_port_RAM_32X1024 Dual_port_RAM_32X1024_chan3(
+    .clka(clkbuffer),
+    .ena(1'b1),
+    .wea(buf_wen),
+    .addra(buf_waddr[3]),
+    .dina(buf_wdata[3]),
+    .clkb(clkbuffer),
+    .enb(1'b1),
+    .addrb(reg_raddr[9:0]),
+    .doutb(mem_read[3])
+);
+
+Dual_port_RAM_32X1024 Dual_port_RAM_32X1024_chan4(
+    .clka(clkbuffer),
+    .ena(1'b1),
+    .wea(buf_wen),
+    .addra(buf_waddr[4]),
+    .dina(buf_wdata[4]),
+    .clkb(clkbuffer),
+    .enb(1'b1),
+    .addrb(reg_raddr[9:0]),
+    .doutb(mem_read[4])
+);
 
 endmodule

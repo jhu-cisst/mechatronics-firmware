@@ -924,22 +924,52 @@ Reboot fpga_reboot(
 wire[3:0] data_channel;
 wire[31:0] reg_rdata_databuf;
 
+// reg_waddr 12th bit (reg_waddr[11]) dedicated to data buffer source selection enable
+// TODO: currently support pot and cur. enc collections need further modification
+wire        buffer_data_source_wen;
+reg  [1:0]  buffer_data_source;
+
+initial     buffer_data_source = 0;
+
+// change buffer data source
+assign buffer_data_source_wen = reg_wen && (reg_waddr[15:12] == `ADDR_DATA_BUF) && reg_waddr[11];
+
+always @(posedge(sysclk)) begin
+    if(buffer_data_source_wen) begin
+        case (reg_waddr[10:9])
+            `OFF_RAM_POT: buffer_data_source <= `OFF_RAM_POT;
+            `OFF_RAM_CUR: buffer_data_source <= `OFF_RAM_CUR; 
+            `OFF_RAM_ENC: buffer_data_source <= `OFF_RAM_ENC;
+        endcase
+    end
+end
+
+// local data wires
+wire        data_fb_wen;
+wire [15:0] data_fb [1:4];
+
+assign data_fb_wen = (buffer_data_source == `OFF_RAM_POT) ? pot_fb_wen : (buffer_data_source == `OFF_RAM_CUR) ? cur_fb_wen : 1'b0; // (buffer_data_source == `OFF_RAM_ENC) ? : 
+
+genvar i;        
+generate  
+    for (i = 1; i < `NUM_CHANNELS+1; i = i + 1) assign data_fb[i] = (buffer_data_source == `OFF_RAM_POT) ? pot_fb[i] : (buffer_data_source == `OFF_RAM_CUR) ? cur_fb[i] : 16'b0; // (buffer_data_source == `OFF_RAM_ENC) ? : 
+endgenerate
+
 DataBuffer data_buffer(
-    .clk(sysclk),
-    // data collection interface
-    .cur_fb_wen(cur_fb_wen),
-    .cur_fb(cur_fb[data_channel]),
-    .chan(data_channel),
-    // cpu interface
+    .clkbuffer(sysclk),
+    .ts(timestamp),                 // timestamp from SampleData
+    .data_fb_wen(data_fb_wen),
+    .input_data1(data_fb[1]),
+    .input_data2(data_fb[2]),
+    .input_data3(data_fb[3]),
+    .input_data4(data_fb[4]),
     .reg_waddr(reg_waddr),          // write address
     .reg_wdata(reg_wdata),          // write data
     .reg_wen(reg_wen),              // write enable
     .reg_raddr(reg_raddr),          // read address
     .reg_rdata(reg_rdata_databuf),  // read data
-    // status and timestamp
-    .databuf_status(reg_databuf),   // status for SampleData
-    .ts(timestamp)                  // timestamp from SampleData
-);
+    .databuf_status(reg_databuf)    // status for SampleData
+); 
 
 //------------------------------------------------------------------------------
 // debugging, etc.
