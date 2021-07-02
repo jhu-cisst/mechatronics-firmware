@@ -556,6 +556,8 @@ wire[31:0] reg_perd_data;
 wire[31:0] reg_qtr1_data;
 wire[31:0] reg_qtr5_data;
 wire[31:0] reg_run_data;
+wire[3 :0] enc_data_source;
+wire[31:0] enc_fb [1:4];
 
 // encoder controller: the thing that manages encoder reads and preloads
 CtrlEnc enc(
@@ -571,7 +573,12 @@ CtrlEnc enc(
     .reg_perd_data(reg_perd_data),
     .reg_qtr1_data(reg_qtr1_data),
     .reg_qtr5_data(reg_qtr5_data),
-    .reg_run_data(reg_run_data)
+    .reg_run_data(reg_run_data),
+    .enc_fb_source(enc_data_source),
+    .enc_fb1(enc_fb[1]),
+    .enc_fb2(enc_fb[2]),
+    .enc_fb3(enc_fb[3]),
+    .enc_fb4(enc_fb[4])
 );
 
 assign reg_rd[`OFF_ENC_LOAD] = reg_preload;      // preload
@@ -580,6 +587,7 @@ assign reg_rd[`OFF_PER_DATA] = reg_perd_data;    // period
 assign reg_rd[`OFF_QTR1_DATA] = reg_qtr1_data;   // last quarter cycle 
 assign reg_rd[`OFF_QTR5_DATA] = reg_qtr5_data;   // quarter cycle 5 edges ago
 assign reg_rd[`OFF_RUN_DATA] = reg_run_data;     // running counter
+assign enc_data_source = buffer_data_source;
 
 // --------------------------------------------------------------------------
 // digital output (DOUT) control
@@ -927,7 +935,7 @@ wire[31:0] reg_rdata_databuf;
 // reg_waddr 12th bit (reg_waddr[11]) dedicated to data buffer source selection enable
 // TODO: currently support pot and cur. enc collections need further modification
 wire        buffer_data_source_wen;
-reg  [1:0]  buffer_data_source;
+reg  [3:0]  buffer_data_source;
 
 initial     buffer_data_source = 0;
 
@@ -936,23 +944,30 @@ assign buffer_data_source_wen = reg_wen && (reg_waddr[15:12] == `ADDR_DATA_BUF) 
 
 always @(posedge(sysclk)) begin
     if(buffer_data_source_wen) begin
-        case (reg_waddr[10:9])
+        case (reg_waddr[10:7])
             `OFF_RAM_POT: buffer_data_source <= `OFF_RAM_POT;
-            `OFF_RAM_CUR: buffer_data_source <= `OFF_RAM_CUR; 
-            `OFF_RAM_ENC: buffer_data_source <= `OFF_RAM_ENC;
+            `OFF_RAM_CUR: buffer_data_source <= `OFF_RAM_CUR;
+            `OFF_RAM_ENC_QUAD: buffer_data_source <= `OFF_RAM_ENC_QUAD;
+            `OFF_RAM_ENC_PERD: buffer_data_source <= `OFF_RAM_ENC_PERD;
+            `OFF_RAM_ENC_QTR1: buffer_data_source <= `OFF_RAM_ENC_QTR1;
+            `OFF_RAM_ENC_QTR5: buffer_data_source <= `OFF_RAM_ENC_QTR5;
+            `OFF_RAM_ENC_RUN: buffer_data_source <= `OFF_RAM_ENC_RUN;
         endcase
     end
 end
 
 // local data wires
 wire        data_fb_wen;
-wire [15:0] data_fb [1:4];
+wire [31:0] data_fb [1:4];
 
 assign data_fb_wen = (buffer_data_source == `OFF_RAM_POT) ? pot_fb_wen : (buffer_data_source == `OFF_RAM_CUR) ? cur_fb_wen : 1'b0; // (buffer_data_source == `OFF_RAM_ENC) ? : 
 
 genvar i;        
 generate  
-    for (i = 1; i < `NUM_CHANNELS+1; i = i + 1) assign data_fb[i] = (buffer_data_source == `OFF_RAM_POT) ? pot_fb[i] : (buffer_data_source == `OFF_RAM_CUR) ? cur_fb[i] : 16'b0; // (buffer_data_source == `OFF_RAM_ENC) ? : 
+for (i = 1; i < `NUM_CHANNELS+1; i = i + 1) begin
+	assign data_fb[i] = (buffer_data_source == `OFF_RAM_POT) ? {16'b0, pot_fb[i]} : (buffer_data_source == `OFF_RAM_CUR) ? {16'b0, cur_fb[i]} : 
+                        (buffer_data_source >= `OFF_RAM_ENC_QUAD) ? enc_fb[i] : 32'b0;
+end
 endgenerate
 
 DataBuffer data_buffer(
@@ -963,6 +978,7 @@ DataBuffer data_buffer(
     .input_data2(data_fb[2]),
     .input_data3(data_fb[3]),
     .input_data4(data_fb[4]),
+    .buffer_source(buffer_data_source),
     .reg_waddr(reg_waddr),          // write address
     .reg_wdata(reg_wdata),          // write data
     .reg_wen(reg_wen),              // write enable
