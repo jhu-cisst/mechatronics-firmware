@@ -125,12 +125,18 @@
 `define WDOG_PHASE_FIVE  3'b101   // watchdog period larger than 200ms
 
 // Date Buffer Channel Offsets
-`define OFF_RAM_CHAN1 3'd0        // data buffer channel 1
-`define OFF_RAM_CHAN2 3'd1        // data buffer channel 2
-`define OFF_RAM_CHAN3 3'd2        // data buffer channel 3
-`define OFF_RAM_CHAN4 3'd3        // data buffer channel 4
-`define OFF_RAM_POT   2'd1        // data buffer source potentiometer
-`define OFF_RAM_CUR   2'd2        // data buffer source motor current
-`define OFF_RAM_ENC   2'd3        // data buffer source encoder
+`define BUF_NUM_CHANNELS   5
+`define OFF_RAM_CHAN1      3'd0        // data buffer channel 1
+`define OFF_RAM_CHAN2      3'd1        // data buffer channel 2
+`define OFF_RAM_CHAN3      3'd2        // data buffer channel 3
+`define OFF_RAM_CHAN4      3'd3        // data buffer channel 4
+`define OFF_RAM_CHAN5      3'd4        // data buffer channel 5 (time stamp channel)
+`define OFF_RAM_POT        4'd1        // data buffer source potentiometer
+`define OFF_RAM_CUR        4'd2        // data buffer source motor current
+`define OFF_RAM_ENC_QUAD   4'd3        // data buffer source encoder quad
+`define OFF_RAM_ENC_PERD   4'd4        // data buffer source encoder period 
+`define OFF_RAM_ENC_QTR1   4'd5        // data buffer source encoder recent quarter period
+`define OFF_RAM_ENC_QTR5   4'd6        // data buffer source encoder old quarter period
+`define OFF_RAM_ENC_RUN    4'd7        // data buffer source encoder running period
 
 `endif  // _fpgaqla_constants_v_
