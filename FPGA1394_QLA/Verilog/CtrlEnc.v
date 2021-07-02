@@ -30,7 +30,12 @@ module CtrlEnc(
     output wire[31:0] reg_perd_data,
     output wire[31:0] reg_qtr1_data,
     output wire[31:0] reg_qtr5_data,
-    output wire[31:0] reg_run_data
+    output wire[31:0] reg_run_data,
+    input  wire[3 :0] enc_fb_source,
+    output wire[31:0] enc_fb1,
+    output wire[31:0] enc_fb2,
+    output wire[31:0] enc_fb3,
+    output wire[31:0] enc_fb4
 );    
     
 // -------------------------------------------------------------------------
@@ -51,6 +56,7 @@ wire[31:0] perd_data[1:`NUM_CHANNELS];    // 1st encoder period measurement
 wire[31:0] qtr1_data[1:`NUM_CHANNELS];    // recent quarter encoder period measurement    
 wire[31:0] qtr5_data[1:`NUM_CHANNELS];    // old quarter encoder period measurement    
 wire[31:0] run_data[1:`NUM_CHANNELS];     // running encoder period measurement
+wire[31:0] enc_fb [1:`NUM_CHANNELS];
     
 integer ii;
 initial begin
@@ -66,11 +72,24 @@ assign reg_qtr1_data = qtr1_data[reg_raddr_chan];
 assign reg_qtr5_data = qtr5_data[reg_raddr_chan];
 assign reg_run_data = run_data[reg_raddr_chan];
 
+// output based on data buffer selection
+assign enc_fb1 = enc_fb[1];
+assign enc_fb2 = enc_fb[2];
+assign enc_fb3 = enc_fb[3];
+assign enc_fb4 = enc_fb[4];
+
+genvar i;        
+generate
+for (i = 1; i < `NUM_CHANNELS+1; i = i + 1) begin : enc_buffer_loop
+assign enc_fb[i] = (enc_fb_source == `OFF_RAM_ENC_QUAD) ? quad_data[i] : (enc_fb_source == `OFF_RAM_ENC_PERD) ? perd_data[i] : 
+                   (enc_fb_source == `OFF_RAM_ENC_QTR1) ? qtr1_data[i] : (enc_fb_source == `OFF_RAM_ENC_QTR5) ? qtr5_data[i] :
+                   (enc_fb_source == `OFF_RAM_ENC_RUN) ? run_data[i] : 32'b0;
+end
+endgenerate 
+
 //--------------------------------------------------------------------------
 // hardware description
 // -------------------------------------------------------------------------
-genvar i;
-
 // filters for raw encoder lines a and b (all channels, 1-4)
 generate 
 for (i = 1; i < `NUM_CHANNELS+1; i = i + 1) begin : filt_loop 
