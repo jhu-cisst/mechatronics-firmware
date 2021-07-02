@@ -19,10 +19,11 @@ module DataBuffer(
     input                clkbuffer,
     input  wire [31:0]   ts,               // Timestamp
     input  wire          data_fb_wen,      // channel 1~4 data ready
-    input  wire [15:0]   input_data1,      // channel 1 data
-    input  wire [15:0]   input_data2,      // channel 2 data
-    input  wire [15:0]   input_data3,      // channel 3 data
-    input  wire [15:0]   input_data4,      // channel 4 data
+    input  wire [31:0]   input_data1,      // channel 1 data
+    input  wire [31:0]   input_data2,      // channel 2 data
+    input  wire [31:0]   input_data3,      // channel 3 data
+    input  wire [31:0]   input_data4,      // channel 4 data
+    input  wire [3 :0]   buffer_source,
     input  wire [15:0]   reg_waddr,
     input  wire [31:0]   reg_wdata,
     input  wire          reg_wen,
@@ -35,8 +36,8 @@ module DataBuffer(
 reg         collecting;
 // RAM specific
 reg         buf_wen;
-reg [9 :0]  buf_waddr [4:1];
-reg [31:0]  buf_wdata [4:1];
+reg [9 :0]  buf_waddr [5:1];
+reg [31:0]  buf_wdata [5:1];
 // Synchronization specific 
 reg         data_fb_wen_last;
 reg         data_fb_pending;
@@ -44,7 +45,7 @@ wire        data_fb_trigger;
 
 integer ii;
 initial     begin
-    for (ii = 1; ii < `NUM_CHANNELS+1; ii = ii + 1) buf_waddr[ii] = 0;
+    for (ii = 1; ii < `BUF_NUM_CHANNELS+1; ii = ii + 1) buf_waddr[ii] = 0;
 end
 
 assign      data_fb_trigger = (data_fb_wen == 1) && (data_fb_wen_last == 0) ? 1'b1 : 1'b0;
@@ -69,10 +70,10 @@ assign      data_cmd_wen = reg_wen && (reg_waddr[15:12]==`ADDR_MAIN) && (reg_wad
 // all other addresses return 0
 
 // 12th bit of reg_raddr dedicated to channel selection
-wire[31:0]  mem_read [4:1];
+wire[31:0]  mem_read [5:1];
 assign      reg_rdata = (reg_raddr[11] == 1'b0) ? ((reg_raddr[10] == `OFF_RAM_CHAN1) ? mem_read[1] : (reg_raddr[10] == `OFF_RAM_CHAN2) ? mem_read[2] :
-                                                   (reg_raddr[10] == `OFF_RAM_CHAN3) ? mem_read[3] : (reg_raddr[10] == `OFF_RAM_CHAN4) ? mem_read[4] : 32'b0): 
-                                                  (reg_raddr[11:0] == 12'h800) ? { 16'd0, databuf_status } : 32'd0;
+                                                   (reg_raddr[10] == `OFF_RAM_CHAN3) ? mem_read[3] : (reg_raddr[10] == `OFF_RAM_CHAN4) ? mem_read[4] : 
+                                                   (reg_raddr[10] == `OFF_RAM_CHAN5) ? mem_read[5] : 32'b0) : (reg_raddr[11:0] == 12'h800) ? { 16'd0, databuf_status } : 32'd0;
 
 // --------------------------------------------
 // buffer write address and data gen
@@ -86,16 +87,16 @@ begin
         // reset all buffer address to 0 with channel offsets
         if (!collecting && reg_wdata[30]) begin
             // reset channel 1~4 buffer write address
-            for (ii = 1; ii < `NUM_CHANNELS+1; ii = ii + 1) buf_waddr[ii] <= 10'd0;
+            for (ii = 1; ii < `BUF_NUM_CHANNELS+1; ii = ii + 1) buf_waddr[ii] <= 10'd0;
             collecting <= 1;
         end
         else begin
-            for (ii = 1; ii < `NUM_CHANNELS+1; ii = ii + 1) buf_waddr[ii] <= buf_waddr[ii] + reg_wdata[30];
+            for (ii = 1; ii < `BUF_NUM_CHANNELS+1; ii = ii + 1) buf_waddr[ii] <= buf_waddr[ii] + reg_wdata[30];
             collecting <= reg_wdata[30];
         end
         buf_wen <= reg_wdata[30];
         // write commanded signal
-        for (ii = 1; ii < `NUM_CHANNELS+1; ii = ii + 1) buf_wdata[ii] <= {1'b0, ts_over14, ts[13:0], reg_wdata[15:0]};
+        for (ii = 1; ii < `BUF_NUM_CHANNELS+1; ii = ii + 1) buf_wdata[ii] <= {1'b0, ts_over14, ts[13:0], reg_wdata[15:0]};
         // prepare to save pending ADC reading (collected when writing commanded signal) 
         if (reg_wdata[30] & data_fb_trigger)
             data_fb_pending <= 1;
@@ -104,12 +105,23 @@ begin
         // enable buffer write
         buf_wen <= 1;
         // write ADC readings
-        buf_wdata[1] <= {1'b1, ts_over14, ts[13:0], input_data1};
-        buf_wdata[2] <= {1'b1, ts_over14, ts[13:0], input_data2};
-        buf_wdata[3] <= {1'b1, ts_over14, ts[13:0], input_data3};
-        buf_wdata[4] <= {1'b1, ts_over14, ts[13:0], input_data4};
+        if (buffer_source < `OFF_RAM_ENC_QUAD) begin
+            // source is pot/cur, write time stamp with buffered data
+            buf_wdata[1] <= {1'b1, ts_over14, ts[13:0], input_data1[15:0]};
+            buf_wdata[2] <= {1'b1, ts_over14, ts[13:0], input_data2[15:0]};
+            buf_wdata[3] <= {1'b1, ts_over14, ts[13:0], input_data3[15:0]};
+            buf_wdata[4] <= {1'b1, ts_over14, ts[13:0], input_data4[15:0]};
+            buf_wdata[5] <= 32'b0;
+        end else begin
+            // source is enc, separate time stamp and buffered data
+            buf_wdata[1] <= input_data1;
+            buf_wdata[2] <= input_data2;
+            buf_wdata[3] <= input_data3;
+            buf_wdata[4] <= input_data4;
+            buf_wdata[5] <= {1'b1, ts_over14, ts[13:0], 16'b0};
+        end
         // increment buffer write address for new ADC value
-        for (ii = 1; ii < `NUM_CHANNELS+1; ii = ii + 1) buf_waddr[ii] <= buf_waddr[ii] + 1;
+        for (ii = 1; ii < `BUF_NUM_CHANNELS+1; ii = ii + 1) buf_waddr[ii] <= buf_waddr[ii] + 1;
         // reset pending state 
         data_fb_pending <= 0;
     end
@@ -120,6 +132,7 @@ begin
     data_fb_wen_last <= data_fb_wen; 
 end
 
+// data channel 1
 Dual_port_RAM_32X1024 Dual_port_RAM_32X1024_chan1(
     .clka(clkbuffer),
     .ena(1'b1),
@@ -132,6 +145,7 @@ Dual_port_RAM_32X1024 Dual_port_RAM_32X1024_chan1(
     .doutb(mem_read[1])
 );
 
+// data channel 2
 Dual_port_RAM_32X1024 Dual_port_RAM_32X1024_chan2(
     .clka(clkbuffer),
     .ena(1'b1),
@@ -144,6 +158,7 @@ Dual_port_RAM_32X1024 Dual_port_RAM_32X1024_chan2(
     .doutb(mem_read[2])
 );
 
+// data channel 3
 Dual_port_RAM_32X1024 Dual_port_RAM_32X1024_chan3(
     .clka(clkbuffer),
     .ena(1'b1),
@@ -156,6 +171,7 @@ Dual_port_RAM_32X1024 Dual_port_RAM_32X1024_chan3(
     .doutb(mem_read[3])
 );
 
+// data channel 4
 Dual_port_RAM_32X1024 Dual_port_RAM_32X1024_chan4(
     .clka(clkbuffer),
     .ena(1'b1),
@@ -166,6 +182,19 @@ Dual_port_RAM_32X1024 Dual_port_RAM_32X1024_chan4(
     .enb(1'b1),
     .addrb(reg_raddr[9:0]),
     .doutb(mem_read[4])
+);
+
+// time stamp channel: saves 0 in pot/cur mode, saves time stamp in enc mode
+Dual_port_RAM_32X1024 Dual_port_RAM_32X1024_chan5(
+    .clka(clkbuffer),
+    .ena(1'b1),
+    .wea(buf_wen),
+    .addra(buf_waddr[5]),
+    .dina(buf_wdata[5]),
+    .clkb(clkbuffer),
+    .enb(1'b1),
+    .addrb(reg_raddr[9:0]),
+    .doutb(mem_read[5])
 );
 
 endmodule
