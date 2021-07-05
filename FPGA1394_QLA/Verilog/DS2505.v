@@ -137,21 +137,6 @@ assign ds_status[0] = ds_enable;
 wire[15:0]  ds_program[0:8];    // Maybe could be "wire" instead of "reg" (should be okay for either as comb logic)
 reg[3:0]   progCnt;            // Program counter
 
-
-//program that handle commands sending and expected responses receiving
-// initial begin
-//     // Program States:
-//     //   0:4 -> DS2480B 1-wire configuration in flexible mode
-//     //   5:8 -> DS2480 preparing for memory read 
-//     ds_program[0] = { 8'h17, 8'h16 };    // DS_SET_PDSRC, DS_RESP_PDSRC
-//     ds_program[1] = { 8'h45, 8'h44 };    // DS_SET_W1LD, DS_RESP_W1LD
-//     ds_program[2] = { 8'h5B, 8'h5A };    // DS_SET_W0RT, DS_RESP_W0RT
-//     ds_program[3] = { 8'h0F, 8'h00 };    // DS_SET_RBR, DS_RESP_RBR (not sure about value)
-//     ds_program[4] = { 8'h91, 8'h93 };    // DS_SET_1_WRITE, DS_RESP_1_WRITE
-//     ds_program[5] = { 8'hCC, 8'hCC };    // DS_SKIP_ROM, DS_RESP_SKIP_ROM
-//     ds_program[6] = { 8'hF0, 8'hF0 };    // DS_READ_MEM_CMD, DS_RESP_READ_MEM_CMD
-// end
-
 assign ds_program[0] = { 8'h17, 8'h16 };    // DS_SET_PDSRC, DS_RESP_PDSRC
 assign ds_program[1] = { 8'h45, 8'h44 };    // DS_SET_W1LD, DS_RESP_W1LD
 assign ds_program[2] = { 8'h5B, 8'h5A };    // DS_SET_W0RT, DS_RESP_W0RT
@@ -159,85 +144,22 @@ assign ds_program[3] = { 8'h0F, 8'h00 };    // DS_SET_RBR, DS_RESP_RBR (not sure
 assign ds_program[4] = { 8'h91, 8'h93 };    // DS_SET_1_WRITE, DS_RESP_1_WRITE
 assign ds_program[5] = { 8'hCC, 8'hCC };    // DS_SKIP_ROM, DS_RESP_SKIP_ROM
 assign ds_program[6] = { 8'hF0, 8'hF0 };    // DS_READ_MEM_CMD, DS_RESP_READ_MEM_CMD
-assign ds_program[7] = { 8'h00, 8'h00 };    // DS_SET_ADDR_LOW, DS_RESP_ADDR_LOW
-assign ds_program[8] = { 8'h01, 8'h01 };    // DS_SET_ADDR_HIGH, DS_RESP_ADDR_HIGH  
+assign ds_program[7] = { mem_addr[7:0], mem_addr[7:0] };    // DS_SET_ADDR_LOW, DS_RESP_ADDR_LOW
+assign ds_program[8] = { {5'd0, mem_addr[10:8]}, {5'd0, mem_addr[10:8]} };    // DS_SET_ADDR_HIGH, DS_RESP_ADDR_HIGH  
 
 initial DS2480B_ok <= 1'b1;
 
 
-//parameter define
-parameter    CLK_FREQ = 49152000;          //define sys clk freq
-parameter    UART_BPS = 9600;              //define serial baud
-localparam   BPS_CNT  = CLK_FREQ/UART_BPS; //count BPS_CNT times for sys clk
+wire  [3:0]  rx_cnt_uart;             //recv data counter
+wire  [7:0]  rxdata_uart;             //recv data buffer
 
-//reg define
-reg   [15:0] clk_cnt_uart;                      //sys clk counter
-reg   [ 3:0] rx_cnt_uart;                       //recv data counter
-reg          rx_flag_uart;                      //recv process flag
-reg   [ 7:0] rxdata_uart;                       //recv data buffer
-
-assign rxd_pulse = (~rxd_dly1) & rxd_dly2;
-
-//state machine logic blocks
-always@(posedge clk)
-begin
-    rxd_dly1 <= rxd;
-    rxd_dly2 <= rxd_dly1;
-end
-		  
-//when pulse start_flag arrives, start recv process
-always @(posedge clk) begin
-	 begin
-	     if (rxd_pulse)                    //detect start bit
-		      rx_flag_uart <= 1'b1;               //enter recv process, rx_flag pull up
-		  else if ((rx_cnt_uart == 4'd9)&&(clk_cnt_uart == BPS_CNT/2))
-		      rx_flag_uart <= 1'b0;               //stop recv process when counting to half of the stop bit
-		  else
-		      rx_flag_uart <= rx_flag_uart;            
-	 end
-end
-
-
-//after entering recv process, start sys clk cnt & recv data cnt
-always @(posedge clk) begin
-	 if (rx_flag_uart) begin                //still in recv process
-	     if (clk_cnt_uart < BPS_CNT - 1) begin
-		      clk_cnt_uart <= clk_cnt_uart + 1'b1;
-            rx_cnt_uart  <= rx_cnt_uart;
-		  end
-		  else begin
-		      clk_cnt_uart <= 16'd0;              //sys cnt reset after 1 baud cycle
-		      rx_cnt_uart  <= rx_cnt_uart + 1'b1;      //while recv data cnt add 1
-		  end
-	 end
-	 else begin                             //recv process end, counter reset
-	     clk_cnt_uart <= 16'd0;
-		  rx_cnt_uart  <= 4'd0; 
-    end        
-end
-
-
-//store UART recv data according to recv counter
-always @(posedge clk) begin
-	 if (rx_flag_uart)                      //system in recv process
-	     if (clk_cnt_uart == BPS_CNT/2) begin    //sys clk cnt counts to half of a data bit
-            case (rx_cnt_uart)
-				    4'd1 : rxdata_uart[0] <= rxd_dly2;  //data bits lowest bit
-					 4'd2 : rxdata_uart[1] <= rxd_dly2;
-					 4'd3 : rxdata_uart[2] <= rxd_dly2;
-					 4'd4 : rxdata_uart[3] <= rxd_dly2;
-					 4'd5 : rxdata_uart[4] <= rxd_dly2;
-					 4'd6 : rxdata_uart[5] <= rxd_dly2;
-					 4'd7 : rxdata_uart[6] <= rxd_dly2;
-					 4'd8 : rxdata_uart[7] <= rxd_dly2;  //data bits highest bit
-					 default: ;
-		      endcase
-		  end
-		  else
-		      rxdata_uart <= rxdata_uart;
-	 else
-	     rxdata_uart <= 8'd0;	 
-end
+// UART receiver instantiation
+uart_recv_2480 uart_recv_2480(
+    .sys_clk(clk), 
+    .uart_rxd(rxd), 
+    .rxdata(rxdata_uart),
+    .rx_cnt(rx_cnt_uart)
+);
 
 always @(posedge(clk))
 begin
@@ -270,7 +192,7 @@ begin
                    // If using DS2480B, if configuration already done, reset 1-wire interface,
                    // otherwise go to DS2480B configuration.
                    // If not using DS2480B, then just reset 1-wire interface (DS_RESET_BEGIN)
-                   state <= reg_wdata[2] ? (DS2480B_ok ? DS_MASTER_RESET : DS_RESET_2480B) : DS_RESET_BEGIN;
+                   state <= reg_wdata[2] ? (DS2480B_ok ? DS_MASTER_RESET : DS_MASTER_RESET) : DS_RESET_BEGIN;
                    mem_addr <= reg_wdata[26:16];  // 11-bit address (0-2047 bytes)
                    rise_time <= 8'hff;
                    ds_reset <= 2'd0;
@@ -280,7 +202,7 @@ begin
                    end
             2'b11: begin
                    // ds_enable should already be 1
-                   state <= DS_RESET_1_WIRE;
+                   state <= DS_READ_MEM_TIME_SLOT_CMD;
                    cnt <= 17'd0;
                    end
           endcase
@@ -407,29 +329,6 @@ begin
 
     DS_READ_BYTE: begin
        if (use_ds2480b) begin
-         //  if ((cnt == 13'd2560) && (!rxd_dly2) && (cnt_bit == 0)) begin
-         //     // 1/2 bit delay (2560=5120/2) -- goal is to ignore start bit (rxd=0)
-         //     cnt <= 0;
-         //  end
-         //  else if ((cnt == 'd5120) && (cnt_bit < 8)) begin  // 5120 is 9600 baud
-         //     cnt <= 0;
-         //     in_byte[cnt_bit] <= rxd_dly2;
-         //     cnt_bit <= cnt_bit + 4'd1;
-         //  end
-         //  else if ((cnt_bit == 8) && (cnt == 13'd7680)) begin
-         //     // 7680 = 5120+2560 -- goal is to ignore (wait for) stop bit
-         //     cnt <= 0;
-         //     cnt_bit <= 0;
-         //     if ((unexpected_idx == 3'd0) || (in_byte == expected_rxd)) begin
-         //        state <= next_state;
-         //     end
-         //     else begin
-         //        // TODO: Do not need reset_cnt if going to IDLE state
-         //        state <= DS_IDLE; // DS_RESET_2480B;
-         //     end
-         //  end
-         //  else
-         //     cnt <= cnt + 16'd1;
           if (rx_cnt_uart == 4'd9) begin         //recv data cnt counts to the final baud cycle    
              in_byte <= rxdata_uart;               //register received data
              state <= next_state;
@@ -503,7 +402,7 @@ begin
     end
 
     DS_CHECK_BYTE_1_WIRE_CONFIG: begin   // New state that calls DS_READ_BYTE
-       state <= rxd_pulse ? DS_READ_BYTE : DS_CHECK_BYTE_1_WIRE_CONFIG;
+       //state <= rxd_pulse ? DS_READ_BYTE : DS_CHECK_BYTE_1_WIRE_CONFIG;
        next_state <= (progCnt == 3'd5) ? DS_RESET_1_WIRE : DS_1_WIRE_CONFIG_FUNC_BLK;
     end
 
@@ -606,9 +505,9 @@ begin
           next_state <= DS_READ_MEM_TIME_SLOT_CMD;
           num_bytes <= num_bytes + 8'd1;
           mem_data[num_bytes[7:2]] <= (mem_data[num_bytes[7:2]] << 8) | in_byte;
-          if (num_bytes == 8'hfe) begin
-             state <= DS_SET_CMD_MODE;  // back to command mode
-             //next_state <= DS_IDLE;
+          if (num_bytes == 8'hff) begin
+             state <= DS_IDLE;  // back to command mode
+             next_state <= DS_IDLE;
           end
     end
 
