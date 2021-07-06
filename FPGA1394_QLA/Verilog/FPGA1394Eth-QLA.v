@@ -528,6 +528,58 @@ end
 assign reg_rd[`OFF_DAC_CTRL] = cur_cmd[reg_raddr[7:4]];
 
 // --------------------------------------------------------------------------
+// back EMF estimation
+// --------------------------------------------------------------------------
+
+// local wires
+wire               bemf_ready    [1:4];
+wire               bemf_overflow [1:4];
+wire signed [16:0] bemf          [1:4];
+
+// motor 1
+MotorEMF motoremf1(
+    .clk(sysclk), 
+    .val_ready(cur_fb_wen), 
+    .cur_cmd(cur_cmd[1]),
+    .cur_fb(cur_fb[1]), 
+    .emf_ready(bemf_ready[1]), 
+    .emf_overflow(bemf_overflow[1]),
+    .emf_out(bemf[1])
+);
+
+// motor 2
+MotorEMF motoremf2(
+    .clk(sysclk), 
+    .val_ready(cur_fb_wen), 
+    .cur_cmd(cur_cmd[2]),
+    .cur_fb(cur_fb[2]), 
+    .emf_ready(bemf_ready[2]), 
+    .emf_overflow(bemf_overflow[2]),
+    .emf_out(bemf[2])
+);
+
+// motor 3
+MotorEMF motoremf3(
+    .clk(sysclk), 
+    .val_ready(cur_fb_wen), 
+    .cur_cmd(cur_cmd[3]),
+    .cur_fb(cur_fb[3]), 
+    .emf_ready(bemf_ready[3]), 
+    .emf_overflow(bemf_overflow[3]),
+    .emf_out(bemf[3])
+);
+
+// motor 4
+MotorEMF motoremf4(
+    .clk(sysclk), 
+    .val_ready(cur_fb_wen), 
+    .cur_cmd(cur_cmd[4]),
+    .cur_fb(cur_fb[4]), 
+    .emf_ready(bemf_ready[4]), 
+    .emf_overflow(bemf_overflow[4]),
+    .emf_out(bemf[4])
+);
+// --------------------------------------------------------------------------
 // dacs
 // --------------------------------------------------------------------------
 
