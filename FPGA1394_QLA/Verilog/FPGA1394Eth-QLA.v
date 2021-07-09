@@ -212,7 +212,6 @@ assign reg_rdata = (reg_raddr[15:12]==`ADDR_HUB) ? (reg_rdata_hub) :
 // Unused channel offsets
 assign reg_rd[`OFF_UNUSED_02] = 32'd0;
 assign reg_rd[`OFF_UNUSED_03] = 32'd0;
-assign reg_rd[`OFF_UNUSED_11] = 32'd0;
 assign reg_rd[`OFF_UNUSED_12] = 32'd0;
 assign reg_rd[`OFF_UNUSED_13] = 32'd0;
 assign reg_rd[`OFF_UNUSED_14] = 32'd0;
@@ -513,17 +512,17 @@ initial     cur_reload_last = 0;
 // local wire for filt_pot
 wire[15:0] filt_pot_fb[1:4];
 
-// FIR pot enable signal, reg_wdata[30:28] dedicated to pot/cur enable
+// FIR pot enable signal
 always @(posedge(sysclk)) begin
-    if (reg_wen && (reg_waddr[15:12] == `ADDR_FIR) && (reg_wdata[30:28] == `FIR_POT_ENABLE)) begin
+    if (reg_wen && (reg_waddr[15:12] == `ADDR_FIR) && (reg_waddr[7:4] == `FIR_POT_ENABLE)) begin
         pot_filt_en <= 1;
-    end else if (reg_wen && (reg_waddr[15:12] == `ADDR_FIR) && (reg_wdata[30:28] == `FIR_POT_DISABLE))  begin
+    end else if (reg_wen && (reg_waddr[15:12] == `ADDR_FIR) && (reg_waddr[7:4] == `FIR_POT_DISABLE))  begin
         pot_filt_en <= 0;
     end
 end
 
-// pot coeff reg write enable signal from PC, reg_wdata[27:26] dedicated to pot/cur selection
-assign pot_reload_wen = reg_wen && (reg_waddr[15:12] == `ADDR_FIR) && (reg_wdata[27:26] == `FIR_POT_RELOAD) ; // && (reg_waddr[3:0] < 15)
+// pot coeff reg write enable signal from PC
+assign pot_reload_wen = reg_wen && (reg_waddr[15:12] == `ADDR_FIR) && (reg_waddr[7:4] == `FIR_POT_RELOAD) ; // && (reg_waddr[3:0] < 15)
 
 // save coefficent in intermediate array
 always @(posedge(clk1394)) begin
@@ -586,17 +585,17 @@ FirFilter firpot(
 // local wire for filt_cur
 wire[15:0] filt_cur_fb[1:4];
 
-// FIR cur enable signal, reg_wdata[30:28] dedicated to pot/cur enable
+// FIR cur enable signal
 always @(posedge(sysclk)) begin
-    if (reg_wen && (reg_waddr[15:12] == `ADDR_FIR) && (reg_wdata[30:28] == `FIR_CUR_ENABLE)) begin
+    if (reg_wen && (reg_waddr[15:12] == `ADDR_FIR) && (reg_waddr[7:4] == `FIR_CUR_ENABLE)) begin
         cur_filt_en <= 1;
-    end else if (reg_wen && (reg_waddr[15:12] == `ADDR_FIR) && (reg_wdata[30:28] == `FIR_CUR_DISABLE))  begin
+    end else if (reg_wen && (reg_waddr[15:12] == `ADDR_FIR) && (reg_waddr[7:4] == `FIR_CUR_DISABLE))  begin
         cur_filt_en <= 0;
     end
 end
 
-// cur coeff reg write enable signal from PC, reg_wdata[27:26] dedicated to pot/cur selection
-assign cur_reload_wen = reg_wen && (reg_waddr[15:12] == `ADDR_FIR) && (reg_wdata[27:26] == `FIR_CUR_RELOAD) ; // && (reg_waddr[3:0] < 15)
+// cur coeff reg write enable signal from PC
+assign cur_reload_wen = reg_wen && (reg_waddr[15:12] == `ADDR_FIR) && (reg_waddr[7:4] == `FIR_CUR_RELOAD) ; // && (reg_waddr[3:0] < 15)
 
 // save coefficent in intermediate array
 always @(posedge(clk1394)) begin
@@ -672,6 +671,10 @@ assign cur_fb_data[4] = cur_filt_en ? filt_cur_fb[4] : cur_fb[4];
 wire[31:0] reg_adc_data;
 assign reg_adc_data = {pot_fb_data[reg_raddr[7:4]], cur_fb_data[reg_raddr[7:4]]};
 assign reg_rd[`OFF_ADC_DATA] = reg_adc_data;
+
+wire[31:0] reg_filt_stat_data;
+assign reg_filt_stat_data = {{14'b0, pot_filt_en}, {14'b0, cur_filt_en}};
+assign reg_rd[`OFF_FIR_STAT] = reg_filt_stat_data;
 
 // ----------------------------------------------------------------------------
 // Read/Write of commanded current (cur_cmd)
