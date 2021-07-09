@@ -69,12 +69,13 @@ localparam[4:0]
     DS_READ_PREP_FUNC_BLK = 18,  // DS2480 preparing for memory read functional block
     DS_CHECK_BYTE_READ_PREP = 19,
     DS_READ_MEM_START = 20,
-    DS_READ_MEM_TIME_SLOT_CMD = 21,  // Countinuously send 0xFF to read data from memory
-    DS_READ_MEM = 22,
-    DS_SET_CMD_MODE = 23,
-    DS_WAIT_2MS_RESET = 24,  // No response
-    DS_RESET_1_WIRE_AGAIN = 25,
-    DS_RESP_1_WIRE_AGAIN = 26;  // should be 0xCD
+    DS_READ_MEM_INIT_STORE = 21,
+    DS_READ_MEM_TIME_SLOT_CMD = 22,  // Countinuously send 0xFF to read data from memory
+    DS_READ_MEM = 23,
+    DS_SET_CMD_MODE = 24,
+    DS_WAIT_2MS_RESET = 25,  // No response
+    DS_RESET_1_WIRE_AGAIN = 26,
+    DS_RESP_1_WIRE_AGAIN = 27;  // should be 0xCD
     
     
 
@@ -150,15 +151,15 @@ assign ds_program[8] = { {5'd0, mem_addr[10:8]}, {5'd0, mem_addr[10:8]} };    //
 initial DS2480B_ok <= 1'b1;
 
 
-wire  [3:0]  rx_cnt_uart;             //recv data counter
-wire  [7:0]  rxdata_uart;             //recv data buffer
+wire         uart_done;             //recv data counter
+wire  [7:0]  uart_data;             //recv data buffer
 
 // UART receiver instantiation
 uart_recv_2480 uart_recv_2480(
     .sys_clk(clk), 
     .uart_rxd(rxd), 
-    .rxdata(rxdata_uart),
-    .rx_cnt(rx_cnt_uart)
+    .uart_data(uart_data),
+    .uart_done(uart_done)
 );
 
 always @(posedge(clk))
@@ -181,6 +182,9 @@ begin
           //         bit 2
           //            0 -> direct 1-wire interface
           //            1 -> interface via DS2480B driver
+          //         bit 3
+          //            0 -> block read still running
+          //            1 -> block read ends
           //         bits 26:16
           //           11-bit address (0-2047 bytes)
           case (reg_wdata[1:0])
@@ -332,12 +336,9 @@ begin
 
     DS_READ_BYTE: begin
        if (use_ds2480b) begin
-          if (rx_cnt_uart == 4'd9) begin         //recv data cnt counts to the final baud cycle    
-             in_byte <= rxdata_uart;               //register received data
+          if (uart_done == 1'b1) begin         //recv data cnt counts to the final baud cycle    
+             in_byte <= uart_data;               //register received data
              state <= next_state;
-	       end
-	       else begin
-	          in_byte <= 8'd0;
 	       end
        end
        else begin
@@ -493,9 +494,14 @@ begin
     end
 
     DS_READ_MEM_START: begin
-       num_bytes <= 8'd1;
        state <= DS_READ_BYTE;
-       next_state <= DS_READ_MEM_TIME_SLOT_CMD;
+       next_state <= DS_READ_MEM;
+    end
+
+    DS_READ_MEM_INIT_STORE: begin
+       num_bytes <= 8'd1;
+       mem_data[num_bytes[7:2]] <= (mem_data[num_bytes[7:2]] << 8) | in_byte;
+       state <= DS_READ_MEM_TIME_SLOT_CMD;
     end
 
     DS_READ_MEM_TIME_SLOT_CMD: begin
@@ -506,12 +512,11 @@ begin
       //     next_state <= DS_READ_MEM_START;
       //  else
       //     next_state <= DS_READ_MEM;
-       next_state <= DS_READ_MEM;
+       next_state <= DS_READ_MEM_START;
     end
 
     DS_READ_MEM: begin
-          state <= DS_READ_BYTE;
-          next_state <= DS_READ_MEM_TIME_SLOT_CMD;
+          state <= DS_READ_MEM_TIME_SLOT_CMD;
           num_bytes <= num_bytes + 8'd1;
           mem_data[num_bytes[7:2]] <= (mem_data[num_bytes[7:2]] << 8) | in_byte;
           if (num_bytes == 8'hff) begin

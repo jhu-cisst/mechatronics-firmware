@@ -1,9 +1,9 @@
 module  uart_recv_2480(
-     input               sys_clk,          //sys clk
+    input               sys_clk,           //sys clk
 
-	 input               uart_rxd,         //UART recv port
-	 output  reg  [3:0]  rx_cnt,           //recv data counter
-	 output  reg  [7:0]  rxdata            //recv data buffer
+	input               uart_rxd,          //UART recv port
+    output  reg         uart_done,         //recv 1 frame over flag
+	output  reg  [7:0]  uart_data          //recv data
 );
 
 
@@ -17,7 +17,9 @@ localparam   BPS_CNT  = CLK_FREQ/UART_BPS; //count BPS_CNT times for sys clk
 reg          uart_rxd_d0;                  
 reg          uart_rxd_d1;
 reg   [15:0] clk_cnt;                      //sys clk counter
+reg   [ 3:0] rx_cnt;                       //recv data counter
 reg          rx_flag;                      //recv process flag
+reg   [ 7:0] rxdata;                       //recv data buffer
 
 
 //wire define
@@ -90,10 +92,24 @@ always @(posedge sys_clk) begin
 				 default: ;
 		      endcase
 		     end
-		  else
+	     else
 		     rxdata <= rxdata;
 	 else
 	     rxdata <= 8'd0;	 
 end
+
+
+//data recv process finish, then issue a flag sig and register buffer data
+always @(posedge sys_clk) begin
+	 if (rx_cnt == 4'd9) begin         //recv data cnt counts to the final baud cycle    
+         uart_data <= rxdata;               //register received data
+		 uart_done <= 1'b1;                 //pull up recv done flag
+	 end
+	 else begin
+	     uart_data <= 8'd0;
+		 uart_done <= 1'b0;
+	 end
+end
+
 
 endmodule
