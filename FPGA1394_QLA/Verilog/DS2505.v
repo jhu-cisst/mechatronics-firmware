@@ -50,15 +50,15 @@ localparam[4:0]
     DS_RESET_ACK_WAIT = 3,
     DS_RESET_ACK_CHECK = 4,
     DS_RESET_RECOVER = 5,
-    DS_WRITE_BYTE = 6,
-    DS_READ_BYTE = 7,
-    DS_RESET_2480B = 8,  // DS2480 related states
-    DS_WAIT_2MS_FOR_2480_RESET = 9,
-    DS_1_WIRE_CONFIG_FUNC_BLK = 10,  // DS2480 configuring 1-wire in flexible mode functional block
-    DS_CHECK_BYTE_1_WIRE_CONFIG = 11,
+    DS_READ_PROM_START = 6,
+    DS_READ_PROM = 7,
+    DS_SET_ADDR_LOW = 8,
+    DS_SET_ADDR_HIGH = 9,
+    DS_WRITE_BYTE = 10,
+    DS_READ_BYTE = 11,
 
     /////////////////////////////////////////////////
-    // DS_IDLE directly jumps here
+    // DS2480B option starts here
     ////////////////////////////////////////////////
     DS_MASTER_RESET = 12,
     DS_WRITE_BYTE_4800 = 13,  // Send 00 in 4800 baud to enable master reset and synchronize ds2480b
@@ -68,19 +68,14 @@ localparam[4:0]
     DS_WAIT_2MS_FOR_DATA_MODE = 17,  // No response
     DS_READ_PREP_FUNC_BLK = 18,  // DS2480 preparing for memory read functional block
     DS_CHECK_BYTE_READ_PREP = 19,
-    DS_READ_MEM_START = 20,
-    DS_READ_MEM_INIT_STORE = 21,
-    DS_READ_MEM_TIME_SLOT_CMD = 22,  // Countinuously send 0xFF to read data from memory
-    DS_READ_MEM = 23,
-    DS_SET_CMD_MODE = 24,
-    DS_WAIT_2MS_RESET = 25,  // No response
-    DS_RESET_1_WIRE_AGAIN = 26,
-    DS_RESP_1_WIRE_AGAIN = 27,  // should be 0xCD
+    DS_READ_MEM_TIME_SLOT_CMD = 20,
+    DS_READ_MEM_START = 21,  // Countinuously send 0xFF to read data from memory
+    DS_READ_MEM = 22,
+    DS_SET_CMD_MODE = 23,  // flush DS2480B, 1-wire reset
+    DS_WAIT_2MS_RESET = 24, 
+    DS_RESET_1_WIRE_AGAIN = 25,
+    DS_RESP_1_WIRE_AGAIN = 26,  // should be 0xCD
 
-    DS_READ_PROM_START = 28,
-    DS_READ_PROM = 29,
-    DS_SET_ADDR_LOW = 30,
-    DS_SET_ADDR_HIGH = 31;
     
     
 
@@ -221,7 +216,6 @@ begin
              state <= DS_SET_CMD_MODE;
        end
     end
-    
 
     DS_RESET_BEGIN: begin
        if (cnt == 16'd30000) begin   // 30,000 counts is about 610 usec
@@ -327,74 +321,6 @@ begin
        num_bytes <= 8'd0;
        next_state <= DS_READ_MEM_START;
     end
-    
-
-   //  DS_RESET_BEGIN: begin
-   //     tx_data <= {1'b1, 8'hE3, 1'b0};
-   //     state <= DS_WRITE_BYTE;
-   //     next_state <= DS_IDLE;
-   //  end
-
-   //  DS_RESET_END: begin
-   //     // Wait for 1-wire to return to high state. We use a timeout of 5 usec,
-   //     // which is more than enough, unless the pull-up resistor is missing.
-   //     // Note that 5 usec is 246 counts, which fits in 8 bits (255)
-   //     if (ds_data_in == 1'b1) begin
-   //        state <= DS_RESET_ACK_WAIT;
-   //        rise_time <= `cnt8;
-   //        `cnt8 <= 8'd0;
-   //     end
-   //     else if (`cnt8 == 8'd246) begin  // 246 is about 5 usec
-   //        state <= DS_IDLE;
-   //        ds_reset <= 2'd2;   // failed (1-wire did not reach high state)
-   //     end
-   //     else begin
-   //        `cnt8 <= `cnt8 + 8'd1;
-   //     end
-   //  end
-
-   //  DS_RESET_ACK_WAIT: begin
-   //     // Wait 15-60 usec before checking for low pulse from DS2505
-   //     if (`cnt11 == 11'd1475) begin  // 1,475 counts is about 30 usec
-   //        state <= DS_RESET_ACK_CHECK;
-   //        `cnt11 <= 11'd0;
-   //     end
-   //     else begin
-   //        `cnt11 <= `cnt11 + 11'd1;
-   //     end
-   //  end
-
-   //  DS_RESET_ACK_CHECK: begin
-   //     // Check for low pulse from DS2505, with timeout of 300 usec
-   //     // (tPDH+tPDL) from when high state was detected.
-   //     if (ds_data_in == 1'b0) begin
-   //        state <= DS_RESET_RECOVER;
-   //        ds_reset <= 2'd1;    // success
-   //        cnt <= 16'd0;
-   //     end
-   //     else if (cnt == 16'd14750) begin  // 14,750 counts is about 300 usec
-   //        state <= DS_IDLE;
-   //        ds_reset <= 2'd3;    // failed (no ack pulse from DS2505)
-   //        cnt <= 16'd0;
-   //     end
-   //     else begin
-   //        cnt <= cnt + 16'd1;
-   //     end
-   //  end
-
-   //  DS_RESET_RECOVER: begin
-   //     // Wait at least 480 usec from when high pulse detected
-   //     if (ds_data_in == 1'b1) begin
-   //        cnt <= cnt + 16'd1;
-   //        if (cnt == 16'd24576) begin // 24,576 counts is about 500 usec
-   //           state <= DS_WRITE_BYTE;
-   //           out_byte <= 8'h33;   // Read PROM command
-   //           // previously here's DS_READ_PROM_START, maybe need to recover in the future
-   //           next_state <= DS_IDLE;
-   //           cnt <= 16'd0;
-   //        end
-   //     end
-   //  end
 
     DS_WRITE_BYTE: begin
        if (use_ds2480b) begin
@@ -482,50 +408,8 @@ begin
        end
     end
 
-    // Could change to DS_SET_RESET_2480B
-    DS_RESET_2480B: begin
-       // TDX send 0xc1 to DS2480B TXD port at speed of 9600kps including start bit low and stop bit high 104.2 us  5120 master clock cycles
-       tx_data <= {1'b1, 8'hC1, 1'b0};
-       state <= (reset_cnt == 8'hFF) ? DS_IDLE: DS_WRITE_BYTE;
-       next_state <= DS_WAIT_2MS_FOR_2480_RESET;
-       reset_cnt <= reset_cnt + 8'd1;
-    end
-
-    // Could change to DS_RESP_RESET_2480B
-    DS_WAIT_2MS_FOR_2480_RESET: begin  // Existing state, just change to set progCnt = 0 and transition to DS_1_WIRE_CONFIG_FUNC_BLK
-       // DS2480B responds with CD (C5), 9600 baud
-       // Could add check for this
-       if (cnt < 130000) begin
-          state <= DS_WAIT_2MS_FOR_2480_RESET;    // 2 ms based on measurement
-          cnt <= cnt + 17'd1;
-       end
-       else begin
-          state <= DS_1_WIRE_CONFIG_FUNC_BLK;
-          //state <= DS_RESET_1_WIRE;
-          //state <= DS_SET_DATA_MODE;
-          //state <= DS_SET_1_WRITE;
-          cnt <= 17'd0;
-          progCnt <= 0;
-       end
-    end
-
-    DS_1_WIRE_CONFIG_FUNC_BLK: begin  // New state that "executes" DS_1_WIRE_CONFIG_FUNC_BLK
-       tx_data <= {1'b1, ds_program[progCnt][15:8], 1'b0};
-       expected_rxd <= ds_program[progCnt][7:0];
-       unexpected_idx <= progCnt + 4'd1;  // optional, for debugging
-       progCnt <= progCnt + 4'd1;
-       state <= DS_WRITE_BYTE;
-       next_state <= DS_CHECK_BYTE_1_WIRE_CONFIG;
-    end
-
-    DS_CHECK_BYTE_1_WIRE_CONFIG: begin   // New state that calls DS_READ_BYTE
-       //state <= rxd_pulse ? DS_READ_BYTE : DS_CHECK_BYTE_1_WIRE_CONFIG;
-       next_state <= (progCnt == 4'd5) ? DS_RESET_1_WIRE : DS_1_WIRE_CONFIG_FUNC_BLK;
-    end
-
-
     /////////////////////////////////////////////////////////////////////////////////////////////
-    // In this version the state machine actually starts here
+    // DS2480B option state machine starts here
     /////////////////////////////////////////////////////////////////////////////////////////////
     DS_MASTER_RESET:   begin
        tx_data <= {1'b1, 8'h00, 1'b0};
@@ -606,26 +490,15 @@ begin
        unexpected_idx <= 3'd0;  // skip read check
     end
 
+    DS_READ_MEM_TIME_SLOT_CMD: begin
+       tx_data <= {1'b1, 8'hFF, 1'b0};
+       state <= DS_WRITE_BYTE;
+       next_state <= DS_READ_MEM_START;
+    end
+    
     DS_READ_MEM_START: begin
        state <= DS_READ_BYTE;
        next_state <= DS_READ_MEM;
-    end
-
-    DS_READ_MEM_INIT_STORE: begin
-       num_bytes <= 8'd1;
-       mem_data[num_bytes[7:2]] <= (mem_data[num_bytes[7:2]] << 8) | in_byte;
-       state <= DS_READ_MEM_TIME_SLOT_CMD;
-    end
-
-    DS_READ_MEM_TIME_SLOT_CMD: begin
-      //  if (use_ds2480b)
-       tx_data <= {1'b1, 8'hFF, 1'b0};
-       state <= DS_WRITE_BYTE;
-      //  if (num_bytes == 8'd0) 
-      //     next_state <= DS_READ_MEM_START;
-      //  else
-      //     next_state <= DS_READ_MEM;
-       next_state <= DS_READ_MEM_START;
     end
 
     DS_READ_MEM: begin
@@ -634,8 +507,7 @@ begin
        num_bytes <= num_bytes + 8'd1;
        mem_data[num_bytes[7:2]] <= (mem_data[num_bytes[7:2]] << 8) | in_byte;
        if (num_bytes == 8'hff) begin
-          state <= DS_IDLE;  // back to command mode
-          //next_state <= DS_IDLE;
+          state <= DS_IDLE;  // back to IDLE state, direct 1-wire stop, DS2480B jump to flush states
        end
     end
 
@@ -668,7 +540,7 @@ begin
        next_state <= DS_IDLE;
     end
 
-    endcase // case (state)
+    endcase 
 end
 
 endmodule
