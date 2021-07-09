@@ -60,7 +60,7 @@ always @(posedge sys_clk) begin
 	 if (rx_flag) begin                     //still in recv process
 	     if (clk_cnt < BPS_CNT - 1) begin
 		     clk_cnt <= clk_cnt + 1'b1;
-             rx_cnt  <= rx_cnt;
+             //rx_cnt  <= rx_cnt;
 		 end
 		 else begin
 		     clk_cnt <= 16'd0;              //sys clk cnt reset after 1 baud cycle

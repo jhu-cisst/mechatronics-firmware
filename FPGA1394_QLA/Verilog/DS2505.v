@@ -206,6 +206,9 @@ begin
                    cnt <= 17'd0;
                    end
           endcase
+          // all 2048 bytes read over
+          if (reg_wdata[3] == 1)
+             state <= DS_SET_CMD_MODE;
        end
     end
 
@@ -395,15 +398,15 @@ begin
     DS_1_WIRE_CONFIG_FUNC_BLK: begin  // New state that "executes" DS_1_WIRE_CONFIG_FUNC_BLK
        tx_data <= {1'b1, ds_program[progCnt][15:8], 1'b0};
        expected_rxd <= ds_program[progCnt][7:0];
-       unexpected_idx <= progCnt + 3'd1;  // optional, for debugging
-       progCnt <= progCnt + 3'd1;
+       unexpected_idx <= progCnt + 4'd1;  // optional, for debugging
+       progCnt <= progCnt + 4'd1;
        state <= DS_WRITE_BYTE;
        next_state <= DS_CHECK_BYTE_1_WIRE_CONFIG;
     end
 
     DS_CHECK_BYTE_1_WIRE_CONFIG: begin   // New state that calls DS_READ_BYTE
        //state <= rxd_pulse ? DS_READ_BYTE : DS_CHECK_BYTE_1_WIRE_CONFIG;
-       next_state <= (progCnt == 3'd5) ? DS_RESET_1_WIRE : DS_1_WIRE_CONFIG_FUNC_BLK;
+       next_state <= (progCnt == 4'd5) ? DS_RESET_1_WIRE : DS_1_WIRE_CONFIG_FUNC_BLK;
     end
 
 
@@ -468,7 +471,7 @@ begin
           state <= DS_READ_PREP_FUNC_BLK;
           cnt <= 17'd0;
           unexpected_idx <= 0;  // optiional for debugging, start with 1 since 0 will skip read check
-          progCnt <= 3'd5;  // to avoid that DS2480B being configured so that progCnt not equals to 5
+          progCnt <= 4'd5;  // to avoid that DS2480B being configured so that progCnt not equals to 5
        end
     end
 
@@ -476,27 +479,33 @@ begin
        tx_data <= {1'b1, ds_program[progCnt][15:8], 1'b0};
        expected_rxd <= ds_program[progCnt][7:0];
        //unexpected_idx <= unexpected_idx + 3'd1;  // optional, for debugging
-       progCnt <= progCnt + 3'd1;
+       progCnt <= progCnt + 4'd1;
        state <= DS_WRITE_BYTE;
        next_state <= DS_CHECK_BYTE_READ_PREP;
     end
 
     DS_CHECK_BYTE_READ_PREP: begin   // New state that calls DS_READ_BYTE
        state <= DS_READ_BYTE;
-       next_state <= (progCnt == 3'd9) ? DS_READ_MEM_START : DS_READ_PREP_FUNC_BLK;
-    end
-
-    DS_READ_MEM_START: begin
+       next_state <= (progCnt == 4'd9) ? DS_READ_MEM_TIME_SLOT_CMD : DS_READ_PREP_FUNC_BLK;
        family_code <= 8'h0B;
        num_bytes <= 8'd0;
        unexpected_idx <= 3'd0;  // skip read check
-       state <= DS_READ_MEM_TIME_SLOT_CMD;
+    end
+
+    DS_READ_MEM_START: begin
+       num_bytes <= 8'd1;
+       state <= DS_READ_BYTE;
+       next_state <= DS_READ_MEM_TIME_SLOT_CMD;
     end
 
     DS_READ_MEM_TIME_SLOT_CMD: begin
-       if (use_ds2480b)
-          tx_data <= {1'b1, 8'hFF, 1'b0};
+      //  if (use_ds2480b)
+       tx_data <= {1'b1, 8'hFF, 1'b0};
        state <= DS_WRITE_BYTE;
+      //  if (num_bytes == 8'd0) 
+      //     next_state <= DS_READ_MEM_START;
+      //  else
+      //     next_state <= DS_READ_MEM;
        next_state <= DS_READ_MEM;
     end
 
@@ -507,7 +516,7 @@ begin
           mem_data[num_bytes[7:2]] <= (mem_data[num_bytes[7:2]] << 8) | in_byte;
           if (num_bytes == 8'hff) begin
              state <= DS_IDLE;  // back to command mode
-             next_state <= DS_IDLE;
+             //next_state <= DS_IDLE;
           end
     end
 
