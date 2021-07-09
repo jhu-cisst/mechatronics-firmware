@@ -75,7 +75,12 @@ localparam[4:0]
     DS_SET_CMD_MODE = 24,
     DS_WAIT_2MS_RESET = 25,  // No response
     DS_RESET_1_WIRE_AGAIN = 26,
-    DS_RESP_1_WIRE_AGAIN = 27;  // should be 0xCD
+    DS_RESP_1_WIRE_AGAIN = 27,  // should be 0xCD
+
+    DS_READ_PROM_START = 28,
+    DS_READ_PROM = 29,
+    DS_SET_ADDR_LOW = 30,
+    DS_SET_ADDR_HIGH = 31;
     
     
 
@@ -206,7 +211,8 @@ begin
                    end
             2'b11: begin
                    // ds_enable should already be 1
-                   state <= DS_READ_MEM_TIME_SLOT_CMD;
+                   state <= reg_wdata[2] ? DS_READ_MEM_TIME_SLOT_CMD : DS_READ_MEM_START;
+                   use_ds2480b <= reg_wdata[2];
                    cnt <= 17'd0;
                    end
           endcase
@@ -215,11 +221,17 @@ begin
              state <= DS_SET_CMD_MODE;
        end
     end
+    
 
     DS_RESET_BEGIN: begin
-       tx_data <= {1'b1, 8'hE3, 1'b0};
-       state <= DS_WRITE_BYTE;
-       next_state <= DS_IDLE;
+       if (cnt == 16'd30000) begin   // 30,000 counts is about 610 usec
+          state <= DS_RESET_END;
+          ds_dir <= 1'b0;    // tri-state bi-directional transceiver (input to FPGA)
+          cnt <= 16'd0;
+       end
+       else begin
+          cnt <= cnt + 16'd1;
+       end
     end
 
     DS_RESET_END: begin
@@ -276,12 +288,113 @@ begin
           if (cnt == 16'd24576) begin // 24,576 counts is about 500 usec
              state <= DS_WRITE_BYTE;
              out_byte <= 8'h33;   // Read PROM command
-             // previously here's DS_READ_PROM_START, maybe need to recover in the future
-             next_state <= DS_IDLE;
+             next_state <= DS_READ_PROM_START;
              cnt <= 16'd0;
           end
        end
     end
+
+    DS_READ_PROM_START: begin
+       state <= DS_READ_BYTE;
+       next_state <= DS_READ_PROM;
+       num_bytes[2:0] <= 3'd0;
+    end
+
+    DS_READ_PROM: begin
+       state <= DS_READ_BYTE;
+       next_state <= DS_READ_PROM;
+       num_bytes[2:0] <= num_bytes[2:0] + 3'd1;
+       if (num_bytes[2:0] == 3'd0) begin
+          family_code <= in_byte;
+       end
+       else if (num_bytes[2:0] == 3'd7) begin
+          state <= DS_WRITE_BYTE;
+          out_byte <= 8'hF0;   // Read Memory command
+          next_state <= DS_SET_ADDR_LOW;
+          num_bytes[2:0] <= 3'd0;
+       end
+    end
+
+    DS_SET_ADDR_LOW: begin
+       out_byte <= mem_addr[7:0];           // Memory address (low byte)
+       state <= DS_WRITE_BYTE;
+       next_state <= DS_SET_ADDR_HIGH;
+    end
+
+    DS_SET_ADDR_HIGH: begin
+       out_byte <= {5'd0, mem_addr[10:8]};  // Memory address (high byte)
+       state <= DS_WRITE_BYTE;
+       num_bytes <= 8'd0;
+       next_state <= DS_READ_MEM_START;
+    end
+    
+
+   //  DS_RESET_BEGIN: begin
+   //     tx_data <= {1'b1, 8'hE3, 1'b0};
+   //     state <= DS_WRITE_BYTE;
+   //     next_state <= DS_IDLE;
+   //  end
+
+   //  DS_RESET_END: begin
+   //     // Wait for 1-wire to return to high state. We use a timeout of 5 usec,
+   //     // which is more than enough, unless the pull-up resistor is missing.
+   //     // Note that 5 usec is 246 counts, which fits in 8 bits (255)
+   //     if (ds_data_in == 1'b1) begin
+   //        state <= DS_RESET_ACK_WAIT;
+   //        rise_time <= `cnt8;
+   //        `cnt8 <= 8'd0;
+   //     end
+   //     else if (`cnt8 == 8'd246) begin  // 246 is about 5 usec
+   //        state <= DS_IDLE;
+   //        ds_reset <= 2'd2;   // failed (1-wire did not reach high state)
+   //     end
+   //     else begin
+   //        `cnt8 <= `cnt8 + 8'd1;
+   //     end
+   //  end
+
+   //  DS_RESET_ACK_WAIT: begin
+   //     // Wait 15-60 usec before checking for low pulse from DS2505
+   //     if (`cnt11 == 11'd1475) begin  // 1,475 counts is about 30 usec
+   //        state <= DS_RESET_ACK_CHECK;
+   //        `cnt11 <= 11'd0;
+   //     end
+   //     else begin
+   //        `cnt11 <= `cnt11 + 11'd1;
+   //     end
+   //  end
+
+   //  DS_RESET_ACK_CHECK: begin
+   //     // Check for low pulse from DS2505, with timeout of 300 usec
+   //     // (tPDH+tPDL) from when high state was detected.
+   //     if (ds_data_in == 1'b0) begin
+   //        state <= DS_RESET_RECOVER;
+   //        ds_reset <= 2'd1;    // success
+   //        cnt <= 16'd0;
+   //     end
+   //     else if (cnt == 16'd14750) begin  // 14,750 counts is about 300 usec
+   //        state <= DS_IDLE;
+   //        ds_reset <= 2'd3;    // failed (no ack pulse from DS2505)
+   //        cnt <= 16'd0;
+   //     end
+   //     else begin
+   //        cnt <= cnt + 16'd1;
+   //     end
+   //  end
+
+   //  DS_RESET_RECOVER: begin
+   //     // Wait at least 480 usec from when high pulse detected
+   //     if (ds_data_in == 1'b1) begin
+   //        cnt <= cnt + 16'd1;
+   //        if (cnt == 16'd24576) begin // 24,576 counts is about 500 usec
+   //           state <= DS_WRITE_BYTE;
+   //           out_byte <= 8'h33;   // Read PROM command
+   //           // previously here's DS_READ_PROM_START, maybe need to recover in the future
+   //           next_state <= DS_IDLE;
+   //           cnt <= 16'd0;
+   //        end
+   //     end
+   //  end
 
     DS_WRITE_BYTE: begin
        if (use_ds2480b) begin
@@ -516,13 +629,14 @@ begin
     end
 
     DS_READ_MEM: begin
-          state <= DS_READ_MEM_TIME_SLOT_CMD;
-          num_bytes <= num_bytes + 8'd1;
-          mem_data[num_bytes[7:2]] <= (mem_data[num_bytes[7:2]] << 8) | in_byte;
-          if (num_bytes == 8'hff) begin
-             state <= DS_IDLE;  // back to command mode
-             //next_state <= DS_IDLE;
-          end
+       state <= use_ds2480b ? DS_READ_MEM_TIME_SLOT_CMD : DS_READ_BYTE;
+       next_state <= DS_READ_MEM;
+       num_bytes <= num_bytes + 8'd1;
+       mem_data[num_bytes[7:2]] <= (mem_data[num_bytes[7:2]] << 8) | in_byte;
+       if (num_bytes == 8'hff) begin
+          state <= DS_IDLE;  // back to command mode
+          //next_state <= DS_IDLE;
+       end
     end
 
     DS_SET_CMD_MODE:  begin
