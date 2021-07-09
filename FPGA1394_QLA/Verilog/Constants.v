@@ -89,7 +89,7 @@
 `define OFF_DOUT_CTRL 4'h8         // dout hi/lo period (16-bits hi, 16-bits lo)
 `define OFF_QTR5_DATA 4'h9         // enc most recent quarter offset
 `define OFF_RUN_DATA  4'hA         // enc running counter offset
-`define OFF_UNUSED_11 4'hB
+`define OFF_FIR_STAT  4'hB         // fir pot/cur enable status offset
 `define OFF_UNUSED_12 4'hC
 `define OFF_UNUSED_13 4'hD
 `define OFF_UNUSED_14 4'hE
@@ -127,11 +127,11 @@
 `define WDOG_PHASE_FIVE  3'b101   // watchdog period larger than 200ms
 
 // Finite Impulse Response Filter
-`define FIR_POT_ENABLE    3'b001  // enable pot filter
-`define FIR_CUR_ENABLE    3'b011  // enable cur filter
-`define FIR_POT_DISABLE   3'b010  // disable pot filter
-`define FIR_CUR_DISABLE   3'b100  // disable cur filter
-`define FIR_POT_RELOAD    2'b01   // pot filter reload enable
-`define FIR_CUR_RELOAD    2'b10   // cur filter reload enable
+`define FIR_POT_ENABLE    4'd1  // enable pot filter
+`define FIR_CUR_ENABLE    4'd2  // enable cur filter
+`define FIR_POT_DISABLE   4'd3  // disable pot filter
+`define FIR_CUR_DISABLE   4'd4  // disable cur filter
+`define FIR_POT_RELOAD    4'd5   // pot filter reload enable
+`define FIR_CUR_RELOAD    4'd6   // cur filter reload enable
 
 `endif  // _fpgaqla_constants_v_
