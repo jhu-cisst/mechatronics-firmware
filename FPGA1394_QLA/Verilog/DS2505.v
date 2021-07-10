@@ -139,14 +139,24 @@ assign ds_program[7] = { 8'hC1, 8'hCD };                                      //
 initial DS2480B_ok <= 1'b1;
 
 // UART receiver instantiation
-wire        uart_done;          //recv data counter
+wire        uart_done;          //recv data load done flag 
 wire[7:0]   uart_data;          //recv data buffer
+reg         uart_en;            //send enable
+wire        tx_busy;            //send data load done flag 
 
 uart_recv_2480 uart_recv_2480(
     .sys_clk(clk), 
     .uart_rxd(rxd), 
     .uart_data(uart_data),
     .uart_done(uart_done)
+);
+
+uart_send_2480 uart_send_2480(
+    .sys_clk(clk), 
+    .uart_en(uart_en), 
+    .uart_din(tx_data),
+    .uart_done(tx_busy),
+    .send_temp(ds_data_out)
 );
 
 // State machine begins
@@ -316,19 +326,11 @@ begin
     DS_WRITE_BYTE: begin
        if (use_ds2480b) begin
           ds_dir <= 1'b1;
-          ds_data_out <= tx_data[cnt_bit];
-          if (cnt == 13'd5120) begin  // 5120 clock cycle is 9600kps
-              if (cnt_bit == 'd9) begin
-                  cnt_bit <= 0;
-                  state <= next_state;
-                  cnt <= 0;
-              end
-              else begin
-                  cnt_bit <= cnt_bit + 4'd1;
-                  cnt <= 0;
-              end
-          end
-          else cnt <= cnt + 16'd1;
+          uart_en <= 1'b1;  // enable uart send module
+          if (tx_busy == 1'b1) begin   // detect data load success flag   
+             state <= next_state;
+             uart_en <= 1'b0;   // disable send module      
+	       end
        end
        else begin
           // Upper 3 bits of cnt go from 0 to 7; lower 13 bits go from 0 to 4424.
