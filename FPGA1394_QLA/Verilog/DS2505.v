@@ -33,7 +33,7 @@ module DS2505(
     output wire[31:0] ds_status,     // interface status (to BoardRegs)
     input  wire reg_wen,             // write enable signal
 
-    input  wire rxd,                 // uart rxd port
+    input  wire rxd,                 // DS2480B Serial interface, UART RxD port
     input  wire dout_cfg_bidir,      // 1 -> bidirectional I/O available
     input  wire ds_data_in,          // 1-wire interface, data in
     output wire ds_data_out,         // 1-wire interface / DS2480B Serial interface, data out / TxD
@@ -88,7 +88,7 @@ reg[10:0]   mem_addr;                // memory address for reading
 reg[7:0]    num_bytes;               // Number of bytes to read
 reg         ds_data_out_1w;          // ds_data_out, data out pin for direct 1-wire option
 
-reg         use_ds2480b;
+reg         use_ds2480b;             // DS2480B usage check flag, communicating with software side
 reg[7:0]    expected_rxd;            // expected response (from configuration command)
 reg[9:0]    tx_data;                 // Transmit byte -- needs to be 10 bits -- could be merged with out_byte later
 reg         DS2480B_ok;              // DS2480B configuration successfully done
@@ -124,43 +124,43 @@ assign      ds_status[0]     = ds_enable;
 wire[15:0]  ds_program[0:8];         // Program arguments
 reg[3:0]    progCnt;                 // Program counter
 
-assign ds_program[0] = { 8'hC1, 8'h00 };                                      // DS_SET_PDSRC, DS_RESP_PDSRC
-assign ds_program[1] = { 8'hE1, 8'h00 };                                      // DS_SET_W1LD, DS_RESP_W1LD
-assign ds_program[2] = { 8'hCC, 8'hCC };                                      // DS_SKIP_ROM, DS_RESP_SKIP_ROM
-assign ds_program[3] = { 8'hF0, 8'hF0 };                                      // DS_READ_MEM_CMD, DS_RESP_READ_MEM_CMD
-assign ds_program[4] = { mem_addr[7:0], mem_addr[7:0] };                      // DS_SET_ADDR_LOW, DS_RESP_ADDR_LOW
-assign ds_program[5] = { {5'd0, mem_addr[10:8]}, {5'd0, mem_addr[10:8]} };    // DS_SET_ADDR_HIGH, DS_RESP_ADDR_HIGH  
-assign ds_program[6] = { 8'hE3, 8'h00 };                                      // flush DS2480B, 1-wire reset
-assign ds_program[7] = { 8'hC1, 8'hCD };                                      // DS_SET_RBR, DS_RESP_RBR (not sure about value)
+assign ds_program[0] = { 8'hC1, 8'h00 };                                      // Reset 1-wire in CMD mode
+assign ds_program[1] = { 8'hE1, 8'h00 };                                      // Enter DATA mode
+assign ds_program[2] = { 8'hCC, 8'hCC };                                      // Skip ROM check
+assign ds_program[3] = { 8'hF0, 8'hF0 };                                      // Read memory command
+assign ds_program[4] = { mem_addr[7:0], mem_addr[7:0] };                      // Memory read start addr, upper byte
+assign ds_program[5] = { {5'd0, mem_addr[10:8]}, {5'd0, mem_addr[10:8]} };    // Memory read start addr, lower byte 
+assign ds_program[6] = { 8'hE3, 8'h00 };                                      // Enter CMD mode
+assign ds_program[7] = { 8'hC1, 8'hCD };                                      // Flush & reset DS2480B, 1-wire reset
 
 // Assign DS2480B_ok to 1, may be removed later in both firmware & software
 initial DS2480B_ok <= 1'b1;
 
-// UART receiver instantiation
-wire        uart_done;          // recv data load done flag 
-wire[7:0]   uart_data;          // recv data buffer
-reg         uart_en;            // send enable
-reg         master_rst;         // master reset flag
-wire        tx_busy;            // send data load done flag 
+// UART instantiation
+wire        recv_done;          // recv data loading done flag 
+wire[7:0]   recv_data;          // recv data buffer
+reg         send_en;            // send enable
+reg         master_rst;         // send master reset flag
+wire        send_done;          // send data load done flag 
 wire        ds_data_out_2480;   // TxD for DS2480B serial option, connected to uart_txd in uart_send_2480
 
-uart_recv_2480 uart_recv_2480(
+UartRx_2480B UartRx_2480B(
     .sys_clk(clk), 
     .uart_rxd(rxd), 
-    .uart_data(uart_data),
-    .uart_done(uart_done)
+    .uart_data(recv_data),
+    .uart_done(recv_done)
 );
 
-uart_send_2480 uart_send_2480(
+UartTx_2480B UartTx_2480B(
     .sys_clk(clk), 
-    .uart_en(uart_en), 
+    .uart_en(send_en), 
     .uart_din(tx_data),
-    .uart_done(tx_busy),
+    .uart_done(send_done),
     .uart_txd(ds_data_out_2480),
     .master_rst(master_rst)
 );
 
-assign ds_data_out = use_ds2480b ? ds_data_out_2480 : ds_data_out_1w;  // Use ds_data_out as DS2480B serial TxD / 1-wire output
+assign ds_data_out = use_ds2480b ? ds_data_out_2480 : ds_data_out_1w;  // Use ds_data_out as serial TxD / 1-wire output
 
 // State machine begins
 always @(posedge(clk))
@@ -205,6 +205,8 @@ begin
                    end
             2'b11: begin
                    // ds_enable should already be 1
+                   // If using DS2480B, send next 64 0xFF requests and read 64 bytes memory
+                   // If using 1-wire, directly read 64 bytes memory.
                    state <= reg_wdata[2] ? DS_READ_MEM_REQUEST : DS_READ_MEM_START;
                    use_ds2480b <= reg_wdata[2];
                    cnt <= 17'd0;
@@ -325,15 +327,15 @@ begin
        next_state <= DS_READ_MEM_START;
     end
 
-    // DS_WRITE_BYTE, DS_READ_BYTE are multiplexed by both two options
+    // DS_WRITE_BYTE, DS_READ_BYTE are muxed by both two options
     DS_WRITE_BYTE: begin
        if (use_ds2480b) begin
           ds_dir <= 1'b1;
-          uart_en <= 1'b1;  // enable uart send module
-          if (tx_busy == 1'b1) begin   // detect data load success flag   
+          send_en <= 1'b1;               // enable uart send module
+          if (send_done == 1'b1) begin   // detect data load successfully  
              state <= next_state;
-             uart_en <= 1'b0;          // disable send module
-             master_rst <= 1'b0;         
+             send_en <= 1'b0;            // disable send module
+             master_rst <= 1'b0;         // after initial master reset, flag always pulled low
 	       end
        end
        else begin
@@ -372,8 +374,8 @@ begin
 
     DS_READ_BYTE: begin
        if (use_ds2480b) begin
-          if (uart_done == 1'b1) begin         //recv data cnt counts to the final baud cycle    
-             in_byte <= uart_data;               //register received data
+          if (recv_done == 1'b1) begin           //recv data cnt counts to the final baud cycle    
+             in_byte <= recv_data;               //register received data
              state <= next_state;
 	       end
        end
@@ -410,17 +412,16 @@ begin
     /////////////////////////////////////////////////////////////////////////////////////////////
     DS_MASTER_RESET:   begin
        tx_data <= {1'b1, 8'h00, 1'b0};
-       master_rst <= 1'b1;
+       master_rst <= 1'b1;              // master reset enable
        state <= DS_WRITE_BYTE;
        next_state <= DS_PROGRAMMER;
        cnt <= 17'd0;
-       progCnt <= 4'd0;  // to avoid that DS2480B being configured so that progCnt not equals to 5
+       progCnt <= 4'd0;                 // start from programmer arg 0
        DS2480B_ok <= 1;
-       // Set ds_reset to indicate that 1-wire reset (via DS2480B) was successful
        ds_reset <= 2'd1;
     end
 
-    DS_PROGRAMMER: begin  // This state sends essential args to start reading memory
+    DS_PROGRAMMER: begin
        tx_data <= {1'b1, ds_program[progCnt][15:8], 1'b0};
        expected_rxd <= ds_program[progCnt][7:0];
        progCnt <= progCnt + 4'd1;
@@ -428,17 +429,17 @@ begin
        next_state <= DS_CHECK_PROGRAMMER;
     end
 
-    DS_CHECK_PROGRAMMER: begin   // New state that calls DS_READ_BYTE
+    DS_CHECK_PROGRAMMER: begin
        state <= DS_READ_BYTE;
        case (progCnt)
-          4'd1 :   state      <= DS_PROGRAMMER;  // No response in command mode, jump to next state without read
-          4'd2 :   state      <= DS_PROGRAMMER;  // No response in command mode, jump to next state without read
-          4'd6 :   next_state <= DS_READ_MEM_REQUEST;  // Start reading memory
-          4'd7 :   state      <= DS_PROGRAMMER;  // No response in command mode, jump to next state without read
-          4'd8 :   state      <= DS_IDLE;  // back to IDLE, wait for chip flush
-          default: next_state <= DS_PROGRAMMER;
+          4'd1 :   state      <= DS_PROGRAMMER;        // No response in CMD mode, jump to next state without read
+          4'd2 :   state      <= DS_PROGRAMMER;        // No response in CMD mode, jump to next state without read
+          4'd6 :   next_state <= DS_READ_MEM_REQUEST;  // Start reading memory, send first 0xFF request
+          4'd7 :   state      <= DS_PROGRAMMER;        // No response in CMD mode, jump to next state without read
+          4'd8 :   state      <= DS_IDLE;              // back to IDLE, wait for chip flush
+          default: next_state <= DS_PROGRAMMER;        // other states read feedback after send commands
        endcase
-       family_code <= 8'h0B;
+       family_code <= 8'h0B;                           // assign family code directly, maybe check in the future
        num_bytes <= 8'd0;
     end
 
@@ -448,7 +449,7 @@ begin
        next_state <= DS_READ_MEM_START;
     end
 
-    // DS_READ_MEM_START, DS_READ_MEM are multiplexed by both two options    
+    // DS_READ_MEM_START, DS_READ_MEM are muxed by both two options    
     DS_READ_MEM_START: begin
        state <= DS_READ_BYTE;
        next_state <= DS_READ_MEM;
@@ -465,6 +466,205 @@ begin
     end
 
     endcase 
+end
+
+endmodule
+
+
+module UartTx_2480B (
+	input               sys_clk,           // sys clk
+	
+	input               uart_en,           // send enable sig                                
+	input   [9:0]       uart_din,          // data-to-be-sent
+	input   wire        master_rst,        // master reset flag
+	output  reg         uart_done,         // send 1 frame over flag
+	output  reg         uart_txd           // UART send port
+);
+
+// parameter define
+parameter    CLK_FREQ = 49152000;         // define sys clk freq
+parameter    UART_BPS_9600 = 9600;        // define serial baud - 9600
+parameter    UART_BPS_4800 = 4800;        // define serial baud - 4800
+localparam   BPS_CNT_9600  = CLK_FREQ / UART_BPS_9600;  // count 9600 bits per second
+localparam   BPS_CNT_4800  = CLK_FREQ / UART_BPS_4800;  // count 4800 bits per second
+
+// reg define
+reg          uart_en_d0;                  
+reg          uart_en_d1;
+reg  [15:0]  clk_cnt;                     // sys clk counter
+reg  [ 3:0]  tx_cnt;                      // send data counter
+reg          tx_flag;                     // send process flag
+reg  [ 9:0]  tx_data;                     // send data buffer
+
+// wire define
+wire         en_flag;      
+
+//**************************************************************
+//                       main  code
+//**************************************************************
+
+// capture uart_en rising edge, get 1 clk cycle pulse
+assign  en_flag = (~uart_en_d1) & uart_en_d0;
+
+// delay 2 clk cycle for send enable sig uart_en
+always @(posedge sys_clk) begin
+	 uart_en_d0 <= uart_en;
+	 uart_en_d1 <= uart_en_d0;
+end
+		  
+// when en_flag pulled high, register data-to-be-sent and start send process
+always @(posedge sys_clk) begin
+	 if (en_flag) begin                           // detect send enable rising edge
+		 tx_flag   <= 1'b1;                        // enter send process, tx_flag pull high
+		 uart_done <= 1'b0;
+		 tx_data   <= uart_din;                    // register data-to-be-sent	
+	 end
+	 else if ((tx_cnt == 4'd9) && (clk_cnt == BPS_CNT_9600/2) && (!master_rst))
+	 begin                                        // In 9600 baud, stop send process a half baud cycle after stop bit
+		 tx_flag   <= 1'b0;                        // send process end, tx_flag pull low
+		 uart_done <= 1'b1;                        // issue send done flag to DS2505.v
+		 tx_data   <= 10'd0; 
+	 end
+	 else if ((tx_cnt == 4'd9) && (clk_cnt == BPS_CNT_4800/2) && (master_rst))
+	 begin                                        // For initial master reset in 4800 baud
+		 tx_flag   <= 1'b0;                        // send process end, tx_flag pull low
+		 uart_done <= 1'b1;                        // issue send done flag to DS2505.v
+		 tx_data   <= 10'd0; 
+	 end 
+	 else begin
+		 tx_flag   <= tx_flag;
+		 uart_done <= 1'b0;
+		 tx_data   <= tx_data;
+	 end
+end
+
+// after entering send process, start sys clk cnt & send data cnt
+always @(posedge sys_clk) begin
+     if (tx_flag) begin                          // still in send process
+		 if (master_rst) begin
+             if (clk_cnt == BPS_CNT_4800 - 1) begin
+				 clk_cnt <= 16'd0;                   // sys cnt reset after 1 baud cycle
+                 tx_cnt  <= tx_cnt + 1'b1;       // while send data cnt add 1
+             end
+             else
+                 clk_cnt <= clk_cnt + 1'b1;
+         end
+         else begin
+             if (clk_cnt == BPS_CNT_9600 - 1) begin
+				 clk_cnt <= 16'd0;                   // sys cnt reset after 1 baud cycle
+                 tx_cnt  <= tx_cnt + 1'b1;       // while send data cnt add 1
+             end
+             else begin
+                 clk_cnt <= clk_cnt + 1'b1;
+             end
+         end
+     end
+     else begin                                  // send process end, counter reset
+         clk_cnt <= 16'd0;
+         tx_cnt  <= 4'd0; 
+     end        
+end
+
+// assign data to UART sent port according to send cnt
+always @(posedge sys_clk) begin
+     if (tx_flag)  
+         uart_txd <= tx_data[tx_cnt];            // load data bits to send port
+     else
+         uart_txd <= 1'b1;	                      // send port pulled high when free 
+end
+
+endmodule
+
+
+module  UartRx_2480B (
+    input               sys_clk,             // sys clk
+
+	 input               uart_rxd,            // UART recv port
+    output  reg         uart_done,           // recv 1 frame over flag
+	 output  reg  [7:0]  uart_data            // recv data
+);
+
+//parameter define
+parameter    CLK_FREQ = 49152000;            // define sys clk freq
+parameter    UART_BPS = 9600;                // define serial baud
+localparam   BPS_CNT  = CLK_FREQ / UART_BPS; // count 9600 bits per second
+
+//reg define
+reg          uart_rxd_d0;                  
+reg          uart_rxd_d1;
+reg   [15:0] clk_cnt;                        // sys clk counter
+reg   [ 3:0] rx_cnt;                         // recv data counter
+reg          rx_flag;                        // recv process flag
+reg   [ 7:0] rxdata;                         // recv data buffer
+
+//wire define
+wire         start_flag;                  
+
+//**************************************************************
+//                       main  code
+//**************************************************************
+
+// capture recv port falling edge (start bit), get 1 clk cycle pulse
+assign  start_flag = uart_rxd_d1 & (~uart_rxd_d0);
+
+// delay 2 clk cycle for UART recv port data
+always @(posedge sys_clk) begin
+	 begin
+	    uart_rxd_d0 <= uart_rxd;
+		 uart_rxd_d1 <= uart_rxd_d0;
+	 end
+end
+		  
+// when pulse start_flag arrives, start recv process
+always @(posedge sys_clk) begin
+    begin
+	    if (start_flag)                     // detect start bit
+		    rx_flag <= 1'b1;                 // enter recv process, rx_flag pull up
+		 else if ((rx_cnt == 4'd9) && (clk_cnt == BPS_CNT/2))
+		    rx_flag <= 1'b0;                 // stop recv process when counting to next half baud cycle of stop bit
+		 else
+		    rx_flag <= rx_flag;            
+	 end
+end
+
+//after entering recv process, start sys clk cnt & recv data cnt
+always @(posedge sys_clk) begin
+	 if (rx_flag) begin                     // still in recv process
+	    if (clk_cnt == BPS_CNT - 1) begin
+          clk_cnt <= 16'd0;                // sys clk cnt reset after 1 baud cycle
+		    rx_cnt  <= rx_cnt + 1'b1;        // while recv data cnt add 1
+		 end
+		 else begin
+		    clk_cnt <= clk_cnt + 1'b1;
+		 end
+	 end
+	 else begin                             // recv process end, counter reset
+	    clk_cnt <= 16'd0;
+		 rx_cnt  <= 4'd0; 
+    end        
+end
+
+//store UART recv data according to recv counter
+always @(posedge sys_clk) begin
+    if (rx_flag)                           // system in recv process
+	     if (clk_cnt == BPS_CNT/2)          // clk counts to half of a data bit
+          rxdata[rx_cnt-1] <= uart_rxd_d1; // recv cnt is 1 bit later than current data bit
+	     else
+		    rxdata <= rxdata;
+	 else
+	    rxdata <= 8'd0;	 
+end
+
+//data recv process finish, then issue a flag sig and register buffer data
+always @(posedge sys_clk) begin
+	 if (rx_cnt == 4'd9) begin              //counts to the final bit  
+       uart_data <= rxdata;                //register received data
+		 uart_done <= 1'b1;                  //pull up recv done flag
+	 end
+	 else begin
+	    uart_data <= 8'd0;
+		 uart_done <= 1'b0;
+	 end
 end
 
 endmodule
