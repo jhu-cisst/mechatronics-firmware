@@ -515,51 +515,51 @@ end
 // when en_flag pulled high, register data-to-be-sent and start send process
 always @(posedge sys_clk) begin
 	 if (en_flag) begin                           // detect send enable rising edge
-		 tx_flag   <= 1'b1;                        // enter send process, tx_flag pull high
-		 uart_done <= 1'b0;
-		 tx_data   <= uart_din;                    // register data-to-be-sent	
+       tx_flag   <= 1'b1;                        // enter send process, tx_flag pull high
+       uart_done <= 1'b0;
+       tx_data   <= uart_din;                    // register data-to-be-sent	
 	 end
 	 else if ((tx_cnt == 4'd9) && (clk_cnt == BPS_CNT_9600/2) && (!master_rst))
 	 begin                                        // In 9600 baud, stop send process a half baud cycle after stop bit
-		 tx_flag   <= 1'b0;                        // send process end, tx_flag pull low
-		 uart_done <= 1'b1;                        // issue send done flag to DS2505.v
-		 tx_data   <= 10'd0; 
+       tx_flag   <= 1'b0;                        // send process end, tx_flag pull low
+       uart_done <= 1'b1;                        // issue send done flag to DS2505.v
+       tx_data   <= 10'd0; 
 	 end
 	 else if ((tx_cnt == 4'd9) && (clk_cnt == BPS_CNT_4800/2) && (master_rst))
 	 begin                                        // For initial master reset in 4800 baud
-		 tx_flag   <= 1'b0;                        // send process end, tx_flag pull low
-		 uart_done <= 1'b1;                        // issue send done flag to DS2505.v
-		 tx_data   <= 10'd0; 
+       tx_flag   <= 1'b0;                        // send process end, tx_flag pull low
+       uart_done <= 1'b1;                        // issue send done flag to DS2505.v
+       tx_data   <= 10'd0; 
 	 end 
 	 else begin
-		 tx_flag   <= tx_flag;
-		 uart_done <= 1'b0;
-		 tx_data   <= tx_data;
+       tx_flag   <= tx_flag;
+       uart_done <= 1'b0;
+       tx_data   <= tx_data;
 	 end
 end
 
 // after entering send process, start sys clk cnt & send data cnt
 always @(posedge sys_clk) begin
      if (tx_flag) begin                          // still in send process
-		 if (master_rst) begin
+        if (master_rst) begin
              if (clk_cnt == BPS_CNT_4800 - 1) begin
-				 clk_cnt <= 16'd0;                   // sys cnt reset after 1 baud cycle
-                 tx_cnt  <= tx_cnt + 1'b1;       // while send data cnt add 1
+                clk_cnt <= 16'd0;               // sys cnt reset after 1 baud cycle
+                tx_cnt  <= tx_cnt + 1'b1;       // while send data cnt add 1
              end
              else
                  clk_cnt <= clk_cnt + 1'b1;
          end
          else begin
              if (clk_cnt == BPS_CNT_9600 - 1) begin
-				 clk_cnt <= 16'd0;                   // sys cnt reset after 1 baud cycle
-                 tx_cnt  <= tx_cnt + 1'b1;       // while send data cnt add 1
+                clk_cnt <= 16'd0;               // sys cnt reset after 1 baud cycle
+                tx_cnt  <= tx_cnt + 1'b1;       // while send data cnt add 1
              end
              else begin
                  clk_cnt <= clk_cnt + 1'b1;
              end
          end
      end
-     else begin                                  // send process end, counter reset
+     else begin                                 // send process end, counter reset
          clk_cnt <= 16'd0;
          tx_cnt  <= 4'd0; 
      end        
@@ -568,9 +568,9 @@ end
 // assign data to UART sent port according to send cnt
 always @(posedge sys_clk) begin
      if (tx_flag)  
-         uart_txd <= tx_data[tx_cnt];            // load data bits to send port
+          uart_txd <= tx_data[tx_cnt];          // load data bits to send port
      else
-         uart_txd <= 1'b1;	                      // send port pulled high when free 
+          uart_txd <= 1'b1;                     // send port pulled high when free 
 end
 
 endmodule
@@ -578,10 +578,10 @@ endmodule
 
 module  UartRx_2480B (
     input               sys_clk,             // sys clk
-
-	 input               uart_rxd,            // UART recv port
+    
+    input               uart_rxd,            // UART recv port
     output  reg         uart_done,           // recv 1 frame over flag
-	 output  reg  [7:0]  uart_data            // recv data
+    output  reg  [7:0]  uart_data            // recv data
 );
 
 //parameter define
@@ -617,54 +617,52 @@ end
 		  
 // when pulse start_flag arrives, start recv process
 always @(posedge sys_clk) begin
-    begin
-	    if (start_flag)                     // detect start bit
-		    rx_flag <= 1'b1;                 // enter recv process, rx_flag pull up
-		 else if ((rx_cnt == 4'd9) && (clk_cnt == BPS_CNT/2))
-		    rx_flag <= 1'b0;                 // stop recv process when counting to next half baud cycle of stop bit
-		 else
-		    rx_flag <= rx_flag;            
-	 end
+    if (start_flag)                     // detect start bit
+       rx_flag <= 1'b1;                 // enter recv process, rx_flag pull up
+    else if ((rx_cnt == 4'd9) && (clk_cnt == BPS_CNT/2)) 
+       rx_flag <= 1'b0;                 // stop recv process when counting to next half baud cycle of stop bit
+    else
+       rx_flag <= rx_flag; 
 end
 
 //after entering recv process, start sys clk cnt & recv data cnt
 always @(posedge sys_clk) begin
-	 if (rx_flag) begin                     // still in recv process
-	    if (clk_cnt == BPS_CNT - 1) begin
+    if (rx_flag) begin                     // still in recv process
+       if (clk_cnt == BPS_CNT - 1) begin
           clk_cnt <= 16'd0;                // sys clk cnt reset after 1 baud cycle
-		    rx_cnt  <= rx_cnt + 1'b1;        // while recv data cnt add 1
-		 end
-		 else begin
-		    clk_cnt <= clk_cnt + 1'b1;
-		 end
-	 end
-	 else begin                             // recv process end, counter reset
-	    clk_cnt <= 16'd0;
-		 rx_cnt  <= 4'd0; 
-    end        
+          rx_cnt  <= rx_cnt + 1'b1;        // while recv data cnt add 1
+       end
+       else begin
+          clk_cnt <= clk_cnt + 1'b1;
+       end
+    end
+    else begin                             // recv process end, counter reset
+       clk_cnt <= 16'd0;
+       rx_cnt  <= 4'd0;
+    end 
 end
 
 //store UART recv data according to recv counter
 always @(posedge sys_clk) begin
     if (rx_flag)                           // system in recv process
-	     if (clk_cnt == BPS_CNT/2)          // clk counts to half of a data bit
+       if (clk_cnt == BPS_CNT/2)           // clk counts to half of a data bit
           rxdata[rx_cnt-1] <= uart_rxd_d1; // recv cnt is 1 bit later than current data bit
-	     else
-		    rxdata <= rxdata;
-	 else
-	    rxdata <= 8'd0;	 
+       else
+          rxdata <= rxdata;
+    else
+       rxdata <= 8'd0;	 
 end
 
 //data recv process finish, then issue a flag sig and register buffer data
 always @(posedge sys_clk) begin
-	 if (rx_cnt == 4'd9) begin              //counts to the final bit  
+    if (rx_cnt == 4'd9) begin              //counts to the final bit
        uart_data <= rxdata;                //register received data
-		 uart_done <= 1'b1;                  //pull up recv done flag
-	 end
-	 else begin
-	    uart_data <= 8'd0;
-		 uart_done <= 1'b0;
-	 end
+       uart_done <= 1'b1;                  //pull up recv done flag
+    end
+    else begin
+       uart_data <= 8'd0;
+       uart_done <= 1'b0;
+    end
 end
 
 endmodule
