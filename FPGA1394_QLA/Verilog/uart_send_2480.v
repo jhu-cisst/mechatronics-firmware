@@ -1,8 +1,8 @@
 module  uart_send_2480(
-    input               sys_clk,           //sys clk
-    wire                send_temp,      
+	input               sys_clk,           //sys clk
+	wire                send_temp,
 	input               uart_en,           //send enable sig
-    input   [9:0]       uart_din,          //data-to-be-sent
+	input   [9:0]       uart_din,          //data-to-be-sent
 	output  reg         uart_done          //send 1 frame over flag	
 	  
 );
@@ -44,20 +44,20 @@ end
 //when en_flag pulled high, register data-to-be-sent and start send process
 always @(posedge sys_clk) begin
 	 if (en_flag) begin                      //detect send enable rising edge
-         tx_flag <= 1'b1;                    //enter send process, tx_flag pull up
-         uart_done <= 1'b0;
-         tx_data <= uart_din;                //register data-to-be-sent		  
+	     tx_flag <= 1'b1;                    //enter send process, tx_flag pull up
+		 uart_done <= 1'b0;
+		 tx_data <= uart_din;                //register data-to-be-sent		  
 	 end
 	 else if ((tx_cnt == 4'd9)&&(clk_cnt == BPS_CNT/2)) 
 	 begin                                   //stop send process in the half of stop bit
-         tx_flag <= 1'b0;                    //send process end, tx_flag pull down
-         uart_done <= 1'b1; 
-         tx_data <= 10'd0; 
+	     tx_flag <= 1'b0;                    //send process end, tx_flag pull down
+		 uart_done <= 1'b1;
+		 tx_data <= 10'd0; 
 	 end
 	 else begin
-         tx_flag <= tx_flag;
-         uart_done <= 1'b0;
-         tx_data <= tx_data;
+		 tx_flag <= tx_flag;
+		 uart_done <= 1'b0;
+		 tx_data <= tx_data;
 	 end
 end
 
