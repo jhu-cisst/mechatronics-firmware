@@ -1,18 +1,19 @@
 module uart_send_2480 (
 	input               sys_clk,           //sys clk
-	wire                send_temp,
-	input               uart_en,           //send enable sig
+	
+	input               uart_en,           //send enable sig                                
 	input   [9:0]       uart_din,          //data-to-be-sent
-	output  reg         uart_done          //send 1 frame over flag	
+	input   wire        master_rst,
+	output  reg         uart_done,         //send 1 frame over flag
+	output  reg         uart_txd
 );
-
-reg    uart_txd;      //UART send port
-assign send_temp = uart_txd;
 
 //parameter define
 parameter    CLK_FREQ = 49152000;           //define sys clk freq
-parameter    UART_BPS = 9600;               //define serial baud
-localparam   BPS_CNT  = CLK_FREQ/UART_BPS;  //count BPS_CNT times for sys clk
+parameter    UART_BPS_9600 = 9600;          //define serial baud
+parameter    UART_BPS_4800 = 4800;          //define serial baud
+localparam   BPS_CNT_9600  = CLK_FREQ/UART_BPS_9600;  //count BPS_CNT times for sys clk
+localparam   BPS_CNT_4800  = CLK_FREQ/UART_BPS_4800;  //count BPS_CNT times for sys clk
 
 //reg define
 reg          uart_en_d0;                  
@@ -35,7 +36,7 @@ assign  en_flag = (~uart_en_d1) & uart_en_d0;
 //delay 2 clk cycle for send enable sig uart_en
 always @(posedge sys_clk) begin
 	 uart_en_d0 <= uart_en;
-     uart_en_d1 <= uart_en_d0;
+	 uart_en_d1 <= uart_en_d0;
 end
 		  
 //when en_flag pulled high, register data-to-be-sent and start send process
@@ -45,7 +46,13 @@ always @(posedge sys_clk) begin
 		 uart_done <= 1'b0;
 		 tx_data <= uart_din;                //register data-to-be-sent	
 	 end
-	 else if ((tx_cnt == 4'd9)&&(clk_cnt == BPS_CNT/2))
+	 else if ((tx_cnt == 4'd9) && (clk_cnt == BPS_CNT_9600/2) && (!master_rst))
+	 begin                                   //stop send process in the half of stop bit
+		 tx_flag <= 1'b0;                    //send process end, tx_flag pull down
+		 uart_done <= 1'b1;
+		 tx_data <= 10'd0; 
+	 end
+	 else if ((tx_cnt == 4'd9) && (clk_cnt == BPS_CNT_4800/2) && (master_rst))
 	 begin                                   //stop send process in the half of stop bit
 		 tx_flag <= 1'b0;                    //send process end, tx_flag pull down
 		 uart_done <= 1'b1;
@@ -61,14 +68,26 @@ end
 //after entering send process, start sys clk cnt & send data cnt
 always @(posedge sys_clk) begin
      if (tx_flag) begin                      //still in send process
-         if (clk_cnt < BPS_CNT - 1) begin
-             clk_cnt <= clk_cnt + 1'b1;
-             tx_cnt  <= tx_cnt;
-         end
+	     if (master_rst) begin
+			 if (clk_cnt < BPS_CNT_4800 - 1) begin
+                 clk_cnt <= clk_cnt + 1'b1;
+                 tx_cnt  <= tx_cnt;
+             end
+             else begin
+                 clk_cnt <= 16'd0;               //sys cnt reset after 1 baud cycle
+                 tx_cnt  <= tx_cnt + 1'b1;       //while send data cnt add 1
+             end
+		 end
          else begin
-             clk_cnt <= 16'd0;               //sys cnt reset after 1 baud cycle
-             tx_cnt  <= tx_cnt + 1'b1;       //while send data cnt add 1
-         end
+			 if (clk_cnt < BPS_CNT_9600 - 1) begin
+                 clk_cnt <= clk_cnt + 1'b1;
+                 tx_cnt  <= tx_cnt;
+             end
+             else begin
+                 clk_cnt <= 16'd0;               //sys cnt reset after 1 baud cycle
+                 tx_cnt  <= tx_cnt + 1'b1;       //while send data cnt add 1
+             end
+		 end
      end
      else begin                              //send process end, counter reset
          clk_cnt <= 16'd0;

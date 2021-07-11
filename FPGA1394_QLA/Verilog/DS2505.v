@@ -36,12 +36,10 @@ module DS2505(
     input  wire rxd,                 // uart rxd port
     input  wire dout_cfg_bidir,      // 1 -> bidirectional I/O available
     input  wire ds_data_in,          // 1-wire interface, data in
-    output reg ds_data_out,          // 1-wire interface, data out (also TxD)
+    output wire ds_data_out,         // 1-wire interface / DS2480B Serial interface, data out / TxD
     output reg ds_dir,               // direction for 1-wire interface (0=input to FPGA, 1=output from FPGA)
     output reg ds_enable             // enables this module to drive the digital I/O line
 );
-
-initial ds_data_out = 1'b1;
 
 // State machine arguments
 localparam[4:0]
@@ -63,13 +61,12 @@ localparam[4:0]
     /////////////////////////////////////////////////
     // DS2480B option starts here
     ////////////////////////////////////////////////
-    DS_MASTER_RESET     = 12,
-    DS_WRITE_BYTE_4800  = 13,        // Send 00 in 4800 baud to enable master reset and synchronize ds2480b
-    DS_PROGRAMMER       = 14,        // DS2480 programmer, configuring DS2480B to read memory
-    DS_CHECK_PROGRAMMER = 15,        // Check programmer feedback
-    DS_READ_MEM_REQUEST = 16,        // Send 0xFF to request 1 byte memory data
-    DS_READ_MEM_START   = 17,        // Read 1 byte memory data
-    DS_READ_MEM         = 18;        // Store data into FPGA buffer
+    DS_MASTER_RESET     = 12,        // Send 00 in 4800 baud to enable master reset and synchronize ds2480b
+    DS_PROGRAMMER       = 13,        // DS2480 programmer, configuring DS2480B to read memory
+    DS_CHECK_PROGRAMMER = 14,        // Check programmer feedback
+    DS_READ_MEM_REQUEST = 15,        // Send 0xFF to request 1 byte memory data
+    DS_READ_MEM_START   = 16,        // Read 1 byte memory data
+    DS_READ_MEM         = 17;        // Store data into FPGA buffer
     
 
 // Local registers and wires
@@ -89,6 +86,7 @@ initial     rise_time = 8'hff;
 reg[1:0]    ds_reset;                // 0=not attempted, 1=success, 2=failed (rise-time), 3=failed (no ack from DS2505)
 reg[10:0]   mem_addr;                // memory address for reading
 reg[7:0]    num_bytes;               // Number of bytes to read
+reg         ds_data_out_1w;          // ds_data_out, data out pin for direct 1-wire option
 
 reg         use_ds2480b;
 reg[7:0]    expected_rxd;            // expected response (from configuration command)
@@ -139,10 +137,12 @@ assign ds_program[7] = { 8'hC1, 8'hCD };                                      //
 initial DS2480B_ok <= 1'b1;
 
 // UART receiver instantiation
-wire        uart_done;          //recv data load done flag 
-wire[7:0]   uart_data;          //recv data buffer
-reg         uart_en;            //send enable
-wire        tx_busy;            //send data load done flag 
+wire        uart_done;          // recv data load done flag 
+wire[7:0]   uart_data;          // recv data buffer
+reg         uart_en;            // send enable
+reg         master_rst;         // master reset flag
+wire        tx_busy;            // send data load done flag 
+wire        ds_data_out_2480;   // TxD for DS2480B serial option, connected to uart_txd in uart_send_2480
 
 uart_recv_2480 uart_recv_2480(
     .sys_clk(clk), 
@@ -156,8 +156,11 @@ uart_send_2480 uart_send_2480(
     .uart_en(uart_en), 
     .uart_din(tx_data),
     .uart_done(tx_busy),
-    .send_temp(ds_data_out)
+    .uart_txd(ds_data_out_2480),
+    .master_rst(master_rst)
 );
+
+assign ds_data_out = use_ds2480b ? ds_data_out_2480 : ds_data_out_1w;  // Use ds_data_out as DS2480B serial TxD / 1-wire output
 
 // State machine begins
 always @(posedge(clk))
@@ -197,7 +200,7 @@ begin
                    rise_time <= 8'hff;
                    ds_reset <= 2'd0;
                    ds_dir <= 1'b1;                // enable driver
-                   ds_data_out <= reg_wdata[2];   // for 1-wire, start reset pulse; for DS2480B, set TXD pin as output
+                   ds_data_out_1w <= 1'd0;        // for 1-wire, start reset pulse
                    cnt <= 17'd0;
                    end
             2'b11: begin
@@ -329,7 +332,8 @@ begin
           uart_en <= 1'b1;  // enable uart send module
           if (tx_busy == 1'b1) begin   // detect data load success flag   
              state <= next_state;
-             uart_en <= 1'b0;   // disable send module      
+             uart_en <= 1'b0;          // disable send module
+             master_rst <= 1'b0;         
 	       end
        end
        else begin
@@ -343,7 +347,7 @@ begin
           `cnt13 <= `cnt13 + 13'd1;
           if (`cnt13 == 13'd0) begin
              ds_dir <= 1'b1;           // Enable FPGA output
-             ds_data_out <= 1'b0;      // pulse data line low
+             ds_data_out_1w <= 1'b0;   // pulse data line low
              // Pulse low for 80 usec (3932 counts) or 8 usec (393 counts) depending on
              // state of bit.
           end
@@ -381,7 +385,7 @@ begin
           `cnt13 <= `cnt13 + 13'd1;
           if (`cnt13 == 13'd0) begin
              ds_dir <= 1'b1;                 // Enable FPGA output
-             ds_data_out <= 1'b0;            // pulse data line low
+             ds_data_out_1w <= 1'b0;         // pulse data line low
           end
           if (`cnt13 == 13'd49) begin        // 49 counts is about 1 usec
              ds_dir <= 1'b0;                // Tri-state FPGA output
@@ -406,30 +410,14 @@ begin
     /////////////////////////////////////////////////////////////////////////////////////////////
     DS_MASTER_RESET:   begin
        tx_data <= {1'b1, 8'h00, 1'b0};
-       state <= DS_WRITE_BYTE_4800;
+       master_rst <= 1'b1;
+       state <= DS_WRITE_BYTE;
        next_state <= DS_PROGRAMMER;
        cnt <= 17'd0;
        progCnt <= 4'd0;  // to avoid that DS2480B being configured so that progCnt not equals to 5
        DS2480B_ok <= 1;
        // Set ds_reset to indicate that 1-wire reset (via DS2480B) was successful
        ds_reset <= 2'd1;
-    end
-
-    DS_WRITE_BYTE_4800: begin
-          ds_dir <= 1'b1;
-          ds_data_out <= tx_data[cnt_bit];
-          if (cnt == 14'd10240) begin  // 10240 clock cycle is 4800 baud
-              if (cnt_bit == 'd9) begin
-                  cnt_bit <= 0;
-                  state <= next_state;
-                  cnt <= 0;
-              end
-              else begin
-                  cnt_bit <= cnt_bit + 4'd1;
-                  cnt <= 0;
-              end
-          end
-          else cnt <= cnt + 16'd1;
     end
 
     DS_PROGRAMMER: begin  // This state sends essential args to start reading memory
