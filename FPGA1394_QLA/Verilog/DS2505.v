@@ -514,28 +514,28 @@ end
 		  
 // when en_flag pulled high, register data-to-be-sent and start send process
 always @(posedge sys_clk) begin
-	 if (en_flag) begin                           // detect send enable rising edge
+    if (en_flag) begin                           // detect send enable rising edge
        tx_flag   <= 1'b1;                        // enter send process, tx_flag pull high
        uart_done <= 1'b0;
-       tx_data   <= uart_din;                    // register data-to-be-sent	
-	 end
-	 else if ((tx_cnt == 4'd9) && (clk_cnt == BPS_CNT_9600/2) && (!master_rst))
-	 begin                                        // In 9600 baud, stop send process a half baud cycle after stop bit
+       tx_data   <= uart_din;                    // register data-to-be-sent
+    end
+    else if ((tx_cnt == 4'd9) && (clk_cnt == BPS_CNT_9600/2) && (!master_rst))
+    begin                                        // In 9600 baud, stop send process a half baud cycle after stop bit
        tx_flag   <= 1'b0;                        // send process end, tx_flag pull low
        uart_done <= 1'b1;                        // issue send done flag to DS2505.v
        tx_data   <= 10'd0; 
-	 end
-	 else if ((tx_cnt == 4'd9) && (clk_cnt == BPS_CNT_4800/2) && (master_rst))
-	 begin                                        // For initial master reset in 4800 baud
+    end
+    else if ((tx_cnt == 4'd9) && (clk_cnt == BPS_CNT_4800/2) && (master_rst))
+    begin                                        // For initial master reset in 4800 baud
        tx_flag   <= 1'b0;                        // send process end, tx_flag pull low
        uart_done <= 1'b1;                        // issue send done flag to DS2505.v
-       tx_data   <= 10'd0; 
-	 end 
-	 else begin
+       tx_data   <= 10'd0;
+    end
+    else begin
        tx_flag   <= tx_flag;
        uart_done <= 1'b0;
        tx_data   <= tx_data;
-	 end
+    end
 end
 
 // after entering send process, start sys clk cnt & send data cnt
@@ -617,10 +617,10 @@ end
 		  
 // when pulse start_flag arrives, start recv process
 always @(posedge sys_clk) begin
-    if (start_flag)                     // detect start bit
-       rx_flag <= 1'b1;                 // enter recv process, rx_flag pull up
+    if (start_flag)                        // detect start bit
+       rx_flag <= 1'b1;                    // enter recv process, rx_flag pull up
     else if ((rx_cnt == 4'd9) && (clk_cnt == BPS_CNT/2)) 
-       rx_flag <= 1'b0;                 // stop recv process when counting to next half baud cycle of stop bit
+       rx_flag <= 1'b0;                    // stop recv process when counting to next half baud cycle of stop bit
     else
        rx_flag <= rx_flag; 
 end
