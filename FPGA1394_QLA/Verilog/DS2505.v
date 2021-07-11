@@ -625,7 +625,7 @@ always @(posedge sys_clk) begin
        rx_flag <= rx_flag; 
 end
 
-//after entering recv process, start sys clk cnt & recv data cnt
+// after entering recv process, start sys clk cnt & recv data cnt
 always @(posedge sys_clk) begin
     if (rx_flag) begin                     // still in recv process
        if (clk_cnt == BPS_CNT - 1) begin
@@ -642,7 +642,7 @@ always @(posedge sys_clk) begin
     end 
 end
 
-//store UART recv data according to recv counter
+// store UART recv data according to recv counter
 always @(posedge sys_clk) begin
     if (rx_flag)                           // system in recv process
        if (clk_cnt == BPS_CNT/2)           // clk counts to half of a data bit
@@ -653,11 +653,11 @@ always @(posedge sys_clk) begin
        rxdata <= 8'd0;	 
 end
 
-//data recv process finish, then issue a flag sig and register buffer data
+// data recv process finish, then issue a flag sig and register buffer data
 always @(posedge sys_clk) begin
-    if (rx_cnt == 4'd9) begin              //counts to the final bit
-       uart_data <= rxdata;                //register received data
-       uart_done <= 1'b1;                  //pull up recv done flag
+    if (rx_cnt == 4'd9) begin              // counts to the final bit
+       uart_data <= rxdata;                // register received data
+       uart_done <= 1'b1;                  // pull up recv done flag
     end
     else begin
        uart_data <= 8'd0;
