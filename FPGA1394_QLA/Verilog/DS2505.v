@@ -173,7 +173,7 @@ begin
        // handle block read, data is muxed in top module
        reg_rdata <= mem_data[ds_blk_raddr];
 
-       if (ds_reg_wen && dout_cfg_bidir) begin
+       if (ds_reg_wen) begin
           // Write:  bits 1:0
           //           00 -> disable interface (release control of DOUT3)
           //           01 -> enable interface (take control of DOUT3)
