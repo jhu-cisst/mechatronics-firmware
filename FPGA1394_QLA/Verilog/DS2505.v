@@ -192,10 +192,8 @@ begin
             2'b01: ds_enable <= 1'd1;
             2'b10: begin
                    ds_enable <= 1'd1;
-                   use_ds2480b <= reg_wdata[2];
-                   // If using DS2480B, jump to DS2480B configuration.
-                   // If using direct 1-wire, reset 1-wire interface.
-                   state <= reg_wdata[2] ? DS_MASTER_RESET : DS_RESET_BEGIN;
+                   use_ds2480b <= 1'b1;           // Assume using DS2480B for both interfaces
+                   state <= DS_MASTER_RESET;      // Start from DS2480B master reset                
                    mem_addr <= reg_wdata[26:16];  // 11-bit address (0-2047 bytes)
                    rise_time <= 8'hff;
                    ds_reset <= 2'd0;
@@ -377,7 +375,19 @@ begin
           if (recv_done == 1'b1) begin           //recv data cnt counts to the final baud cycle    
              in_byte <= recv_data;               //register received data
              state <= next_state;
+             cnt <= 17'd0;
 	       end
+          else if ((progCnt == 4'd3) && (cnt == 17'd76800)) begin
+             ds_enable <= 1'd1;
+             use_ds2480b <= 0;
+             state <= DS_RESET_BEGIN;
+             ds_reset <= 2'd0;
+             ds_dir <= 1'b1;                // enable driver
+             cnt <= 17'd0;
+          end
+          else begin
+             cnt <= cnt + 17'd1;
+          end
        end
        else begin
           // Drive low for < 1 usec, then tri-state line and wait another 14 usec before
