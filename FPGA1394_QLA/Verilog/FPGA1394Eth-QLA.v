@@ -483,21 +483,22 @@ CtrlAdc adc(
 reg         pot_filt_en;
 wire        pot_reload_wen;
 reg         pot_reload_valid;
+wire        pot_reload_ready;
 reg         pot_reload_last;
 reg         pot_save_complete;
 reg  [15:0] pot_coeff_arr [14:0];
 reg  [15:0] pot_coeff;
-reg  [3:0]  pot_reload_counter;
+reg  [3: 0] pot_reload_counter;
 
 initial     pot_filt_en = 1'b1;
 initial     pot_reload_valid = 0;
-initial     pot_coeff = 0;
-initial     pot_save_complete = 0;
-initial     pot_reload_counter = 0;
 initial     pot_reload_last = 0;
+initial     pot_save_complete = 0;
+initial     pot_coeff = 0;
+initial     pot_reload_counter = 0;
 
 // local wire for filt_pot
-wire[15:0] filt_pot_fb[1:4];
+wire [15:0] filt_pot_fb[1:4];
 
 // FIR pot enable signal
 always @(posedge(sysclk)) begin
@@ -514,7 +515,7 @@ assign pot_reload_wen = reg_wen && (reg_waddr[15:12] == `ADDR_FIR) && (reg_waddr
 // save coefficent in intermediate array
 always @(posedge(sysclk)) begin
     if (pot_reload_wen && ~pot_save_complete) begin
-        pot_coeff_arr[reg_waddr[11:8]] <= reg_wdata;
+        pot_coeff_arr[reg_waddr[11:8]] <= reg_wdata[15:0];
         if (reg_waddr[11:8] == `FIR_COE_SIZE-4'd1) begin
             pot_save_complete <= 1'b1;
         end
@@ -534,20 +535,20 @@ always @(posedge(clkadc)) begin
 		pot_reload_last <= 0;
 	end
 	// sequentially load in coefficient 
-	if (pot_reload_valid && pot_reload_ready) begin
+	if (pot_reload_valid && pot_reload_ready && pot_reload_counter != `FIR_COE_SIZE) begin
 		pot_coeff <= pot_coeff_arr[pot_reload_counter];
 		pot_reload_counter <= pot_reload_counter + 1'b1;
 	end
 	// deassert reload_tvalid and reset reload counter
-	if (pot_reload_counter > `FIR_COE_SIZE-4'd1) begin
+	if (pot_reload_counter == `FIR_COE_SIZE) begin
 		pot_reload_valid <= 0;
 		pot_reload_counter <= 0;
 	end
 	// handle tlast
-	if (pot_reload_counter == `FIR_COE_SIZE-4'd2) begin
+	if (pot_reload_counter == `FIR_COE_SIZE-4'd1) begin
 		pot_reload_last <= 1'b1;
 	end else begin
-	    pot_reload_last <= 0;
+	   pot_reload_last <= 0;
 	end
 end
 
@@ -572,18 +573,19 @@ FirFilter firpot(
 reg         cur_filt_en;
 wire        cur_reload_wen;
 reg         cur_reload_valid;
+wire        cur_reload_ready;
 reg         cur_reload_last;
 reg         cur_save_complete;
 reg  [15:0] cur_coeff_arr [14:0];
 reg  [15:0] cur_coeff;
-reg  [3:0]  cur_reload_counter;
+reg  [3: 0] cur_reload_counter;
 
 initial     cur_filt_en = 1'b1;
 initial     cur_reload_valid = 0;
-initial     cur_coeff = 0;
-initial     cur_save_complete = 0;
-initial     cur_reload_counter = 0;
 initial     cur_reload_last = 0;
+initial     cur_save_complete = 0;
+initial     cur_coeff = 0;
+initial     cur_reload_counter = 0;
 
 // local wire for filt_cur
 wire[15:0] filt_cur_fb[1:4];
@@ -603,7 +605,7 @@ assign cur_reload_wen = reg_wen && (reg_waddr[15:12] == `ADDR_FIR) && (reg_waddr
 // save coefficent in intermediate array
 always @(posedge(sysclk)) begin
     if (cur_reload_wen && ~cur_save_complete) begin
-        cur_coeff_arr[reg_waddr[11:8]] <= reg_wdata;
+        cur_coeff_arr[reg_waddr[11:8]] <= reg_wdata[15:0];
         if (reg_waddr[11:8] == `FIR_COE_SIZE-4'd1) begin
             cur_save_complete <= 1'b1;
         end
@@ -623,17 +625,17 @@ always @(posedge(clkadc)) begin
 		cur_reload_last <= 0;
 	end
 	// sequentially load in coefficient 
-	if (cur_reload_valid && cur_reload_ready) begin
+	if (cur_reload_valid && cur_reload_ready && cur_reload_counter != `FIR_COE_SIZE) begin
 		cur_coeff <= cur_coeff_arr[cur_reload_counter];
 		cur_reload_counter <= cur_reload_counter + 1'b1;
 	end
 	// deassert reload_tvalid and reset reload counter
-	if (cur_reload_counter > `FIR_COE_SIZE-4'd1) begin
+	if (cur_reload_counter == `FIR_COE_SIZE) begin
 		cur_reload_valid <= 0;
 		cur_reload_counter <= 0;
 	end
 	// handle tlast 
-	if (cur_reload_counter == `FIR_COE_SIZE-4'd2) begin
+	if (cur_reload_counter == `FIR_COE_SIZE-4'd1) begin
 		cur_reload_last <= 1'b1;
 	end else begin
 	    cur_reload_last <= 0;
@@ -676,7 +678,7 @@ assign reg_adc_data = {pot_fb_data[reg_raddr[7:4]], cur_fb_data[reg_raddr[7:4]]}
 assign reg_rd[`OFF_ADC_DATA] = reg_adc_data;
 
 wire[31:0] reg_filt_stat_data;
-assign reg_filt_stat_data = {{15'b0, pot_filt_en}, {15'b0, cur_filt_en}};
+assign reg_filt_stat_data = {16'b0, {3'b0, pot_save_complete, 3'b0, pot_filt_en, 3'b0, cur_save_complete, 3'b0, cur_filt_en}};
 
 // ----------------------------------------------------------------------------
 // Read/Write of commanded current (cur_cmd)

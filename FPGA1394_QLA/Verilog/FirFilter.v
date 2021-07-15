@@ -92,7 +92,7 @@ FIR filter (
   .s_axis_reload_tvalid(reload_valid),                              // input s_axis_reload_tvalid
   .s_axis_reload_tready(reload_ready),                              // output s_axis_reload_tready
   .s_axis_reload_tlast(reload_last),                                // input s_axis_reload_tlast
-  .s_axis_reload_tdata(coeff),                                      // input [15 : 0] s_axis_reload_tdata
+  .s_axis_reload_tdata(reload_coeff),                               // input [15 : 0] s_axis_reload_tdata
   .m_axis_data_tvalid(m_axis_data_tvalid),                          // output m_axis_data_tvalid
   .m_axis_data_tdata(m_axis_data_tdata),                            // output [159 : 0] m_axis_data_tdata
   .event_s_reload_tlast_missing(event_s_reload_tlast_missing),      // output event_s_reload_tlast_missing
