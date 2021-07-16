@@ -19,6 +19,7 @@
  *      8/29/18     Peter Kazanzides    Initial revision
  *      6/19/20     Shi Xin Sun         Adding support for DS2480B driver chip
  *      7/09/21     Simon Hao Yang      1-wire / DS2480B options successfully merged
+ *      7/15/21     Simon Hao YAng      Inerface auto-detection feature added
  */
 
  `include "Constants.v"
@@ -88,10 +89,9 @@ reg[10:0]   mem_addr;                // memory address for reading
 reg[7:0]    num_bytes;               // Number of bytes to read
 reg         ds_data_out_1w;          // ds_data_out, data out pin for direct 1-wire option
 
-reg         use_ds2480b;             // DS2480B usage check flag, communicating with software side
+reg         DS2480B_presence;        // DS2480B presence check flag, for automatically detect which interface to use
 reg[7:0]    expected_rxd;            // expected response (from configuration command)
 reg[9:0]    tx_data;                 // Transmit byte -- needs to be 10 bits -- could be merged with out_byte later
-reg         DS2480B_ok;              // DS2480B configuration successfully done
 reg[3:0]    cnt_bit;                 // index into bytes sent/received
 
 wire        ds_reg_wen;              // main quadlet reg interface
@@ -110,9 +110,8 @@ assign      ds_blk_raddr = reg_raddr[5:0];
 
 // Status register, communication with software side
 assign      ds_status[31:24] = family_code;
-assign      ds_status[23:16] = use_ds2480b ? in_byte : rise_time;
-assign      ds_status[15]    = use_ds2480b;
-assign      ds_status[14]    = DS2480B_ok;
+assign      ds_status[23:16] = DS2480B_presence ? in_byte : rise_time;
+assign      ds_status[15]    = DS2480B_presence;
 assign      ds_status[13]    = (state == DS_IDLE) ? 1'b0 : 1'b1;  // 0 if idle, 1 if busy
 assign      ds_status[12]    = 1'd0;
 assign      ds_status[8:4]   = state;
@@ -132,9 +131,6 @@ assign ds_program[4] = { mem_addr[7:0], mem_addr[7:0] };                      //
 assign ds_program[5] = { {5'd0, mem_addr[10:8]}, {5'd0, mem_addr[10:8]} };    // Memory read start addr, lower byte 
 assign ds_program[6] = { 8'hE3, 8'h00 };                                      // Enter CMD mode
 assign ds_program[7] = { 8'hC1, 8'hCD };                                      // Flush & reset DS2480B, 1-wire reset
-
-// Assign DS2480B_ok to 1, may be removed later in both firmware & software
-initial DS2480B_ok <= 1'b1;
 
 // UART instantiation
 wire        recv_done;          // recv data loading done flag 
@@ -160,7 +156,7 @@ UartTx_2480B UartTx_2480B(
     .master_rst(master_rst)
 );
 
-assign ds_data_out = use_ds2480b ? ds_data_out_2480 : ds_data_out_1w;  // Use ds_data_out as serial TxD / 1-wire output
+assign ds_data_out = DS2480B_presence ? ds_data_out_2480 : ds_data_out_1w;    // Use ds_data_out as serial TxD / 1-wire output
 
 // State machine begins
 always @(posedge(clk))
@@ -192,7 +188,7 @@ begin
             2'b01: ds_enable <= 1'd1;
             2'b10: begin
                    ds_enable <= 1'd1;
-                   use_ds2480b <= 1'b1;           // Assume using DS2480B for both interfaces
+                   DS2480B_presence <= 1'b1;      // Assume using DS2480B for both interfaces
                    state <= DS_MASTER_RESET;      // Start from DS2480B master reset                
                    mem_addr <= reg_wdata[26:16];  // 11-bit address (0-2047 bytes)
                    rise_time <= 8'hff;
@@ -202,11 +198,13 @@ begin
                    cnt <= 17'd0;
                    end
             2'b11: begin
-                   // ds_enable should already be 1
-                   // If using DS2480B, send next 64 0xFF requests and read 64 bytes memory
+                   // ds_enable should already be 1.
+                   // If using DS2480B, send next 64 0xFF requests and read 64 bytes memory.
                    // If using 1-wire, directly read 64 bytes memory.
+                   // This check bit reg_wdata[2] is from the status feedback of initial 256 bytes read,
+                   // with the same value of DS2480B_presence. Check software AmpIO.cpp for more details.
                    state <= reg_wdata[2] ? DS_READ_MEM_REQUEST : DS_READ_MEM_START;
-                   use_ds2480b <= reg_wdata[2];
+                   DS2480B_presence <= reg_wdata[2];
                    cnt <= 17'd0;
                    end
           endcase
@@ -325,12 +323,12 @@ begin
        next_state <= DS_READ_MEM_START;
     end
 
-    // DS_WRITE_BYTE, DS_READ_BYTE are muxed by both two options
+    // DS_WRITE_BYTE, DS_READ_BYTE are muxed by both two interfaces
     DS_WRITE_BYTE: begin
-       if (use_ds2480b) begin
+       if (DS2480B_presence) begin
           ds_dir <= 1'b1;
           send_en <= 1'b1;               // enable uart send module
-          if (send_done == 1'b1) begin   // detect data load successfully  
+          if (send_done == 1'b1) begin   // detect data loaded successfully  
              state <= next_state;
              send_en <= 1'b0;            // disable send module
              master_rst <= 1'b0;         // after initial master reset, flag always pulled low
@@ -369,17 +367,28 @@ begin
           end
        end
     end
-
+    
+    // DS_WRITE_BYTE, DS_READ_BYTE are muxed by both two interfaces
     DS_READ_BYTE: begin
-       if (use_ds2480b) begin
-          if (recv_done == 1'b1) begin           //recv data cnt counts to the final baud cycle    
-             in_byte <= recv_data;               //register received data
+       if (DS2480B_presence) begin               // using DS2480B interface
+          if (recv_done == 1'b1) begin           // detect data receiving process ending    
+             in_byte <= recv_data;               // register received data to local buffer in_byte
              state <= next_state;
              cnt <= 17'd0;
 	       end
+          // Inerface auto-detect implementation. For DS2480B serial interface, the
+          // first available response is the skip ROM feedback, 0xCC. According to
+          // test results, DS2505 & DS2480B delays about 0.5 msec to start receiving
+          // process, right after the sending process ends. The receiving process costs
+          // 8 cycles in 9600 baud rate, aka 8 * 5120 cnts under 49.152 Mhz, lasting 
+          // about 0.8 msec. In total there's about 13 * 5120 cnts between the send_done
+          // and recv_done flags issued, so we add a 15 baud cycle timer for automatically
+          // detecting interface in use: once recv_done flag is not detected in this 
+          // period, it indicates that we're currently using 1-wire interface and the
+          // state machine jumps to 1-wire reset section.
           else if ((progCnt == 4'd3) && (cnt == 17'd76800)) begin
              ds_enable <= 1'd1;
-             use_ds2480b <= 0;
+             DS2480B_presence <= 0;         // using 1-wire interface
              state <= DS_RESET_BEGIN;
              ds_reset <= 2'd0;
              ds_dir <= 1'b1;                // enable driver
@@ -427,7 +436,6 @@ begin
        next_state <= DS_PROGRAMMER;
        cnt <= 17'd0;
        progCnt <= 4'd0;                 // start from programmer arg 0
-       DS2480B_ok <= 1;
        ds_reset <= 2'd1;
     end
 
@@ -459,19 +467,20 @@ begin
        next_state <= DS_READ_MEM_START;
     end
 
-    // DS_READ_MEM_START, DS_READ_MEM are muxed by both two options    
+    // DS_READ_MEM_START, DS_READ_MEM are muxed by both two interfaces   
     DS_READ_MEM_START: begin
        state <= DS_READ_BYTE;
        next_state <= DS_READ_MEM;
     end
 
+   // DS_READ_MEM_START, DS_READ_MEM are muxed by both two interfaces 
     DS_READ_MEM: begin
-       state <= use_ds2480b ? DS_READ_MEM_REQUEST : DS_READ_BYTE;
+       state <= DS2480B_presence ? DS_READ_MEM_REQUEST : DS_READ_BYTE;
        next_state <= DS_READ_MEM;
        num_bytes <= num_bytes + 8'd1;
        mem_data[num_bytes[7:2]] <= (mem_data[num_bytes[7:2]] << 8) | in_byte;
        if (num_bytes == 8'hff) begin
-          state <= DS_IDLE;  // back to IDLE state, direct 1-wire stop, DS2480B jump to flush states
+          state <= DS_IDLE;  // back to IDLE state, direct 1-wire interface stops, DS2480B jumps to flush states
        end
     end
 
