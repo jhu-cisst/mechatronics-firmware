@@ -478,6 +478,8 @@ assign reg_adc_data = {pot_fb[reg_raddr[7:4]], cur_fb[reg_raddr[7:4]]};
 
 assign reg_rd[`OFF_ADC_DATA] = reg_adc_data;
 
+assign buf_rd[`OFF_BUF_ADC] = {pot_fb[buf_data_channel], cur_fb[buf_data_channel]};
+
 // ----------------------------------------------------------------------------
 // Read/Write of commanded current (cur_cmd)
 // This is now done outside CtrlDac to support digital control implementations.
@@ -526,6 +528,8 @@ end
 `endif
 
 assign reg_rd[`OFF_DAC_CTRL] = cur_cmd[reg_raddr[7:4]];
+
+assign buf_rd[`OFF_BUF_DAC] = cur_cmd[buf_data_channel];
 
 // --------------------------------------------------------------------------
 // dacs
@@ -580,6 +584,20 @@ assign reg_rd[`OFF_PER_DATA] = reg_perd_data;    // period
 assign reg_rd[`OFF_QTR1_DATA] = reg_qtr1_data;   // last quarter cycle 
 assign reg_rd[`OFF_QTR5_DATA] = reg_qtr5_data;   // quarter cycle 5 edges ago
 assign reg_rd[`OFF_RUN_DATA] = reg_run_data;     // running counter
+
+
+wire[31:0] buf_quad_data;
+wire[31:0] buf_perd_data;
+wire[31:0] buf_qtr1_data;
+wire[31:0] buf_qtr5_data;
+wire[31:0] buf_run_data;
+
+assign buf_rd[`OFF_BUF_ENC_DATA]  = buf_quad_data;
+assign buf_rd[`OFF_BUF_PER_DATA]  = buf_perd_data;
+assign buf_rd[`OFF_BUF_QTR1_DATA] = buf_qtr1_data;
+assign buf_rd[`OFF_BUF_QTR5_DATA] = buf_qtr5_data;
+assign buf_rd[`OFF_BUF_RUN_DATA]  = buf_run_data;
+
 
 // --------------------------------------------------------------------------
 // digital output (DOUT) control
@@ -921,23 +939,35 @@ Reboot fpga_reboot(
 // --------------------------------------------------------------------------
 // Data Buffer
 // --------------------------------------------------------------------------
-wire[3:0] data_channel;
-wire[31:0] reg_rdata_databuf;
+wire [31:0] buf_rd [0:15];
+
+wire [31:0] reg_rdata_databuf;
+
+// local wires
+wire [3 :0] buf_data_channel;
+wire [3 :0] buf_data_type;
+wire [3 :0] buf_data_format;
+
+wire        buf_data_fb_wen;
+assign      buf_data_fb_wen = (buf_data_type == `OFF_BUFFER_POT) ? pot_fb_wen : 
+                              (buf_data_type == `OFF_BUFFER_CUR) ? cur_fb_wen : cur_fb_wen;
+
+wire [31:0] buf_input_data;
+assign      buf_input_data = buf_rd[buf_data_type];
 
 DataBuffer data_buffer(
-    .clk(sysclk),
-    // data collection interface
-    .cur_fb_wen(cur_fb_wen),
-    .cur_fb(cur_fb[data_channel]),
-    .chan(data_channel),
-    // cpu interface
+    .clkbuffer(sysclk),
+    .data_fb_wen(buf_data_fb_wen),
+    .input_data(buf_input_data),      
+    .data_type(buf_data_type),
+    .data_channel(buf_data_channel),
+    .data_format(buf_data_format)
     .reg_waddr(reg_waddr),          // write address
     .reg_wdata(reg_wdata),          // write data
     .reg_wen(reg_wen),              // write enable
     .reg_raddr(reg_raddr),          // read address
     .reg_rdata(reg_rdata_databuf),  // read data
-    // status and timestamp
-    .databuf_status(reg_databuf),   // status for SampleData
+    .buf_status(reg_databuf),       // status for SampleData
     .ts(timestamp)                  // timestamp from SampleData
 );
 

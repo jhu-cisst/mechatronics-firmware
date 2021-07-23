@@ -11,106 +11,190 @@
  *      3/9/20      Shi Xin Sun         Initial Revision
  *     3/16/20      Peter Kazanzides    Adapted for QLA
  *     5/28/20      Stefan Kohlgrueber  Corrections for operation for all channels
+ *     7/22/21      Jintan Zhang        Revised Implementation
  */
 
 `include "Constants.v"
 
 module DataBuffer(
-    input             clk,
-    // write interface
-    input  wire       cur_fb_wen,   // motor current feedback data ready
-    input  wire[15:0] cur_fb,       // motor current feedback
-    output reg[3:0]   chan,         // selected data channel
-    // CPU interface
-    input  wire[15:0] reg_waddr,    // register write address
-    input  wire[31:0] reg_wdata,    // register write
-    input  wire       reg_wen,      // register write enable
-    input  wire[15:0] reg_raddr,    // register read address
-    output wire[31:0] reg_rdata,    // read data
-    // Status
-    output wire[15:0] databuf_status,
-    // Timestamp
-    input  wire[31:0] ts
+    input                clkbuffer,
+    input  wire [31:0]   ts,
+
+    input  wire          data_fb_wen,
+    input  wire [31:0]   input_data,      
+    output wire [3 :0]   data_type,
+    output wire [3 :0]   data_channel,
+    output wire [3 :0]   data_format,
+
+    input  wire [15:0]   reg_waddr,
+    input  wire [31:0]   reg_wdata,
+    input  wire          reg_wen,
+    input  wire [15:0]   reg_raddr,
+    output wire [31:0]   reg_rdata,
+    output wire [15:0]   buf_status
 );
 
-initial chan = 4'd1;
+// --------------------------------------------
+// receive & update target data struct
+// --------------------------------------------
+wire    data_struct_wen;
+assign  data_struct_wen = reg_wen && reg_waddr[15:12] == `ADDR_DATA_BUF && reg_waddr[3:0] == `OFF_DATA_STRUCT;
 
-reg       collecting;
-reg       buf_wr;
-reg[9:0]  buf_wr_addr;
-reg[31:0] buf_wr_data;
-reg       cur_fb_wen_last;
-reg       cur_fb_pending;
+/* Note:
+ * 1. target_data_num    : number of signals to collect.
+ * 1. target_data_type   : buffer data source, supports pot, cur, and encoder readings.
+ * 2. target_data_channel: channel through which the data is coming from.
+ * 3. target_data_format : number of bits allocated to store buffered data.
+ */
+reg     [3:0] target_data_num;
+reg     [3:0] target_data_counter;
+reg     [3:0] target_data_type    [15:0];
+reg     [3:0] target_data_channel [15:0];
+reg     [3:0] target_data_format  [15:0];
 
-wire      cur_fb_trigger;
-assign    cur_fb_trigger = (cur_fb_wen == 1) && (cur_fb_wen_last == 0) ? 1'b1 : 1'b0;
+integer i;
+initial begin
+    target_data_num        = 0;
+    target_data_counter    = 0;
+    for(i = 1; i <= `NUM_CHANNELS; i = i + 1) begin
+        target_data_type[i]    = 0;
+        target_data_channel[i] = 0;
+        target_data_format[i]  = 0;
+    end
+end
 
-assign    databuf_status = { collecting, 1'b0, chan, buf_wr_addr };
+reg     data_struct_config_complete;
+initial data_struct_config_complete = 0;
 
-// Indicate whether timestamp has more than 14 bits
-wire     ts_over14;
-assign   ts_over14 = (ts[31:14] == 18'd0) ? 1'b0 : 1'b1;
+always @(posedge(clkbuffer)) begin
+    if (data_struct_wen && reg_waddr[11:8] == `OFF_BUF_SIGNAL_NUM_MASK) begin
+        target_data_num <= reg_wdata[3:0];
+    end
+    if (data_struct_wen && reg_waddr[11:8] == `OFF_BUF_SIGNAL_SPEC_MASK) begin
+        target_data_type[target_data_counter]    <= reg_wdata[15:12];
+        target_data_channel[target_data_counter] <= reg_wdata[7:4];
+        target_data_format[target_data_counter]  <= reg_wdata[3:0];
+        target_data_counter <= target_data_counter + 4'b1;
+    end
+    if (target_data_counter == target_data_num && target_data_num != 0) begin
+        data_struct_config_complete <= 1'b1;
+        target_data_counter <= 4'b0;
+    end
+end
+
+// --------------------------------------------
+// buffer write
+// --------------------------------------------
 
 // Note that the data collection bit (30) is used to start/stop data collection.
-wire cur_cmd_wen;    // Write enable for commanded current
-// Write the command current to the buffer when:
+// Write the command signal to the buffer when:
 //   1) Collection bit set (reg_wdata[30]), but not already collecting
-//   2) Collection in process and writing current to the correct channel
-assign cur_cmd_wen = reg_wen && (reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[3:0]==`OFF_DAC_CTRL);
+//   2) Collection in process and writing signal to the correct channel
 
-wire[31:0] mem_read;
+// local wires
+reg         collecting;
+reg         buf_wen;
+reg [9 :0]  buf_waddr;
+reg [31:0]  buf_wdata;
+reg [3 :0]  buffer_counter;
+
+initial begin
+    collecting     = 0;
+    buf_wen        = 0;
+    buf_waddr      = 0;
+    buf_wdata      = 0;
+    buffer_counter = 0;
+end
+
+// Indicate whether timestamp has more than 14 bits
+wire        ts_over14;
+assign      ts_over14 = (ts[31:14] == 18'd0) ? 1'b0 : 1'b1;
+
+// find type, channel, format according to assigned data structure
+assign data_type    = target_data_type[buffer_counter];
+assign data_channel = target_data_channel[buffer_counter];
+assign data_format  = target_data_format[buffer_counter];
+
+always @(posedge(clkbuffer)) begin
+    if (~collecting) begin
+        buf_wen <= 0;
+    end else if (data_struct_config_complete) begin
+        // reset write address pointer, set counter to waiting state
+        buf_wen <= 0;
+        buf_waddr <= 0;
+        buffer_counter <= target_data_num;
+        data_struct_config_complete <= 0;
+    end else if (buffer_counter == 0) begin
+        // store time stamps
+        buf_wen <= 1'b1;
+        buf_wdata <= {1'b1, ts_over14, ts[13:0]};
+        buffer_counter <= buffer_counter + 3'b1;
+    end else if (buffer_counter < target_data_num) begin
+        // store target data
+        buf_wen <= 1;
+        buf_waddr <= buf_waddr + 9'b1;
+        buf_wdata <= input_data;
+        buffer_counter <= buffer_counter + 3'b1;
+    end else if (buffer_counter == target_data_num && data_fb_wen) begin
+        // buffer waiting state, reset counter to 0 when new samples are ready
+        buffer_counter <= 0;
+    end
+end
+
+// --------------------------------------------
+// buffer read
+// --------------------------------------------
+
 // Read data:
 //   7000-73ff  memory
 //   7400-77ff  memory (wrapping for circular buffer)
 //   7800       status register
-// all other addresses return 0
-assign reg_rdata = (reg_raddr[11] == 1'b0) ? mem_read :
-                   (reg_raddr[11:0] == 12'h800) ? { 16'd0, databuf_status }
-                   : 32'd0;
+//   all other addresses return 0
 
-Dual_port_RAM_32X1024 Dual_port_RAM_32X1024(
-    .clka(clk),
-    .ena(1'b1),
-    .wea(buf_wr),
-    .addra(buf_wr_addr),
-    .dina(buf_wr_data),
-    .clkb(clk),
-    .enb(1'b1),
-    .addrb(reg_raddr[9:0]),
-    .doutb(mem_read)
-);
+wire [31:0]  buf_rdata;
 
-// --------------------------------------------
-// buffer write address and data gen
-// --------------------------------------------
+assign       buf_status = {collecting, 1'b0, reg_raddr[10], buf_waddr[reg_raddr[10]]};
+assign       reg_rdata  = (reg_raddr[11] == 1'b0) ? buf_rdata : (reg_raddr[11:0] == 12'h800) ? { 16'd0, buf_status } : 32'd0;
 
-always @(posedge clk)
-begin
-    if (cur_cmd_wen) begin     // if new cmd values which fit criteria
-        if (!collecting && reg_wdata[30]) begin  // rising edge collecting
-            chan <= reg_waddr[7:4];   // update channel
-            buf_wr_addr <= 10'd0;     // reset address
-            collecting <= 1;
-        end
-        else if (reg_waddr[7:4] == chan) begin
-            buf_wr_addr <= buf_wr_addr+reg_wdata[30];
-            collecting <= reg_wdata[30];
-        end
-        buf_wr <= reg_wdata[30];
-        buf_wr_data <= {1'b0, ts_over14, ts[13:0], reg_wdata[15:0]};
-        if (reg_wdata[30]&cur_fb_trigger)
-            cur_fb_pending <= 1;
-    end
-    else if ((collecting&cur_fb_trigger)|cur_fb_pending) begin
-        buf_wr_data <= {1'b1, ts_over14, ts[13:0], cur_fb};
-        buf_wr <= 1;
-        buf_wr_addr <= buf_wr_addr+1;
-        cur_fb_pending <= 0;
-    end
-    else begin
-        buf_wr <= 0;
-    end
-    cur_fb_wen_last <= cur_fb_wen; //update ADC edge detection flag for next cycle
+// local register pointing to last valid read address
+reg  [9 :0]  buf_last_raddr;
+reg  [9 :0]  buf_raddr;
+
+initial begin
+    buf_last_raddr = 0;
+    buf_raddr = 0;
 end
+
+always @(posedge(clkbuffer)) begin
+    if(~reg_raddr[11]) begin
+        buf_last_raddr <= reg_raddr[9:0];
+    end
+end
+
+// set buffer read address to last valid read address when program restarts
+wire prog_restart;
+
+always @(posedge(clkbuffer)) begin
+    if(prog_restart) begin
+        buf_raddr <= buf_last_raddr;
+    end else begin
+        buf_raddr <= reg_raddr[9:0];
+    end
+end
+
+// --------------------------------------------
+// RAM unit
+// --------------------------------------------
+Dual_port_RAM_32X1024 Dual_port_RAM_32X1024(
+    .clka(clkbuffer),
+    .ena(1'b1),
+    .wea(buf_wen),
+    .addra(buf_waddr),
+    .dina(buf_wdata),
+    .clkb(clkbuffer),
+    .enb(1'b1),
+    .addrb(buf_raddr),
+    .doutb(buf_rdata)
+);
 
 endmodule
