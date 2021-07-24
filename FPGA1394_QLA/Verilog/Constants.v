@@ -134,9 +134,11 @@
 `define OFF_BUF_ENC_QTR5         4'd6
 `define OFF_BUF_ENC_RUN          4'd7
 
+// Data Buffer Target Format
 `define OFF_BUF_UINT16           4'd1
 `define OFF_BUF_UINT32           4'd2
 
+// Data Buffer Configuation Mask & identifier
 `define OFF_BUF_SIGNAL_SPEC_MASK 4'd1
 `define OFF_BUF_SIGNAL_NUM_MASK  4'd2
 `define OFF_BUF_SAMPLE_NUM_MASK  4'd3
