@@ -31,7 +31,9 @@ module DataBuffer(
     input  wire          reg_wen,
     input  wire [15:0]   reg_raddr,
     output wire [31:0]   reg_rdata,
-    output wire [15:0]   buf_status
+    output wire [15:0]   buf_status,
+
+    input  wire          prog_restart
 );
 
 // --------------------------------------------
@@ -56,7 +58,7 @@ integer i;
 initial begin
     target_data_num        = 0;
     target_data_counter    = 0;
-    for(i = 1; i <= `NUM_CHANNELS; i = i + 1) begin
+    for (i = 1; i <= `NUM_CHANNELS; i = i + 1) begin
         target_data_type[i]    = 0;
         target_data_channel[i] = 0;
         target_data_format[i]  = 0;
@@ -105,11 +107,11 @@ always @(posedge(clkbuffer)) begin
 end
 
 // local wires
-reg         buf_wen,
-reg         buf_busy,
-reg [9 :0]  buf_waddr,
+reg         buf_wen;
+reg         buf_busy;
+reg [9 :0]  buf_waddr;
 reg [31:0]  buf_wdata;
-reg [3 :0]  buf_counter,
+reg [3 :0]  buf_counter;
 
 initial begin
     buf_wen        = 0;
@@ -151,6 +153,9 @@ parameter
     ST_CONFIG_READY = 1,
     ST_TIME_STAMP   = 2,
     ST_LOOP_MAIN    = 3;
+// TODO: implement another state where ram write pointer waits read pointer until read
+//       is complete, then it reset write address to top of the ram
+//  ST_WAIT_READ
 
 initial state = ST_IDLE;
 
@@ -216,7 +221,7 @@ always @(posedge(clkbuffer)) begin
 end
 
 // --------------------------------------------
-// buffer read
+// buffer read && maintain last read address
 // --------------------------------------------
 
 // Read data:
@@ -230,6 +235,25 @@ wire [31:0]  buf_rdata;
 assign       buf_status = {buf_busy, 1'b0, reg_raddr[10], buf_waddr[reg_raddr[10]]};
 assign       reg_rdata  = (reg_raddr[11] == 1'b0) ? buf_rdata : (reg_raddr[11:0] == 12'h800) ? { 16'd0, buf_status } : 32'd0;
 
+// falling edge detection
+wire   master_read;
+assign master_read = reg_raddr[11];
+
+reg  master_read_sync;
+reg  master_read_prev;
+wire master_read_trigger;
+
+initial begin
+    master_read_sync = 0;
+    master_read_prev = 0;
+end
+
+always @(posedge(clkbuffer)) begin
+    master_read_sync <= master_read;
+    master_read_prev <= master_read_sync;
+end
+assign master_read_trigger = master_read_prev && (!master_read_sync);
+
 // local register pointing to last valid read address
 reg  [9 :0]  buf_last_raddr;
 reg  [9 :0]  buf_raddr;
@@ -239,17 +263,16 @@ initial begin
     buf_raddr = 0;
 end
 
+// store last read address when PC stops reading
 always @(posedge(clkbuffer)) begin
-    if(~reg_raddr[11]) begin
+    if (master_read_trigger) begin
         buf_last_raddr <= reg_raddr[9:0];
     end
 end
 
 // set buffer read address to last valid read address when program restarts
-wire prog_restart;
-
 always @(posedge(clkbuffer)) begin
-    if(prog_restart) begin
+    if (prog_restart) begin
         buf_raddr <= buf_last_raddr;
     end else begin
         buf_raddr <= reg_raddr[9:0];
