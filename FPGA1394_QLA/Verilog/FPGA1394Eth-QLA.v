@@ -955,6 +955,8 @@ assign      buf_data_fb_wen = (buf_data_type == `OFF_BUFFER_POT) ? pot_fb_wen :
 wire [31:0] buf_input_data;
 assign      buf_input_data = buf_rd[buf_data_type];
 
+wire        prog_start;
+
 DataBuffer data_buffer(
     .clkbuffer(sysclk),
     .data_fb_wen(buf_data_fb_wen),
@@ -968,7 +970,8 @@ DataBuffer data_buffer(
     .reg_raddr(reg_raddr),          // read address
     .reg_rdata(reg_rdata_databuf),  // read data
     .buf_status(reg_databuf),       // status for SampleData
-    .ts(timestamp)                  // timestamp from SampleData
+    .ts(timestamp),                 // timestamp from SampleData
+    .prog_start(prog_start)         // indicator for running qladisp.cpp
 );
 
 //------------------------------------------------------------------------------
