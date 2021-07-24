@@ -139,6 +139,7 @@
 
 `define OFF_BUF_SIGNAL_SPEC_MASK 4'd1
 `define OFF_BUF_SIGNAL_NUM_MASK  4'd2
+`define OFF_BUF_SAMPLE_NUM_MASK  4'd3
 
 `define OFF_DATA_STRUCT          4'd3
 
