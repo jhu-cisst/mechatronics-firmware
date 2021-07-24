@@ -67,10 +67,10 @@ reg     data_struct_config_complete;
 initial data_struct_config_complete = 0;
 
 always @(posedge(clkbuffer)) begin
-    if (data_struct_wen && reg_waddr[11:8] == `OFF_BUF_SIGNAL_NUM_MASK) begin
+    if (data_struct_wen && reg_waddr[11:8] == `OFF_BUF_SIGNAL_NUM_MASK && !buf_busy) begin
         target_data_num <= reg_wdata[3:0];
     end
-    if (data_struct_wen && reg_waddr[11:8] == `OFF_BUF_SIGNAL_SPEC_MASK) begin
+    if (data_struct_wen && reg_waddr[11:8] == `OFF_BUF_SIGNAL_SPEC_MASK && !buf_busy) begin
         target_data_type[target_data_counter]    <= reg_wdata[15:12];
         target_data_channel[target_data_counter] <= reg_wdata[7:4];
         target_data_format[target_data_counter]  <= reg_wdata[3:0];
@@ -80,30 +80,43 @@ always @(posedge(clkbuffer)) begin
         data_struct_config_complete <= 1'b1;
         target_data_counter <= 4'b0;
     end
+    if (buf_busy) begin
+        data_struct_config_complete <= 0;
+    end
 end
 
 // --------------------------------------------
-// buffer write
+// buffer write & data buffer state machine
 // --------------------------------------------
 
-// Note that the data collection bit (30) is used to start/stop data collection.
-// Write the command signal to the buffer when:
-//   1) Collection bit set (reg_wdata[30]), but not already collecting
-//   2) Collection in process and writing signal to the correct channel
-
-// local wires
-reg         collecting;
-reg         buf_wen;
-reg [9 :0]  buf_waddr;
-reg [31:0]  buf_wdata;
-reg [3 :0]  buffer_counter;
+/*<user should specify the sample number of the data structure to be collected>*/
+reg [10:0]  ram_counter;
+reg [10:0]  ram_samples;
 
 initial begin
-    collecting     = 0;
+    ram_counter = 0;
+    ram_samples = 0;
+end
+
+always @(posedge(clkbuffer)) begin
+    if (data_struct_wen && reg_waddr[11:8] == `OFF_BUF_SAMPLE_NUM_MASK && !buf_busy) begin
+        ram_samples <= reg_wdata[10:0];
+    end
+end
+
+// local wires
+reg         buf_wen,
+reg         buf_busy,
+reg [9 :0]  buf_waddr,
+reg [31:0]  buf_wdata;
+reg [3 :0]  buf_counter,
+
+initial begin
     buf_wen        = 0;
+    buf_busy       = 0;
     buf_waddr      = 0;
     buf_wdata      = 0;
-    buffer_counter = 0;
+    buf_counter    = 0;
 end
 
 // Indicate whether timestamp has more than 14 bits
@@ -111,34 +124,95 @@ wire        ts_over14;
 assign      ts_over14 = (ts[31:14] == 18'd0) ? 1'b0 : 1'b1;
 
 // find type, channel, format according to assigned data structure
-assign data_type    = target_data_type[buffer_counter];
-assign data_channel = target_data_channel[buffer_counter];
-assign data_format  = target_data_format[buffer_counter];
+assign data_type    = target_data_type[buf_counter];
+assign data_channel = target_data_channel[buf_counter];
+assign data_format  = target_data_format[buf_counter];
+
+// data valid signal trigger
+reg  data_fb_wen_sync;
+reg  data_fb_wen_prev;
+wire data_fb_wen_trigger;
+
+initial begin
+    data_fb_wen_sync = 0;
+    data_fb_wen_prev = 0;
+end
 
 always @(posedge(clkbuffer)) begin
-    if (~collecting) begin
-        buf_wen <= 0;
-    end else if (data_struct_config_complete) begin
-        // reset write address pointer, set counter to waiting state
-        buf_wen <= 0;
-        buf_waddr <= 0;
-        buffer_counter <= target_data_num;
-        data_struct_config_complete <= 0;
-    end else if (buffer_counter == 0) begin
-        // store time stamps
-        buf_wen <= 1'b1;
-        buf_wdata <= {1'b1, ts_over14, ts[13:0]};
-        buffer_counter <= buffer_counter + 3'b1;
-    end else if (buffer_counter < target_data_num) begin
-        // store target data
-        buf_wen <= 1;
-        buf_waddr <= buf_waddr + 9'b1;
-        buf_wdata <= input_data;
-        buffer_counter <= buffer_counter + 3'b1;
-    end else if (buffer_counter == target_data_num && data_fb_wen) begin
-        // buffer waiting state, reset counter to 0 when new samples are ready
-        buffer_counter <= 0;
-    end
+    data_fb_wen_sync <= data_fb_wen;
+    data_fb_wen_prev <= data_fb_wen_sync;
+end
+assign data_fb_wen_trigger = (!data_fb_wen_prev) && data_fb_wen_sync;
+
+// buffer starts collecting when data structure configuration is completed
+reg [2:0] state;
+parameter
+    ST_IDLE         = 0,
+    ST_CONFIG_READY = 1,
+    ST_TIME_STAMP   = 2,
+    ST_LOOP_MAIN    = 3;
+
+initial state = ST_IDLE;
+
+always @(posedge(clkbuffer)) begin
+    case (state)
+
+        ST_IDLE: begin
+            /*<new data structure configuration complete, ready to buffer data>*/
+            if (data_struct_config_complete) begin
+                buf_wen <= 0;
+                buf_busy <= 1;
+                buf_waddr <= 0;
+                ram_counter <= 0;
+                state <= ST_CONFIG_READY;
+            end else begin
+                /*<waiting for new data structure>*/
+                state <= ST_IDLE;
+            end
+        end
+
+        ST_CONFIG_READY: begin
+            /*<data valid signal received, start buffering loop>*/
+            if (data_fb_wen_trigger && ram_counter < ram_samples) begin
+                buf_counter <= 0;
+                ram_counter <= ram_counter + 10'b1;
+                state <= ST_TIME_STAMP;
+            end else if (ram_counter == ram_samples) begin
+                /*<enough data samples have been captured, quit buffering loop>*/
+                buf_wen <= 0;
+                buf_busy <= 0;
+                state <= ST_IDLE;
+            end else begin
+                /*<wait for data valid signal to start>*/
+                state <= ST_CONFIG_READY;
+            end
+        end
+
+        ST_TIME_STAMP: begin
+            /*<save time stamp>*/
+            buf_wen <= 1'b1;
+            buf_waddr <= buf_waddr + 9'b1;
+            buf_wdata <= {1'b1, ts_over14, ts[13:0]};
+            buf_counter <= buf_counter + 3'b1;
+            state <= ST_LOOP_MAIN;
+        end
+
+        ST_LOOP_MAIN: begin
+            /*<buffer data according to data structure>*/
+            if (buf_counter < target_data_num) begin
+                buf_wen <= 1;
+                buf_waddr <= buf_waddr + 9'b1;
+                buf_wdata <= input_data;
+                buf_counter <= buf_counter + 3'b1;
+                state <= ST_LOOP_MAIN;
+            end else begin
+                /*<one sample buffering complete, go to ready state for another valid signal>*/
+                buf_wen <= 0;
+                state <= ST_CONFIG_READY;
+            end
+        end
+
+    endcase
 end
 
 // --------------------------------------------
@@ -153,7 +227,7 @@ end
 
 wire [31:0]  buf_rdata;
 
-assign       buf_status = {collecting, 1'b0, reg_raddr[10], buf_waddr[reg_raddr[10]]};
+assign       buf_status = {buf_busy, 1'b0, reg_raddr[10], buf_waddr[reg_raddr[10]]};
 assign       reg_rdata  = (reg_raddr[11] == 1'b0) ? buf_rdata : (reg_raddr[11:0] == 12'h800) ? { 16'd0, buf_status } : 32'd0;
 
 // local register pointing to last valid read address
