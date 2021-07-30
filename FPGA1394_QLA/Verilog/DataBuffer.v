@@ -81,17 +81,17 @@ end
 wire    buf_collect_wen;
 assign  buf_collect_wen = reg_wen && reg_waddr[15:12] == `ADDR_DATA_BUF && reg_waddr[3:0] == `OFF_BUF_STAT;
 
-reg [2 :0]  buf_collect_mode;
+reg [3 :0]  buf_collect_mode;
 reg [10:0]  buf_ram_counter;
 reg [10:0]  buf_ram_samples;
 
 always @(posedge(clkbuffer)) begin
-    if (data_collect_wen && reg_waddr[11:8] == `OFF_BUF_MODE_SAMPLE && !buf_busy) begin
+    if (buf_collect_wen && reg_waddr[11:8] == `OFF_BUF_MODE_SAMPLE && !buf_busy) begin
         /*<collection stops when requested amount of data frames have been collected>*/
         /*<PC writes requested data frame number>*/
         buf_ram_samples <= reg_wdata[10:0];
         buf_collect_mode <= `OFF_BUF_MODE_SAMPLE;
-    end else if (data_collect_wen && reg_waddr[11:8] == `OFF_BUF_MODE_CONTINUOUS && !buf_busy) begin
+    end else if (buf_collect_wen && reg_waddr[11:8] == `OFF_BUF_MODE_CONTINUOUS && !buf_busy) begin
         /*<buffer continuously capture data until a stop collection command is sent>*/
         buf_ram_samples <= 0;
         buf_collect_mode <= `OFF_BUF_MODE_CONTINUOUS;
@@ -141,14 +141,14 @@ end
 assign data_fb_wen_trigger = (!data_fb_wen_prev) && data_fb_wen_sync;
 
 /*<state machine>*/
-reg [2:0] state;
+reg [3:0] state;
 parameter
-    ST_IDLE            = 0   // wait for collect start command or configuration command
-    ST_WAIT_CONFIG     = 1,  // wait for new configuration when PC requested or board rebooted
-    ST_MODE_SAMPLE     = 2,  // wait for new data valid signal, stop collection on stop command or enough samples 
-    ST_MODE_CONTINUOUS = 3,  // wait for new data valid signal, stop collection on stop command
-    ST_TIME_STAMP      = 4,  // save time stamps
-    ST_LOOP_MAIN       = 5;  // save data frames
+    ST_IDLE            = 4'd0,  // wait for collect start command or configuration command
+    ST_WAIT_CONFIG     = 4'd1,  // wait for new configuration when PC requested or board rebooted
+    ST_MODE_SAMPLE     = 4'd2,  // wait for new data valid signal, stop collection on stop command or enough samples 
+    ST_MODE_CONTINUOUS = 4'd3,  // wait for new data valid signal, stop collection on stop command
+    ST_TIME_STAMP      = 4'd4,  // save time stamps
+    ST_LOOP_MAIN       = 4'd5;  // save data frames
 
 initial state = ST_WAIT_CONFIG;
 
@@ -161,6 +161,7 @@ always @(posedge(clkbuffer)) begin
                 state <= ST_WAIT_CONFIG;
             end else if (buf_collect_ctrl) begin 
                 /*<collect command received, use old data structure configuration>*/
+                buf_busy <= 1;
                 state <= (buf_collect_mode == `OFF_BUF_MODE_SAMPLE) ? ST_MODE_SAMPLE : 
                          ((buf_collect_mode == `OFF_BUF_MODE_CONTINUOUS) ? ST_MODE_CONTINUOUS : 0);
             end else begin
@@ -174,6 +175,7 @@ always @(posedge(clkbuffer)) begin
                 buf_wen <= 0;
                 buf_busy <= 1;
                 buf_waddr <= 0;
+                buf_ram_counter <= 0;
                 state <= (buf_collect_mode == `OFF_BUF_MODE_SAMPLE) ? ST_MODE_SAMPLE : 
                          ((buf_collect_mode == `OFF_BUF_MODE_CONTINUOUS) ? ST_MODE_CONTINUOUS : 0);
             end else begin
@@ -184,14 +186,17 @@ always @(posedge(clkbuffer)) begin
 
         ST_MODE_SAMPLE: begin
             /*<data valid signal received, start buffering loop>*/
-            /*<change: reverse if-else, change < to ==>*/
-            if (data_fb_wen_trigger && ram_counter < ram_samples && buf_collect_ctrl) begin
+            if (data_fb_wen_trigger && (buf_ram_counter != buf_ram_samples) && buf_collect_ctrl) begin
                 buf_counter <= 0;
                 buf_ram_counter <= buf_ram_counter + 10'b1;
                 state <= ST_TIME_STAMP;
-            end else if (((buf_ram_counter == buf_ram_samples) && buf_collect_ctrl) || (~buf_collect_ctrl)) begin
+            end else if ((buf_ram_counter == buf_ram_samples) && buf_collect_ctrl) begin
                 /*<enough data samples have been captured, quit collect loop>*/
-                /*<OR>*/
+                buf_wen <= 0;
+                buf_busy <= 0;
+                buf_ram_counter <= 0;
+                state <= ST_IDLE;
+            end else if (~buf_collect_ctrl) begin
                 /*<stop command received, quit collect loop>*/
                 buf_wen <= 0;
                 buf_busy <= 0;
@@ -226,21 +231,20 @@ always @(posedge(clkbuffer)) begin
         end
 
         ST_LOOP_MAIN: begin
-            /*<buffer data according to data structure>*/
-            /*<change: reverse if-else, change < to ==>*/
-            if (buf_counter < target_data_num) begin
-                buf_wen <= 1;
-                buf_waddr <= buf_waddr + 9'b1;
-                buf_wdata <= input_data;
-                buf_counter <= buf_counter + 3'b1;
-                state <= ST_LOOP_MAIN;
-            end else begin
+            if (buf_counter == target_data_num) begin
                 /*<one sample buffering complete, update frame-aligned write address>*/
                 /*<go to ready state for another valid signal>*/
                 buf_wen <= 0;
                 buf_waddr_align <= buf_waddr;
                 state <= (buf_collect_mode == `OFF_BUF_MODE_SAMPLE) ? ST_MODE_SAMPLE : 
                          ((buf_collect_mode == `OFF_BUF_MODE_CONTINUOUS) ? ST_MODE_CONTINUOUS : 0);
+            end else begin
+                /*<buffer data according to data structure>*/
+                buf_wen <= 1;
+                buf_waddr <= buf_waddr + 9'b1;
+                buf_wdata <= input_data;
+                buf_counter <= buf_counter + 3'b1;
+                state <= ST_LOOP_MAIN;
             end
         end
 
