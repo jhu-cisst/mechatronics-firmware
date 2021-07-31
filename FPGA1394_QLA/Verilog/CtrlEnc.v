@@ -32,8 +32,8 @@ module CtrlEnc(
     output wire[31:0] reg_qtr5_data,
     output wire[31:0] reg_run_data,
 
-    output wire[31:0] buf_data_chan,
-    output wire[3 :0] buf_data_type,
+    input  wire[31:0] buf_data_chan,
+    input  wire[3 :0] buf_data_type,
     output wire[31:0] buf_collect_data
 );    
     
