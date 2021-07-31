@@ -30,7 +30,11 @@ module CtrlEnc(
     output wire[31:0] reg_perd_data,
     output wire[31:0] reg_qtr1_data,
     output wire[31:0] reg_qtr5_data,
-    output wire[31:0] reg_run_data
+    output wire[31:0] reg_run_data,
+
+    output wire[31:0] buf_data_chan,
+    output wire[3 :0] buf_data_type,
+    output wire[31:0] buf_collect_data
 );    
     
 // -------------------------------------------------------------------------
@@ -109,5 +113,14 @@ begin
     else 
         set_enc <= 4'h0;
 end
+
+//--------------------------------------------------------------------------
+// data buffer mux
+// -------------------------------------------------------------------------
+assign buf_collect_data = (buf_data_type == `OFF_BUF_ENC_DATA) ? {7'd0, quad_data[buf_data_chan]} :
+                         ((buf_data_type == `OFF_BUF_ENC_PER)  ? perd_data[buf_data_chan] :
+                         ((buf_data_type == `OFF_BUF_ENC_QTR1) ? qtr1_data[buf_data_chan] :
+                         ((buf_data_type == `OFF_BUF_ENC_QTR5) ? qtr5_data[buf_data_chan] :
+                         ((buf_data_type == `OFF_BUF_ENC_RUN)  ? run_data[buf_data_chan] : 0))));
 
 endmodule
