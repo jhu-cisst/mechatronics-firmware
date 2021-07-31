@@ -478,8 +478,6 @@ assign reg_adc_data = {pot_fb[reg_raddr[7:4]], cur_fb[reg_raddr[7:4]]};
 
 assign reg_rd[`OFF_ADC_DATA] = reg_adc_data;
 
-assign buf_rd[`OFF_BUF_ADC] = {pot_fb[buf_data_channel], cur_fb[buf_data_channel]};
-
 // ----------------------------------------------------------------------------
 // Read/Write of commanded current (cur_cmd)
 // This is now done outside CtrlDac to support digital control implementations.
@@ -529,8 +527,6 @@ end
 
 assign reg_rd[`OFF_DAC_CTRL] = cur_cmd[reg_raddr[7:4]];
 
-assign buf_rd[`OFF_BUF_DAC] = cur_cmd[buf_data_channel];
-
 // --------------------------------------------------------------------------
 // dacs
 // --------------------------------------------------------------------------
@@ -561,6 +557,11 @@ wire[31:0] reg_qtr1_data;
 wire[31:0] reg_qtr5_data;
 wire[31:0] reg_run_data;
 
+// wires from data buffer <consider make these wires implicit?>
+wire [3 :0] buf_data_channel;
+wire [3 :0] buf_data_type;
+wire [3 :0] buf_data_format;
+
 // encoder controller: the thing that manages encoder reads and preloads
 CtrlEnc enc(
     .sysclk(sysclk),
@@ -575,7 +576,10 @@ CtrlEnc enc(
     .reg_perd_data(reg_perd_data),
     .reg_qtr1_data(reg_qtr1_data),
     .reg_qtr5_data(reg_qtr5_data),
-    .reg_run_data(reg_run_data)
+    .reg_run_data(reg_run_data),
+    .buf_data_chan(buf_data_channel),
+    .buf_data_type(buf_data_type),
+    .buf_collect_data(enc_buf_data)
 );
 
 assign reg_rd[`OFF_ENC_LOAD] = reg_preload;      // preload
@@ -584,20 +588,6 @@ assign reg_rd[`OFF_PER_DATA] = reg_perd_data;    // period
 assign reg_rd[`OFF_QTR1_DATA] = reg_qtr1_data;   // last quarter cycle 
 assign reg_rd[`OFF_QTR5_DATA] = reg_qtr5_data;   // quarter cycle 5 edges ago
 assign reg_rd[`OFF_RUN_DATA] = reg_run_data;     // running counter
-
-
-wire[31:0] buf_quad_data;
-wire[31:0] buf_perd_data;
-wire[31:0] buf_qtr1_data;
-wire[31:0] buf_qtr5_data;
-wire[31:0] buf_run_data;
-
-assign buf_rd[`OFF_BUF_ENC_DATA]  = buf_quad_data;
-assign buf_rd[`OFF_BUF_PER_DATA]  = buf_perd_data;
-assign buf_rd[`OFF_BUF_QTR1_DATA] = buf_qtr1_data;
-assign buf_rd[`OFF_BUF_QTR5_DATA] = buf_qtr5_data;
-assign buf_rd[`OFF_BUF_RUN_DATA]  = buf_run_data;
-
 
 // --------------------------------------------------------------------------
 // digital output (DOUT) control
@@ -939,39 +929,42 @@ Reboot fpga_reboot(
 // --------------------------------------------------------------------------
 // Data Buffer
 // --------------------------------------------------------------------------
-wire [31:0] buf_rd [0:15];
-
 wire [31:0] reg_rdata_databuf;
 
-// local wires
-wire [3 :0] buf_data_channel;
-wire [3 :0] buf_data_type;
-wire [3 :0] buf_data_format;
-
+/*<data valid signal mux>*/
+/*<TODO: add encoder data valid signal>*/
 wire        buf_data_fb_wen;
-assign      buf_data_fb_wen = (buf_data_type == `OFF_BUFFER_POT) ? pot_fb_wen : 
-                              (buf_data_type == `OFF_BUFFER_CUR) ? cur_fb_wen : cur_fb_wen;
+assign      buf_data_fb_wen = (buf_data_type == `OFF_BUF_POT_DATA) ? pot_fb_wen : 
+                              ((buf_data_type == `OFF_BUF_CUR_DATA) ? cur_fb_wen : cur_fb_wen);
+
+/*<data source mux>*/
+wire [31:0] buf_rd [0:15];
+assign      buf_rd[`OFF_BUF_POT_DATA] = (buf_data_type == `OFF_BUF_POT_DATA) ? {16'd0, pot_fb[buf_data_channel]}  : 0;
+assign      buf_rd[`OFF_BUF_CUR_DATA] = (buf_data_type == `OFF_BUF_CUR_DATA) ? {16'd0, cur_fb[buf_data_channel]}  : 0;
+assign      buf_rd[`OFF_BUF_DAC_DATA] = (buf_data_type == `OFF_BUF_DAC_DATA) ? {16'd0, cur_cmd[buf_data_channel]} : 0;
+assign      buf_rd[`OFF_BUF_ENC_DATA] = (buf_data_type == `OFF_BUF_ENC_DATA) ? enc_buf_data : 0;
+assign      buf_rd[`OFF_BUF_ENC_PER]  = (buf_data_type == `OFF_BUF_ENC_PER)  ? enc_buf_data : 0;
+assign      buf_rd[`OFF_BUF_ENC_QTR1] = (buf_data_type == `OFF_BUF_ENC_QTR1) ? enc_buf_data : 0;
+assign      buf_rd[`OFF_BUF_ENC_QTR5] = (buf_data_type == `OFF_BUF_ENC_QTR5) ? enc_buf_data : 0;
+assign      buf_rd[`OFF_BUF_ENC_RUN]  = (buf_data_type == `OFF_BUF_ENC_QTR1) ? enc_buf_data : 0;
 
 wire [31:0] buf_input_data;
 assign      buf_input_data = buf_rd[buf_data_type];
 
-wire        prog_start;
-
 DataBuffer data_buffer(
     .clkbuffer(sysclk),
+    .ts(timestamp),                 // timestamp from SampleData
     .data_fb_wen(buf_data_fb_wen),
     .input_data(buf_input_data),      
     .data_type(buf_data_type),
     .data_channel(buf_data_channel),
-    .data_format(buf_data_format)
+    .data_format(buf_data_format),
     .reg_waddr(reg_waddr),          // write address
     .reg_wdata(reg_wdata),          // write data
     .reg_wen(reg_wen),              // write enable
     .reg_raddr(reg_raddr),          // read address
     .reg_rdata(reg_rdata_databuf),  // read data
-    .buf_status(reg_databuf),       // status for SampleData
-    .ts(timestamp),                 // timestamp from SampleData
-    .prog_start(prog_start)         // indicator for running qladisp.cpp
+    .buf_status(reg_databuf)        // status for SampleData
 );
 
 //------------------------------------------------------------------------------
