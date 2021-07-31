@@ -56,7 +56,6 @@
 `define ADDR_DS       4'h6         // Dallas 1-wire memory (dV instrument)
 `define ADDR_DATA_BUF 4'h7         // Data buffer address space
 `define ADDR_WAVEFORM 4'h8         // Waveform table address space (DOUT waveforms)
-`define ADDR_DATA_BUF 4'hC
 
 // channel 0 (board) registers
 `define REG_STATUS   4'd0          // board id (8), fault (8), enable/masks (16)
@@ -126,13 +125,14 @@
 `define WDOG_PHASE_FIVE  3'b101   // watchdog period larger than 200ms
 
 // Data Buffer Target Source
-`define OFF_BUF_POT_DATA         4'd1
-`define OFF_BUF_CUR_DATA         4'd2
-`define OFF_BUF_ENC_DATA         4'd3
-`define OFF_BUF_ENC_PER          4'd4
-`define OFF_BUF_ENC_QTR1         4'd5
-`define OFF_BUF_ENC_QTR5         4'd6
-`define OFF_BUF_ENC_RUN          4'd7
+`define OFF_BUF_POT_DATA         4'd1 // pot feedback
+`define OFF_BUF_CUR_DATA         4'd2 // cur feedback
+`define OFF_BUF_DAC_DATA         4'd3 // cur command
+`define OFF_BUF_ENC_DATA         4'd4 // encoder edge count
+`define OFF_BUF_ENC_PER          4'd5 // encoder period
+`define OFF_BUF_ENC_QTR1         4'd6 // encoder period recent quarter
+`define OFF_BUF_ENC_QTR5         4'd7 // encoder period old quarter
+`define OFF_BUF_ENC_RUN          4'd8 // encoder running data
 
 // Data Buffer Target Format
 `define OFF_BUF_UINT16           4'd1
@@ -141,8 +141,13 @@
 // Data Buffer Configuation Mask & identifier
 `define OFF_BUF_SIGNAL_SPEC_MASK 4'd1
 `define OFF_BUF_SIGNAL_NUM_MASK  4'd2
-`define OFF_BUF_SAMPLE_NUM_MASK  4'd3
+`define OFF_BUF_MODE_CONTINUOUS  4'd3
+`define OFF_BUF_MODE_SAMPLE      4'd4
+`define OFF_BUF_START_COLLECT    4'd5
+`define OFF_BUF_STOP_COLLECT     4'd6
 
-`define OFF_DATA_STRUCT          4'd3
+// 
+`define OFF_BUF_DATA_STRUCT      4'd1
+`define OFF_BUF_STAT             4'd2
 
 `endif  // _fpgaqla_constants_v_
