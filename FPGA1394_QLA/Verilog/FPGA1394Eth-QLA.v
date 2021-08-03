@@ -209,7 +209,8 @@ assign reg_rdata = (reg_raddr[15:12]==`ADDR_HUB) ? (reg_rdata_hub) :
                   ((reg_raddr[15:12]==`ADDR_WAVEFORM) ? (reg_rtable) :
                   ((reg_raddr[15:12]==`ADDR_BUF_TYPE) ? (type_debug) :
                   ((reg_raddr[15:12]==`ADDR_BUF_CHAN) ? (chan_debug) :
-                  ((reg_raddr[7:4]==4'd0) ? reg_rdata_chan0 : reg_rd[reg_raddr[3:0]]))))))))));
+                  ((reg_raddr[15:12]==`ADDR_BUF_ENC)  ? (enc_buf_data) : 
+                  ((reg_raddr[7:4]==4'd0) ? reg_rdata_chan0 : reg_rd[reg_raddr[3:0]])))))))))));
 
 // Unused channel offsets
 assign reg_rd[`OFF_UNUSED_02] = 32'd0;
@@ -559,10 +560,11 @@ wire[31:0] reg_qtr1_data;
 wire[31:0] reg_qtr5_data;
 wire[31:0] reg_run_data;
 
-// wires from data buffer <consider make these wires implicit?>
+// wires from data buffer
 wire [3 :0] buf_data_channel;
 wire [3 :0] buf_data_type;
 wire [3 :0] buf_data_format;
+wire [31:0] enc_buf_data;
 
 // encoder controller: the thing that manages encoder reads and preloads
 CtrlEnc enc(
