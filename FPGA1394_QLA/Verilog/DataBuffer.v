@@ -31,8 +31,16 @@ module DataBuffer(
     input  wire          reg_wen,
     input  wire [15:0]   reg_raddr,
     output wire [31:0]   reg_rdata,
-    output wire [15:0]   buf_status
+    output wire [15:0]   buf_status,
+
+    /*<debug only>*/
+    output wire [31:0]   type_debug,
+    output wire [31:0]   chan_debug
 );
+
+/*<debug only>*/
+assign type_debug = {16'b0, target_data_type[3], target_data_type[2], target_data_type[1], target_data_type[0]};
+assign chan_debug = {16'b0, target_data_channel[3], target_data_channel[2], target_data_channel[1], target_data_channel[0]};
 
 // --------------------------------------------
 // receive & update target data struct
@@ -45,7 +53,7 @@ assign  data_struct_wen = reg_wen && reg_waddr[15:12] == `ADDR_DATA_BUF && reg_w
  * 1. target_data_num    : number of signals to collect.
  * 2. target_data_type   : buffer data source, supports pot, cur, and encoder readings.
  * 3. target_data_channel: channel through which the data is coming from.
- * 4. target_data_format : number of bits allocated to store buffered data.
+ * 4. target_data_format : number of bits allocated to store buffered data. (NOTE: consider do this on PC)
  */
 reg     [3:0] target_data_num;
 reg     [3:0] target_data_counter;
@@ -55,24 +63,53 @@ reg     [3:0] target_data_format  [15:0];
 
 reg     data_struct_config_complete;
 
+/*<config state machine>*/
+reg [3:0] config_state;
+parameter
+    CONFIG_ST_NUM     = 4'd1,  // wait data frame configuration command, write # signal per frame when received
+    CONFIG_ST_SPEC    = 4'd2,  // write per signal specification
+    CONFIG_ST_SYNC    = 4'd3;  // update index and sychronize data
+
+initial config_state = CONFIG_ST_NUM;
+
 always @(posedge(clkbuffer)) begin
-    if (data_struct_wen && reg_waddr[11:8] == `OFF_BUF_SIGNAL_NUM_MASK && !buf_busy) begin
-        target_data_num <= reg_wdata[3:0];
-        target_data_counter <= 4'b0;
-    end
-    if (data_struct_wen && reg_waddr[11:8] == `OFF_BUF_SIGNAL_SPEC_MASK && !buf_busy) begin
-        target_data_type[target_data_counter]    <= reg_wdata[15:12];
-        target_data_channel[target_data_counter] <= reg_wdata[7:4];
-        target_data_format[target_data_counter]  <= reg_wdata[3:0];
-        target_data_counter <= target_data_counter + 4'b1;
-    end
-    if (target_data_counter == target_data_num && target_data_num != 0) begin
-        data_struct_config_complete <= 1'b1;
-        target_data_counter <= 4'b0; 
-    end
-    if (buf_busy) begin
-        data_struct_config_complete <= 0;
-    end
+    case (config_state)
+
+        CONFIG_ST_NUM: begin
+            if (data_struct_wen && (reg_waddr[11:8] == `OFF_BUF_SIGNAL_NUM_MASK) && (!buf_busy)) begin
+                /*<data frame configuration command received, write number of signal per frame now>*/
+                target_data_num <= reg_wdata[3:0];
+                target_data_counter <= 0;
+                config_state <= CONFIG_ST_SPEC;
+            end else begin
+                /*<command not received, stay idle>*/
+                data_struct_config_complete <= 0;
+                config_state <= CONFIG_ST_NUM;
+            end
+        end
+
+        CONFIG_ST_SPEC: begin
+            if (target_data_counter == target_data_num) begin
+                /*<all signal specification received, go to buffer process>*/
+                data_struct_config_complete <= 1'b1;
+                target_data_counter <= 0; 
+                config_state <= CONFIG_ST_NUM;
+            end else if (data_struct_wen && (reg_waddr[11:8] == `OFF_BUF_SIGNAL_SPEC_MASK) && (!buf_busy)) begin
+                /*<signal specification data received, store it now>*/
+                target_data_type[target_data_counter]    <= reg_wdata[15:12];
+                target_data_channel[target_data_counter] <= reg_wdata[7:4];
+                target_data_format[target_data_counter]  <= reg_wdata[3:0];
+                config_state <= CONFIG_ST_SYNC;
+            end
+        end
+
+        CONFIG_ST_SYNC: begin
+            /*<update index and sync data>*/
+            target_data_counter <= target_data_counter + 4'b1;
+            config_state <= CONFIG_ST_SPEC;
+        end
+
+    endcase
 end
 
 // --------------------------------------------------------------
@@ -103,7 +140,8 @@ reg     buf_collect_ctrl;
 always @(posedge(clkbuffer)) begin
     if (buf_collect_wen && reg_waddr[7:4] == `OFF_BUF_START_COLLECT) begin
         buf_collect_ctrl <= 1;
-    end else if (buf_collect_wen && reg_waddr[7:4] == `OFF_BUF_STOP_COLLECT) begin
+    end else if ((buf_collect_wen && reg_waddr[7:4] == `OFF_BUF_STOP_COLLECT) ||
+                 ((state == ST_MODE_SAMPLE) && (buf_ram_counter == buf_ram_samples) && buf_collect_ctrl)) begin
         buf_collect_ctrl <= 0;
     end
 end
@@ -124,7 +162,7 @@ reg [3 :0]  buf_counter;
 wire        ts_over14;
 assign      ts_over14 = (ts[31:14] == 18'd0) ? 1'b0 : 1'b1;
 
-/*<find type, channel, format according to assigned data structure>*/
+/*<find type, channel, format according to assigned data frame>*/
 assign data_type    = target_data_type[buf_counter];
 assign data_channel = target_data_channel[buf_counter];
 assign data_format  = target_data_format[buf_counter];
@@ -140,7 +178,7 @@ always @(posedge(clkbuffer)) begin
 end
 assign data_fb_wen_trigger = (!data_fb_wen_prev) && data_fb_wen_sync;
 
-/*<state machine>*/
+/*<buffer state machine>*/
 reg [3:0] state;
 parameter
     ST_IDLE            = 4'd0,  // wait for collect start command or configuration command
@@ -148,7 +186,8 @@ parameter
     ST_MODE_SAMPLE     = 4'd2,  // wait for new data valid signal, stop collection on stop command or enough samples 
     ST_MODE_CONTINUOUS = 4'd3,  // wait for new data valid signal, stop collection on stop command
     ST_TIME_STAMP      = 4'd4,  // save time stamps
-    ST_LOOP_MAIN       = 4'd5;  // save data frames
+    ST_SYNC_INPUT      = 4'd5,  // synchronize input data
+    ST_LOOP_MAIN       = 4'd6;  // save data frames, update index
 
 initial state = ST_WAIT_CONFIG;
 
@@ -156,37 +195,35 @@ always @(posedge(clkbuffer)) begin
     case (state)
 
         ST_IDLE: begin
-            /*<data structure configuration requested, go to configuration state>*/
             if (data_struct_wen) begin
+                /*<data frame configuration requested, go to configuration state>*/
                 state <= ST_WAIT_CONFIG;
             end else if (buf_collect_ctrl) begin 
-                /*<collect command received, use old data structure configuration>*/
+                /*<collect command received, use old data frame configuration>*/
                 buf_busy <= 1;
                 state <= (buf_collect_mode == `OFF_BUF_MODE_SAMPLE) ? ST_MODE_SAMPLE : 
-                         ((buf_collect_mode == `OFF_BUF_MODE_CONTINUOUS) ? ST_MODE_CONTINUOUS : 0);
+                         ((buf_collect_mode == `OFF_BUF_MODE_CONTINUOUS) ? ST_MODE_CONTINUOUS : ST_IDLE);
             end else begin
                 state <= ST_IDLE;
             end
         end
 
         ST_WAIT_CONFIG: begin
-            /*<new data structure configuration complete, ready to buffer data>*/
             if (data_struct_config_complete) begin
+                /*<data frame configuration complete, ready to buffer data>*/
                 buf_wen <= 0;
-                buf_busy <= 1;
                 buf_waddr <= 0;
                 buf_ram_counter <= 0;
-                state <= (buf_collect_mode == `OFF_BUF_MODE_SAMPLE) ? ST_MODE_SAMPLE : 
-                         ((buf_collect_mode == `OFF_BUF_MODE_CONTINUOUS) ? ST_MODE_CONTINUOUS : 0);
+                state <= ST_IDLE;
             end else begin
-                /*<waiting for new data structure>*/
+                /*<waiting for data frame configuration to complete>*/
                 state <= ST_WAIT_CONFIG;
             end
         end
 
         ST_MODE_SAMPLE: begin
-            /*<data valid signal received, start buffering loop>*/
             if (data_fb_wen_trigger && (buf_ram_counter != buf_ram_samples) && buf_collect_ctrl) begin
+                /*<data valid signal received, start buffering loop>*/
                 buf_counter <= 0;
                 buf_ram_counter <= buf_ram_counter + 10'b1;
                 state <= ST_TIME_STAMP;
@@ -209,12 +246,14 @@ always @(posedge(clkbuffer)) begin
 
         ST_MODE_CONTINUOUS: begin
             if (data_fb_wen_trigger && buf_collect_ctrl) begin
+                /*<data valid signal received, start buffering loop>*/
                 buf_counter <= 0;
                 state <= ST_TIME_STAMP;
             end else if (~buf_collect_ctrl) begin
                 /*<stop command received, quit collect loop>*/
                 buf_wen <= 0;
                 buf_busy <= 0;
+                buf_ram_counter <= 0;
                 state <= ST_IDLE;
             end else begin
                 /*<wait for data valid signal to start>*/
@@ -223,10 +262,17 @@ always @(posedge(clkbuffer)) begin
         end
 
         ST_TIME_STAMP: begin
-            /*<save time stamp>*/
+            /*<load and save time stamp>*/
             buf_wen <= 1'b1;
-            buf_waddr <= buf_waddr + 9'b1;
-            buf_wdata <= {1'b1, ts_over14, ts[13:0]};
+            buf_wdata <= {16'b0, 1'b1, ts_over14, ts[13:0]};
+            state <= ST_SYNC_INPUT;
+        end
+
+        ST_SYNC_INPUT: begin
+            /*<sychronize input from mux>*/
+            buf_wen <= 0;
+            buf_wdata <= input_data;
+            buf_waddr <= buf_waddr + 10'b1;
             state <= ST_LOOP_MAIN;
         end
 
@@ -237,14 +283,12 @@ always @(posedge(clkbuffer)) begin
                 buf_wen <= 0;
                 buf_waddr_align <= buf_waddr;
                 state <= (buf_collect_mode == `OFF_BUF_MODE_SAMPLE) ? ST_MODE_SAMPLE : 
-                         ((buf_collect_mode == `OFF_BUF_MODE_CONTINUOUS) ? ST_MODE_CONTINUOUS : 0);
+                         ((buf_collect_mode == `OFF_BUF_MODE_CONTINUOUS) ? ST_MODE_CONTINUOUS : ST_IDLE);
             end else begin
-                /*<buffer data according to data structure>*/
+                /*<buffer data according to data frame>*/
                 buf_wen <= 1;
-                buf_waddr <= buf_waddr + 9'b1;
-                buf_wdata <= input_data;
-                buf_counter <= buf_counter + 3'b1;
-                state <= ST_LOOP_MAIN;
+                buf_counter <= buf_counter + 4'b1;
+                state <= ST_SYNC_INPUT;
             end
         end
 
