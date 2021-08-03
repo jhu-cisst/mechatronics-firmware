@@ -207,7 +207,9 @@ assign reg_rdata = (reg_raddr[15:12]==`ADDR_HUB) ? (reg_rdata_hub) :
                   ((reg_raddr[15:12]==`ADDR_DS) ? (reg_rdata_ds) :
                   ((reg_raddr[15:12]==`ADDR_DATA_BUF) ? (reg_rdata_databuf) :
                   ((reg_raddr[15:12]==`ADDR_WAVEFORM) ? (reg_rtable) :
-                  ((reg_raddr[7:4]==4'd0) ? reg_rdata_chan0 : reg_rd[reg_raddr[3:0]]))))))));
+                  ((reg_raddr[15:12]==`ADDR_BUF_TYPE) ? (type_debug) :
+                  ((reg_raddr[15:12]==`ADDR_BUF_CHAN) ? (chan_debug) :
+                  ((reg_raddr[7:4]==4'd0) ? reg_rdata_chan0 : reg_rd[reg_raddr[3:0]]))))))))));
 
 // Unused channel offsets
 assign reg_rd[`OFF_UNUSED_02] = 32'd0;
@@ -951,6 +953,9 @@ assign      buf_rd[`OFF_BUF_ENC_RUN]  = (buf_data_type == `OFF_BUF_ENC_QTR1) ? e
 wire [31:0] buf_input_data;
 assign      buf_input_data = buf_rd[buf_data_type];
 
+wire [31:0] type_debug;
+wire [31:0] chan_debug;
+
 DataBuffer data_buffer(
     .clkbuffer(sysclk),
     .ts(timestamp),                 // timestamp from SampleData
@@ -964,7 +969,9 @@ DataBuffer data_buffer(
     .reg_wen(reg_wen),              // write enable
     .reg_raddr(reg_raddr),          // read address
     .reg_rdata(reg_rdata_databuf),  // read data
-    .buf_status(reg_databuf)        // status for SampleData
+    .buf_status(reg_databuf),       // status for SampleData
+    .type_debug(type_debug),
+    .chan_debug(chan_debug)
 );
 
 //------------------------------------------------------------------------------
