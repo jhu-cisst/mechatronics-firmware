@@ -91,8 +91,13 @@ reg         ds_data_out_1w;          // ds_data_out, data out pin for direct 1-w
 
 reg         DS2480B_presence;        // DS2480B presence check flag, for automatically detect which interface to use
 reg[7:0]    expected_rxd;            // expected response (from configuration command)
-reg[9:0]    tx_data;                 // Transmit byte -- needs to be 10 bits -- could be merged with out_byte later
 reg[3:0]    cnt_bit;                 // index into bytes sent/received
+
+// Transmit data byte -- needs to be 10 bits, in {1'b1, 8'hXX, 1'b0} format
+wire[9:0]   tx_data;                 
+assign      tx_data[9] = 1'b1;
+assign      tx_data[8:1] = out_byte;
+assign      tx_data[0] = 1'b0;
 
 wire        ds_reg_wen;              // main quadlet reg interface
 assign      ds_reg_wen = (reg_waddr == {`ADDR_MAIN, 8'd0, `REG_DSSTAT}) ? reg_wen : 1'b0;
