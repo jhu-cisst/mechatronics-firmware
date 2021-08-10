@@ -430,7 +430,7 @@ begin
     // DS2480B option state machine starts here
     /////////////////////////////////////////////////////////////////////////////////////////////
     DS_MASTER_RESET:   begin
-       tx_data <= {1'b1, 8'h00, 1'b0};
+       out_byte <= 8'h00;
        master_rst <= 1'b1;              // master reset enable
        state <= DS_WRITE_BYTE;
        next_state <= DS_PROGRAMMER;
@@ -440,7 +440,7 @@ begin
     end
 
     DS_PROGRAMMER: begin
-       tx_data <= {1'b1, ds_program[progCnt][15:8], 1'b0};
+       out_byte <= ds_program[progCnt][15:8];
        expected_rxd <= ds_program[progCnt][7:0];
        progCnt <= progCnt + 4'd1;
        state <= DS_WRITE_BYTE;
@@ -462,7 +462,7 @@ begin
     end
 
     DS_READ_MEM_REQUEST: begin
-       tx_data <= {1'b1, 8'hFF, 1'b0};
+       out_byte <= 8'hFF;
        state <= DS_WRITE_BYTE;
        next_state <= DS_READ_MEM_START;
     end
