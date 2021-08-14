@@ -609,10 +609,10 @@ wire dir34_ds;
 // IO1[18]: DOUT 2
 // IO1[19]: DOUT 1
 // If dout_config_dir==1, then invert logic; note that this is accomplished using the XOR operator.
-// Note that ds_enable==1 implies that dout_config_bidir==1. Also, DS2505 output (dout3_ds) does not
-// need to be inverted.
+// Note that old version QLA IOs are not bi-directional, thus dout_config_bidir==0. In that case, dout3_ds logic needs to be inverted via XNOR.
+// Meanwhile, new version QLA does have bi-dir driver for IOs, therefore dou3_ds doesn't need to be inverted, which is still achieved by XNOR.
 assign IO1[16] = dout_config_bidir ^ dout[3];
-assign IO1[17] = ds_enable ? (dir34_ds ? dout3_ds : 1'bz) : (dout_config_bidir ^ dout[2]);
+assign IO1[17] = ds_enable ? (dir34_ds ?  (dout3_ds ^~ dout_config_bidir) : 1'bz) : (dout_config_bidir ^ dout[2]);
 assign IO1[18] = dout_config_bidir ^ dout[1];
 assign IO1[19] = dout_config_bidir ^ dout[0];
 
