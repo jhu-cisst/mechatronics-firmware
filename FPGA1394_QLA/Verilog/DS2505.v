@@ -9,17 +9,25 @@
  *
  * Purpose: Interface to Dallas Semiconductor (Maxim) DS2505 16KB memory via
  *          1-wire interface. The code has been written specific to the DS2505,
- *          but could be generalized to other 1-wire devices. It assumes a
- *          hi-speed bidirectional transceiver, such as the one available in
- *          QLA Rev 1.4+.
+ *          but could be generalized to other 1-wire devices.
  *          The DS2505 chip is used inside da Vinci instruments and contains
  *          useful information such as the instrument name.
+ *
+ *          Two interfaces are supported:
+ *
+ *          1) A direct 1-wire interface, where one FPGA I/O is used to drive the
+ *             1-wire bus. This requires a hi-speed bidirectional transceiver, such
+ *             as the one available in QLA Rev 1.4+.
+ *
+ *          2) Interface via a DS2480B driver chip. The FPGA communicates serially
+ *             with the DS2480B, which then drives the 1-wire bus. This will work
+ *             with any QLA version, but requires an external DS2480B.
  * 
  * Revision history
  *      8/29/18     Peter Kazanzides    Initial revision
  *      6/19/20     Shi Xin Sun         Adding support for DS2480B driver chip
  *      7/09/21     Simon Hao Yang      1-wire / DS2480B options successfully merged
- *      7/15/21     Simon Hao YAng      Inerface auto-detection feature added
+ *      7/15/21     Simon Hao Yang      Interface auto-detection feature added
  */
 
  `include "Constants.v"
@@ -89,7 +97,7 @@ reg[10:0]   mem_addr;                // memory address for reading
 reg[7:0]    num_bytes;               // Number of bytes to read
 reg         ds_data_out_1w;          // ds_data_out, data out pin for direct 1-wire option
 
-reg         DS2480B_presence;        // DS2480B presence check flag, for automatically detect which interface to use
+reg         DS2480B_presence;        // DS2480B presence check flag, for automatically detecting which interface to use
 reg[7:0]    expected_rxd;            // expected response (from configuration command)
 reg[3:0]    cnt_bit;                 // index into bytes sent/received
 
@@ -337,7 +345,7 @@ begin
              state <= next_state;
              send_en <= 1'b0;            // disable send module
              master_rst <= 1'b0;         // after initial master reset, flag always pulled low
-	       end
+          end
        end
        else begin
           // Upper 3 bits of cnt go from 0 to 7; lower 13 bits go from 0 to 4424.
@@ -380,7 +388,7 @@ begin
              in_byte <= recv_data;               // register received data to local buffer in_byte
              state <= next_state;
              cnt <= 17'd0;
-	       end
+          end
           // Inerface auto-detect implementation. For DS2480B serial interface, the
           // first available response is the skip ROM feedback, 0xCC. According to
           // test results, DS2505 & DS2480B delays about 0.5 msec to start receiving
@@ -496,13 +504,12 @@ endmodule
 
 
 module UartTx_2480B (
-	input               sys_clk,           // sys clk
-	
-	input               uart_en,           // send enable sig                                
-	input   [9:0]       uart_din,          // data-to-be-sent
-	input   wire        master_rst,        // master reset flag
-	output  reg         uart_done,         // send 1 frame over flag
-	output  reg         uart_txd           // UART send port
+    input               sys_clk,           // sys clk
+    input               uart_en,           // send enable sig
+    input   [9:0]       uart_din,          // data-to-be-sent
+    input   wire        master_rst,        // master reset flag
+    output  reg         uart_done,         // send 1 frame over flag
+    output  reg         uart_txd           // UART send port
 );
 
 // parameter define
@@ -532,10 +539,10 @@ assign  en_flag = (~uart_en_d1) & uart_en_d0;
 
 // delay 2 clk cycle for send enable sig uart_en
 always @(posedge sys_clk) begin
-	 uart_en_d0 <= uart_en;
-	 uart_en_d1 <= uart_en_d0;
+    uart_en_d0 <= uart_en;
+    uart_en_d1 <= uart_en_d0;
 end
-		  
+
 // when en_flag pulled high, register data-to-be-sent and start send process
 always @(posedge sys_clk) begin
     if (en_flag) begin                           // detect send enable rising edge
@@ -633,12 +640,10 @@ assign  start_flag = uart_rxd_d1 & (~uart_rxd_d0);
 
 // delay 2 clk cycle for UART recv port data
 always @(posedge sys_clk) begin
-	 begin
-	    uart_rxd_d0 <= uart_rxd;
-		 uart_rxd_d1 <= uart_rxd_d0;
-	 end
+    uart_rxd_d0 <= uart_rxd;
+    uart_rxd_d1 <= uart_rxd_d0;
 end
-		  
+
 // when pulse start_flag arrives, start recv process
 always @(posedge sys_clk) begin
     if (start_flag)                        // detect start bit
@@ -674,7 +679,7 @@ always @(posedge sys_clk) begin
        else
           rxdata <= rxdata;
     else
-       rxdata <= 8'd0;	 
+       rxdata <= 8'd0;
 end
 
 // data recv process finish, then issue a flag sig and register buffer data
