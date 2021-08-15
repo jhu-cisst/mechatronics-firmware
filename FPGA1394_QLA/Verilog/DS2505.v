@@ -133,17 +133,40 @@ assign      ds_status[2:1]   = ds_reset;
 assign      ds_status[0]     = ds_enable;
 
 // DS2480B programmer, configure DS2480B to read DS2505 memory data
-wire[15:0]  ds_program[0:8];         // Program arguments
+wire[25:0]  ds_program[0:8];         // Program arguments
 reg[3:0]    progCnt;                 // Program counter
 
-assign ds_program[0] = { 8'hC1, 8'h00 };                                      // Reset 1-wire in CMD mode
-assign ds_program[1] = { 8'hE1, 8'h00 };                                      // Enter DATA mode
-assign ds_program[2] = { 8'hCC, 8'hCC };                                      // Skip ROM check
-assign ds_program[3] = { 8'hF0, 8'hF0 };                                      // Read memory command
-assign ds_program[4] = { mem_addr[7:0], mem_addr[7:0] };                      // Memory read start addr, upper byte
-assign ds_program[5] = { {5'd0, mem_addr[10:8]}, {5'd0, mem_addr[10:8]} };    // Memory read start addr, lower byte 
-assign ds_program[6] = { 8'hE3, 8'h00 };                                      // Enter CMD mode
-assign ds_program[7] = { 8'hC1, 8'hCD };                                      // Flush & reset DS2480B, 1-wire reset
+// Programmer structure:  
+//     bits  7: 0 -> expected response for commands send in DATA mode
+//     bits 15: 8 -> commands to be sent
+//     bits 20:16 -> next state indication
+//         DS_READ_MEM_REQUEST: Start reading memory, send first 0xFF request
+//         DS_PROGRAMMER      : (1) If current state is DS_PROGRAMMER, indicating
+//                                  chip is in CMD mode. No response expected in
+//                                  this mode, so jump to next programmer state 
+//                                  without read.
+//                              (2) If current state is DS_READ_BYTE, indicating
+//                                  chip is in DATA mode. Response is expected to 
+//                                  be read, so read bytes first before jumping to
+//                                  next programmer state.
+//     bits 25:21 -> current state indication
+// Programmer funtions:
+//     0 -> Reset 1-wire in CMD mode
+//     1 -> Enter DATA mode
+//     2 -> Skip ROM check
+//     3 -> Read memory command
+//     4 -> Memory read start addr, upper byte
+//     5 -> Memory read start addr, lower byte 
+//     6 -> Enter CMD mode
+//     7 -> Flush & reset DS2480B, 1-wire reset
+assign ds_program[0] = { DS_PROGRAMMER, DS_PROGRAMMER      , 8'hC1, 8'h00 };
+assign ds_program[1] = { DS_PROGRAMMER, DS_PROGRAMMER      , 8'hE1, 8'h00 };
+assign ds_program[2] = { DS_READ_BYTE , DS_PROGRAMMER      , 8'hCC, 8'hCC };
+assign ds_program[3] = { DS_READ_BYTE , DS_PROGRAMMER      , 8'hF0, 8'hF0 };
+assign ds_program[4] = { DS_READ_BYTE , DS_PROGRAMMER      , mem_addr[7:0], mem_addr[7:0] };
+assign ds_program[5] = { DS_READ_BYTE , DS_READ_MEM_REQUEST, {5'd0, mem_addr[10:8]}, {5'd0, mem_addr[10:8]} };
+assign ds_program[6] = { DS_PROGRAMMER, DS_PROGRAMMER      , 8'hE3, 8'h00 };
+assign ds_program[7] = { DS_IDLE      , DS_IDLE            , 8'hC1, 8'hCD };
 
 // UART instantiation
 wire        recv_done;          // recv data loading done flag 
@@ -461,15 +484,8 @@ begin
     end
 
     DS_CHECK_PROGRAMMER: begin
-       state <= DS_READ_BYTE;
-       case (progCnt)
-          4'd1 :   state      <= DS_PROGRAMMER;        // No response in CMD mode, jump to next state without read
-          4'd2 :   state      <= DS_PROGRAMMER;        // No response in CMD mode, jump to next state without read
-          4'd6 :   next_state <= DS_READ_MEM_REQUEST;  // Start reading memory, send first 0xFF request
-          4'd7 :   state      <= DS_PROGRAMMER;        // No response in CMD mode, jump to next state without read
-          4'd8 :   state      <= DS_IDLE;              // back to IDLE, wait for chip flush
-          default: next_state <= DS_PROGRAMMER;        // other states read feedback after send commands
-       endcase
+       state <= ds_program[(progCnt-1)][25:21];
+       next_state <= ds_program[(progCnt-1)][20:16];
        family_code <= 8'h0B;                           // assign family code directly, maybe check in the future
        num_bytes <= 8'd0;
     end
