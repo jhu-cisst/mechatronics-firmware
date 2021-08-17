@@ -237,10 +237,7 @@ begin
                    // ds_enable should already be 1.
                    // If using DS2480B, send next 64 0xFF requests and read 64 bytes memory.
                    // If using 1-wire, directly read 64 bytes memory.
-                   // This check bit reg_wdata[2] is from the status feedback of initial 256 bytes read,
-                   // with the same value of DS2480B_presence. Check software AmpIO.cpp for more details.
-                   state <= reg_wdata[2] ? DS_READ_MEM_REQUEST : DS_READ_MEM_START;
-                   DS2480B_presence <= reg_wdata[2];
+                   state <= DS2480B_presence ? DS_READ_MEM_REQUEST : DS_READ_MEM_START;
                    cnt <= 17'd0;
                    end
           endcase
@@ -411,6 +408,10 @@ begin
              in_byte <= recv_data;               // register received data to local buffer in_byte
              state <= next_state;
              cnt <= 17'd0;
+            //  if (progCnt == 4'd3) begin
+            //     state <= DS_WRITE_BYTE;
+            //     out_byte <=
+            //  end
           end
           // Inerface auto-detect implementation. For DS2480B serial interface, the
           // first available response is the skip ROM feedback, 0xCC. According to
