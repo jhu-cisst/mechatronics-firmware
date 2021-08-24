@@ -75,7 +75,9 @@ localparam[4:0]
     DS_CHECK_PROGRAMMER = 14,        // Check programmer feedback
     DS_READ_MEM_REQUEST = 15,        // Send 0xFF to request 1 byte memory data
     DS_READ_MEM_START   = 16,        // Read 1 byte memory data
-    DS_READ_MEM         = 17;        // Store data into FPGA buffer
+    DS_READ_MEM         = 17,        // Store data into FPGA buffer
+    DS_TEST_FAMILY      = 18,
+    DS_CHECK_FAMILY     = 19;
     
 
 // Local registers and wires
@@ -161,7 +163,7 @@ reg[3:0]    progCnt;                 // Program counter
 //     7 -> Flush & reset DS2480B, 1-wire reset
 assign ds_program[0] = { DS_PROGRAMMER, DS_PROGRAMMER      , 8'hC1, 8'h00 };
 assign ds_program[1] = { DS_PROGRAMMER, DS_PROGRAMMER      , 8'hE1, 8'h00 };
-assign ds_program[2] = { DS_READ_BYTE , DS_PROGRAMMER      , 8'hCC, 8'hCC };
+assign ds_program[2] = { DS_READ_BYTE , DS_TEST_FAMILY     , 8'h33, 8'h33 };
 assign ds_program[3] = { DS_READ_BYTE , DS_PROGRAMMER      , 8'hF0, 8'hF0 };
 assign ds_program[4] = { DS_READ_BYTE , DS_PROGRAMMER      , mem_addr[7:0], mem_addr[7:0] };
 assign ds_program[5] = { DS_READ_BYTE , DS_READ_MEM_REQUEST, {5'd0, mem_addr[10:8]}, {5'd0, mem_addr[10:8]} };
@@ -408,10 +410,6 @@ begin
              in_byte <= recv_data;               // register received data to local buffer in_byte
              state <= next_state;
              cnt <= 17'd0;
-            //  if (progCnt == 4'd3) begin
-            //     state <= DS_WRITE_BYTE;
-            //     out_byte <=
-            //  end
           end
           // Inerface auto-detect implementation. For DS2480B serial interface, the
           // first available response is the skip ROM feedback, 0xCC. According to
@@ -487,7 +485,7 @@ begin
     DS_CHECK_PROGRAMMER: begin
        state <= ds_program[(progCnt-1)][25:21];
        next_state <= ds_program[(progCnt-1)][20:16];
-       family_code <= 8'h0B;                           // assign family code directly, maybe check in the future
+       //family_code <= 8'h0B;                           // assign family code directly, maybe check in the future
        num_bytes <= 8'd0;
     end
 
@@ -511,6 +509,24 @@ begin
        mem_data[num_bytes[7:2]] <= (mem_data[num_bytes[7:2]] << 8) | in_byte;
        if (num_bytes == 8'hff) begin
           state <= DS_IDLE;  // back to IDLE state, direct 1-wire interface stops, DS2480B jumps to flush states
+       end
+    end
+
+    DS_TEST_FAMILY: begin
+       state <= DS_WRITE_BYTE;
+       out_byte <= 8'hFF;
+       next_state <= DS_CHECK_FAMILY;
+       num_bytes <= num_bytes + 8'd1;
+       if (num_bytes == 8'd1) begin
+          family_code <= in_byte;
+       end
+    end
+
+    DS_CHECK_FAMILY: begin
+       state <= DS_READ_BYTE;
+       next_state <= DS_TEST_FAMILY;
+       if (num_bytes == 8'd8) begin
+          next_state <= DS_PROGRAMMER;
        end
     end
 
