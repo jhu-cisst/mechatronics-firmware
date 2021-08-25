@@ -411,7 +411,7 @@ begin
              state <= next_state;
              cnt <= 17'd0;
           end
-          // Inerface auto-detect implementation. For DS2480B serial interface, the
+          // Interface auto-detect implementation. For DS2480B serial interface, the
           // first available response is the skip ROM feedback, 0xCC. According to
           // test results, DS2505 & DS2480B delays about 0.5 msec to start receiving
           // process, right after the sending process ends. The receiving process costs
@@ -477,15 +477,14 @@ begin
     DS_PROGRAMMER: begin
        out_byte <= ds_program[progCnt][15:8];
        expected_rxd <= ds_program[progCnt][7:0];
-       progCnt <= progCnt + 4'd1;
        state <= DS_WRITE_BYTE;
        next_state <= DS_CHECK_PROGRAMMER;
     end
 
     DS_CHECK_PROGRAMMER: begin
-       state <= ds_program[(progCnt-1)][25:21];
-       next_state <= ds_program[(progCnt-1)][20:16];
-       //family_code <= 8'h0B;                           // assign family code directly, maybe check in the future
+       state <= ds_program[(progCnt)][25:21];
+       next_state <= ds_program[(progCnt)][20:16];
+       progCnt <= progCnt + 4'd1;
        num_bytes <= 8'd0;
     end
 
