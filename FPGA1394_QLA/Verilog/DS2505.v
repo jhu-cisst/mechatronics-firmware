@@ -75,7 +75,9 @@ localparam[4:0]
     DS_CHECK_PROGRAMMER = 14,        // Check programmer feedback
     DS_READ_MEM_REQUEST = 15,        // Send 0xFF to request 1 byte memory data
     DS_READ_MEM_START   = 16,        // Read 1 byte memory data
-    DS_READ_MEM         = 17;        // Store data into FPGA buffer
+    DS_READ_MEM         = 17,        // Store data into FPGA buffer
+    DS_TEST_FAMILY      = 18,
+    DS_CHECK_FAMILY     = 19;
     
 
 // Local registers and wires
@@ -133,17 +135,40 @@ assign      ds_status[2:1]   = ds_reset;
 assign      ds_status[0]     = ds_enable;
 
 // DS2480B programmer, configure DS2480B to read DS2505 memory data
-wire[15:0]  ds_program[0:8];         // Program arguments
+wire[25:0]  ds_program[0:8];         // Program arguments
 reg[3:0]    progCnt;                 // Program counter
 
-assign ds_program[0] = { 8'hC1, 8'h00 };                                      // Reset 1-wire in CMD mode
-assign ds_program[1] = { 8'hE1, 8'h00 };                                      // Enter DATA mode
-assign ds_program[2] = { 8'hCC, 8'hCC };                                      // Skip ROM check
-assign ds_program[3] = { 8'hF0, 8'hF0 };                                      // Read memory command
-assign ds_program[4] = { mem_addr[7:0], mem_addr[7:0] };                      // Memory read start addr, upper byte
-assign ds_program[5] = { {5'd0, mem_addr[10:8]}, {5'd0, mem_addr[10:8]} };    // Memory read start addr, lower byte 
-assign ds_program[6] = { 8'hE3, 8'h00 };                                      // Enter CMD mode
-assign ds_program[7] = { 8'hC1, 8'hCD };                                      // Flush & reset DS2480B, 1-wire reset
+// Programmer structure:  
+//     bits  7: 0 -> expected response for commands send in DATA mode
+//     bits 15: 8 -> commands to be sent
+//     bits 20:16 -> next state indication
+//         DS_READ_MEM_REQUEST: Start reading memory, send first 0xFF request
+//         DS_PROGRAMMER      : (1) If current state is DS_PROGRAMMER, indicating
+//                                  chip is in CMD mode. No response expected in
+//                                  this mode, so jump to next programmer state 
+//                                  without read.
+//                              (2) If current state is DS_READ_BYTE, indicating
+//                                  chip is in DATA mode. Response is expected to 
+//                                  be read, so read bytes first before jumping to
+//                                  next programmer state.
+//     bits 25:21 -> current state indication
+// Programmer funtions:
+//     0 -> Reset 1-wire in CMD mode
+//     1 -> Enter DATA mode
+//     2 -> Skip ROM check
+//     3 -> Read memory command
+//     4 -> Memory read start addr, upper byte
+//     5 -> Memory read start addr, lower byte 
+//     6 -> Enter CMD mode
+//     7 -> Flush & reset DS2480B, 1-wire reset
+assign ds_program[0] = { DS_PROGRAMMER, DS_PROGRAMMER      , 8'hC1, 8'h00 };
+assign ds_program[1] = { DS_PROGRAMMER, DS_PROGRAMMER      , 8'hE1, 8'h00 };
+assign ds_program[2] = { DS_READ_BYTE , DS_TEST_FAMILY     , 8'h33, 8'h33 };
+assign ds_program[3] = { DS_READ_BYTE , DS_PROGRAMMER      , 8'hF0, 8'hF0 };
+assign ds_program[4] = { DS_READ_BYTE , DS_PROGRAMMER      , mem_addr[7:0], mem_addr[7:0] };
+assign ds_program[5] = { DS_READ_BYTE , DS_READ_MEM_REQUEST, {5'd0, mem_addr[10:8]}, {5'd0, mem_addr[10:8]} };
+assign ds_program[6] = { DS_PROGRAMMER, DS_PROGRAMMER      , 8'hE3, 8'h00 };
+assign ds_program[7] = { DS_IDLE      , DS_IDLE            , 8'hC1, 8'hCD };
 
 // UART instantiation
 wire        recv_done;          // recv data loading done flag 
@@ -214,10 +239,7 @@ begin
                    // ds_enable should already be 1.
                    // If using DS2480B, send next 64 0xFF requests and read 64 bytes memory.
                    // If using 1-wire, directly read 64 bytes memory.
-                   // This check bit reg_wdata[2] is from the status feedback of initial 256 bytes read,
-                   // with the same value of DS2480B_presence. Check software AmpIO.cpp for more details.
-                   state <= reg_wdata[2] ? DS_READ_MEM_REQUEST : DS_READ_MEM_START;
-                   DS2480B_presence <= reg_wdata[2];
+                   state <= DS2480B_presence ? DS_READ_MEM_REQUEST : DS_READ_MEM_START;
                    cnt <= 17'd0;
                    end
           endcase
@@ -389,7 +411,7 @@ begin
              state <= next_state;
              cnt <= 17'd0;
           end
-          // Inerface auto-detect implementation. For DS2480B serial interface, the
+          // Interface auto-detect implementation. For DS2480B serial interface, the
           // first available response is the skip ROM feedback, 0xCC. According to
           // test results, DS2505 & DS2480B delays about 0.5 msec to start receiving
           // process, right after the sending process ends. The receiving process costs
@@ -455,22 +477,14 @@ begin
     DS_PROGRAMMER: begin
        out_byte <= ds_program[progCnt][15:8];
        expected_rxd <= ds_program[progCnt][7:0];
-       progCnt <= progCnt + 4'd1;
        state <= DS_WRITE_BYTE;
        next_state <= DS_CHECK_PROGRAMMER;
     end
 
     DS_CHECK_PROGRAMMER: begin
-       state <= DS_READ_BYTE;
-       case (progCnt)
-          4'd1 :   state      <= DS_PROGRAMMER;        // No response in CMD mode, jump to next state without read
-          4'd2 :   state      <= DS_PROGRAMMER;        // No response in CMD mode, jump to next state without read
-          4'd6 :   next_state <= DS_READ_MEM_REQUEST;  // Start reading memory, send first 0xFF request
-          4'd7 :   state      <= DS_PROGRAMMER;        // No response in CMD mode, jump to next state without read
-          4'd8 :   state      <= DS_IDLE;              // back to IDLE, wait for chip flush
-          default: next_state <= DS_PROGRAMMER;        // other states read feedback after send commands
-       endcase
-       family_code <= 8'h0B;                           // assign family code directly, maybe check in the future
+       state <= ds_program[(progCnt)][25:21];
+       next_state <= ds_program[(progCnt)][20:16];
+       progCnt <= progCnt + 4'd1;
        num_bytes <= 8'd0;
     end
 
@@ -494,6 +508,24 @@ begin
        mem_data[num_bytes[7:2]] <= (mem_data[num_bytes[7:2]] << 8) | in_byte;
        if (num_bytes == 8'hff) begin
           state <= DS_IDLE;  // back to IDLE state, direct 1-wire interface stops, DS2480B jumps to flush states
+       end
+    end
+
+    DS_TEST_FAMILY: begin
+       state <= DS_WRITE_BYTE;
+       out_byte <= 8'hFF;
+       next_state <= DS_CHECK_FAMILY;
+       num_bytes <= num_bytes + 8'd1;
+       if (num_bytes == 8'd1) begin
+          family_code <= in_byte;
+       end
+    end
+
+    DS_CHECK_FAMILY: begin
+       state <= DS_READ_BYTE;
+       next_state <= DS_TEST_FAMILY;
+       if (num_bytes == 8'd8) begin
+          next_state <= DS_PROGRAMMER;
        end
     end
 
