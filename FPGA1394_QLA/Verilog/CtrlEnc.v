@@ -21,12 +21,18 @@ module CtrlEnc(
     input  wire sysclk,           // global clock
     input  wire[1:`NUM_CHANNELS] enc_a,  // set of quadrature encoder inputs
     input  wire[1:`NUM_CHANNELS] enc_b,
+`ifdef ENC_INDEX
+    input  wire[1:`NUM_CHANNELS] enc_i,
+`endif
     input  wire[3:0] reg_raddr_chan,  // register file read addr from outside
     input  wire[15:0] reg_waddr,  // register file write addr from outside
     input  wire[31:0] reg_wdata,  // incoming register file data
     input  wire reg_wen,          // write enable signal from outside world
     output wire[31:0] reg_preload,
     output wire[31:0] reg_quad_data,
+`ifdef ENC_INDEX
+    output wire[31:0] reg_index_data,
+`endif
     output wire[31:0] reg_perd_data,
     output wire[31:0] reg_qtr1_data,
     output wire[31:0] reg_qtr5_data,
@@ -41,6 +47,9 @@ module CtrlEnc(
 reg[1:`NUM_CHANNELS]  set_enc;             // used to raise enc preload flag
 wire[1:`NUM_CHANNELS] enc_a_filt;          // filtered encoder a line
 wire[1:`NUM_CHANNELS] enc_b_filt;          // filtered encoder b line
+`ifdef ENC_INDEX
+wire[1:`NUM_CHANNELS] enc_i_filt;          // filtered encoder index line
+`endif
 wire[1:`NUM_CHANNELS] dir;                 // encoder transition direction
 
 //------------------------------------------------------------------------------
@@ -71,11 +80,14 @@ assign reg_run_data = run_data[reg_raddr_chan];
 // -------------------------------------------------------------------------
 genvar i;
 
-// filters for raw encoder lines a and b (all channels, 1-4)
+// filters for raw encoder lines a, b and i (all channels, 1-`NUM_CHANNELS)
 generate 
 for (i = 1; i < `NUM_CHANNELS+1; i = i + 1) begin : filt_loop 
    Debounce filter_a(sysclk, enc_a[i], enc_a_filt[i]);
    Debounce filter_b(sysclk, enc_b[i], enc_b_filt[i]);
+`ifdef ENC_INDEX
+   Debounce #(.bits(3)) filter_i(sysclk, enc_i[i], enc_i_filt[i]);
+`endif
 end 
 endgenerate
 
@@ -96,6 +108,22 @@ for (i = 1; i < `NUM_CHANNELS+1; i = i+1) begin : vel_loop
 end
 endgenerate
 
+`ifdef ENC_INDEX
+reg[25:0] index_data[1:`NUM_CHANNELS];   // dir, encoder counter when index occurred
+reg[3:0]  index_cnt[1:`NUM_CHANNELS];    // counts number of index pulses
+assign reg_index_data = {index_cnt[reg_raddr_chan], 2'b00, index_data[reg_raddr_chan]};
+
+generate
+for (i = 1; i < `NUM_CHANNELS+1; i = i+1) begin : index_loop
+   always @(posedge(enc_i_filt[i]))
+   begin
+      index_cnt[i] <= index_cnt[i] + 4'd1;
+      index_data[i] <= {dir[i], quad_data[i]};
+   end
+end
+endgenerate
+`endif
+
 // write selected preload register
 // set_enc: create a pulse when encoder preload is written
 
@@ -107,7 +135,7 @@ begin
         set_enc[reg_waddr[7:4]] <= 1'b1;
     end
     else 
-        set_enc <= 4'h0;
+        set_enc <= {`NUM_CHANNELS{1'b0}};
 end
 
 endmodule
