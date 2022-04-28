@@ -6,7 +6,17 @@
 # Macro: ise_ipcoregen
 # Parameters:
 #   - TARGET_NAME:        target name
-#   - XCO_SOURCE:         list of CoreGen Input files (.xco)
+#   - XCO_SOURCE:         list of CoreGen Input files (.xco or .xcp)
+#   - SOURCE_DIR:         source directory (defaults to CMAKE_CURRENT_SOURCE_DIR)
+#   - OUTPUT_DIR:         output directory (defaults to CMAKE_CURRENT_BINARY_DIR)
+#   - FPGA_FAMILY:        FPGA family name (e.g., spartan6)
+#   - FPGA_DEVICE:        FPGA device
+#   - FPGA_PACKAGE:       FPGA package
+#   - FPGA_SPEED:         FPGA speed grade
+#
+# Note that regardless of the setting of SOURCE_DIR and OUTPUT_DIR, coregen is
+# run in the current binary directory and thus its output log file, coregen.log,
+# is created in CMAKE_CURRENT_BINARY_DIR.
 #
 # Macro: ise_compile_fpga
 # Parameters:
@@ -324,12 +334,20 @@ macro (ise_ipcoregen ...)
   # set all keywords and their values to ""
   set (FUNCTION_KEYWORDS
        TARGET_NAME
-       XCO_SOURCE)
+       XCO_SOURCE
+       SOURCE_DIR
+       OUTPUT_DIR
+       FPGA_FAMILY
+       FPGA_DEVICE
+       FPGA_PACKAGE
+       FPGA_SPEED)
 
   # reset local variables
   foreach(keyword ${FUNCTION_KEYWORDS})
     set (${keyword} "")
   endforeach(keyword)
+  set (SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
+  set (OUTPUT_DIR ${CMAKE_CURRENT_BINARY_DIR})
 
   # parse input
   foreach (arg ${ARGV})
@@ -345,22 +363,24 @@ macro (ise_ipcoregen ...)
   file(TO_NATIVE_PATH ${XILINX_ISE_COREGEN} COREGEN_NATIVE)
 
   # Copy CoreGen project file to build tree
-  file (COPY "${CMAKE_CURRENT_SOURCE_DIR}/coregen.cgp" DESTINATION "${CMAKE_CURRENT_BINARY_DIR}")
+  configure_file ("${SOURCE_DIR}/coregen.cgp.in" "${OUTPUT_DIR}/coregen.cgp" @ONLY)
 
   # Create batch file for CoreGen and copy xco files to build tree
-  set (COREGEN_FILE "${CMAKE_CURRENT_BINARY_DIR}/${TARGET_NAME}.cmd")
+  set (COREGEN_FILE "${OUTPUT_DIR}/${TARGET_NAME}.cmd")
   file (WRITE ${COREGEN_FILE} "")
   foreach (f ${XCO_SOURCE})
-    file (COPY "${CMAKE_CURRENT_SOURCE_DIR}/${f}" DESTINATION "${CMAKE_CURRENT_BINARY_DIR}")
+    file (COPY "${SOURCE_DIR}/${f}" DESTINATION "${OUTPUT_DIR}")
     file (APPEND ${COREGEN_FILE} "EXECUTE \"${f}\"\n")
   endforeach()
 
   # CoreGen (XCO --> Verilog)
+  # Note that coregen.log is created in CMAKE_CURRENT_BINARY_DIR
+  # regardless of the setting of OUTPUT_DIR.
   add_custom_command (OUTPUT "coregen.log"
-                      COMMAND ${COREGEN_NATIVE} -b "${TARGET_NAME}.cmd"
-                                                -p "${CMAKE_CURRENT_BINARY_DIR}"
-                      DEPENDS "${XCO_SOURCE}"
-                      COMMENT "Running COREGEN to generate IP cores")
+                      COMMAND ${COREGEN_NATIVE} -b "${COREGEN_FILE}"
+                                                -p "${OUTPUT_DIR}"
+                      DEPENDS "${OUTPUT_DIR}/${XCO_SOURCE}"
+                      COMMENT "Running COREGEN to generate IP cores for ${TARGET_NAME}")
 
   add_custom_target(${TARGET_NAME} ALL
                     DEPENDS "coregen.log")
