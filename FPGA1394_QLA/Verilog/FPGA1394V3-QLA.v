@@ -42,8 +42,15 @@ module FPGA1394V3QLA
     input [3:0]      wenid,     // rotary switch
     inout [1:32]     IO1,
     inout [1:38]     IO2,
-    output wire      LED
+    output wire      LED,
 
+    // Ethernet PHYs (RTL8211F)
+    output wire      E1_MDIO_C,   // eth1 MDIO clock
+    output wire      E2_MDIO_C,   // eth2 MDIO clock
+    inout wire       E1_MDIO_D,   // eth1 MDIO data
+    inout wire       E2_MDIO_D,   // eth2 MDIO data
+    output wire      E1_RSTn,     // eth1 PHY reset
+    output wire      E2_RSTn      // eth2 PHY reset
 );
 
     // -------------------------------------------------------------------------
@@ -126,6 +133,7 @@ end
 wire[31:0] reg_rdata_hub;      // reg_rdata_hub is for hub memory
 wire[31:0] reg_rdata_prom;     // reg_rdata_prom is for block reads from PROM
 wire[31:0] reg_rdata_prom_qla; // reads from QLA prom
+wire[31:0] reg_rdata_eth;      // for eth memory access
 wire[31:0] reg_rdata_ds;       // for DS2505 memory access
 wire[31:0] reg_rdata_chan0;    // 'channel 0' is a special axis that contains various board I/Os
 
@@ -135,10 +143,11 @@ wire[31:0] reg_rdata_chan0;    // 'channel 0' is a special axis that contains va
 assign reg_rdata = (reg_raddr[15:12]==`ADDR_HUB) ? (reg_rdata_hub) :
                   ((reg_raddr[15:12]==`ADDR_PROM) ? (reg_rdata_prom) :
                   ((reg_raddr[15:12]==`ADDR_PROM_QLA) ? (reg_rdata_prom_qla) : 
+                  ((reg_raddr[15:12]==`ADDR_ETH) ? (reg_rdata_eth) :
                   ((reg_raddr[15:12]==`ADDR_DS) ? (reg_rdata_ds) :
                   ((reg_raddr[15:12]==`ADDR_DATA_BUF) ? (reg_rdata_databuf) :
                   ((reg_raddr[15:12]==`ADDR_WAVEFORM) ? (reg_rtable) :
-                  ((reg_raddr[7:4]==4'd0) ? reg_rdata_chan0 : reg_rd[reg_raddr[3:0]]))))));
+                  ((reg_raddr[7:4]==4'd0) ? reg_rdata_chan0 : reg_rd[reg_raddr[3:0]])))))));
 
 // Unused channel offsets
 assign reg_rd[`OFF_UNUSED_02] = 32'd0;
@@ -230,6 +239,50 @@ PhyRequest phyreq(
     .trigger(lreq_trig),      // in: phy request trigger
     .rtype(lreq_type),        // in: phy request type
     .data(fw_reg_wdata[11:0]) // in: phy request data
+);
+
+// --------------------------------------------------------------------------
+// Ethernet module
+// --------------------------------------------------------------------------
+
+wire[31:0] reg_rdata_e1;
+wire[31:0] reg_rdata_e2;
+
+assign reg_rdata_eth = (reg_raddr[11:7] == {4'd1, 1'd1}) ? reg_rdata_e1 :
+                       (reg_raddr[11:7] == {4'd2, 1'd1}) ? reg_rdata_e2 :
+                       32'd0;
+
+wire reg_wen_e1;
+assign reg_wen_e1 = (reg_waddr[15:7] == {`ADDR_ETH, 4'd1, 1'd1}) ? reg_wen : 1'b0;
+wire reg_wen_e2;
+assign reg_wen_e2 = (reg_waddr[15:7] == {`ADDR_ETH, 4'd2, 1'd1}) ? reg_wen : 1'b0;
+
+RTL8211F EthPhy1(
+    .clk(sysclk),             // in:  global clock
+
+    .reg_raddr(reg_raddr),    // in:  read address
+    .reg_waddr(reg_waddr),    // in:  write address
+    .reg_rdata(reg_rdata_e1), // out: read data
+    .reg_wdata(reg_wdata),    // in:  write data
+    .reg_wen(reg_wen_e1),     // in:  write enable
+
+    .MDIO(E1_MDIO_D),         // Bidirectional data to RTL8211F
+    .MDC(E1_MDIO_C),          // Clock to RTL8211F
+    .RSTn(E1_RSTn)            // Reset to RTL8211F
+);
+
+RTL8211F EthPhy2(
+    .clk(sysclk),             // in:  global clock
+
+    .reg_raddr(reg_raddr),    // in:  read address
+    .reg_waddr(reg_waddr),    // in:  write address
+    .reg_rdata(reg_rdata_e2), // out: read data
+    .reg_wdata(reg_wdata),    // in:  write data
+    .reg_wen(reg_wen_e2),     // in:  write enable
+
+    .MDIO(E2_MDIO_D),         // Bidirectional data to RTL8211F
+    .MDC(E2_MDIO_C),          // Clock to RTL8211F
+    .RSTn(E2_RSTn)            // Reset to RTL8211F
 );
 
 // --------------------------------------------------------------------------
@@ -523,9 +576,12 @@ wire[4:1] safety_amp_disable;
 wire pwr_enable_cmd;
 wire[4:1] amp_enable_cmd;
 
-// There is no Ethernet on this version of board, so set the result to 0
+// The Ethernet result is used to distinguish between FPGA versions
+//    Rev 1:  Eth_Result == 32'd0
+//    Rev 2:  Eth_Result[31] == 1, other bits variable
+//    Rev 3:  Eth_Result[31:30] == 01, other bits variable
 wire[31:0] Eth_Result;
-assign  Eth_Result = 32'b0;
+assign  Eth_Result = 32'h4000;
 
 wire[31:0] reg_status;    // Status register
 wire[31:0] reg_digio;     // Digital I/O register

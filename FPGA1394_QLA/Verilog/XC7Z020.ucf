@@ -116,11 +116,11 @@ NET  "wenid[3]"   LOC = "C20"     | IOSTANDARD = "LVCMOS33" | PULLUP;
 # Ethernet PHYs
 ################################################################################
 
-# NET  "E1_MDIO_C"  LOC = "R19"     | IOSTANDARD = "LVCMOS33";
-# NET  "E2_MDIO_C"  LOC = "P19"     | IOSTANDARD = "LVCMOS33";
-# NET  "E2_RSTn"    LOC = "N20"     | IOSTANDARD = "LVCMOS33" | PULLUP;
-# NET  "E1_RSTn"    LOC = "P20"     | IOSTANDARD = "LVCMOS33" | PULLUP;
-# NET  "E1_MDIO_D"  LOC = "T20"     | IOSTANDARD = "LVCMOS33";
+NET  "E1_MDIO_C"  LOC = "R19"     | IOSTANDARD = "LVCMOS33";
+NET  "E2_MDIO_C"  LOC = "P19"     | IOSTANDARD = "LVCMOS33";
+NET  "E2_RSTn"    LOC = "N20"     | IOSTANDARD = "LVCMOS33" | PULLUP;
+NET  "E1_RSTn"    LOC = "P20"     | IOSTANDARD = "LVCMOS33" | PULLUP;
+NET  "E1_MDIO_D"  LOC = "T20"     | IOSTANDARD = "LVCMOS33";
 
 # FPGA BANK 13, which is configured for 1.8V
 #
@@ -148,4 +148,4 @@ NET  "wenid[3]"   LOC = "C20"     | IOSTANDARD = "LVCMOS33" | PULLUP;
 # NET  "E1_TxCLK"   LOC = "V11"     | IOSTANDARD = "LVCMOS18";
 # NET  "E2_TxD[2]"  LOC = "V10"     | IOSTANDARD = "LVCMOS18";
 # NET  "E2_RxD[1]"  LOC = "V6"      | IOSTANDARD = "LVCMOS18";
-# NET  "E2_MDIO_D"  LOC = "W6"      | IOSTANDARD = "LVCMOS18";
+NET  "E2_MDIO_D"  LOC = "W6"      | IOSTANDARD = "LVCMOS18";
