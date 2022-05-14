@@ -581,7 +581,7 @@ wire[4:1] amp_enable_cmd;
 //    Rev 2:  Eth_Result[31] == 1, other bits variable
 //    Rev 3:  Eth_Result[31:30] == 01, other bits variable
 wire[31:0] Eth_Result;
-assign  Eth_Result = 32'h4000;
+assign  Eth_Result = 32'h40000000;
 
 wire[31:0] reg_status;    // Status register
 wire[31:0] reg_digio;     // Digital I/O register
