@@ -9,9 +9,9 @@ ise_ipcoregen(TARGET_NAME       "CoreGenV3"
               XCO_SOURCE        ${IPCORE_SOURCE_COMMON}
               SOURCE_DIR        "${FPGA1394_QLA_SOURCE_DIR}/ipcore_dir"
               FPGA_FAMILY       ${FPGAV3_FAMILY}
-	      FPGA_DEVICE       ${FPGAV3_DEVICE}
-	      FPGA_PACKAGE      ${FPGAV3_PACKAGE}
-	      FPGA_SPEED        ${FPGAV3_SPEED})
+              FPGA_DEVICE       ${FPGAV3_DEVICE}
+              FPGA_PACKAGE      ${FPGAV3_PACKAGE}
+              FPGA_SPEED        ${FPGAV3_SPEED})
 
 # For convenience, do not automatically clean this (i.e., do not delete coregen.log)
 # To regenerate IP cores, must manually delete coregen.log

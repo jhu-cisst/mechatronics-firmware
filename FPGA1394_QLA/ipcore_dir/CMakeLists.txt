@@ -9,9 +9,9 @@ set (IPCORE_SOURCE_COMMON "hub_mem_gen.xcp"
 ise_ipcoregen(TARGET_NAME       "CoreGenCommon"
               XCO_SOURCE        ${IPCORE_SOURCE_COMMON}
               FPGA_FAMILY       ${FPGA_FAMILY}
-	      FPGA_DEVICE       ${FPGA_DEVICE}
-	      FPGA_PACKAGE      ${FPGA_PACKAGE}
-	      FPGA_SPEED        ${FPGA_SPEED})
+              FPGA_DEVICE       ${FPGA_DEVICE}
+              FPGA_PACKAGE      ${FPGA_PACKAGE}
+              FPGA_SPEED        ${FPGA_SPEED})
 
 # For convenience, do not automatically clean this (i.e., do not delete coregen.log)
 # To regenerate IP cores, must manually delete coregen.log
