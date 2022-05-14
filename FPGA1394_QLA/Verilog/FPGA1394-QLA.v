@@ -503,7 +503,7 @@ M25P16 prom(
 
 
 // --------------------------------------------------------------------------
-// QLA prom 25AA138 
+// QLA prom 25AA128 
 //    - SPI pin connection see QLA schematics
 //    - TEMP version, interface subject to future change
 // --------------------------------------------------------------------------
