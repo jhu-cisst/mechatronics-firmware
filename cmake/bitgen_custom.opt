@@ -19,8 +19,10 @@ Program bitgen
 #-l;                       # Create logic allocation file
 #-m;                       # Create mask file
 -g UserID:0xFFFFFFFF;     # Default UserID
--g TIMER_CFG:0xFFFF;      # Value of watchdog timer in configuration mode (default is 0x0000)
--g INIT_9K:Yes;           # Fix 9K Block RAM initialization (default)
+# PK 05-2022: commented out TIMER_CFG and INIT_9K because they are not supported for Zynq and
+#             probably are not necessary for Spartan 6 (i.e., default values are fine)
+#-g TIMER_CFG:0xFFFF;      # Value of watchdog timer in configuration mode (default is 0x0000)
+#-g INIT_9K:Yes;           # Fix 9K Block RAM initialization (default)
 -intstyle silent;         # Message Reporting Style: ise, xflow, or silent
 END Program bitgen
 
