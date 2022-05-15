@@ -28,6 +28,7 @@
 #   - IPCORE_DIR:      Directory to search for IP cores
 #   - TOP_LEVEL:       Top level module name
 #   - PROJ_OUTPUT:     the final output name (can be different from PROJ_NAME)
+#   - IS_V3:           Whether a V3 build (ON) or V1/V2 (OFF, default)
 #
 # Note that PROJ_OUTPUT is provided for the final naming because currently the
 # PROJ_NAMES are FPGA1394QLA and FPGA1394EthQLA, while the corresponding PROJ_OUTPUT
@@ -58,12 +59,14 @@ macro (ise_compile_fpga ...)
        UCF_FILE
        IPCORE_DIR
        TOP_LEVEL
-       PROJ_OUTPUT)
+       PROJ_OUTPUT
+       IS_V3)
 
   # reset local variables
   foreach(keyword ${FUNCTION_KEYWORDS})
     set (${keyword} "")
   endforeach(keyword)
+  set(IS_V3 OFF)
 
   # parse input
   foreach (arg ${ARGV})
@@ -85,13 +88,18 @@ macro (ise_compile_fpga ...)
   file (COPY "${XILINX_OPT_DIR}/${XILINX_SYNTH_OPT_FILE}" DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
   file (COPY "${XILINX_OPT_DIR}/${XILINX_IMPLEMENT_OPT_FILE}" DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
   file (COPY "${XILINX_OPT_DIR}/${XILINX_BITGEN_OPT_FILE}" DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
+  file (COPY "${XILINX_OPT_DIR}/${XILINX_BITGEN_V3_OPT_FILE}" DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
 
   # Create xflow command file (necessary because Linux shell interprets $ character following -g)
   set (CMD_FILE "${CMAKE_CURRENT_BINARY_DIR}/${PROJ_NAME}-xflow.cmd")
   file (WRITE  ${CMD_FILE} "-p         ${FPGA_PARTNUM}\n")
   file (APPEND ${CMD_FILE} "-synth     ${XILINX_SYNTH_OPT_FILE}\n")
   file (APPEND ${CMD_FILE} "-implement ${XILINX_IMPLEMENT_OPT_FILE}\n")
-  file (APPEND ${CMD_FILE} "-config    ${XILINX_BITGEN_OPT_FILE}\n")
+  if (IS_V3)
+    file (APPEND ${CMD_FILE} "-config    ${XILINX_BITGEN_V3_OPT_FILE}\n")
+  else (IS_V3)
+    file (APPEND ${CMD_FILE} "-config    ${XILINX_BITGEN_OPT_FILE}\n")
+  endif (IS_V3)
   file (APPEND ${CMD_FILE} "-rd        reports\n")
   file (APPEND ${CMD_FILE} "-g         $top_level:${TOP_LEVEL}\n")
   file (APPEND ${CMD_FILE} "-g         $ipcore_dir:${IPCORE_DIR}\n")
