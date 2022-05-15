@@ -112,7 +112,8 @@ ise_compile_fpga(PROJ_NAME      "FPGA1394V3QLA"
                  UCF_FILE       "${VERILOG_SOURCE_DIR}/XC7Z020.ucf"
                  IPCORE_DIR     ${IPCOREV3_BINARY_DIR}
                  TOP_LEVEL      "FPGA1394V3QLA"
-                 PROJ_OUTPUT    "FPGA1394V3-QLA")
+                 PROJ_OUTPUT    "FPGA1394V3-QLA"
+                 IS_V3          ON)
 
 # timing target only defined by ise_compile_fpga_old
 # add_custom_target(timing
