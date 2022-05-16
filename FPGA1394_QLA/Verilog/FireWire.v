@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2008-2021 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2008-2022 ERC CISST, Johns Hopkins University.
  *
  * This module implements the FireWire link layer state machine, which defines
  * the operation of the phy-link interface.  The state machine is triggered on
@@ -236,13 +236,13 @@ module PhyLinkInterface(
 
     // Interface for real-time block write
     output reg       fw_rt_wen,
-    output reg[2:0]  fw_rt_waddr,
+    output reg[3:0]  fw_rt_waddr,
     output reg[31:0] fw_rt_wdata,
 
     // Interface for sampling data (for block read)
     output reg sample_start,         // 1 -> start sampling for block read
     input wire sample_busy,          // Sampling in process
-    output wire[4:0] sample_raddr,   // Read address for sampled data
+    output wire[5:0] sample_raddr,   // Read address for sampled data
     input wire[31:0] sample_rdata    // Sampled data (for block read)
 
     // debug
@@ -323,13 +323,13 @@ module PhyLinkInterface(
     reg[15:0] reg_dlen;           // block data length
     reg[47:0] rx_addr_full;       // full 48-bit
 
-    // real-time read stuff
     reg data_block;               // flag for block write data being received
     reg dac_local;                // Indicates that DAC entries in block write are for this board_id
-    reg[2:0] RtCnt;               // Counter for real-time block quadlets
+    reg[7:0] RtCnt;               // Counter for real-time block quadlets
+    reg[7:0] RtLen;               // Number of quadlets in the RT write block for current board
 
     // Read address for sampled data
-    assign sample_raddr = reg_raddr[4:0];
+    assign sample_raddr = reg_raddr[5:0];
 
     wire addrMainRead;
     wire addrMainWrite;
@@ -661,6 +661,7 @@ begin
             blk_wen <= 0;                          // no block write events
             crc_tx <= 0;                           // not in a transmit state
             rx_active <= 0;                        // clear receive active     
+            fw_rt_wen <= 0;                        // clear real-time block write enable
 
             // To be safe, we stay in the idle state if the sampler still has control
             // over the read bus (reg_raddr), which should only be for a few cycles.
@@ -821,28 +822,32 @@ begin
                             // main address: special case
                             if (addrMainWrite) begin
                                 // Real-time block write.
-                                // Starting with Rev 7, the first 4 entries are the DAC (same as Rev 1-6),
-                                // but that is followed by the status register (for power control).
-                                // Note that for broadcast write, the packet will have data for all boards;
-                                // thus, we check for consecutive DAC entries that match our board_id and
-                                // assume that the next entry is the status register for this board.
-                                fw_rt_waddr <= RtCnt;
+                                // Starting with Rev 8, the first entry is a header that specifies which
+                                // board is being addressed. If this is a sequential block write, it
+                                // addresses this board and we rely on the host PC to send a Rev 8 packet.
+                                // Similarly, if a broadcast write (to multiple boards), we can assume
+                                // that the host PC will only use broadcast write if all boards are Rev 8+.
+                                // The header will also specify the number of motors being addressed
+                                // (4 for QLA and 10 for dRAC). The last quadlet is for power control.
+                                // The protocol uses 8 bits for the length (RtLen), even though currently
+                                // the largest block write is 12 quadlets (for dRAC). Note, however, that
+                                // fw_rt_waddr is only 4 bits.
                                 fw_rt_wdata <= buffer;
-                                if (RtCnt[2]) begin   // if (RtCnt == 3'd4)
-                                    RtCnt <= 3'd0;
-                                    dac_local <= 1;
-                                    fw_rt_wen <= dac_local&rx_active;
+                                if (RtCnt == 8'h0) begin
+                                    RtLen <= buffer[7:0];
+                                    RtCnt <= 8'h1;
+                                    dac_local <= (buffer[11:8] == board_id) ? 1'b1 : 1'b0;
+                                    fw_rt_waddr <= 4'hf;
+                                    fw_rt_wen <= 0;
+                                end
+                                else if (RtCnt == RtLen) begin
+                                    RtCnt <= 8'h0;
+                                    fw_rt_wen <= 0;
                                 end
                                 else begin
-                                    RtCnt <= RtCnt + 3'd1;
-                                    // only respond to bit 27-24 == board_id (bc mode)
-                                    if (buffer[27:24] == board_id) begin
-                                        fw_rt_wen <= rx_active;
-                                    end
-                                    else begin
-                                        fw_rt_wen <= 0;
-                                        dac_local <= 0;
-                                    end
+                                    RtCnt <= RtCnt + 8'h1;
+                                    fw_rt_waddr <= fw_rt_waddr + 4'd1;
+                                    fw_rt_wen <= rx_active & dac_local;
                                 end
                             end
                             // other space
@@ -1011,8 +1016,7 @@ begin
 
                             if (addrMainWrite) begin
                                 // main is special, write to WriteRtData module
-                                RtCnt <= 3'd0;
-                                dac_local <= 1;
+                                RtCnt <= 8'd0;
                             end
                             else begin
                                 // block write to hub, prom, prom_qla

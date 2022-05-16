@@ -3,13 +3,13 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2013-2021 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2013-2022 ERC CISST, Johns Hopkins University.
  *
  * Purpose: Global constants e.g. device address
  * 
  * Revision history
  *     10/26/13    Zihan Chen    Initial revision
- *     11/14/19    Jintan Zhang  Added watchdog phase contant 
+ *     11/14/19    Jintan Zhang  Added watchdog phase constant
  */
  
  /**************************************************************
@@ -33,7 +33,7 @@
 `else
 `define VERSION 32'h514C4131       // hard-wired version number "QLA1" = 0x514C4131
 `endif
-`define FW_VERSION 32'h07          // firmware version = 7
+`define FW_VERSION 32'h08          // firmware version = 8
 
 // define board components
 `define NUM_CHANNELS 4             // number of channels on QLA
@@ -88,7 +88,7 @@
 `define OFF_QTR5_DATA 4'h9         // enc most recent quarter offset
 `define OFF_RUN_DATA  4'hA         // enc running counter offset
 `define OFF_UNUSED_11 4'hB
-`define OFF_UNUSED_12 4'hC
+`define OFF_MOTOR_STATUS 4'hC
 `define OFF_UNUSED_13 4'hD
 `define OFF_UNUSED_14 4'hE
 `define OFF_UNUSED_15 4'hF

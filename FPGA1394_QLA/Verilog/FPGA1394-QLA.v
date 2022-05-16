@@ -3,7 +3,7 @@
 
 /*******************************************************************************    
  *
- * Copyright(C) 2011-2021 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2011-2022 ERC CISST, Johns Hopkins University.
  *
  * This is the top level module for the FPGA1394-QLA motor controller interface.
  *
@@ -101,13 +101,13 @@ BUFG clksysclk(.I(clk1394), .O(sysclk));
 wire sample_start;        // Start sampling read data
 wire sample_busy;         // 1 -> data sampler has control of bus
 wire[3:0] sample_chan;    // Channel for sampling
-wire[4:0] sample_raddr;   // Address in sample_data buffer
+wire[5:0] sample_raddr;   // Address in sample_data buffer
 wire[31:0] sample_rdata;  // Output from sample_data buffer
 wire[31:0] timestamp;     // Timestamp used when sampling
 
 // For real-time write
 wire       rt_wen;
-wire[2:0]  rt_waddr;
+wire[3:0]  rt_waddr;
 wire[31:0] rt_wdata;
 
 // For data sampling
@@ -157,7 +157,6 @@ assign reg_rdata = (reg_raddr[15:12]==`ADDR_HUB) ? (reg_rdata_hub) :
 assign reg_rd[`OFF_UNUSED_02] = 32'd0;
 assign reg_rd[`OFF_UNUSED_03] = 32'd0;
 assign reg_rd[`OFF_UNUSED_11] = 32'd0;
-assign reg_rd[`OFF_UNUSED_12] = 32'd0;
 assign reg_rd[`OFF_UNUSED_13] = 32'd0;
 assign reg_rd[`OFF_UNUSED_14] = 32'd0;
 assign reg_rd[`OFF_UNUSED_15] = 32'd0;
@@ -339,6 +338,17 @@ assign reg_rd[`OFF_DAC_CTRL] = cur_cmd[reg_raddr[7:4]];
 // --------------------------------------------------------------------------
 // dacs
 // --------------------------------------------------------------------------
+
+wire[31:0] reg_motor_status;
+
+wire amp_disable_vec[1:4];
+assign amp_disable_vec[1] = IO2[32];
+assign amp_disable_vec[2] = IO2[34];
+assign amp_disable_vec[3] = IO2[36];
+assign amp_disable_vec[4] = IO2[38];
+
+assign reg_motor_status = { 3'b000, ~amp_disable_vec[reg_raddr[7:4]], 12'd0, cur_cmd[reg_raddr[7:4]] };
+assign reg_rd[`OFF_MOTOR_STATUS] = reg_motor_status;
 
 // the dac controller manages access to the dacs
 CtrlDac dac(
@@ -648,6 +658,7 @@ SampleData sampler(
     .enc_qtr1(reg_qtr1_data),
     .enc_qtr5(reg_qtr5_data),
     .enc_run(reg_run_data),
+    .motor_status(reg_motor_status),
     .blk_addr(sample_raddr),
     .blk_data(sample_rdata),
     .timestamp(timestamp),
@@ -662,7 +673,7 @@ SampleData sampler(
 WriteRtData rt_write(
     .clk(sysclk),
     .rt_write_en(rt_wen),       // Write enable
-    .rt_write_addr(rt_waddr),   // Write address (0-4)
+    .rt_write_addr(rt_waddr),   // Write address
     .rt_write_data(rt_wdata),   // Write data
     .bw_write_en(bw_write_en),
     .bw_reg_wen(bw_reg_wen),
