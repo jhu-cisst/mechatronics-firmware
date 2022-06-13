@@ -833,15 +833,11 @@ begin
                                 // the largest block write is 12 quadlets (for dRAC). Note, however, that
                                 // fw_rt_waddr is only 4 bits.
                                 fw_rt_wdata <= buffer;
-                                if (RtCnt == 8'h0) begin
+                                if ((RtCnt == 8'h0) || (RtCnt == RtLen)) begin
                                     RtLen <= buffer[7:0];
                                     RtCnt <= 8'h1;
                                     dac_local <= (buffer[11:8] == board_id) ? 1'b1 : 1'b0;
                                     fw_rt_waddr <= 4'hf;
-                                    fw_rt_wen <= 0;
-                                end
-                                else if (RtCnt == RtLen) begin
-                                    RtCnt <= 8'h0;
                                     fw_rt_wen <= 0;
                                 end
                                 else begin
