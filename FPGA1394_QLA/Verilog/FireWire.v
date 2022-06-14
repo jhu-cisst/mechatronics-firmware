@@ -229,7 +229,6 @@ module PhyLinkInterface(
 
     // broadcast related fields
     input wire[15:0] rx_bc_sequence, // broadcast sequence num
-    input wire[15:0] rx_bc_fpga,     // indicates whether a boards exists
     input wire write_trig,           // request to broadcast this board's hub data
     output wire write_trig_reset,    // reset write_trig
     output wire fw_idle,             // whether Firewire state machine is idle
@@ -570,9 +569,10 @@ module PhyLinkInterface(
     //    `SZ_BWRITE includes FW_header + header_CRC + data_CRC
     localparam[15:0] SZ_BBC = (`SZ_BWRITE + 32*`NUM_BC_READ_QUADS);
 
-    // maximum quadlet index for real-time feedback broadcast packet
-    localparam[5:0] MAX_BBC_QUAD = (`NUM_BC_READ_QUADS-1);
-    // real-time feedback broadcast packet size, in bytes, not include Firewire header/CRC
+    // real-time feedback broadcast packet size, in quadlets, not including Firewire header/CRC
+    localparam[15:0] SZ_BBC_QUADS = `NUM_BC_READ_QUADS;
+
+    // real-time feedback broadcast packet size, in bytes, not including Firewire header/CRC
     localparam[15:0] SZ_BBC_BYTES = (4*`NUM_BC_READ_QUADS);
 
 // -----------------------------------------------------------------------------
@@ -1316,19 +1316,21 @@ begin
                 //  - 4'h01 = `ADDR_HUB
                 //  - bid is 4 bits board id
                 24: buffer <= { local_id, 16'hffff };  // src_id, dest_offset
-                56: buffer <= { 16'hff00, `ADDR_HUB, 3'd0, board_id, 5'd0 };
+                56: buffer <= { 16'hff00, `ADDR_HUB, 2'd0, board_id, 6'd0 };
 
                 //-------- Start broadcast back with sequence -------------
                 // datalen = 4 x (1 + 4 + 4 + 4 + 4 + 4) = 84 bytes (Rev 1-6)
                 //    Seq (1), BoardInfo (4), Pot/Cur (4), Enc (4), Enc Vel/DT (4), Enc Vel/DP/Q1 (4)
                 // datalen = 4 x (1 + 4 + 4 + 4 + 4 + 4 + 4 + 4) = 116 bytes (Rev 7)
                 //    above + Enc Accel Q5 (4), Enc Running (4)
+                // datalen = 4 x (1 + 4 + 4 + 4 + 4 + 4 + 4 + 4 + 4) = 132 bytes (Rev 8)
+                //    above + Motor Status (4)
                 88: buffer <= { SZ_BBC_BYTES, 16'd0 };
                 
                 // latch header crc, reset crc in preparation for data crc
                 128: begin
                     // for hub register (HubReg)
-                    reg_waddr[15:0] <= { `ADDR_HUB, 3'd0, board_id, 5'd0 };
+                    reg_waddr[15:0] <= { `ADDR_HUB, 2'd0, board_id, 6'd0 };
                     reg_wen <= 1'b1;
 
                     // crc
@@ -1337,10 +1339,10 @@ begin
                     crc_ini <= 1;          // start crc
                 end
 
-                // latch bc_sequence and bc_fpga, send back to PC,  restart crc
+                // latch bc_sequence and block size, restart crc
                 152: begin
-                    reg_wdata <= { rx_bc_sequence, rx_bc_fpga };  // for HubReg
-                    buffer <= { rx_bc_sequence, rx_bc_fpga };
+                    reg_wdata <= { rx_bc_sequence, SZ_BBC_QUADS };  // for HubReg
+                    buffer <= { rx_bc_sequence, SZ_BBC_QUADS };
                     crc_ini <= 0;           // clear crc start bit
                     reg_raddr <= {`ADDR_MAIN, 12'd0 };  // Will actually read from SampleData
                     state <= ST_TX_DATA;    // goto ST_TX_DATA
@@ -1372,7 +1374,7 @@ begin
 
                     // cache to hubreg, only saves to hub when block broadcast packets
                     // (reg_wen is set in ST_TX_HEAD_BC)
-                    reg_waddr[4:0] <= reg_waddr[4:0] + 5'd1;
+                    reg_waddr[5:0] <= reg_waddr[5:0] + 6'd1;
                     reg_wdata <= sample_rdata;
 
                     // send to FireWire bus

@@ -233,7 +233,6 @@ assign ETH_8n = 1;          // 16-bit bus
 // --------------------------------------------------------------------------
 
 wire[15:0] bc_sequence;
-wire[15:0] bc_board_mask;
 //wire       bc_request;
 wire       hub_write_trig;
 wire       hub_write_trig_reset;
@@ -247,7 +246,6 @@ HubReg hub(
     .reg_rdata(reg_rdata_hub),
     .reg_wdata(reg_wdata),
     .sequence(bc_sequence),
-    .board_mask(bc_board_mask),
     //.hub_reg_wen(bc_request),
     .board_id(board_id),
     .write_trig(hub_write_trig),
@@ -317,7 +315,6 @@ PhyLinkInterface phy(
     .lreq_type(fw_lreq_type),  // out: phy request type
 
     .rx_bc_sequence(bc_sequence),  // in: broadcast sequence num
-    .rx_bc_fpga(bc_board_mask),    // in: mask of boards involved in broadcast read
     .write_trig(hub_write_trig),   // in: 1 -> broadcast write this board's hub data
     .write_trig_reset(hub_write_trig_reset),
     .fw_idle(fw_idle),
@@ -849,9 +846,7 @@ SampleData sampler(
     .motor_status(reg_motor_status),
     .blk_addr(sample_raddr),
     .blk_data(sample_rdata),
-    .timestamp(timestamp),
-    .bc_sequence(bc_sequence),
-    .bc_board_mask(bc_board_mask)
+    .timestamp(timestamp)
 );
 
 // --------------------------------------------------------------------------

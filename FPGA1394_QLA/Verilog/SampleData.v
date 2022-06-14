@@ -31,9 +31,7 @@ module SampleData(
     input wire[31:0]  motor_status, // Motor status feedback
     input wire[5:0]   blk_addr,    // Address for accessing RT_Feedback
     output wire[31:0] blk_data,    // Currently selected block data
-    output reg[31:0]  timestamp,   // timestamp counter register
-    input wire[15:0]  bc_sequence, // broadcast sequence number
-    input wire[15:0]  bc_board_mask // broadcast board mask
+    output reg[31:0]  timestamp    // timestamp counter register
     );
 
 // Number of quadlets in block response:
