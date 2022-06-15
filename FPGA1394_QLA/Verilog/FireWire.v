@@ -570,7 +570,7 @@ module PhyLinkInterface(
     localparam[15:0] SZ_BBC = (`SZ_BWRITE + 32*`NUM_BC_READ_QUADS);
 
     // real-time feedback broadcast packet size, in quadlets, not including Firewire header/CRC
-    localparam[15:0] SZ_BBC_QUADS = `NUM_BC_READ_QUADS;
+    localparam[7:0] SZ_BBC_QUADS = `NUM_BC_READ_QUADS;
 
     // real-time feedback broadcast packet size, in bytes, not including Firewire header/CRC
     localparam[15:0] SZ_BBC_BYTES = (4*`NUM_BC_READ_QUADS);
@@ -1312,11 +1312,10 @@ begin
             // update transmit buffer at quadlet boundaries
             case (count)
                 // NOTE: destination address
-                // dest_addr = 0xffffff000(4'h01)(bid)0  
+                // dest_addr = 0xffffff000(4'h01)0
                 //  - 4'h01 = `ADDR_HUB
-                //  - bid is 4 bits board id
                 24: buffer <= { local_id, 16'hffff };  // src_id, dest_offset
-                56: buffer <= { 16'hff00, `ADDR_HUB, 2'd0, board_id, 6'd0 };
+                56: buffer <= { 16'hff00, `ADDR_HUB, 12'd0 };
 
                 //-------- Start broadcast back with sequence -------------
                 // datalen = 4 x (1 + 4 + 4 + 4 + 4 + 4) = 84 bytes (Rev 1-6)
@@ -1329,10 +1328,6 @@ begin
                 
                 // latch header crc, reset crc in preparation for data crc
                 128: begin
-                    // for hub register (HubReg)
-                    reg_waddr[15:0] <= { `ADDR_HUB, 2'd0, board_id, 6'd0 };
-                    reg_wen <= 1'b1;
-
                     // crc
                     data <= ~crc_8msb;
                     buffer <= { ~crc_in[23:0], 8'd0 };
@@ -1341,8 +1336,12 @@ begin
 
                 // latch bc_sequence and block size, restart crc
                 152: begin
-                    reg_wdata <= { rx_bc_sequence, SZ_BBC_QUADS };  // for HubReg
-                    buffer <= { rx_bc_sequence, SZ_BBC_QUADS };
+                    // for hub register (HubReg)
+                    reg_waddr[15:0] <= { `ADDR_HUB, 12'd0 };
+                    reg_wen <= 1'b1;
+                    reg_wdata <= { rx_bc_sequence, 8'd0, SZ_BBC_QUADS };  // for HubReg
+                    // for transmission via FireWire
+                    buffer <= { rx_bc_sequence, 8'd0, SZ_BBC_QUADS };
                     crc_ini <= 0;           // clear crc start bit
                     reg_raddr <= {`ADDR_MAIN, 12'd0 };  // Will actually read from SampleData
                     state <= ST_TX_DATA;    // goto ST_TX_DATA
@@ -1374,7 +1373,7 @@ begin
 
                     // cache to hubreg, only saves to hub when block broadcast packets
                     // (reg_wen is set in ST_TX_HEAD_BC)
-                    reg_waddr[5:0] <= reg_waddr[5:0] + 6'd1;
+                    reg_waddr[7:0] <= reg_waddr[7:0] + 8'd1;
                     reg_wdata <= sample_rdata;
 
                     // send to FireWire bus

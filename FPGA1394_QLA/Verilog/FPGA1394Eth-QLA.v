@@ -233,7 +233,6 @@ assign ETH_8n = 1;          // 16-bit bus
 // --------------------------------------------------------------------------
 
 wire[15:0] bc_sequence;
-//wire       bc_request;
 wire       hub_write_trig;
 wire       hub_write_trig_reset;
 wire       fw_idle;
@@ -246,7 +245,6 @@ HubReg hub(
     .reg_rdata(reg_rdata_hub),
     .reg_wdata(reg_wdata),
     .sequence(bc_sequence),
-    //.hub_reg_wen(bc_request),
     .board_id(board_id),
     .write_trig(hub_write_trig),
     .write_trig_reset(hub_write_trig_reset),
