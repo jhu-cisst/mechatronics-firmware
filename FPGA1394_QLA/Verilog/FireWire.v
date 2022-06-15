@@ -1373,8 +1373,10 @@ begin
 
                     // cache to hubreg, only saves to hub when block broadcast packets
                     // (reg_wen is set in ST_TX_HEAD_BC)
-                    reg_waddr[7:0] <= reg_waddr[7:0] + 8'd1;
-                    reg_wdata <= sample_rdata;
+                    if (reg_waddr[7:0] != SZ_BBC_QUADS-8'd1) begin
+                        reg_waddr[7:0] <= reg_waddr[7:0] + 8'd1;
+                        reg_wdata <= sample_rdata;
+                    end
 
                     // send to FireWire bus
                     buffer <= rom_addr ? rom_data :
