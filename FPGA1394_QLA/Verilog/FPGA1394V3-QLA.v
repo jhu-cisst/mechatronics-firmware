@@ -50,7 +50,13 @@ module FPGA1394V3QLA
     inout wire       E1_MDIO_D,   // eth1 MDIO data
     inout wire       E2_MDIO_D,   // eth2 MDIO data
     output wire      E1_RSTn,     // eth1 PHY reset
-    output wire      E2_RSTn      // eth2 PHY reset
+    output wire      E2_RSTn,     // eth2 PHY reset
+
+    // PS7 interface
+    inout[53:0]      MIO,
+    input            PS_SRSTB,
+    input            PS_CLK,
+    input            PS_PORB
 );
 
     // -------------------------------------------------------------------------
@@ -763,5 +769,14 @@ CtrlLED qla_led(
     .led2_grn(IO2[5]),
     .led2_red(IO2[7])
 );
+
+`ifdef ZYNQ_PS7
+fpgav3 zynq_ps7(
+    .processing_system7_0_MIO(MIO),
+    .processing_system7_0_PS_SRSTB_pin(PS_SRSTB_pin),
+    .processing_system7_0_PS_CLK_pin(PS_CLK_pin),
+    .processing_system7_0_PS_PORB_pin(PS_PORB_pin)
+);
+`endif
 
 endmodule

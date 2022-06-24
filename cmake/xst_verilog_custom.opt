@@ -34,6 +34,8 @@ ParamFile: <design>_xst.scr
 "-p <partname>";                  # Target Device
 # PK: added following line
 "-top $top_level";                # Top level module
+# PK: added optional macro definitions (multiple macros can be separated by spaces)
+"-define {$user_macros}";
 "-opt_level 1";                   # Optimization Effort Criteria
                                   # 1 (Normal) or 2 (High)
 "-opt_mode SPEED";                # Optimization Criteria

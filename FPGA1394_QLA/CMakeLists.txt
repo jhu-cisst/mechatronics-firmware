@@ -19,6 +19,9 @@ set (FPGAV3_PACKAGE "clg400")
 set (FPGAV3_SPEED   "-3")
 set (FPGAV3_PARTNUM "${FPGAV3_DEVICE}${FPGAV3_SPEED}${FPGAV3_PACKAGE}")
 
+# Temporary option to skip PS7 core because it does not yet work
+option (FPGAV3_PS7 "Build PS7 core for FPGA V3" OFF)
+
 # Path to Verilog source code
 set (VERILOG_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/Verilog")
 
@@ -27,6 +30,7 @@ set (VERILOG_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/Verilog")
 set (IPCORE_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/ipcore_dir")
 set (IPCORE_BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/ipcore_dir")
 set (IPCOREV3_BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/ipcorev3_dir")
+set (XPSCORE_BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/ipcorev3_dir/xps")
 
 add_subdirectory(ipcore_dir)
 add_subdirectory(ipcorev3_dir)
@@ -81,6 +85,13 @@ set (VERILOG_SOURCE_REV3 "${VERILOG_SOURCE_DIR}/FPGA1394V3-QLA.v"
                          "${IPCOREV3_BINARY_DIR}/hub_mem_gen.v"
                          "${IPCOREV3_BINARY_DIR}/Dual_port_RAM_32X1024.v")
 
+set(FPGAV3_DEFS "")
+if (FPGAV3_PS7)
+  set (FPGAV3_DEFS "ZYNQ_PS7")  # Not yet working
+  set (VERILOG_SOURCE_REV3 ${VERILOG_SOURCE_REV3}
+                           "${XPSCORE_BINARY_DIR}/hdl/fpgav3.v")
+endif (FPGAV3_PS7)
+
 # Compile the Rev 1 firmware -- output is FPGA1394-QLA.mcs, which is copied
 # to the Generated subdirectory in the source directory (if different).
 ise_compile_fpga(PROJ_NAME      "FPGA1394QLA"
@@ -106,12 +117,14 @@ ise_compile_fpga(PROJ_NAME      "FPGA1394EthQLA"
 # Compile the Rev 3 firmware -- output is FPGA1394V3-QLA.mcs, which is copied
 # to the Generated subdirectory in the source directory (if different).
 ise_compile_fpga(PROJ_NAME      "FPGA1394V3QLA"
-                 DEPENDENCIES   "CoreGenV3"
+                 DEPENDENCIES   "CoreGenV3" "PlatgenV3"
                  FPGA_PARTNUM   ${FPGAV3_PARTNUM}
                  VERILOG_SOURCE ${VERILOG_SOURCE_REV3}
                  UCF_FILE       "${VERILOG_SOURCE_DIR}/XC7Z020.ucf"
                  IPCORE_DIR     ${IPCOREV3_BINARY_DIR}
+                 XPSCORE_DIR    "${XPSCORE_BINARY_DIR}/implementation"
                  TOP_LEVEL      "FPGA1394V3QLA"
+                 USER_MACROS    ${FPGAV3_DEFS}
                  PROJ_OUTPUT    "FPGA1394V3-QLA")
 
 # timing target only defined by ise_compile_fpga_old
