@@ -87,7 +87,7 @@ set (VERILOG_SOURCE_REV3 "${VERILOG_SOURCE_DIR}/FPGA1394V3-QLA.v"
 
 set(FPGAV3_DEFS "")
 if (FPGAV3_PS7)
-  set (FPGAV3_DEFS "ZYNQ_PS7")  # Not yet working
+  set (FPGAV3_DEFS "ZYNQ_PS7")
   set (VERILOG_SOURCE_REV3 ${VERILOG_SOURCE_REV3}
                            "${XPSCORE_BINARY_DIR}/hdl/fpgav3.v")
 endif (FPGAV3_PS7)
