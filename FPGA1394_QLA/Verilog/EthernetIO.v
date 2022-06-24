@@ -3,7 +3,7 @@
 
 /*******************************************************************************    
  *
- * Copyright(C) 2014-2021 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2014-2022 ERC CISST, Johns Hopkins University.
  *
  * This module implements the higher-level Ethernet I/O, which interfaces
  * to the KSZ8851 MAC/PHY chip.
@@ -164,14 +164,14 @@ module EthernetIO(
 
     // Interface for real-time block write
     output reg       eth_rt_wen,
-    output reg[2:0]  eth_rt_waddr,
+    output reg[3:0]  eth_rt_waddr,
     output reg[31:0] eth_rt_wdata,
 
     // Interface for sampling data (for block read)
     output reg sample_start,         // 1 -> start sampling for block read
     input wire sample_busy,          // Sampling in process
     output reg sample_read,          // Reading from memory in process
-    output wire[4:0] sample_raddr,   // Read address for sampled data
+    output wire[5:0] sample_raddr,   // Read address for sampled data
     input wire[31:0] sample_rdata,   // Sampled data (for block read)
     input wire[31:0] timestamp       // Timestamp (for debugging)
 );
@@ -461,7 +461,7 @@ assign LengthFW = isUDP ? (UDP_Length-8'd10) : (Eth_EtherType-8'd2);
 assign eth_fwpkt_len = LengthFW;
 
 // Read address for sampled data (32-bit data)
-assign sample_raddr = sfw_count[5:1];
+assign sample_raddr = sfw_count[6:1];
 
 //************************ Large buffer to hold various packets **************************
 // Note that it is fine for some buffers to overlap. Below, the UDP, ICMP and ARP buffers
@@ -1894,7 +1894,8 @@ reg[5:0] rebootCnt;     // Counter used to delay reboot command (could reuse rec
 // of 5 quadlets for each board, where the targeted board ID is encoded in bits 27:24.
 reg doRtBlock;         // Indicates that we are processing a real-time block write
 reg dac_local;         // Indicates that DAC entries in block write are for this board_id
-reg[2:0] RtCnt;        // Counter for real-time block quadlets
+reg[7:0] RtCnt;        // Counter for real-time block quadlets
+reg[7:0] RtLen;        // Number of quadlets in the RT write block for this board
 
 // Shift register for I/O control. The register is shifted left with each clock, with the left-most
 // bit placed on the right (shift and rotate). Each state (except IDLE) is entered with
@@ -2156,8 +2157,7 @@ begin
          end
          else if ((rfw_count == 10'd9) && blockWrite && addrMain) begin
             doRtBlock <= isLocal;
-            RtCnt <= 3'd0;
-            dac_local <= 1;
+            RtCnt <= 8'd0;
          end
          else if (rfw_count == maxCountFW) begin
             nextRecvState <= ST_RECEIVE_DMA_IDLE;  // was ST_RECEIVE_DMA_FRAME_CRC;
@@ -2201,27 +2201,28 @@ begin
          end
          if (doRtBlock&rfw_count[0]) begin
             // Real-time block write.
-            // Starting with Rev 7, the first 4 entries are the DAC (same as Rev 1-6),
-            // but that is followed by the status register (for power control).
-            // Note that for broadcast write, the packet will have data for all boards;
-            // thus, we check for consecutive DAC entries that match our board_id and
-            // assume that the next entry is the status register for this board.
-            eth_rt_waddr <= RtCnt;
+            // Starting with Rev 8, the first entry is a header that specifies which
+            // board is being addressed. If this is a sequential block write, it
+            // addresses this board and we rely on the host PC to send a Rev 8 packet.
+            // Similarly, if a broadcast write (to multiple boards), we can assume
+            // that the host PC will only use broadcast write if all boards are Rev 8+.
+            // The header will also specify the number of motors being addressed
+            // (4 for QLA and 10 for dRAC). The last quadlet is for power control.
+            // The protocol uses 8 bits for the length (RtLen), even though currently
+            // the largest block write is 12 quadlets (for dRAC). Note, however, that
+            // eth_rt_waddr is only 4 bits.
             eth_rt_wdata <= FireWireQuadlet;
-            if (RtCnt[2]) begin   // if (RtCnt == 3'd4)
-               RtCnt <= 3'd0;
-               dac_local <= 1;
-               eth_rt_wen <= dac_local;
+            if ((RtCnt == 8'h0) || (RtCnt == RtLen)) begin
+               RtLen <= FireWireQuadlet[7:0];
+               RtCnt <= 8'h1;
+               dac_local <= (FireWireQuadlet[11:8] == board_id) ? 1'b1 : 1'b0;
+               eth_rt_waddr <= 4'hf;
+               eth_rt_wen <= 0;
             end
             else begin
-               RtCnt <= RtCnt + 3'd1;
-               if (FireWireQuadlet[27:24] == board_id) begin
-                  eth_rt_wen <= 1;
-               end
-               else begin
-                  eth_rt_wen <= 0;
-                  dac_local <= 0;
-               end
+               RtCnt <= RtCnt + 8'd1;
+               eth_rt_waddr <= eth_rt_waddr + 4'd1;
+               eth_rt_wen <= dac_local;
             end
          end
       end

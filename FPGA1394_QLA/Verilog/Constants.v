@@ -3,13 +3,13 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2013-2021 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2013-2022 ERC CISST, Johns Hopkins University.
  *
  * Purpose: Global constants e.g. device address
  * 
  * Revision history
  *     10/26/13    Zihan Chen    Initial revision
- *     11/14/19    Jintan Zhang  Added watchdog phase contant 
+ *     11/14/19    Jintan Zhang  Added watchdog phase constant
  */
  
  /**************************************************************
@@ -33,15 +33,16 @@
 `else
 `define VERSION 32'h514C4131       // hard-wired version number "QLA1" = 0x514C4131
 `endif
-`define FW_VERSION 32'h07          // firmware version = 7
+`define FW_VERSION 32'h08          // firmware version = 8
 
 // define board components
 `define NUM_CHANNELS 4             // number of channels on QLA
-`define NUM_PER_CHN_FIELDS 6       // number of per-channel entries in block read
-                                   // (4 in Firmware Rev 1-6, 6 in Firmware Rev 7+)
+`define NUM_PER_CHN_FIELDS 7       // number of per-channel entries in block read
+                                   // (4 in Firmware Rev 1-6, 6 in Firmware Rev 7, 7 in Firmware Rev 8+)
 // Number of quadlets in real-time block read (not including Firewire header and CRC)
 //    Rev 4-6: 16 (should have been 20)
 //    Rev 7:   28
+//    Rev 8:   32
 `define NUM_RT_READ_QUADS (4+`NUM_CHANNELS*`NUM_PER_CHN_FIELDS)
 // Number of quadlets in broadcast real-time block; includes sequence number
 `define NUM_BC_READ_QUADS (1+`NUM_RT_READ_QUADS)
@@ -88,7 +89,7 @@
 `define OFF_QTR5_DATA 4'h9         // enc most recent quarter offset
 `define OFF_RUN_DATA  4'hA         // enc running counter offset
 `define OFF_UNUSED_11 4'hB
-`define OFF_UNUSED_12 4'hC
+`define OFF_MOTOR_STATUS 4'hC
 `define OFF_UNUSED_13 4'hD
 `define OFF_UNUSED_14 4'hE
 `define OFF_UNUSED_15 4'hF

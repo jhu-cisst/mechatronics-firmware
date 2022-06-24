@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2008-2021 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2008-2022 ERC CISST, Johns Hopkins University.
  *
  * This module implements the FireWire link layer state machine, which defines
  * the operation of the phy-link interface.  The state machine is triggered on
@@ -229,20 +229,19 @@ module PhyLinkInterface(
 
     // broadcast related fields
     input wire[15:0] rx_bc_sequence, // broadcast sequence num
-    input wire[15:0] rx_bc_fpga,     // indicates whether a boards exists
     input wire write_trig,           // request to broadcast this board's hub data
     output wire write_trig_reset,    // reset write_trig
     output wire fw_idle,             // whether Firewire state machine is idle
 
     // Interface for real-time block write
     output reg       fw_rt_wen,
-    output reg[2:0]  fw_rt_waddr,
+    output reg[3:0]  fw_rt_waddr,
     output reg[31:0] fw_rt_wdata,
 
     // Interface for sampling data (for block read)
     output reg sample_start,         // 1 -> start sampling for block read
     input wire sample_busy,          // Sampling in process
-    output wire[4:0] sample_raddr,   // Read address for sampled data
+    output wire[5:0] sample_raddr,   // Read address for sampled data
     input wire[31:0] sample_rdata    // Sampled data (for block read)
 
     // debug
@@ -323,13 +322,13 @@ module PhyLinkInterface(
     reg[15:0] reg_dlen;           // block data length
     reg[47:0] rx_addr_full;       // full 48-bit
 
-    // real-time read stuff
     reg data_block;               // flag for block write data being received
     reg dac_local;                // Indicates that DAC entries in block write are for this board_id
-    reg[2:0] RtCnt;               // Counter for real-time block quadlets
+    reg[7:0] RtCnt;               // Counter for real-time block quadlets
+    reg[7:0] RtLen;               // Number of quadlets in the RT write block for current board
 
     // Read address for sampled data
-    assign sample_raddr = reg_raddr[4:0];
+    assign sample_raddr = reg_raddr[5:0];
 
     wire addrMainRead;
     wire addrMainWrite;
@@ -570,9 +569,10 @@ module PhyLinkInterface(
     //    `SZ_BWRITE includes FW_header + header_CRC + data_CRC
     localparam[15:0] SZ_BBC = (`SZ_BWRITE + 32*`NUM_BC_READ_QUADS);
 
-    // maximum quadlet index for real-time feedback broadcast packet
-    localparam[5:0] MAX_BBC_QUAD = (`NUM_BC_READ_QUADS-1);
-    // real-time feedback broadcast packet size, in bytes, not include Firewire header/CRC
+    // real-time feedback broadcast packet size, in quadlets, not including Firewire header/CRC
+    localparam[7:0] SZ_BBC_QUADS = `NUM_BC_READ_QUADS;
+
+    // real-time feedback broadcast packet size, in bytes, not including Firewire header/CRC
     localparam[15:0] SZ_BBC_BYTES = (4*`NUM_BC_READ_QUADS);
 
 // -----------------------------------------------------------------------------
@@ -661,6 +661,7 @@ begin
             blk_wen <= 0;                          // no block write events
             crc_tx <= 0;                           // not in a transmit state
             rx_active <= 0;                        // clear receive active     
+            fw_rt_wen <= 0;                        // clear real-time block write enable
 
             // To be safe, we stay in the idle state if the sampler still has control
             // over the read bus (reg_raddr), which should only be for a few cycles.
@@ -821,28 +822,28 @@ begin
                             // main address: special case
                             if (addrMainWrite) begin
                                 // Real-time block write.
-                                // Starting with Rev 7, the first 4 entries are the DAC (same as Rev 1-6),
-                                // but that is followed by the status register (for power control).
-                                // Note that for broadcast write, the packet will have data for all boards;
-                                // thus, we check for consecutive DAC entries that match our board_id and
-                                // assume that the next entry is the status register for this board.
-                                fw_rt_waddr <= RtCnt;
+                                // Starting with Rev 8, the first entry is a header that specifies which
+                                // board is being addressed. If this is a sequential block write, it
+                                // addresses this board and we rely on the host PC to send a Rev 8 packet.
+                                // Similarly, if a broadcast write (to multiple boards), we can assume
+                                // that the host PC will only use broadcast write if all boards are Rev 8+.
+                                // The header will also specify the number of motors being addressed
+                                // (4 for QLA and 10 for dRAC). The last quadlet is for power control.
+                                // The protocol uses 8 bits for the length (RtLen), even though currently
+                                // the largest block write is 12 quadlets (for dRAC). Note, however, that
+                                // fw_rt_waddr is only 4 bits.
                                 fw_rt_wdata <= buffer;
-                                if (RtCnt[2]) begin   // if (RtCnt == 3'd4)
-                                    RtCnt <= 3'd0;
-                                    dac_local <= 1;
-                                    fw_rt_wen <= dac_local&rx_active;
+                                if ((RtCnt == 8'h0) || (RtCnt == RtLen)) begin
+                                    RtLen <= buffer[7:0];
+                                    RtCnt <= 8'h1;
+                                    dac_local <= (buffer[11:8] == board_id) ? 1'b1 : 1'b0;
+                                    fw_rt_waddr <= 4'hf;
+                                    fw_rt_wen <= 0;
                                 end
                                 else begin
-                                    RtCnt <= RtCnt + 3'd1;
-                                    // only respond to bit 27-24 == board_id (bc mode)
-                                    if (buffer[27:24] == board_id) begin
-                                        fw_rt_wen <= rx_active;
-                                    end
-                                    else begin
-                                        fw_rt_wen <= 0;
-                                        dac_local <= 0;
-                                    end
+                                    RtCnt <= RtCnt + 8'h1;
+                                    fw_rt_waddr <= fw_rt_waddr + 4'd1;
+                                    fw_rt_wen <= rx_active & dac_local;
                                 end
                             end
                             // other space
@@ -1011,8 +1012,7 @@ begin
 
                             if (addrMainWrite) begin
                                 // main is special, write to WriteRtData module
-                                RtCnt <= 3'd0;
-                                dac_local <= 1;
+                                RtCnt <= 8'd0;
                             end
                             else begin
                                 // block write to hub, prom, prom_qla
@@ -1312,35 +1312,36 @@ begin
             // update transmit buffer at quadlet boundaries
             case (count)
                 // NOTE: destination address
-                // dest_addr = 0xffffff000(4'h01)(bid)0  
+                // dest_addr = 0xffffff000(4'h01)0
                 //  - 4'h01 = `ADDR_HUB
-                //  - bid is 4 bits board id
                 24: buffer <= { local_id, 16'hffff };  // src_id, dest_offset
-                56: buffer <= { 16'hff00, `ADDR_HUB, 3'd0, board_id, 5'd0 };
+                56: buffer <= { 16'hff00, `ADDR_HUB, 12'd0 };
 
                 //-------- Start broadcast back with sequence -------------
                 // datalen = 4 x (1 + 4 + 4 + 4 + 4 + 4) = 84 bytes (Rev 1-6)
                 //    Seq (1), BoardInfo (4), Pot/Cur (4), Enc (4), Enc Vel/DT (4), Enc Vel/DP/Q1 (4)
                 // datalen = 4 x (1 + 4 + 4 + 4 + 4 + 4 + 4 + 4) = 116 bytes (Rev 7)
                 //    above + Enc Accel Q5 (4), Enc Running (4)
+                // datalen = 4 x (1 + 4 + 4 + 4 + 4 + 4 + 4 + 4 + 4) = 132 bytes (Rev 8)
+                //    above + Motor Status (4)
                 88: buffer <= { SZ_BBC_BYTES, 16'd0 };
                 
                 // latch header crc, reset crc in preparation for data crc
                 128: begin
-                    // for hub register (HubReg)
-                    reg_waddr[15:0] <= { `ADDR_HUB, 3'd0, board_id, 5'd0 };
-                    reg_wen <= 1'b1;
-
                     // crc
                     data <= ~crc_8msb;
                     buffer <= { ~crc_in[23:0], 8'd0 };
                     crc_ini <= 1;          // start crc
                 end
 
-                // latch bc_sequence and bc_fpga, send back to PC,  restart crc
+                // latch bc_sequence and block size, restart crc
                 152: begin
-                    reg_wdata <= { rx_bc_sequence, rx_bc_fpga };  // for HubReg
-                    buffer <= { rx_bc_sequence, rx_bc_fpga };
+                    // for hub register (HubReg)
+                    reg_waddr[15:0] <= { `ADDR_HUB, 12'd0 };
+                    reg_wen <= 1'b1;
+                    reg_wdata <= { rx_bc_sequence, 8'd0, SZ_BBC_QUADS };  // for HubReg
+                    // for transmission via FireWire
+                    buffer <= { rx_bc_sequence, 8'd0, SZ_BBC_QUADS };
                     crc_ini <= 0;           // clear crc start bit
                     reg_raddr <= {`ADDR_MAIN, 12'd0 };  // Will actually read from SampleData
                     state <= ST_TX_DATA;    // goto ST_TX_DATA
@@ -1372,8 +1373,10 @@ begin
 
                     // cache to hubreg, only saves to hub when block broadcast packets
                     // (reg_wen is set in ST_TX_HEAD_BC)
-                    reg_waddr[4:0] <= reg_waddr[4:0] + 5'd1;
-                    reg_wdata <= sample_rdata;
+                    if (reg_waddr[7:0] != SZ_BBC_QUADS-8'd1) begin
+                        reg_waddr[7:0] <= reg_waddr[7:0] + 8'd1;
+                        reg_wdata <= sample_rdata;
+                    end
 
                     // send to FireWire bus
                     buffer <= rom_addr ? rom_data :

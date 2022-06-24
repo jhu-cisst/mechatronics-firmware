@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2020-2021 Johns Hopkins University.
+ * Copyright(C) 2020-2022 Johns Hopkins University.
  *
  * This module samples the feedback data for the real-time block read packet.
  *
@@ -28,18 +28,17 @@ module SampleData(
     input wire[31:0]  enc_qtr1,    // Encoder quarter period (last cycle)
     input wire[31:0]  enc_qtr5,    // Encoder quarter period (5 cycles ago)
     input wire[31:0]  enc_run,     // Encoder running counter
-    input wire[4:0]   blk_addr,    // Address for accessing RT_Feedback
+    input wire[31:0]  motor_status, // Motor status feedback
+    input wire[5:0]   blk_addr,    // Address for accessing RT_Feedback
     output wire[31:0] blk_data,    // Currently selected block data
-    output reg[31:0]  timestamp,   // timestamp counter register
-    input wire[15:0]  bc_sequence, // broadcast sequence number
-    input wire[15:0]  bc_board_mask // broadcast board mask
+    output reg[31:0]  timestamp    // timestamp counter register
     );
 
 // Number of quadlets in block response:
 //   1 (timestamp) + 3 (global regs) + num_channels*num_offsets
 //     num_channels: 4 (QLA)
-//     num_offsets: 4 (Rev 1-6), 6 (Rev 7+)
-//   Thus, num_quadlets = 20 (Rev 1-6) or 28 (Rev 7+)
+//     num_offsets: 4 (Rev 1-6), 6 (Rev 7), 7 (Rev 8+)
+//   Thus, num_quadlets = 20 (Rev 1-6), 28 (Rev 7), or 32 (Rev 8+)
 // We allocate the full address of 32 quadlets
 
 reg[31:0] RT_Feedback[0:31];
@@ -50,7 +49,7 @@ localparam[1:0]
 
 reg[1:0] state;
 
-assign blk_data = RT_Feedback[blk_addr];
+assign blk_data = RT_Feedback[blk_addr[4:0]];
 assign isBusy = (state != SD_IDLE);
 
 // -------------------------------------------------------
@@ -96,6 +95,7 @@ begin
             RT_Feedback[15+chan] <= enc_qtr1;
             RT_Feedback[19+chan] <= enc_qtr5;
             RT_Feedback[23+chan] <= enc_run;
+            RT_Feedback[27+chan] <= motor_status;
          end
       end
 

@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2020 Johns Hopkins University.
+ * Copyright(C) 2020-2022 Johns Hopkins University.
  *
  * This module writes the real-time block data to the DAC and power control
  * register. It is shared between the Ethernet and Firewire modules.
@@ -20,7 +20,7 @@ module WriteRtData(
     // Following signals are provided by the communication module
     // (Firewire or Ethernet) to store the block data in local memory
     input wire       rt_write_en,     // Write enable
-    input wire[2:0]  rt_write_addr,   // Write address (0-4)
+    input wire[3:0]  rt_write_addr,   // Write address (0-4)
     input wire[31:0] rt_write_data,   // Write data
     // Following signals are used to write to the DAC and power control
     output reg       bw_write_en,
@@ -71,7 +71,14 @@ begin
       // and flag an error in that case
       if (rt_write_en) begin
          if (rt_write_addr[2]) begin
-            RtCtrl <= rt_write_data[19:0];
+            // Rev 8 specifies the amp enable mask/state in the motor command (RtDAC), so copy
+            // these bits to the appropriate bits in RtCtrl. This is an easy way to implement
+            // the Rev 8 protocol with minimal changes to the firmware.
+            RtCtrl <= { rt_write_data[19:12],
+                        RtDAC[3][29], RtDAC[2][29], RtDAC[1][29], RtDAC[0][29],  // mask
+                        4'd0,
+                        RtDAC[3][28], RtDAC[2][28], RtDAC[1][28], RtDAC[0][28]   // state
+                      };
             // Now, start writing to the DAC and/or control register
             if (anyDacValid) begin
                // Assert bw_block_wstart for 80 ns before starting local block write
@@ -110,7 +117,8 @@ begin
       // MSB is "valid" bit for DAC write (addrMain)
       bw_reg_wen <= RtDAC[dac_addr][31];
       rtState <= RT_WRITE_GAP;
-      RtDAC[dac_addr][31] <= 0;  // Clear valid bit
+      RtDAC[dac_addr][31] <= 0;         // Clear valid bit
+      RtDAC[dac_addr][29:28] <= 2'b00;  // Clear amp enable mask/bit
    end
 
    RT_WRITE_GAP:

@@ -125,7 +125,8 @@ ise_compile_fpga(PROJ_NAME      "FPGA1394V3QLA"
                  XPSCORE_DIR    "${XPSCORE_BINARY_DIR}/implementation"
                  TOP_LEVEL      "FPGA1394V3QLA"
                  USER_MACROS    ${FPGAV3_DEFS}
-                 PROJ_OUTPUT    "FPGA1394V3-QLA")
+                 PROJ_OUTPUT    "FPGA1394V3-QLA"
+                 IS_V3          ON)
 
 # timing target only defined by ise_compile_fpga_old
 # add_custom_target(timing
