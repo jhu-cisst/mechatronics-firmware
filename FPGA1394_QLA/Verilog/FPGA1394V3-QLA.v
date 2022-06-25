@@ -777,9 +777,9 @@ CtrlLED qla_led(
 `ifdef ZYNQ_PS7
 fpgav3 zynq_ps7(
     .processing_system7_0_MIO(MIO),
-    .processing_system7_0_PS_SRSTB_pin(PS_SRSTB_pin),
-    .processing_system7_0_PS_CLK_pin(PS_CLK_pin),
-    .processing_system7_0_PS_PORB_pin(PS_PORB_pin)
+    .processing_system7_0_PS_SRSTB_pin(PS_SRSTB),
+    .processing_system7_0_PS_CLK_pin(PS_CLK),
+    .processing_system7_0_PS_PORB_pin(PS_PORB)
 );
 `endif
 
