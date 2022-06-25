@@ -452,7 +452,14 @@ macro (edk_platgen ...)
   file(TO_NATIVE_PATH ${XILINX_EDK_PLATGEN} PLATGEN_NATIVE)
 
   file (MAKE_DIRECTORY "${OUTPUT_DIR}/data")
-  file (COPY "${CMAKE_CURRENT_SOURCE_DIR}/${PRJ_FILE}" DESTINATION "${OUTPUT_DIR}/data")
+
+  add_custom_command (OUTPUT "${OUTPUT_DIR}/${PRJ_FILE}"
+                      COMMAND ${CMAKE_COMMAND}
+                      ARGS -E copy
+                           "${CMAKE_CURRENT_SOURCE_DIR}/${PRJ_FILE}"
+                           "${OUTPUT_DIR}/${PRJ_FILE}"
+                      DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/${PRJ_FILE}"
+                      COMMENT "Copying ${PRJ_FILE} to binary directory")
 
   add_custom_command (OUTPUT "platgen.log"
                       COMMAND ${CMAKE_COMMAND} -E env XILINX="${XILINX_ISE_ROOT_DIR}/ISE"
