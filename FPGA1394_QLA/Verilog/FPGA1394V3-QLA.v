@@ -50,7 +50,13 @@ module FPGA1394V3QLA
     inout wire       E1_MDIO_D,   // eth1 MDIO data
     inout wire       E2_MDIO_D,   // eth2 MDIO data
     output wire      E1_RSTn,     // eth1 PHY reset
-    output wire      E2_RSTn      // eth2 PHY reset
+    output wire      E2_RSTn,     // eth2 PHY reset
+
+    // PS7 interface
+    inout[53:0]      MIO,
+    input            PS_SRSTB,
+    input            PS_CLK,
+    input            PS_PORB
 );
 
     // -------------------------------------------------------------------------
@@ -599,6 +605,7 @@ wire reboot;              // Reboot the FPGA
 wire      wdog_period_led;
 wire[2:0] wdog_period_status;
 wire wdog_timeout;
+wire[31:0] clk_test;
 
 BoardRegs chan0(
     .sysclk(sysclk),
@@ -629,7 +636,7 @@ BoardRegs chan0(
     .reg_rdata(reg_rdata_chan0),
     .reg_wdata(reg_wdata),
     .reg_wen(reg_wen),
-    .prom_status(32'd0),          // Not supported in V3
+    .prom_status(clk_test),       // Not supported in V3
     .prom_result(32'd0),          // Not supported in V3
     .ip_address(32'hffffffff),
     .eth_result(Eth_Result),
@@ -767,5 +774,36 @@ CtrlLED qla_led(
     .led2_grn(IO2[5]),
     .led2_red(IO2[7])
 );
+
+wire clk_125MHz;
+wire clk_25MHz;
+wire clk_2p5MHz;
+
+fpgav3 zynq_ps7(
+    .processing_system7_0_MIO(MIO),
+    .processing_system7_0_PS_SRSTB_pin(PS_SRSTB),
+    .processing_system7_0_PS_CLK_pin(PS_CLK),
+    .processing_system7_0_PS_PORB_pin(PS_PORB),
+    .processing_system7_0_GPIO_I_pin({60'd0, board_id}),
+    .processing_system7_0_FCLK_CLK0_pin(clk_125MHz),
+    .processing_system7_0_FCLK_CLK1_pin(clk_25MHz),
+    .processing_system7_0_FCLK_CLK2_pin(clk_2p5MHz)
+);
+
+// *** BEGIN: TEST code for PS clocks
+reg[15:0] cnt_125;
+reg[15:0] cnt_25;
+assign clk_test = {cnt_125, cnt_25};   // quadlet read from 8 (PROM Status)
+
+always @(posedge clk_125MHz)
+begin
+    cnt_125 <= cnt_125 + 16'd1;
+end
+
+always @(posedge clk_25MHz)
+begin
+    cnt_25 <= cnt_25 + 16'd1;
+end
+// *** END: TEST code for PS clocks
 
 endmodule

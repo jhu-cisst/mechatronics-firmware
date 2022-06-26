@@ -16,3 +16,6 @@ ise_ipcoregen(TARGET_NAME       "CoreGenV3"
 # For convenience, do not automatically clean this (i.e., do not delete coregen.log)
 # To regenerate IP cores, must manually delete coregen.log
 set_directory_properties(PROPERTIES CLEAN_NO_CUSTOM TRUE)
+
+# XPS subdirectory for Zynq PS7 core
+add_subdirectory(xps)

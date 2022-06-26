@@ -154,15 +154,15 @@
 `define ACK_DATA 4'hD             // ack crc error, used as a general error
 
 // types of transmissions
-`define TX_TYPE_NULL  4'd0        // no transmission
-`define TX_TYPE_DONE  4'd1        // ack complete (for write requests)
-`define TX_TYPE_PEND  4'd2        // ack pending (for read requests)
-`define TX_TYPE_DATA  4'd3        // ack data error, for crc or data length
-`define TX_TYPE_QRESP 4'd4        // for quadlet read response
-`define TX_TYPE_BRESP 4'd5        // for block read response
-`define TX_TYPE_BBC   4'd6        // for block write broadcast
+`define TX_TYPE_NULL  3'd0        // no transmission
+`define TX_TYPE_DONE  3'd1        // ack complete (for write requests)
+`define TX_TYPE_PEND  3'd2        // ack pending (for read requests)
+`define TX_TYPE_DATA  3'd3        // ack data error, for crc or data length
+`define TX_TYPE_QRESP 3'd4        // for quadlet read response
+`define TX_TYPE_BRESP 3'd5        // for block read response
+`define TX_TYPE_BBC   3'd6        // for block write broadcast
 `ifdef HAS_ETHERNET
-`define TX_TYPE_FWD   4'd7        // for 1394 pkt forward from eth port
+`define TX_TYPE_FWD   3'd7        // for 1394 pkt forward from eth port
 `endif
 
 // PHY status bit masks.
@@ -276,7 +276,7 @@ module PhyLinkInterface(
     reg[3:0] state, next;         // state register
     initial state = ST_IDLE;      // initialize state machine to idle state
     reg[2:0] rx_speed;            // received speed code
-    reg[3:0] tx_type;             // encodes transmit type
+    reg[2:0] tx_type;             // encodes transmit type
     reg[9:0] bus_id;              // phy bus id (10 bits)
     initial bus_id = 10'h3ff;     // set default bus_id to 10'h3ff
     wire[15:0] local_id;          // full addr = bus_id + node_id

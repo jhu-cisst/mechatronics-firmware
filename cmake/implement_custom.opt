@@ -21,6 +21,7 @@ Program ngdbuild
 # Lines below added by PK
 -dd ./_ngo;
 -sd $ipcore_dir;
+-sd $xpscore_dir;
 -uc $ucf_file;
 # Lines above added by PK
 -intstyle silent;               # Message Reporting Style: ise, xflow, or silent
