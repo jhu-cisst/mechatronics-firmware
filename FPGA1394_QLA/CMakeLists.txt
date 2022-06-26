@@ -19,9 +19,6 @@ set (FPGAV3_PACKAGE "clg400")
 set (FPGAV3_SPEED   "-3")
 set (FPGAV3_PARTNUM "${FPGAV3_DEVICE}${FPGAV3_SPEED}${FPGAV3_PACKAGE}")
 
-# Temporary option to skip PS7 core because it does not yet work
-option (FPGAV3_PS7 "Build PS7 core for FPGA V3" OFF)
-
 # Path to Verilog source code
 set (VERILOG_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/Verilog")
 
@@ -83,14 +80,8 @@ set (VERILOG_SOURCE_REV3 "${VERILOG_SOURCE_DIR}/FPGA1394V3-QLA.v"
                          ${VERILOG_SOURCE_COMMON}
                          "${VERILOG_SOURCE_DIR}/RTL8211F.v"
                          "${IPCOREV3_BINARY_DIR}/hub_mem_gen.v"
-                         "${IPCOREV3_BINARY_DIR}/Dual_port_RAM_32X1024.v")
-
-set(FPGAV3_DEFS "")
-if (FPGAV3_PS7)
-  set (FPGAV3_DEFS "ZYNQ_PS7")
-  set (VERILOG_SOURCE_REV3 ${VERILOG_SOURCE_REV3}
-                           "${XPSCORE_BINARY_DIR}/hdl/fpgav3.v")
-endif (FPGAV3_PS7)
+                         "${IPCOREV3_BINARY_DIR}/Dual_port_RAM_32X1024.v"
+                         "${XPSCORE_BINARY_DIR}/hdl/fpgav3.v")
 
 # Compile the Rev 1 firmware -- output is FPGA1394-QLA.mcs, which is copied
 # to the Generated subdirectory in the source directory (if different).
@@ -124,7 +115,6 @@ ise_compile_fpga(PROJ_NAME      "FPGA1394V3QLA"
                  IPCORE_DIR     ${IPCOREV3_BINARY_DIR}
                  XPSCORE_DIR    "${XPSCORE_BINARY_DIR}/implementation"
                  TOP_LEVEL      "FPGA1394V3QLA"
-                 USER_MACROS    ${FPGAV3_DEFS}
                  PROJ_OUTPUT    "FPGA1394V3-QLA"
                  IS_V3          ON)
 
