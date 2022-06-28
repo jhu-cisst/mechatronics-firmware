@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2008-2021 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2008-2022 ERC CISST, Johns Hopkins University.
  *
  * This module contains a register file dedicated to general board parameters.
  * Separate register files are maintained for each I/O channel (SpiCtrl).
@@ -17,6 +17,7 @@
  *     09/23/15    Peter Kazanzides    Moved DOUT code to CtrlDout.v
  *     10/15/19    Jintan Zhang        Implemented watchdog period led feedback 
  *     07/03/20    Peter Kazanzides    Changing reset to reboot
+ *     06/27/22    Peter Kazanzides    Added isQuadDac
  */
 
 
@@ -39,7 +40,9 @@ module BoardRegs(
     output reg  dout_cfg_reset,     // reset dout_cfg_valid
     output reg pwr_enable,          // enable motor power
     output reg relay_on,            // enable relay for safety loop-through
-    
+    input  wire isQuadDac,          // type of DAC: 0 = 4xLTC2601, 1 = 1xLTC2604
+    output reg dac_test_reset,      // repeat DAC test
+
     // board output (PC reads)
     input  wire[4:1] enc_a,         // encoder a  
     input  wire[4:1] enc_b,         // encoder b 
@@ -115,8 +118,8 @@ module BoardRegs(
     assign reg_status = {
                 // Byte 3: num channels (4), board id
                 4'd4, board_id,
-                // Byte 2: wdog timeout, 0 (was eth1394), dout_cfg_valid, dout_cfg_bidir
-                wdog_timeout, 1'd0, dout_cfg_valid, dout_cfg_bidir,
+                // Byte 2: wdog timeout, isQuadDac (was eth1394), dout_cfg_valid, dout_cfg_bidir
+                wdog_timeout, isQuadDac, dout_cfg_valid, dout_cfg_bidir,
                 // mv_good, power enable, safety relay state, safety relay control
                 mv_good, pwr_enable, ~relay, relay_on,
                 // mv_fault, unused (0)
@@ -176,6 +179,8 @@ always @(posedge(sysclk))
             // mask reg_wdata[21] with [20] for reboot (was reset prior to Rev 7)
             reboot <= reg_wdata[21] ? reg_wdata[20] : 1'b0;
             // Previously, masked reg_wdata[23] with [22] for eth1394 mode
+            // use reg_wdata[22] to reset isQuadDac
+            dac_test_reset <= reg_wdata[22];
             // use reg_wdata[24] to reset dout_cfg_valid
             dout_cfg_reset <= reg_wdata[24];
         end
@@ -220,6 +225,8 @@ always @(posedge(sysclk))
 `endif
         // Turn off dout_cfg_reset in case it was previously set
         dout_cfg_reset <= 1'b0;
+        // Turn off dac_test_reset in case it was previously set
+        dac_test_reset <= 1'b0;
     end
 end
 

@@ -1,6 +1,9 @@
+/* -*- Mode: Verilog; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*-   */
+/* ex: set filetype=v softtabstop=4 shiftwidth=4 tabstop=4 cindent expandtab:      */
+
 /*******************************************************************************
  *
- * Copyright(C) 2011-2020 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2011-2022 ERC CISST, Johns Hopkins University.
  *
  * This module serially shifts samples out to 4 LTC2601 DACs set up in a chain.
  * Transfers are initiated by a trigger signal. Commands for each dac are read
@@ -11,16 +14,26 @@
  *     - Each LTC2601 requires a 32-bit sequence consisting of:
  *        8 bits ignored: Value = 00
  *        4 bits command: Value = 03 (write & update) or 07 (nop)
- *        4 bits ignored: Value = 00
+ *        4 bits ignored: Value = 00 (NOTE: address for LTC2604)
  *       16 bits of data
  *     - csel must be low before the first sclk+ and after the last sclk-.
  *     - data is changed on sclk-, in preparation for the next sclk+.
  *     - On trig, seqn is set to 0x100 and counts up till rollover (256 counts)
  *     - sclk is the LSB of seqn, so 128 sclks shift out 4x 32-bit words
  *
- * Revisionist history
+ * Starting with QLA 1.5, it is possible to use one LTC2604 Quad DAC instead of
+ * 4 LTC2601 DACs. The operation is almost identical -- the primary difference is
+ * that it is necessary to toggle /CS (csel) between the data for each LTC2604 channel.
+ * To do this, we take advantage of the fact that the LTC supports both 24-bit
+ * and 32-bit word transfers. The LTC2601s are daisy-chained and therefore must
+ * use 32-bit word transfers, but the LTC2604 can use multiple 24-bit transfers.
+ * Thus, for the LTC2604, it is only necessary to deassert /CS (csel) for the
+ * first 8 bits of each 32-bit transfer.
+ *
+ * Revision history
  *     07/15/10                        Initial revision - MfgTest
  *     10/26/11    Paul Thienphrapa    Initial revision
+ *     06/27/22    Peter Kazanzides    Modified to also support LTC2604
  */
 
 `define SEQN_INIT 9'h100      // 9-bit counter init (from 256 to rollover)
@@ -36,7 +49,8 @@ module LTC2601x4(
     output reg csel,          // signal to frame transfers to the DACs
     output wire mosi,         // serial data line into the DACs
     output wire busy,         // indicates transfer is in progress
-    output wire flush         // signal to flush command word to nop
+    output wire flush,        // signal to flush command word to nop
+    input  wire isQuadDac     // type of DAC: 0 = 4xLTC2601, 1 = 1xLTC2604
 );
 
     initial csel = 1'b1;
@@ -77,7 +91,7 @@ begin
     ST_IDLE: begin
         seqn <= `SEQN_INIT;              // starting state of counter
         if (trig) begin                  // write trigger detected
-            csel <= 1'b0;                // signal start of transfer
+            csel <= isQuadDac;           // signal start of transfer (for LTC2601)
             data <= word;                // latch first command word
             state <= ST_LOOP;            // go to transfer loop state
         end
@@ -93,6 +107,15 @@ begin
         seqn <= seqn + 1'b1;             // counter, also creates sclk
         if (sclk == 1'b1) begin          // update data on falling sclk
             data <= (word_edge ? word : (data<<1));
+        end
+        if (isQuadDac && (seqn[5:1] == word_edge)) begin
+            // For LTC2604, need to deassert /CS (csel) at start of each word
+            csel <= 1'b1;
+        end
+        if (seqn[5:1] == 5'b01000) begin
+            // For LTC2604, need to assert /CS (csel) 16 counts (8 SCLKs) later.
+            // For LTC2601, /CS (csel) is already asserted (0)
+            csel <= 1'b0;
         end
         if (seqn == `SEQN_DONE) begin    // transfer complete
             csel <= trig;                // finalize transfer, if necessary

@@ -382,6 +382,9 @@ assign reg_rd[`OFF_DAC_CTRL] = cur_cmd[reg_raddr[7:4]];
 
 wire[31:0] reg_motor_status;
 
+wire is_quad_dac;         // type of DAC: 0 = 4xLTC2601, 1 = 1xLTC2604
+wire dac_test_reset;      // reset (repeat) detection of DAC type
+
 wire amp_disable_vec[1:4];
 assign amp_disable_vec[1] = IO2[32];
 assign amp_disable_vec[2] = IO2[34];
@@ -402,7 +405,10 @@ CtrlDac dac(
     .dac3(cur_cmd[3]),
     .dac4(cur_cmd[4]),
     .busy(dac_busy),
-    .data_ready(cur_cmd_updated)
+    .data_ready(cur_cmd_updated),
+    .mosi_read(IO1[20]),
+    .isQuadDac(is_quad_dac),
+    .dac_test_reset(dac_test_reset)
 );
 
 
@@ -617,6 +623,8 @@ BoardRegs chan0(
     .dout_cfg_reset(dout_config_reset),
     .pwr_enable(IO1[32]),
     .relay_on(IO1[31]),
+    .isQuadDac(is_quad_dac),
+    .dac_test_reset(dac_test_reset),
     .enc_a({IO2[17], IO2[19], IO2[21], IO2[23]}),    // axis 4:1
     .enc_b({IO2[10], IO2[12], IO2[13], IO2[15]}),
     .enc_i({IO2[2], IO2[4], IO2[6], IO2[8]}),
