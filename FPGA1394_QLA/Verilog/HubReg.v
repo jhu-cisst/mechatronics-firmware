@@ -56,7 +56,7 @@ reg[7:0] block_size;
 
 wire[8:0] write_addr;
 assign write_addr = ((reg_waddr[7:0] == 8'd0) && !offset_updated) ? (reg_waddr_offset + {1'b0, block_size})
-                                                                  : (reg_waddr_offset + {1'b0, reg_waddr});
+                                                                  : (reg_waddr_offset + {1'b0, reg_waddr[7:0]});
 
 // Saves last write address (last_write_addr+1 is the number of quadlets written)
 reg[8:0] last_write_addr;

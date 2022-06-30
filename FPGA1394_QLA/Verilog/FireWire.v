@@ -242,7 +242,8 @@ module PhyLinkInterface(
     output reg sample_start,         // 1 -> start sampling for block read
     input wire sample_busy,          // Sampling in process
     output wire[5:0] sample_raddr,   // Read address for sampled data
-    input wire[31:0] sample_rdata    // Sampled data (for block read)
+    input wire[31:0] sample_rdata,   // Sampled data (for block read)
+    output wire sample_read
 
     // debug
 `ifdef USE_CHIPSCOPE
@@ -322,6 +323,7 @@ module PhyLinkInterface(
     reg[15:0] reg_dlen;           // block data length
     reg[47:0] rx_addr_full;       // full 48-bit
 
+    // real-time read stuff
     reg data_block;               // flag for block write data being received
     reg dac_local;                // Indicates that DAC entries in block write are for this board_id
     reg[7:0] RtCnt;               // Counter for real-time block quadlets
@@ -334,6 +336,7 @@ module PhyLinkInterface(
     wire addrMainWrite;
     assign addrMainRead  = (reg_raddr[15:12] == `ADDR_MAIN) ? 1'd1 : 1'd0;
     assign addrMainWrite = (reg_waddr[15:12] == `ADDR_MAIN) ? 1'd1 : 1'd0;
+    assign sample_read = addrMainRead && (state == ST_TX_DATA || state == ST_TX_HEAD);
 
     // It is a ROM read (or write) when the upper 36 bits are ffff f0000.
     // This covers addresses from ffff f000 0000 to ffff f000 0fff, which includes
