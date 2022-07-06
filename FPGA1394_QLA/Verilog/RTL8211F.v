@@ -36,7 +36,11 @@ module RTL8211F(
 
     inout  MDIO,                   // Bidirectional I/O to RTL8211F
     output wire MDC,               // Clock to RTL8211F
-    output wire RSTn               // Reset to RTL8211F (active low)
+    output wire RSTn,              // Reset to RTL8211F (active low)
+
+    input wire RxClk,              // Rx Clk
+    input wire RxValid,            // Rx Valid
+    input wire[3:0] RxD            // Rx Data
 );
 
 assign RSTn = 1'b1;
@@ -87,8 +91,16 @@ reg[31:0] write_data;
 reg[15:0] read_data;
 // Register address for read
 reg[4:0] read_reg_addr;
-   
-assign reg_rdata = { 5'd0, state, 3'd0, read_reg_addr, read_data};
+
+wire[31:0] reg_rdata_mem;   // Receive data
+
+// Following data is accessible via block read from address `ADDR_ETH (0x4000)
+//    4x00 - 4x7f (128 quadlets) Received packet (first 128 quadlets only)
+//    4x80                       MDIO feedback (data read from management interface)
+// where x is the Ethernet channel (1 or 2)
+
+assign reg_rdata = (reg_raddr[7] == 1'b1) ? { 5'd0, state, 3'd0, read_reg_addr, read_data}
+                                          : reg_rdata_mem;
 
 // Whether a read command
 wire isRead;
@@ -157,6 +169,48 @@ begin
         state <= ST_IDLE;
 
     endcase // case (state)
+end
+
+// -----------------------------------------
+// Ethernet receive
+// ------------------------------------------
+
+reg[7:0] recv_byte[0:127];
+reg[6:0] recv_addr;
+reg recvRestart;
+
+assign reg_rdata_mem = {8'd0, 1'd0, recv_addr, 8'd0, recv_byte[reg_raddr[6:0]]};
+
+always @(posedge RxClk)
+begin
+    if (RxValid) begin
+        if (recv_addr != 7'h3f) begin
+            recv_byte[recv_addr][3:0] <= RxD;
+        end
+    end
+end
+
+always @(negedge RxClk)
+begin
+    if (recvRestart) begin
+        recv_addr <= 7'd0;
+    end
+    if (RxValid) begin
+        if (recv_addr != 7'h3f) begin
+            recv_byte[recv_addr][7:4] <= RxD;
+            recv_addr <= recv_addr + 7'd1;
+        end
+    end
+end
+
+always @(posedge(clk))
+begin
+    if (reg_wen && (reg_waddr[6:0] == 7'd1)) begin
+       recvRestart <= 1;
+    end
+    else if (recv_addr == 7'd0) begin
+       recvRestart <= 0;
+    end
 end
 
 endmodule

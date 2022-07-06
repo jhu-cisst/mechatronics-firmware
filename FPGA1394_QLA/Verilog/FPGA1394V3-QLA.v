@@ -52,6 +52,13 @@ module FPGA1394V3QLA
     output wire      E1_RSTn,     // eth1 PHY reset
     output wire      E2_RSTn,     // eth2 PHY reset
 
+    input wire       E1_RxCLK,    // eth1 receive clock (from PHY)
+    input wire       E1_RxVAL,    // eth1 receive valid
+    input wire[3:0]  E1_RxD,      // eth1 data bits
+    input wire       E2_RxCLK,    // eth2 receive clock (from PHY)
+    input wire       E2_RxVAL,    // eth2 receive valid
+    input wire[3:0]  E2_RxD,      // eth2 data bits
+
     // PS7 interface
     inout[53:0]      MIO,
     input            PS_SRSTB,
@@ -248,8 +255,8 @@ PhyRequest phyreq(
 wire[31:0] reg_rdata_e1;
 wire[31:0] reg_rdata_e2;
 
-assign reg_rdata_eth = (reg_raddr[11:7] == {4'd1, 1'd1}) ? reg_rdata_e1 :
-                       (reg_raddr[11:7] == {4'd2, 1'd1}) ? reg_rdata_e2 :
+assign reg_rdata_eth = (reg_raddr[11:8] == 4'd1) ? reg_rdata_e1 :
+                       (reg_raddr[11:8] == 4'd2) ? reg_rdata_e2 :
                        32'd0;
 
 wire reg_wen_e1;
@@ -268,7 +275,11 @@ RTL8211F EthPhy1(
 
     .MDIO(E1_MDIO_D),         // Bidirectional data to RTL8211F
     .MDC(E1_MDIO_C),          // Clock to RTL8211F
-    .RSTn(E1_RSTn)            // Reset to RTL8211F
+    .RSTn(E1_RSTn),           // Reset to RTL8211F
+
+    .RxClk(E1_RxCLK),         // Rx Clk
+    .RxValid(E1_RxVAL),       // Rx Valid
+    .RxD(E1_RxD)              // Rx Data
 );
 
 RTL8211F EthPhy2(
@@ -282,7 +293,11 @@ RTL8211F EthPhy2(
 
     .MDIO(E2_MDIO_D),         // Bidirectional data to RTL8211F
     .MDC(E2_MDIO_C),          // Clock to RTL8211F
-    .RSTn(E2_RSTn)            // Reset to RTL8211F
+    .RSTn(E2_RSTn),           // Reset to RTL8211F
+
+    .RxClk(E2_RxCLK),         // Rx Clk
+    .RxValid(E2_RxVAL),       // Rx Valid
+    .RxD(E2_RxD)              // Rx Data
 );
 
 // --------------------------------------------------------------------------
