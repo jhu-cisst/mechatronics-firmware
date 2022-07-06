@@ -7,7 +7,7 @@
 # Parameters:
 #   - TARGET_NAME:        target name
 #   - XCO_SOURCE:         list of CoreGen Input files (.xco or .xcp)
-#   - SOURCE_DIR:         source directory (defaults to CMAKE_CURRENT_SOURCE_DIR)
+#   - CGP_IN_FILE:        coregen project file (coregen.cgp.in)
 #   - OUTPUT_DIR:         output directory (defaults to CMAKE_CURRENT_BINARY_DIR)
 #   - FPGA_FAMILY:        FPGA family name (e.g., spartan6)
 #   - FPGA_DEVICE:        FPGA device
@@ -366,7 +366,7 @@ macro (ise_ipcoregen ...)
   set (FUNCTION_KEYWORDS
        TARGET_NAME
        XCO_SOURCE
-       SOURCE_DIR
+       CGP_IN_FILE
        OUTPUT_DIR
        FPGA_FAMILY
        FPGA_DEVICE
@@ -377,7 +377,6 @@ macro (ise_ipcoregen ...)
   foreach(keyword ${FUNCTION_KEYWORDS})
     set (${keyword} "")
   endforeach(keyword)
-  set (SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
   set (OUTPUT_DIR ${CMAKE_CURRENT_BINARY_DIR})
 
   # parse input
@@ -394,23 +393,22 @@ macro (ise_ipcoregen ...)
   file(TO_NATIVE_PATH ${XILINX_ISE_COREGEN} COREGEN_NATIVE)
 
   # Copy CoreGen project file to build tree
-  configure_file ("${SOURCE_DIR}/coregen.cgp.in" "${OUTPUT_DIR}/coregen.cgp" @ONLY)
+  configure_file (${CGP_IN_FILE} "${OUTPUT_DIR}/coregen.cgp" @ONLY)
 
-  # Create batch file for CoreGen and copy xco files to build tree
+  # Create batch file for CoreGen
   set (COREGEN_FILE "${OUTPUT_DIR}/${TARGET_NAME}.cmd")
   file (WRITE ${COREGEN_FILE} "")
   foreach (f ${XCO_SOURCE})
-    file (COPY "${SOURCE_DIR}/${f}" DESTINATION "${OUTPUT_DIR}")
     file (APPEND ${COREGEN_FILE} "EXECUTE \"${f}\"\n")
   endforeach()
 
-  # CoreGen (XCO --> Verilog)
+  # CoreGen (XCO/XCP --> Verilog)
   # Note that coregen.log is created in CMAKE_CURRENT_BINARY_DIR
   # regardless of the setting of OUTPUT_DIR.
   add_custom_command (OUTPUT "coregen.log"
                       COMMAND ${COREGEN_NATIVE} -b "${COREGEN_FILE}"
                                                 -p "${OUTPUT_DIR}"
-                      DEPENDS "${OUTPUT_DIR}/${XCO_SOURCE}"
+                      DEPENDS ${XCO_SOURCE}
                       COMMENT "Running COREGEN to generate IP cores for ${TARGET_NAME}")
 
   add_custom_target(${TARGET_NAME} ALL
