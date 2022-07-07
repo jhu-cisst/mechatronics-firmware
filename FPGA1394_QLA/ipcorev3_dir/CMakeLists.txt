@@ -7,8 +7,11 @@ set (IPCORE_DIR "${FPGA1394_QLA_SOURCE_DIR}/ipcore_dir")
 set (IPCORE_SOURCE_COMMON "${IPCORE_DIR}/hub_mem_gen.xcp"
                           "${IPCORE_DIR}/Dual_port_RAM_32X1024.xcp")
 
+set (IPCORE_SOURCE ${IPCORE_SOURCE_COMMON}
+                   "${CMAKE_CURRENT_SOURCE_DIR}/fifo_8x1024_16.xcp")
+
 ise_ipcoregen(TARGET_NAME       "CoreGenV3"
-              XCO_SOURCE        ${IPCORE_SOURCE_COMMON}
+              XCO_SOURCE        ${IPCORE_SOURCE}
               CGP_IN_FILE       "${IPCORE_DIR}/coregen.cgp.in"
               FPGA_FAMILY       ${FPGAV3_FAMILY}
               FPGA_DEVICE       ${FPGAV3_DEVICE}

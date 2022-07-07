@@ -264,7 +264,7 @@ assign reg_wen_e1 = (reg_waddr[15:7] == {`ADDR_ETH, 4'd1, 1'd1}) ? reg_wen : 1'b
 wire reg_wen_e2;
 assign reg_wen_e2 = (reg_waddr[15:7] == {`ADDR_ETH, 4'd2, 1'd1}) ? reg_wen : 1'b0;
 
-RTL8211F EthPhy1(
+RTL8211F #(.CHANNEL(4'd1)) EthPhy1(
     .clk(sysclk),             // in:  global clock
 
     .reg_raddr(reg_raddr),    // in:  read address
@@ -282,7 +282,7 @@ RTL8211F EthPhy1(
     .RxD(E1_RxD)              // Rx Data
 );
 
-RTL8211F EthPhy2(
+RTL8211F #(.CHANNEL(4'd2)) EthPhy2(
     .clk(sysclk),             // in:  global clock
 
     .reg_raddr(reg_raddr),    // in:  read address

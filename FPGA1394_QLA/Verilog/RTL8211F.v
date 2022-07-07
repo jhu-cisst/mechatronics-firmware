@@ -25,7 +25,9 @@
 
 `include "Constants.v"
 
-module RTL8211F(
+module RTL8211F
+    #(parameter[3:0] CHANNEL = 4'd1)
+(
     input  wire clk,               // input clock
 
     input  wire[15:0] reg_raddr,   // read address
@@ -175,41 +177,66 @@ end
 // Ethernet receive
 // ------------------------------------------
 
-reg[7:0] recv_byte[0:127];
-reg[6:0] recv_addr;
-reg recvRestart;
+reg  recv_fifo_reset;
+reg  recv_wr_en;
+reg  recv_rd_en;
+wire recv_fifo_full;
+wire recv_fifo_empty;
+reg[7:0] recv_byte;
+wire[15:0] fifo_dout;
+reg[15:0] fifo_latched;
 
-assign reg_rdata_mem = {8'd0, 1'd0, recv_addr, 8'd0, recv_byte[reg_raddr[6:0]]};
+fifo_8x1024_16 recv_fifo(
+    .rst(recv_fifo_reset),
+    .wr_clk(RxClk),
+    .rd_clk(clk),
+    .din(recv_byte),
+    .wr_en(recv_wr_en),
+    .rd_en(recv_rd_en),
+    .dout(fifo_dout),
+    .full(recv_fifo_full),
+    .empty(recv_fifo_empty)
+);
+
+assign reg_rdata_mem = { 5'd0, recv_fifo_reset, recv_fifo_full, recv_fifo_empty, recv_byte, fifo_latched };
 
 always @(posedge RxClk)
 begin
     if (RxValid) begin
-        if (recv_addr != 7'h3f) begin
-            recv_byte[recv_addr][3:0] <= RxD;
-        end
+        recv_byte[3:0] <= RxD;
     end
 end
 
 always @(negedge RxClk)
 begin
-    if (recvRestart) begin
-        recv_addr <= 7'd0;
-    end
+    recv_wr_en <= 1'b0;
     if (RxValid) begin
-        if (recv_addr != 7'h3f) begin
-            recv_byte[recv_addr][7:4] <= RxD;
-            recv_addr <= recv_addr + 7'd1;
-        end
+        recv_byte[7:4] <= RxD;
+        recv_wr_en <= ~recv_fifo_full;
     end
 end
 
+reg[6:0] last_reg_raddr;
+initial last_reg_raddr = 7'h3f;
+
 always @(posedge(clk))
 begin
+    // Reset the FIFO by writing to 4x81, where x is channel number
     if (reg_wen && (reg_waddr[6:0] == 7'd1)) begin
-       recvRestart <= 1;
+       recv_fifo_reset <= 1'b1;
     end
-    else if (recv_addr == 7'd0) begin
-       recvRestart <= 0;
+    else begin
+       recv_fifo_reset <= 1'b0;
+    end
+
+    // Assumes first word fall-through (FWFT) FIFO
+    recv_rd_en <= 1'b0;
+    if (reg_raddr[15:7] == {`ADDR_ETH, CHANNEL, 1'b0}) begin
+        last_reg_raddr <= reg_raddr[6:0];
+        if (last_reg_raddr != reg_raddr[6:0]) begin
+            recv_rd_en <= 1'b1;
+            fifo_latched <= fifo_dout;
+        end
     end
 end
 
