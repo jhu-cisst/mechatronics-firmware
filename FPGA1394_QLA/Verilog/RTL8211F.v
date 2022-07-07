@@ -182,9 +182,13 @@ reg  recv_wr_en;
 reg  recv_rd_en;
 wire recv_fifo_full;
 wire recv_fifo_empty;
-reg[7:0] recv_byte;
-wire[15:0] fifo_dout;
-reg[15:0] fifo_latched;
+reg[7:0]   recv_byte;
+wire[15:0] recv_fifo_dout;
+reg[15:0]  recv_fifo_latched;
+
+reg[2:0]   preamble_cnt;
+reg  preamble_done;
+reg  preamble_error;
 
 fifo_8x1024_16 recv_fifo(
     .rst(recv_fifo_reset),
@@ -193,12 +197,13 @@ fifo_8x1024_16 recv_fifo(
     .din(recv_byte),
     .wr_en(recv_wr_en),
     .rd_en(recv_rd_en),
-    .dout(fifo_dout),
+    .dout(recv_fifo_dout),
     .full(recv_fifo_full),
     .empty(recv_fifo_empty)
 );
 
-assign reg_rdata_mem = { 5'd0, recv_fifo_reset, recv_fifo_full, recv_fifo_empty, recv_byte, fifo_latched };
+assign reg_rdata_mem = { 4'd0, preamble_error, recv_fifo_reset, recv_fifo_full, recv_fifo_empty,
+                         8'd0, recv_fifo_latched };
 
 always @(posedge RxClk)
 begin
@@ -212,7 +217,27 @@ begin
     recv_wr_en <= 1'b0;
     if (RxValid) begin
         recv_byte[7:4] <= RxD;
-        recv_wr_en <= ~recv_fifo_full;
+        if (~preamble_done) begin
+            if ({RxD, recv_byte[3:0]} == 8'h55) begin
+                preamble_cnt <= preamble_cnt + 3'd1;
+            end
+            else begin
+                preamble_done <= 1'b1;
+                preamble_cnt <= 3'd0;
+                if (({RxD, recv_byte[3:0]} != 8'hd5) ||
+                    (preamble_cnt != 3'd7)) begin
+                    preamble_error <= 1'b1;
+                end
+            end
+        end
+        else begin
+            recv_wr_en <= ~recv_fifo_full;
+        end
+    end
+    else begin
+        preamble_done <= 1'b0;
+        preamble_cnt <= 3'd0;
+        // TODO: If an odd number of bytes, pad with 0
     end
 end
 
@@ -234,8 +259,8 @@ begin
     if (reg_raddr[15:7] == {`ADDR_ETH, CHANNEL, 1'b0}) begin
         last_reg_raddr <= reg_raddr[6:0];
         if (last_reg_raddr != reg_raddr[6:0]) begin
-            recv_rd_en <= 1'b1;
-            fifo_latched <= fifo_dout;
+            recv_rd_en <= ~recv_fifo_empty;
+            recv_fifo_latched <= recv_fifo_empty ? 16'd0 : recv_fifo_dout;
         end
     end
 end
