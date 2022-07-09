@@ -95,14 +95,18 @@ reg[15:0] read_data;
 reg[4:0] read_reg_addr;
 
 wire[31:0] reg_rdata_mem;   // Receive data
+wire[31:0] recv_info_dout;
+wire recv_info_fifo_empty;
 
 // Following data is accessible via block read from address `ADDR_ETH (0x4000)
 //    4x00 - 4x7f (128 quadlets) Received packet (first 128 quadlets only)
 //    4x80                       MDIO feedback (data read from management interface)
+//    4x81                       Receive info (if available)
 // where x is the Ethernet channel (1 or 2)
 
-assign reg_rdata = (reg_raddr[7] == 1'b1) ? { 5'd0, state, 3'd0, read_reg_addr, read_data}
-                                          : reg_rdata_mem;
+assign reg_rdata = (reg_raddr[7] == 1'b0) ? reg_rdata_mem :
+                   (reg_raddr[7:0] == 8'h80) ? { 5'd0, state, 3'd0, read_reg_addr, read_data} :
+                   ((reg_raddr[7:0] == 8'h81) && (~recv_info_fifo_empty)) ? recv_info_dout : 32'd0;
 
 // Whether a read command
 wire isRead;
@@ -183,6 +187,7 @@ reg  recv_rd_en;
 wire recv_fifo_full;
 wire recv_fifo_empty;
 reg[7:0]   recv_byte;
+reg[7:0]   recv_first_byte;
 wire[15:0] recv_fifo_dout;
 reg[15:0]  recv_fifo_latched;
 
@@ -190,7 +195,11 @@ reg[2:0]   preamble_cnt;
 reg  preamble_done;
 reg  preamble_error;
 
-fifo_8x1024_16 recv_fifo(
+reg[15:0] recv_nbytes;  // Number of bytes received (not including preamble)
+
+// Receive FIFO: 8 KByte (for now)
+// KSZ8851 has 12 KByte receive FIFO and 6 KByte transmit FIFO
+fifo_8x8192_16 recv_fifo(
     .rst(recv_fifo_reset),
     .wr_clk(RxClk),
     .rd_clk(clk),
@@ -202,6 +211,26 @@ fifo_8x1024_16 recv_fifo(
     .empty(recv_fifo_empty)
 );
 
+wire[31:0] recv_info_din;
+reg recv_info_wr_en;
+reg recv_info_rd_en;
+wire recv_info_fifo_full;
+
+fifo_32x32 recv_info_fifo(
+    .rst(recv_fifo_reset),
+    .wr_clk(RxClk),
+    .rd_clk(clk),
+    .din(recv_info_din),
+    .wr_en(recv_info_wr_en),
+    .rd_en(recv_info_rd_en),
+    .dout(recv_info_dout),
+    .full(recv_info_fifo_full),
+    .empty(recv_into_fifo_empty)
+);
+
+// Add CRC info
+assign recv_info_din = { 7'd0, preamble_error, recv_first_byte, recv_nbytes };
+
 assign reg_rdata_mem = { 4'd0, preamble_error, recv_fifo_reset, recv_fifo_full, recv_fifo_empty,
                          8'd0, recv_fifo_latched };
 
@@ -210,11 +239,15 @@ begin
     if (RxValid) begin
         recv_byte[3:0] <= RxD;
     end
+    else begin
+        recv_byte[3:0] <= 4'd0;
+    end
 end
 
 always @(negedge RxClk)
 begin
     recv_wr_en <= 1'b0;
+    recv_info_wr_en <= 1'b0;
     if (RxValid) begin
         recv_byte[7:4] <= RxD;
         if (~preamble_done) begin
@@ -231,13 +264,33 @@ begin
             end
         end
         else begin
+            if (recv_nbytes == 16'd0)
+                recv_first_byte <= { RxD, recv_byte[3:0] };
+            recv_nbytes <= recv_nbytes + 16'd1;
             recv_wr_en <= ~recv_fifo_full;
         end
     end
     else begin
         preamble_done <= 1'b0;
         preamble_cnt <= 3'd0;
-        // TODO: If an odd number of bytes, pad with 0
+        if (recv_nbytes != 16'd0) begin
+            if (recv_info_wr_en == 1'b0) begin
+                // First time through
+                // If an odd number of bytes, pad with 0
+                if (recv_nbytes[0]) begin
+                    recv_byte[7:4] <= 4'd0;
+                    recv_wr_en <= ~recv_fifo_full;
+                end
+                // TODO: compute CRC
+                // TODO: better handling of full FIFO
+                // Write to recv_info FIFO (on next RxClk)
+                recv_info_wr_en <= ~recv_info_fifo_full;
+            end
+            else begin
+                recv_nbytes <= 16'd0;
+                preamble_error <= 1'b0;
+            end
+        end
     end
 end
 
