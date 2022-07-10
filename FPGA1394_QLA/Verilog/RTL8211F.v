@@ -40,9 +40,16 @@ module RTL8211F
     output wire MDC,               // Clock to RTL8211F
     output wire RSTn,              // Reset to RTL8211F (active low)
 
+    // TEMP: MDIO to GMII to RGMII core (note: uses MDC)
+    input wire MDIO_I,
+    output reg MDIO_O,
+    output reg MDIO_T,             // Tristate control (not used?)
+
+    // GMII Interface
     input wire RxClk,              // Rx Clk
     input wire RxValid,            // Rx Valid
-    input wire[3:0] RxD            // Rx Data
+    input wire[7:0] RxD,           // Rx Data
+    input wire RxErr               // Rx Error
 );
 
 assign RSTn = 1'b1;
@@ -112,6 +119,14 @@ assign reg_rdata = (reg_raddr[7] == 1'b0) ? reg_rdata_mem :
 wire isRead;
 assign isRead = (write_data[29:28] == 2'b10) ? 1'b1 : 1'b0;
 
+// PHY address
+wire[4:0] phyAddr;
+assign phyAddr = write_data[27:23];
+
+// Register address
+wire[4:0] regAddr;
+assign regAddr = write_data[22:18];
+
 // -----------------------------------------
 // command processing
 // ------------------------------------------
@@ -126,10 +141,13 @@ begin
     ST_IDLE:
         begin
             MDIOreg <= 1'bz;
+            MDIO_T <= 1'b1;
             cnt <= 9'd0;
             if (reg_wen && (reg_waddr[6:0] == 7'd0)) begin
                 write_data <= reg_wdata;
                 MDIOreg <= 1'b1;
+                MDIO_T <= 1'b0;
+                MDIO_O <= 1'b1;
                 state <= ST_WRITE_PREAMBLE;
             end
         end
@@ -145,6 +163,7 @@ begin
         begin
             if (cnt[3:0] == `WRITE_SETUP) begin
                 MDIOreg <= write_data[~cnt[8:4]];
+                MDIO_O <= write_data[~cnt[8:4]];
             end
             if (isRead && (cnt == {5'd13, 4'hf}))
                 state <= ST_READ_TA;
@@ -154,10 +173,12 @@ begin
 
     ST_READ_TA:
         begin
-            if (cnt[3:0] == `WRITE_SETUP)
+            if (cnt[3:0] == `WRITE_SETUP) begin
                 MDIOreg <= 1'bz;
+                MDIO_T <= 1'b0;
+            end
             if (cnt == {5'd15, 4'hf}) begin
-                read_reg_addr <= write_data[22:18];
+                read_reg_addr <= regAddr;
                 state <= ST_READ_DATA;
             end
         end
@@ -165,7 +186,7 @@ begin
     ST_READ_DATA:
         begin
             if (cnt[3:0] == `READ_READY)
-                read_data <= {read_data[14:0], MDIO};
+                read_data <= {read_data[14:0], (phyAddr == 5'd0) ? MDIO : MDIO_I};
             if (cnt == {5'd31, 4'hf})
                 state <= ST_IDLE;
         end
@@ -225,39 +246,29 @@ fifo_32x32 recv_info_fifo(
     .rd_en(recv_info_rd_en),
     .dout(recv_info_dout),
     .full(recv_info_fifo_full),
-    .empty(recv_into_fifo_empty)
+    .empty(recv_info_fifo_empty)
 );
 
 // Add CRC info
-assign recv_info_din = { 7'd0, preamble_error, recv_first_byte, recv_nbytes };
+assign recv_info_din = { 6'd0, RxErr, preamble_error, recv_first_byte, recv_nbytes };
 
 assign reg_rdata_mem = { 4'd0, preamble_error, recv_fifo_reset, recv_fifo_full, recv_fifo_empty,
                          8'd0, recv_fifo_latched };
 
 always @(posedge RxClk)
 begin
-    if (RxValid) begin
-        recv_byte[3:0] <= RxD;
-    end
-    else begin
-        recv_byte[3:0] <= 4'd0;
-    end
-end
-
-always @(negedge RxClk)
-begin
     recv_wr_en <= 1'b0;
     recv_info_wr_en <= 1'b0;
     if (RxValid) begin
-        recv_byte[7:4] <= RxD;
+        recv_byte <= RxD;
         if (~preamble_done) begin
-            if ({RxD, recv_byte[3:0]} == 8'h55) begin
+            if (RxD == 8'h55) begin
                 preamble_cnt <= preamble_cnt + 3'd1;
             end
             else begin
                 preamble_done <= 1'b1;
                 preamble_cnt <= 3'd0;
-                if (({RxD, recv_byte[3:0]} != 8'hd5) ||
+                if ((RxD != 8'hd5) ||
                     (preamble_cnt != 3'd7)) begin
                     preamble_error <= 1'b1;
                 end
@@ -265,7 +276,7 @@ begin
         end
         else begin
             if (recv_nbytes == 16'd0)
-                recv_first_byte <= { RxD, recv_byte[3:0] };
+                recv_first_byte <= RxD;
             recv_nbytes <= recv_nbytes + 16'd1;
             recv_wr_en <= ~recv_fifo_full;
         end
@@ -278,7 +289,7 @@ begin
                 // First time through
                 // If an odd number of bytes, pad with 0
                 if (recv_nbytes[0]) begin
-                    recv_byte[7:4] <= 4'd0;
+                    recv_byte <= 8'd0;
                     recv_wr_en <= ~recv_fifo_full;
                 end
                 // TODO: compute CRC

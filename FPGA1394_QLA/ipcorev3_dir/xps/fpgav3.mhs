@@ -7,9 +7,29 @@
  PORT processing_system7_0_PS_CLK_pin = processing_system7_0_PS_CLK, DIR = I, SIGIS = CLK
  PORT processing_system7_0_PS_PORB_pin = processing_system7_0_PS_PORB, DIR = I
  PORT processing_system7_0_GPIO_I_pin = net_processing_system7_0_GPIO_I_pin, DIR = I, VEC = [63:0]
- PORT processing_system7_0_FCLK_CLK0_pin = processing_system7_0_FCLK_CLK0, DIR = O, SIGIS = CLK, CLK_FREQ = 125000000
+ PORT processing_system7_0_FCLK_CLK0_pin = processing_system7_0_FCLK_CLK0, DIR = O, SIGIS = CLK, CLK_FREQ = 200000000
  PORT processing_system7_0_FCLK_CLK1_pin = processing_system7_0_FCLK_CLK1, DIR = O, SIGIS = CLK, CLK_FREQ = 25000000
  PORT processing_system7_0_FCLK_CLK2_pin = processing_system7_0_FCLK_CLK2, DIR = O, SIGIS = CLK, CLK_FREQ = 2500000
+ PORT gmii_to_rgmii_1_rgmii_txd_pin = gmii_to_rgmii_1_rgmii_txd, DIR = O, VEC = [3:0]
+ PORT gmii_to_rgmii_1_rgmii_tx_ctl_pin = gmii_to_rgmii_1_rgmii_tx_ctl, DIR = O
+ PORT gmii_to_rgmii_1_rgmii_txc_pin = gmii_to_rgmii_1_rgmii_txc, DIR = O, SIGIS = CLK
+ PORT gmii_to_rgmii_1_rgmii_rxd_pin = gmii_to_rgmii_1_rgmii_rxd, DIR = I, VEC = [3:0]
+ PORT gmii_to_rgmii_1_rgmii_rx_ctl_pin = gmii_to_rgmii_1_rgmii_rx_ctl, DIR = I
+ PORT gmii_to_rgmii_1_rgmii_rxc_pin = gmii_to_rgmii_1_rgmii_rxc, DIR = I, SIGIS = CLK
+ PORT gmii_to_rgmii_1_gmii_clk_pin = gmii_to_rgmii_1_gmii_clk, DIR = I, SIGIS = CLK
+ PORT gmii_to_rgmii_1_gmii_rxd_pin = gmii_to_rgmii_1_gmii_rxd, DIR = O, VEC = [7:0]
+ PORT gmii_to_rgmii_1_gmii_rx_dv_pin = gmii_to_rgmii_1_gmii_rx_dv, DIR = O
+ PORT gmii_to_rgmii_1_gmii_rx_er_pin = gmii_to_rgmii_1_gmii_rx_er, DIR = O
+ PORT gmii_to_rgmii_1_gmii_rx_clk_pin = gmii_to_rgmii_1_gmii_rx_clk, DIR = O, SIGIS = CLK
+ PORT gmii_to_rgmii_1_MDIO_MDC_pin = net_gmii_to_rgmii_1_MDIO_MDC_pin, DIR = I
+ PORT gmii_to_rgmii_1_MDIO_I_pin = gmii_to_rgmii_1_MDIO_I, DIR = O
+ PORT gmii_to_rgmii_1_MDIO_O_pin = net_gmii_to_rgmii_1_MDIO_O_pin, DIR = I
+ PORT gmii_to_rgmii_1_MDIO_T_pin = net_gmii_to_rgmii_1_MDIO_T_pin, DIR = I
+ PORT gmii_to_rgmii_1_gmii_txd_pin = net_gmii_to_rgmii_1_gmii_txd_pin, DIR = I, VEC = [7:0]
+ PORT gmii_to_rgmii_1_gmii_tx_en_pin = net_gmii_to_rgmii_1_gmii_tx_en_pin, DIR = I
+ PORT gmii_to_rgmii_1_gmii_tx_clk_pin = gmii_to_rgmii_1_gmii_tx_clk, DIR = O, SIGIS = CLK
+ PORT gmii_to_rgmii_1_MDC_pin = gmii_to_rgmii_1_MDC, DIR = O
+ PORT gmii_to_rgmii_1_MDIO = gmii_to_rgmii_1_MDIO, DIR = IO
 
 
 BEGIN processing_system7
@@ -67,7 +87,7 @@ BEGIN processing_system7
  PARAMETER C_EN_WDT = 0
  PARAMETER C_EN_DDR = 1
  PARAMETER C_EN_GPIO = 1
- PARAMETER C_FCLK_CLK0_FREQ = 125000000
+ PARAMETER C_FCLK_CLK0_FREQ = 200000000
  PARAMETER C_FCLK_CLK1_FREQ = 25000000
  PARAMETER C_FCLK_CLK2_FREQ = 2500000
  PARAMETER C_FCLK_CLK3_FREQ = 50000000
@@ -80,5 +100,34 @@ BEGIN processing_system7
  PORT FCLK_CLK0 = processing_system7_0_FCLK_CLK0
  PORT FCLK_CLK1 = processing_system7_0_FCLK_CLK1
  PORT FCLK_CLK2 = processing_system7_0_FCLK_CLK2
+END
+
+BEGIN gmii_to_rgmii
+ PARAMETER INSTANCE = gmii_to_rgmii_1
+ PARAMETER HW_VER = 1.01.a
+ PORT rgmii_txd = gmii_to_rgmii_1_rgmii_txd
+ PORT rgmii_tx_ctl = gmii_to_rgmii_1_rgmii_tx_ctl
+ PORT rgmii_txc = gmii_to_rgmii_1_rgmii_txc
+ PORT rgmii_rxd = gmii_to_rgmii_1_rgmii_rxd
+ PORT rgmii_rx_ctl = gmii_to_rgmii_1_rgmii_rx_ctl
+ PORT rgmii_rxc = gmii_to_rgmii_1_rgmii_rxc
+ PORT clkin = processing_system7_0_FCLK_CLK0
+ PORT gmii_clk = net_gnd
+ PORT rx_reset = net_gnd
+ PORT tx_reset = net_gnd
+ PORT gmii_rxd = gmii_to_rgmii_1_gmii_rxd
+ PORT gmii_rx_dv = gmii_to_rgmii_1_gmii_rx_dv
+ PORT gmii_rx_er = gmii_to_rgmii_1_gmii_rx_er
+ PORT gmii_rx_clk = gmii_to_rgmii_1_gmii_rx_clk
+ PORT MDIO_MDC = net_gmii_to_rgmii_1_MDIO_MDC_pin
+ PORT MDIO_I = gmii_to_rgmii_1_MDIO_I
+ PORT MDIO_O = net_gmii_to_rgmii_1_MDIO_O_pin
+ PORT MDIO_T = net_gmii_to_rgmii_1_MDIO_T_pin
+ PORT gmii_txd = net_gmii_to_rgmii_1_gmii_txd_pin
+ PORT gmii_tx_en = net_gmii_to_rgmii_1_gmii_tx_en_pin
+ PORT gmii_tx_clk = gmii_to_rgmii_1_gmii_tx_clk
+ PORT gmii_tx_er = net_gnd
+ PORT MDC = gmii_to_rgmii_1_MDC
+ PORT MDIO = gmii_to_rgmii_1_MDIO
 END
 
