@@ -104,6 +104,8 @@ reg[4:0] read_reg_addr;
 wire[31:0] reg_rdata_mem;   // Receive data
 wire[31:0] recv_info_dout;
 wire recv_info_fifo_empty;
+reg[31:0] recv_crc_comp;    // computed crc of received frame
+reg[31:0] recv_crc_frame;   // crc in received frame
 
 // Following data is accessible via block read from address `ADDR_ETH (0x4000)
 //    4x00 - 4x7f (128 quadlets) Received packet (first 128 quadlets only)
@@ -113,7 +115,9 @@ wire recv_info_fifo_empty;
 
 assign reg_rdata = (reg_raddr[7] == 1'b0) ? reg_rdata_mem :
                    (reg_raddr[7:0] == 8'h80) ? { 5'd0, state, 3'd0, read_reg_addr, read_data} :
-                   ((reg_raddr[7:0] == 8'h81) && (~recv_info_fifo_empty)) ? recv_info_dout : 32'd0;
+                   ((reg_raddr[7:0] == 8'h81) && (~recv_info_fifo_empty)) ? recv_info_dout :
+                   (reg_raddr[7:0] == 8'h82) ? recv_crc_comp :
+                   (reg_raddr[7:0] == 8'h83) ? recv_crc_frame : 32'd0;
 
 // Whether a read command
 wire isRead;
@@ -186,7 +190,7 @@ begin
     ST_READ_DATA:
         begin
             if (cnt[3:0] == `READ_READY)
-                read_data <= {read_data[14:0], (phyAddr == 5'd0) ? MDIO : MDIO_I};
+                read_data <= {read_data[14:0], (phyAddr == 5'd8) ? MDIO_I : MDIO};
             if (cnt == {5'd31, 4'hf})
                 state <= ST_IDLE;
         end
@@ -201,6 +205,20 @@ end
 // -----------------------------------------
 // Ethernet receive
 // ------------------------------------------
+
+// crc registers
+wire[7:0] recv_crc_data;    // data into crc module to compute crc on
+reg[31:0] recv_crc_in;      // input to crc module (starts at all ones)
+wire[31:0] recv_crc_2b;     // current crc module output for data width 2 (not used)
+wire[31:0] recv_crc_4b;     // current crc module output for data width 4 (not used)
+wire[31:0] recv_crc_8b;     // current crc module output for data width 8
+
+// Reverse bits when computing CRC
+assign recv_crc_data = { RxD[0], RxD[1], RxD[2], RxD[3], RxD[4], RxD[5], RxD[6], RxD[7] };
+
+// This module computes crc continuously, so it is up to the state machine to
+// initialize, feed back, and latch crc values as necessary
+crc32 recv_crc(recv_crc_data, recv_crc_in, recv_crc_2b, recv_crc_4b, recv_crc_8b);
 
 reg  recv_fifo_reset;
 reg  recv_wr_en;
@@ -249,10 +267,12 @@ fifo_32x32 recv_info_fifo(
     .empty(recv_info_fifo_empty)
 );
 
-// Add CRC info
-assign recv_info_din = { 6'd0, RxErr, preamble_error, recv_first_byte, recv_nbytes };
+wire recv_crc_error;
+assign recv_crc_error = (recv_crc_comp == recv_crc_frame) ? 1'b0 : 1'b1;
 
-assign reg_rdata_mem = { 4'd0, preamble_error, recv_fifo_reset, recv_fifo_full, recv_fifo_empty,
+assign recv_info_din = { 5'd0, recv_crc_error, RxErr, preamble_error, recv_first_byte, recv_nbytes };
+
+assign reg_rdata_mem = { 3'd0, RxErr, preamble_error, recv_fifo_reset, recv_fifo_full, recv_fifo_empty,
                          8'd0, recv_fifo_latched };
 
 always @(posedge RxClk)
@@ -268,6 +288,7 @@ begin
             else begin
                 preamble_done <= 1'b1;
                 preamble_cnt <= 3'd0;
+                recv_crc_in <= 32'hffff;    // Initialize CRC
                 if ((RxD != 8'hd5) ||
                     (preamble_cnt != 3'd7)) begin
                     preamble_error <= 1'b1;
@@ -279,6 +300,9 @@ begin
                 recv_first_byte <= RxD;
             recv_nbytes <= recv_nbytes + 16'd1;
             recv_wr_en <= ~recv_fifo_full;
+            recv_crc_in <= recv_crc_8b;
+            // Frame CRC is last 32-bits (FCS)
+            recv_crc_frame <= { recv_crc_frame[23:0], RxD };
         end
     end
     else begin
@@ -292,7 +316,8 @@ begin
                     recv_byte <= 8'd0;
                     recv_wr_en <= ~recv_fifo_full;
                 end
-                // TODO: compute CRC
+                // Latch CRC
+                recv_crc_comp <= ~recv_crc_in;
                 // TODO: better handling of full FIFO
                 // Write to recv_info FIFO (on next RxClk)
                 recv_info_wr_en <= ~recv_info_fifo_full;
