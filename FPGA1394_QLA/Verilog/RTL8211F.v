@@ -104,8 +104,8 @@ reg[4:0] read_reg_addr;
 wire[31:0] reg_rdata_mem;   // Receive data
 wire[31:0] recv_info_dout;
 wire recv_info_fifo_empty;
-reg[31:0] recv_crc_comp;    // computed crc of received frame
-reg[31:0] recv_crc_frame;   // crc in received frame
+reg[31:0] recv_crc_comp[0:3]; // computed crc of received frame
+reg[31:0] recv_crc_frame;     // crc in received frame
 
 // Following data is accessible via block read from address `ADDR_ETH (0x4000)
 //    4x00 - 4x7f (128 quadlets) Received packet (first 128 quadlets only)
@@ -116,7 +116,7 @@ reg[31:0] recv_crc_frame;   // crc in received frame
 assign reg_rdata = (reg_raddr[7] == 1'b0) ? reg_rdata_mem :
                    (reg_raddr[7:0] == 8'h80) ? { 5'd0, state, 3'd0, read_reg_addr, read_data} :
                    ((reg_raddr[7:0] == 8'h81) && (~recv_info_fifo_empty)) ? recv_info_dout :
-                   (reg_raddr[7:0] == 8'h82) ? recv_crc_comp :
+                   (reg_raddr[7:0] == 8'h82) ? recv_crc_comp[0] :
                    (reg_raddr[7:0] == 8'h83) ? recv_crc_frame : 32'd0;
 
 // Whether a read command
@@ -268,7 +268,7 @@ fifo_32x32 recv_info_fifo(
 );
 
 wire recv_crc_error;
-assign recv_crc_error = (recv_crc_comp == recv_crc_frame) ? 1'b0 : 1'b1;
+assign recv_crc_error = (recv_crc_comp[0] == recv_crc_frame) ? 1'b0 : 1'b1;
 
 assign recv_info_din = { 5'd0, recv_crc_error, RxErr, preamble_error, recv_first_byte, recv_nbytes };
 
@@ -288,7 +288,7 @@ begin
             else begin
                 preamble_done <= 1'b1;
                 preamble_cnt <= 3'd0;
-                recv_crc_in <= 32'hffff;    // Initialize CRC
+                recv_crc_in <= 32'hffffffff;    // Initialize CRC
                 if ((RxD != 8'hd5) ||
                     (preamble_cnt != 3'd7)) begin
                     preamble_error <= 1'b1;
@@ -303,6 +303,13 @@ begin
             recv_crc_in <= recv_crc_8b;
             // Frame CRC is last 32-bits (FCS)
             recv_crc_frame <= { recv_crc_frame[23:0], RxD };
+            // The CRC should be computed on all bytes except the
+            // CRC (last 4 bytes); thus we use recv_crc_comp[0].
+            // Note that this code already skips last byte.
+            recv_crc_comp[0] <= recv_crc_comp[1];
+            recv_crc_comp[1] <= recv_crc_comp[2];
+            recv_crc_comp[2] <= recv_crc_comp[3];
+            recv_crc_comp[3] <= ~recv_crc_in;
         end
     end
     else begin
@@ -316,8 +323,6 @@ begin
                     recv_byte <= 8'd0;
                     recv_wr_en <= ~recv_fifo_full;
                 end
-                // Latch CRC
-                recv_crc_comp <= ~recv_crc_in;
                 // TODO: better handling of full FIFO
                 // Write to recv_info FIFO (on next RxClk)
                 recv_info_wr_en <= ~recv_info_fifo_full;
