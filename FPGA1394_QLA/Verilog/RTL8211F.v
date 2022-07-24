@@ -36,14 +36,16 @@ module RTL8211F
     input  wire[31:0] reg_wdata,   // register write data 
     input  wire reg_wen,           // reg write enable
 
-    inout  MDIO,                   // Bidirectional I/O to RTL8211F
-    output wire MDC,               // Clock to RTL8211F
     output wire RSTn,              // Reset to RTL8211F (active low)
 
-    // TEMP: MDIO to GMII to RGMII core (note: uses MDC)
-    input wire MDIO_I,
-    output reg MDIO_O,
-    output reg MDIO_T,             // Tristate control (not used?)
+    // MDIO signals
+    // When connecting directly to PHY, only need MDIO (inout) and
+    // MDC, but when using GMII to RGMII core, it is necessary to
+    // use MDIO_I, MDIO_O and MDIO_T instead of MDIO.
+    output wire MDC,               // Clock to RTL8211F
+    input wire MDIO_I,             // Input from PHY
+    output reg MDIO_O,             // Output to PHY
+    output reg MDIO_T,             // Tristate control
 
     // GMII Interface
     input wire RxClk,              // Rx Clk
@@ -53,9 +55,6 @@ module RTL8211F
 );
 
 assign RSTn = 1'b1;
-
-reg MDIOreg;
-assign MDIO = MDIOreg;
 
 // State machine
 localparam [2:0]
@@ -144,12 +143,10 @@ begin
 
     ST_IDLE:
         begin
-            MDIOreg <= 1'bz;
             MDIO_T <= 1'b1;
             cnt <= 9'd0;
             if (reg_wen && (reg_waddr[6:0] == 7'd0)) begin
                 write_data <= reg_wdata;
-                MDIOreg <= 1'b1;
                 MDIO_T <= 1'b0;
                 MDIO_O <= 1'b1;
                 state <= ST_WRITE_PREAMBLE;
@@ -166,7 +163,6 @@ begin
     ST_WRITE_DATA:
         begin
             if (cnt[3:0] == `WRITE_SETUP) begin
-                MDIOreg <= write_data[~cnt[8:4]];
                 MDIO_O <= write_data[~cnt[8:4]];
             end
             if (isRead && (cnt == {5'd13, 4'hf}))
@@ -178,8 +174,7 @@ begin
     ST_READ_TA:
         begin
             if (cnt[3:0] == `WRITE_SETUP) begin
-                MDIOreg <= 1'bz;
-                MDIO_T <= 1'b0;
+                MDIO_T <= 1'b1;
             end
             if (cnt == {5'd15, 4'hf}) begin
                 read_reg_addr <= regAddr;
@@ -190,7 +185,7 @@ begin
     ST_READ_DATA:
         begin
             if (cnt[3:0] == `READ_READY)
-                read_data <= {read_data[14:0], (phyAddr == 5'd8) ? MDIO_I : MDIO};
+                read_data <= {read_data[14:0], MDIO_I};
             if (cnt == {5'd31, 4'hf})
                 state <= ST_IDLE;
         end
