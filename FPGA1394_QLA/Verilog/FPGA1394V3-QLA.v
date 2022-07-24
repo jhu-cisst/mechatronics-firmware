@@ -866,8 +866,6 @@ CtrlLED qla_led(
 );
 
 wire clk_200MHz;
-wire clk_25MHz;
-wire clk_2p5MHz;
 
 fpgav3 zynq_ps7(
     .processing_system7_0_MIO(MIO),
@@ -876,8 +874,6 @@ fpgav3 zynq_ps7(
     .processing_system7_0_PS_PORB_pin(PS_PORB),
     .processing_system7_0_GPIO_I_pin({60'd0, board_id}),
     .processing_system7_0_FCLK_CLK0_pin(clk_200MHz),
-    .processing_system7_0_FCLK_CLK1_pin(clk_25MHz),
-    .processing_system7_0_FCLK_CLK2_pin(clk_2p5MHz),
 
     .gmii_to_rgmii_1_rgmii_txd_pin(E1_TxD),
     .gmii_to_rgmii_1_rgmii_tx_ctl_pin(E1_TxEN),
@@ -923,18 +919,13 @@ fpgav3 zynq_ps7(
 
 // *** BEGIN: TEST code for PS clocks
 reg[15:0] cnt_200;
-reg[15:0] cnt_25;
-assign clk_test = {cnt_200, cnt_25};   // quadlet read from 8 (PROM Status)
+assign clk_test = {16'd0, cnt_200};   // quadlet read from 8 (PROM Status)
 
 always @(posedge clk_200MHz)
 begin
     cnt_200 <= cnt_200 + 16'd1;
 end
 
-always @(posedge clk_25MHz)
-begin
-    cnt_25 <= cnt_25 + 16'd1;
-end
 // *** END: TEST code for PS clocks
 
 endmodule
