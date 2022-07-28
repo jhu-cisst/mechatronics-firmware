@@ -10,7 +10,7 @@ NET  "IO1[4]"     LOC = " E22"    | IOSTANDARD = "LVCMOS33" | PULLUP;  # /EEPROM
 NET  "IO1[5]"     LOC = " D20"    | IOSTANDARD = "LVCMOS33" | PULLUP;  # Dir34
 NET  "IO1[6]"     LOC = " D21"    | IOSTANDARD = "LVCMOS33" | PULLUP;  # Dir12
 NET  "IO1[7]"     LOC = " C22"    | IOSTANDARD = "LVCMOS33" | PULLUP;  # /MV-FLT (QLA 1.4+)
-NET  "IO1[8]"     LOC = " D19"    | IOSTANDARD = "LVCMOS33" | PULLUP;
+NET  "IO1[8]"     LOC = " D19"    | IOSTANDARD = "LVCMOS33" | PULLUP;  # /IOEXP (QLA 1.5+)
 NET  "IO1[9]"     LOC = " C20"    | IOSTANDARD = "LVCMOS33" | PULLUP;
 NET  "IO1[10]"    LOC = " B22"    | IOSTANDARD = "LVCMOS33";           # Ltc1864 sclk
 NET  "IO1[11]"    LOC = " C19"    | IOSTANDARD = "LVCMOS33";           # Ltc1864 conv
