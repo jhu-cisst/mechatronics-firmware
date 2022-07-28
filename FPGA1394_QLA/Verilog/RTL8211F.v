@@ -56,6 +56,8 @@ module RTL8211F
 
 assign RSTn = 1'b1;
 
+initial MDIO_T = 1'b1;
+
 // State machine
 localparam [2:0]
     ST_IDLE = 0,
