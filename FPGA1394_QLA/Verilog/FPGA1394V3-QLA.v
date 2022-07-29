@@ -107,6 +107,21 @@ module FPGA1394V3QLA
     wire[3:0] board_id;         // 4-bit board id
     assign board_id = ~wenid;
 
+    // SPI interface to QLA PROM and I/O Expander
+    // IO1[1] is MISO (input to FPGA), so can be shared between QLA PROM and I/O Expander
+    wire qla_prom_mosi;
+    wire io_exp_mosi;
+    wire qla_prom_sclk;
+    wire io_exp_sclk;
+    wire qla_prom_busy;         // 1 -> QLA PROM using SPI
+    wire io_exp_busy;           // 1 -> I/O Expander using SPI
+
+    // Multiplex MOSI (output from FPGA) and SCLK (SPI clock)
+    assign IO1[2] = qla_prom_busy ? qla_prom_mosi :
+                    io_exp_busy   ? io_exp_mosi : 1'bz;
+    assign IO1[3] = qla_prom_busy ? qla_prom_sclk :
+                    io_exp_busy   ? io_exp_sclk : 1'bz;
+
 //------------------------------------------------------------------------------
 // hardware description
 //
@@ -158,18 +173,20 @@ wire[31:0] reg_rdata_prom_qla; // reads from QLA prom
 wire[31:0] reg_rdata_eth;      // for eth memory access
 wire[31:0] reg_rdata_ds;       // for DS2505 memory access
 wire[31:0] reg_rdata_chan0;    // 'channel 0' is a special axis that contains various board I/Os
+wire[31:0] reg_rdata_ioexp;    // reads from MAX7317 I/O expander (QLA 1.5+)
 
 // Mux routing read data based on read address
 //   See Constants.v for details
 //     addr[15:12]  main | hub | prom | prom_qla | eth | firewire | dallas | databuf | waveform
 assign reg_rdata = (reg_raddr[15:12]==`ADDR_HUB) ? (reg_rdata_hub) :
-                  ((reg_raddr[15:12]==`ADDR_PROM) ? (reg_rdata_prom) :
-                  ((reg_raddr[15:12]==`ADDR_PROM_QLA) ? (reg_rdata_prom_qla) : 
-                  ((reg_raddr[15:12]==`ADDR_ETH) ? (reg_rdata_eth) :
-                  ((reg_raddr[15:12]==`ADDR_DS) ? (reg_rdata_ds) :
-                  ((reg_raddr[15:12]==`ADDR_DATA_BUF) ? (reg_rdata_databuf) :
-                  ((reg_raddr[15:12]==`ADDR_WAVEFORM) ? (reg_rtable) :
-                  ((reg_raddr[7:4]==4'd0) ? reg_rdata_chan0 : reg_rd[reg_raddr[3:0]])))))));
+                   (reg_raddr[15:12]==`ADDR_PROM) ? (reg_rdata_prom) :
+                   (reg_raddr[15:12]==`ADDR_PROM_QLA) ? (reg_rdata_prom_qla) :
+                   (reg_raddr[15:12]==`ADDR_ETH) ? (reg_rdata_eth) :
+                   (reg_raddr[15:12]==`ADDR_DS) ? (reg_rdata_ds) :
+                   (reg_raddr[15:12]==`ADDR_DATA_BUF) ? (reg_rdata_databuf) :
+                   (reg_raddr[15:12]==`ADDR_WAVEFORM) ? (reg_rtable) :
+                   (reg_raddr[7:4]!=4'd0) ? (reg_rd[reg_raddr[3:0]]) :
+                   (reg_raddr[3:0]==`REG_IO_EXP) ? (reg_rdata_ioexp) : (reg_rdata_chan0);
 
 // Unused channel offsets
 assign reg_rd[`OFF_UNUSED_02] = 32'd0;
@@ -612,7 +629,7 @@ Max6576 T2(
 
 
 // --------------------------------------------------------------------------
-// QLA prom 25AA138 
+// QLA prom 25AA128
 //    - SPI pin connection see QLA schematics
 //    - TEMP version, interface subject to future change
 // --------------------------------------------------------------------------
@@ -631,12 +648,36 @@ QLA25AA128 prom_qla(
     .blk_wstart(blk_wstart),
 
     // spi interface
-    .prom_mosi(IO1[2]),
+    .prom_mosi(qla_prom_mosi),
     .prom_miso(IO1[1]),
-    .prom_sclk(IO1[3]),
-    .prom_cs(IO1[4])
+    .prom_sclk(qla_prom_sclk),
+    .prom_cs(IO1[4]),
+    .other_busy(io_exp_busy),
+    .this_busy(qla_prom_busy)
 );
 
+// --------------------------------------------------------------------------
+// MAX7317: I/O Expander
+// --------------------------------------------------------------------------
+
+Max7317 IO_Exp(
+    .clk(sysclk),
+
+    // address & wen
+    //.reg_raddr(reg_raddr),
+    .reg_waddr(reg_waddr),
+    .reg_rdata(reg_rdata_ioexp),
+    .reg_wdata(reg_wdata[15:0]),
+    .reg_wen(reg_wen),
+
+    // spi interface
+    .mosi(io_exp_mosi),
+    .miso(IO1[1]),
+    .sclk(io_exp_sclk),
+    .CSn(IO1[8]),
+    .other_busy(qla_prom_busy),
+    .this_busy(io_exp_busy)
+);
 
 // --------------------------------------------------------------------------
 // DS2505: Dallas 1-wire interface
@@ -718,7 +759,6 @@ BoardRegs chan0(
     .mv_faultn(IO1[7]),
     .mv_good(IO2[11]),
     .v_fault(IO1[9]),
-    .io1_8(IO1[8]),
     .board_id(board_id),
     .temp_sense(tempsense),
     .reg_raddr(reg_raddr),

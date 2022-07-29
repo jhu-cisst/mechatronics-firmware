@@ -70,7 +70,9 @@ module QLA25AA128(
     output prom_mosi,              // Serial out to 25AA128
     input  prom_miso,              // Serial in from 25AA128
     output prom_sclk,              // CLK to 25AA128
-    output reg prom_cs             // /CS to 25AA128
+    output reg prom_cs,            // /CS to 25AA128
+    input wire other_busy,         // 1 -> another chip using SPI
+    output wire this_busy          // 1 -> this chip using SPI
 );
 
 initial prom_cs = 1'bz;
@@ -121,10 +123,10 @@ assign prom_status[4] = prom_mosi;
 assign prom_status[3] = blk_wrt;
 assign prom_status[2:0] = state;
 
-assign prom_mosi = io_disabled ? 1'bz : prom_data[31];
-assign prom_sclk = io_disabled ? 1'bz : seqn[3];    // sysclk/8
+assign prom_mosi = prom_data[31];
+assign prom_sclk = seqn[3];    // sysclk/8
 
-
+assign this_busy = ~io_disabled;
 
 // -----------------------------------------
 // read/write request
@@ -243,10 +245,12 @@ begin
     end // case: ST_IDLE
 
     ST_CHIP_SELECT: begin
-       io_disabled <= 1'b0;
-       prom_cs     <= 1'b0;
+       // Only assert prom_cs (active low) and deassert io_disabled when SPI
+       // interface is not busy. Stay in this state until SPI is not busy.
+       io_disabled <= other_busy;
+       prom_cs     <= other_busy;
        prom_result <= 32'd0;
-       state <= ST_WRITE;
+       state <= other_busy ? ST_CHIP_SELECT : ST_WRITE;
     end
 
     ST_WRITE: begin

@@ -73,6 +73,7 @@
 `define REG_IPADDR   4'd11         // IP address
 `define REG_ETHRES   4'd12         // Ethernet register I/O result (from KSZ8851)
 `define REG_DSSTAT   4'd13         // Dallas chip status
+`define REG_IO_EXP   4'd14         // I/O Expander (MAX7317)
 `define REG_DEBUG    4'd15         // Debug register for testing 
 
 // device register file offsets from channel base

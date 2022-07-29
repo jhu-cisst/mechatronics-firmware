@@ -56,7 +56,6 @@ module BoardRegs(
     input  wire mv_faultn,          // motor power fault (active low) from LT4356, over-voltage or over-current
     input  wire mv_good,            // motor voltage good 
     input  wire v_fault,            // encoder supply voltage fault
-    input  wire io1_8,              // unused digital I/O (not connected on QLA)
     input  wire[3:0] board_id,      // board id (rotary switch)
     input  wire[15:0] temp_sense,   // temperature sensor reading
     
@@ -130,7 +129,7 @@ module BoardRegs(
                 safety_amp_disable[4:1], ~reg_disable[3:0] };
 
     // dout[31] indicates that waveform table is driving at least one DOUT
-    assign reg_digin = {v_fault, io1_8, dout[31], 1'b0, enc_a, enc_b, enc_i, dout[3:0], neg_limit, pos_limit, home};
+    assign reg_digin = {v_fault, 1'b0, dout[31], 1'b0, enc_a, enc_b, enc_i, dout[3:0], neg_limit, pos_limit, home};
 
 //------------------------------------------------------------------------------
 // hardware description
