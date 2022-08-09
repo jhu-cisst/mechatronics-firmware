@@ -42,6 +42,8 @@ module BoardRegs(
     output reg relay_on,            // enable relay for safety loop-through
     input  wire isQuadDac,          // type of DAC: 0 = 4xLTC2601, 1 = 1xLTC2604
     output reg dac_test_reset,      // repeat DAC test
+    output reg ioexp_cfg_reset,     // redetect I/O expander (MAX7317)
+    input  wire ioexp_present,      // 1 -> I/O expander (MAX7317) detected
 
     // board output (PC reads)
     input  wire[4:1] enc_a,         // encoder a  
@@ -121,8 +123,8 @@ module BoardRegs(
                 wdog_timeout, isQuadDac, dout_cfg_valid, dout_cfg_bidir,
                 // mv_good, power enable, safety relay state, safety relay control
                 mv_good, pwr_enable, ~relay, relay_on,
-                // mv_fault, unused (0)
-                ~mv_faultn, 3'd0,
+                // mv_fault, unused (00), ioexp_present
+                ~mv_faultn, 2'b00, ioexp_present,
                 // amplifier: 1 -> amplifier on, 0 -> fault (4 axes)
                 fault,
                 // Byte 0: 1 -> amplifier enabled, 0 -> disabled
@@ -180,6 +182,8 @@ always @(posedge(sysclk))
             // Previously, masked reg_wdata[23] with [22] for eth1394 mode
             // use reg_wdata[22] to reset isQuadDac
             dac_test_reset <= reg_wdata[22];
+            // use reg_wdata[23] to redetect I/O expander (MAX7317)
+            ioexp_cfg_reset <= reg_wdata[23];
             // use reg_wdata[24] to reset dout_cfg_valid
             dout_cfg_reset <= reg_wdata[24];
         end
@@ -224,6 +228,8 @@ always @(posedge(sysclk))
 `endif
         // Turn off dout_cfg_reset in case it was previously set
         dout_cfg_reset <= 1'b0;
+        // Turn off ioexp_cfg_reset in case it was previously set
+        ioexp_cfg_reset <= 1'b0;
         // Turn off dac_test_reset in case it was previously set
         dac_test_reset <= 1'b0;
     end

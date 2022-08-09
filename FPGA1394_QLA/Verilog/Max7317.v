@@ -49,6 +49,10 @@ module Max7317(
     input  wire[15:0] reg_wdata,   // register write data 
     input  wire reg_wen,           // reg write enable
 
+    // Configuration
+    input wire ioexp_cfg_reset,    // reset configuration check
+    output reg ioexp_cfg_present,  // 1 -> MAX7317 is present
+
     // SPI interface
     input wire miso,               // input from the MAX7317
     output reg mosi,               // output to the MAX7317
@@ -66,7 +70,11 @@ reg[15:0] read_data;               // Data read from I/O Expander
    
 reg doWrite;                       // 1 -> write pending or in process
 
+// Externally-generated write (e.g., from PC)
 assign ioexp_reg_wen = (reg_waddr == {`ADDR_MAIN, 8'd0, `REG_IO_EXP}) ? reg_wen : 1'b0;
+
+// Locally-generated write
+reg ioexp_wen;
 
 // Data read by host PC
 assign reg_rdata = { 13'd0, other_busy, this_busy, doWrite, read_data };
@@ -79,12 +87,12 @@ assign sclk = seqn[0]&(~CSn);
 
 always @(posedge clk)
 begin
-    if (ioexp_reg_wen) begin
+    if (ioexp_wen) begin
         // There is no check whether a transaction is currently in
         // process (this_busy) or pending (doWrite&(~this_busy)),
         // so it is up to the caller to check the status bits by first
         // reading the register.
-        write_data <= reg_wdata[15:0];
+        // Note that write_data should already be set by caller.
         read_data <= 16'd0;
         doWrite <= 1'b1;
         seqn <= 6'd0;
@@ -120,4 +128,56 @@ begin
     end
 end
 
+reg ioexp_cfg_valid;
+reg[1:0] cfg_step;
+reg[1:0] next_cfg_step;
+
+always @(posedge clk)
+begin
+    if (ioexp_cfg_reset) begin
+        // Restart check for MAX7317
+        ioexp_cfg_valid <= 1'b0;
+        ioexp_cfg_present <= 1'b0;
+        cfg_step <= 2'd0;
+        next_cfg_step <= 2'd0;
+    end
+    else if (!ioexp_cfg_valid) begin
+        // This code attempts to initialize the MAX7317 by setting all
+        // ports tri-state (input), and then reading back the command
+        // after writing a NOP. If read_data is equal to the initial
+        // command, then the MAX7317 I/O expander is present.
+        if (this_busy) begin
+            ioexp_wen <= 1'b0;
+            cfg_step <= next_cfg_step;
+        end
+        else if (cfg_step == 2'd0) begin
+            write_data <= 16'h0a01;    // Set all ports tri-state (input)
+            ioexp_wen <= 1'b1;
+            next_cfg_step <= 2'd1;
+        end
+        else if (cfg_step == 2'd1) begin
+            write_data <= 16'h0200;    // NOP
+            ioexp_wen <= 1'b1;
+            next_cfg_step <= 2'd2;
+        end
+        else if (cfg_step == 2'd2) begin
+            ioexp_cfg_present <= (read_data == 16'h0a01) ? 1'b1 : 1'b0;
+            ioexp_cfg_valid <= 1'b1;
+        end
+    end
+    else if (ioexp_reg_wen) begin
+        // Following handles external writes (e.g., from PC).
+        // Note that the write will be ignored if the SPI interface
+        // is already active (this_busy).
+        // We do not check ioexp_cfg_present so that the external PC can
+        // still attempt to write to MAX7317 even if it was not detected.
+        ioexp_wen <= ~this_busy;
+        if (~this_busy) begin
+            write_data <= reg_wdata[15:0];
+        end
+    end
+    else begin
+        ioexp_wen <= 1'b0;
+    end
+end
 endmodule

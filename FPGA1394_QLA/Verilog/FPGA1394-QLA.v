@@ -562,6 +562,9 @@ QLA25AA128 prom_qla(
 // MAX7317: I/O Expander
 // --------------------------------------------------------------------------
 
+wire ioexp_cfg_reset;       // 1 -> Check if I/O expander (MAX7317) present
+wire ioexp_cfg_present;     // 1 -> I/O expander (MAX7317) detected
+
 Max7317 IO_Exp(
     .clk(sysclk),
 
@@ -571,6 +574,10 @@ Max7317 IO_Exp(
     .reg_rdata(reg_rdata_ioexp),
     .reg_wdata(reg_wdata[15:0]),
     .reg_wen(reg_wen),
+
+    // Configuration
+    .ioexp_cfg_reset(ioexp_cfg_reset),
+    .ioexp_cfg_present(ioexp_cfg_present),
 
     // spi interface
     .mosi(io_exp_mosi),
@@ -646,6 +653,8 @@ BoardRegs chan0(
     .relay_on(IO1[31]),
     .isQuadDac(is_quad_dac),
     .dac_test_reset(dac_test_reset),
+    .ioexp_cfg_reset(ioexp_cfg_reset),
+    .ioexp_present(ioexp_cfg_present),
     .enc_a({IO2[17], IO2[19], IO2[21], IO2[23]}),    // axis 4:1
     .enc_b({IO2[10], IO2[12], IO2[13], IO2[15]}),
     .enc_i({IO2[2], IO2[4], IO2[6], IO2[8]}),
