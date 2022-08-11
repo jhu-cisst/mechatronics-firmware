@@ -663,6 +663,23 @@ QLA25AA128 prom_qla(
 wire ioexp_cfg_reset;       // 1 -> Check if I/O expander (MAX7317) present
 wire ioexp_cfg_present;     // 1 -> I/O expander (MAX7317) detected
 
+wire safety_fb_n;           // 0 -> voltage present on safety line
+wire mv_fb;                 // Feedback from comparator between DAC4 and motor supply
+
+wire cur_ctrl[1:4];
+// PK TEMP
+assign cur_ctrl[1] = 1;
+assign cur_ctrl[2] = 1;
+assign cur_ctrl[3] = 1;
+assign cur_ctrl[4] = 1;
+
+wire disable_f[1:4];
+// PK TEMP
+assign disable_f[1] = amp_disable_vec[1];
+assign disable_f[2] = amp_disable_vec[2];
+assign disable_f[3] = amp_disable_vec[3];
+assign disable_f[4] = amp_disable_vec[4];
+
 Max7317 IO_Exp(
     .clk(sysclk),
 
@@ -670,7 +687,7 @@ Max7317 IO_Exp(
     //.reg_raddr(reg_raddr),
     .reg_waddr(reg_waddr),
     .reg_rdata(reg_rdata_ioexp),
-    .reg_wdata(reg_wdata[15:0]),
+    .reg_wdata(reg_wdata),
     .reg_wen(reg_wen),
 
     // Configuration
@@ -683,7 +700,12 @@ Max7317 IO_Exp(
     .sclk(io_exp_sclk),
     .CSn(IO1[8]),
     .other_busy(qla_prom_busy),
-    .this_busy(io_exp_busy)
+    .this_busy(io_exp_busy),
+
+    // Signals
+    .P30({cur_ctrl[1], cur_ctrl[2], cur_ctrl[3], cur_ctrl[4]}),
+    .P74({disable_f[1], disable_f[2], disable_f[3], disable_f[4]}),
+    .P98({mv_fb, safety_fb_n})
 );
 
 // --------------------------------------------------------------------------
@@ -768,6 +790,8 @@ BoardRegs chan0(
     .mv_faultn(IO1[7]),
     .mv_good(IO2[11]),
     .v_fault(IO1[9]),
+    .safety_fb(~safety_fb_n),
+    .mv_fb(mv_fb),
     .board_id(board_id),
     .temp_sense(tempsense),
     .reg_raddr(reg_raddr),

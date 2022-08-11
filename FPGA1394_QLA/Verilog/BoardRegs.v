@@ -58,6 +58,8 @@ module BoardRegs(
     input  wire mv_faultn,          // motor power fault (active low) from LT4356, over-voltage or over-current
     input  wire mv_good,            // motor voltage good 
     input  wire v_fault,            // encoder supply voltage fault
+    input  wire safety_fb,          // whether voltage present on safety line
+    input  wire mv_fb,              // comparator feedback used to measure motor supply voltage
     input  wire[3:0] board_id,      // board id (rotary switch)
     input  wire[15:0] temp_sense,   // temperature sensor reading
     
@@ -124,14 +126,14 @@ module BoardRegs(
                 // mv_good, power enable, safety relay state, safety relay control
                 mv_good, pwr_enable, ~relay, relay_on,
                 // mv_fault, unused (00), ioexp_present
-                ~mv_faultn, 2'b00, ioexp_present,
+                ~mv_faultn, safety_fb, 1'b0, ioexp_present,
                 // amplifier: 1 -> amplifier on, 0 -> fault (4 axes)
                 fault,
                 // Byte 0: 1 -> amplifier enabled, 0 -> disabled
                 safety_amp_disable[4:1], ~reg_disable[3:0] };
 
     // dout[31] indicates that waveform table is driving at least one DOUT
-    assign reg_digin = {v_fault, 1'b0, dout[31], 1'b0, enc_a, enc_b, enc_i, dout[3:0], neg_limit, pos_limit, home};
+    assign reg_digin = {v_fault, 1'b0, dout[31], mv_fb, enc_a, enc_b, enc_i, dout[3:0], neg_limit, pos_limit, home};
 
 //------------------------------------------------------------------------------
 // hardware description
