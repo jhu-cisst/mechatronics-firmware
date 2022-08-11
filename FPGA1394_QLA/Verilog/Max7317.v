@@ -159,14 +159,14 @@ assign output_error = (output_error_mask == 8'd0) ? 1'b0 : 1'b1;
 // Commands used to configure the Max7317
 wire[15:0] ConfigCommands[0:1];
 assign ConfigCommands[0] = 16'h0a01;    // Set all ports tri-state (input)
-assign ConfigCommands[1] = 16'h0200;    // NOP
+assign ConfigCommands[1] = 16'h2000;    // NOP
 
 // Commands used to poll the Max7317
 wire[15:0] PollCommands[0:3];
 assign PollCommands[0] = 16'h8e00;    // Read ports 0-7
 assign PollCommands[1] = 16'h8f00;    // Read ports 8-9
-assign PollCommands[2] = 16'h0200;    // NOP
-assign PollCommands[3] = 16'h0200;    // NOP (not used)
+assign PollCommands[2] = 16'h2000;    // NOP
+assign PollCommands[3] = 16'h2000;    // NOP (not used)
 
 reg do_reg_io;                        // 1 -> pending register I/O from host PC
 wire reg_io_read;                     // 1 -> register read in process (from host PC)
@@ -224,6 +224,7 @@ begin
         write_data <= ConfigCommands[step[0]];
         ioexp_wen <= 1'b1;
         next_step <= step + 4'd1;
+        P_Shadow <= 8'hff;
         if (step == 4'd2) begin
             ioexp_cfg_present <= (read_data == ConfigCommands[0]) ? 1'b1 : 1'b0;
             ioexp_cfg_valid <= 1'b1;
