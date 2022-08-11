@@ -84,10 +84,6 @@ assign ioexp_reg_wen = (reg_waddr == {`ADDR_MAIN, 8'd0, `REG_IO_EXP}) ? reg_wen 
 // Locally-generated write
 reg ioexp_wen;
 
-// Debug counters
-reg[3:0] num_p4;
-reg[3:0] num_single;
-
 assign sclk = seqn[0]&(~CSn);
 
 //   seqn   0  1   2   3   4   5
@@ -153,6 +149,13 @@ reg read_error;
 reg[7:0] outputs_fb;
 initial outputs_fb = 8'hff;
 
+// Indicates whether there is an output error (i.e., value read from
+// I/O expander does not match shadow copy P_Shadow). The most likely
+// cause is a missing pullup resistor on the port output.
+wire output_error;
+reg[7:0] output_error_mask;
+assign output_error = (output_error_mask == 8'd0) ? 1'b0 : 1'b1;
+
 // Commands used to configure the Max7317
 wire[15:0] ConfigCommands[0:1];
 assign ConfigCommands[0] = 16'h0a01;    // Set all ports tri-state (input)
@@ -166,27 +169,23 @@ assign PollCommands[2] = 16'h0200;    // NOP
 assign PollCommands[3] = 16'h0200;    // NOP (not used)
 
 reg do_reg_io;                        // 1 -> pending register I/O from host PC
-
-// P_Internal and P_Test are used for testing
-reg P_Test;
-reg[7:0] P_Internal;
-initial P_Internal = 8'hff;
+wire reg_io_read;                     // 1 -> register read in process (from host PC)
+reg[7:0] reg_io_addr;                 // last register address (and r/w bit) from host PC
+assign reg_io_read = reg_io_addr[7];
 
 reg do_output;     // 1 -> start writing outputs to MAX7317
 
-// Desired port outputs, normally specified by other parts of
-// the firmware. Note that P_Test is for testing purposes.
+// Desired port outputs, normally specified by other parts of the firmware.
 wire[7:0] P_Outputs;
-assign P_Outputs = P_Test ? P_Internal : {P74, P30};
+assign P_Outputs = {P74, P30};
 
-// PK TEMP
-reg[7:0] P_Outputs_saved;
-initial P_Outputs_saved = 8'hff;
+// Shadow copy of desired port outputs
+reg[7:0] P_Shadow;
 
 reg read_debug;
 // Data read by host PC
-assign reg_rdata = read_debug ? { 16'd0, outputs_fb, P_Outputs } :
-                   { 3'd0, read_error, num_p4, num_single, P_Test, other_busy, this_busy, do_reg_io, read_data_saved };
+assign reg_rdata = read_debug ? { 8'd0, output_error_mask, outputs_fb, P_Outputs } :
+                   { 3'b000, other_busy, reg_io_read, do_reg_io, read_error, output_error, output_error_mask, read_data_saved };
 
 // Following signals are used to determine whether we can do more
 // efficient updates for P0-P3 and/or P4-P7, since often these will
@@ -196,19 +195,14 @@ assign reg_rdata = read_debug ? { 16'd0, outputs_fb, P_Outputs } :
 // and P4-P7 are different types of signals.
 
 wire P30_changed;
-assign P30_changed = (P_Outputs[3:0] != outputs_fb[3:0]) ? 1'b1 : 1'b0;
+assign P30_changed = (P_Outputs[3:0] != P_Shadow[3:0]) ? 1'b1 : 1'b0;
 wire P30_same;
 assign P30_same = ((P_Outputs[3:0] == 4'h0) || (P_Outputs[3:0] == 4'hf)) ? 1'b1 : 1'b0;
 
 wire P74_changed;
-assign P74_changed = (P_Outputs[7:4] != outputs_fb[7:4]) ? 1'b1 : 1'b0;
+assign P74_changed = (P_Outputs[7:4] != P_Shadow[7:4]) ? 1'b1 : 1'b0;
 wire P74_same;
 assign P74_same = ((P_Outputs[7:4] == 4'h0) || (P_Outputs[7:4] == 4'hf)) ? 1'b1 : 1'b0;
-
-// Following commands write 4 values at a time (P0-P3 or P4-P7)
-wire[15:0] P4_Commands[0:1];
-assign P4_Commands[0] = { 8'h0b, 7'h0, P_Outputs[0] };   // Set P0-P3 to same value
-assign P4_Commands[1] = { 8'h0c, 7'h0, P_Outputs[4] };   // Set P4-P7 to same value
 
 always @(posedge clk)
 begin
@@ -242,8 +236,10 @@ begin
         next_step <= step + 4'd1;
         if (step == 4'd2) begin
             if (read_data[15:8] == PollCommands[0][15:8]) begin
-                // PK TEMP
-                //outputs_fb <= read_data[7:0];
+                outputs_fb <= read_data[7:0];
+                if ((read_data[7:0]^P_Shadow) != 8'd0) begin
+                    output_error_mask <= read_data[7:0]^P_Shadow;
+                end
             end
             else begin
                 read_error <= 1'b1;
@@ -259,33 +255,39 @@ begin
             do_poll <= 1'b0;
             step <= 4'd0;
             poll_timer <= 6'd0;
-            do_output <= (outputs_fb != P_Outputs) ? 1'b1 : 1'b0;
         end
     end
     else if (do_output) begin
         if (step[3]) begin
-            // All done, need to poll again to update outputs_fb
             do_output <= 1'b0;
-            do_poll <= 1'b1;
             step <= 4'd0;
-            // PK TEMP
-            outputs_fb <= P_Outputs;
+            // reset poll_timer so that there is enough time for output to
+            // reach desired value before output_error check.
+            poll_timer <= 6'd0;
         end
         else if ( ((~step[2])&P30_changed) | (step[2]&P74_changed) ) begin
             // Output changed for steps 0-3 or 4-7
             if (((step == 4'd0) && P30_same) || ((step == 4'd4) && P74_same)) begin
                 // All 4 values are the same
-                write_data <= P4_Commands[step[2]];
+                if (step == 4'd0) begin
+                    // Set P0-P3 to same value
+                    write_data <= { 8'h0b, 7'h0, P_Outputs[0] };
+                    P_Shadow[3:0] <= P_Outputs[3:0];
+                end
+                else begin
+                   // Set P4-P7 to same value
+                   write_data <= { 8'h0c, 7'h0, P_Outputs[4] };
+                   P_Shadow[7:4] <= P_Outputs[7:4];
+                end
                 ioexp_wen <= 1'b1;
                 next_step <= step + 4'd4;
-                num_p4 <= num_p4 + 4'd1;
             end
             else begin
-                if (outputs_fb[step[2:0]] != P_Outputs[step[2:0]]) begin
+                if (P_Outputs[step[2:0]] != P_Shadow[step[2:0]]) begin
                     write_data <= { 4'h0, step, 7'h0, P_Outputs[step[2:0]] };
+                    P_Shadow[step[2:0]] <= P_Outputs[step[2:0]];
                     ioexp_wen <= 1'b1;
                     next_step <= step + 4'd1;
-                    num_single <= num_single + 4'd1;
                 end
                 else begin
                     // Output is correct, skip to next step
@@ -305,7 +307,10 @@ begin
             next_step <= 4'd1;
         end
         else begin
-            read_data_saved <= read_data;
+            // Indicate that a read was issued, so we can later save the
+            // result in read_data_saved (note that setting reg_io_addr
+            // will set reg_io_read if upper bit is set).
+            reg_io_addr <= write_data[15:8];
             do_reg_io <= 1'b0;
             step <= 4'd0;
         end
@@ -316,20 +321,16 @@ begin
         step <= 4'd0;
         next_step <= 4'd0;
 
-        // PK TEMP START
-        P_Outputs_saved <= P_Outputs;
-        if (P_Outputs_saved != P_Outputs) begin
-            outputs_fb <= P_Outputs_saved;
-        end
-        // PK TEMP END
         if (ioexp_cfg_present) begin
             // Poll timer waits for about 1.3 usec before starting next poll
             poll_timer <= poll_timer + 6'd1;
-            if (outputs_fb != P_Outputs) begin
-                // Output initiated when specified signals (P30, P74) do not match values read
-                // from I/O expander. This has to be changed, because the value read from the
-                // I/O expander may not be correct due to a hardware problem, such as a missing
-                // pull-up resistor.
+            if (P_Outputs != P_Shadow) begin
+                // Output initiated when specified signals P_Outputs (P30, P74) do not match
+                // shadow copy P_Shadow. Note that we cannot check against the values read
+                // from the I/O expander, outputs_fb, because if it is incorrect (e.g., due to
+                // a missing pullup resistor), do_output will constantly be set.
+                // Instead, we note this problem (elsewhere) by comparing P_Shadow to outputs_fb
+                // and set output_error_mask for any bits which do not match.
                 do_output <= 1'b1;
             end
             else if (poll_timer == 6'h3f) begin
@@ -345,18 +346,26 @@ begin
         // Note that the write will be ignored if another write is pending.
         // We do not check ioexp_cfg_present so that the external PC can
         // still attempt to write to MAX7317 even if it was not detected.
-        read_debug <= reg_wdata[29];
-        if (reg_wdata[30]) begin
-            read_error <= 1'b0;
-        end
-        P_Test <= reg_wdata[31];
+        //   reg_wdata[31]   1 --> clear errors
+        //   reg_wdata[30]   1 --> switch to debug data
         if (reg_wdata[31]) begin
-            P_Internal <= reg_wdata[23:16];
+            read_error <= 1'b0;
+            output_error_mask <= 8'd0;
         end
-        else begin
+        read_debug <= reg_wdata[30];
+        // If upper bits clear, send command to I/O expander
+        if (reg_wdata[31:16] == 16'd0) begin
             do_reg_io <= 1'b1;
             reg_wdata_saved <= reg_wdata[15:0];
         end
     end
+
+    // Check if a register read (from host PC) is in process. If so, we save the result
+    // when we get a match on the command (upper 8 bits).
+    if (reg_io_read && !this_busy && (read_data[15:8] == reg_io_addr)) begin
+        read_data_saved <= read_data;
+        reg_io_addr <= 8'd0;
+    end
+
 end
 endmodule
