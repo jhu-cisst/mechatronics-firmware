@@ -431,7 +431,11 @@ assign reg_rd[`OFF_ADC_DATA] = reg_adc_data;
 // This is now done outside CtrlDac to support digital control implementations.
 // ----------------------------------------------------------------------------
 
+wire ioexp_cfg_reset;       // 1 -> Check if I/O expander (MAX7317) present
+wire ioexp_cfg_present;     // 1 -> I/O expander (MAX7317) detected
+
 reg[15:0] cur_cmd[1:`NUM_CHANNELS];
+reg cur_ctrl[1:4];                    // 1 -> current control, 0 -> voltage control
 
 // Check for non-zero channel number (reg_waddr[7:4]) to ignore write to global register.
 // It would be even better to check that channel number is 1-(`NUM_CHANNELS-1).
@@ -462,6 +466,12 @@ begin
     if (reg_waddr_dac) begin
         if (reg_wen) begin
             cur_cmd[reg_waddr[7:4]] <= reg_wdata[15:0];
+            // Current or voltage control
+            //   (reg_wdata[27:24] == 0) --> current control, set cur_ctrl[i] = 1
+            //   (reg_wdata[27:24] == 1) --> voltage control, set cur_ctrl[i] = 0
+            // For any other value of reg_wdata[27:24], assume current control.
+            // Also, can only have voltage control if ioexp_cfg_present (QLA 1.5+).
+            cur_ctrl[reg_waddr[7:4]] <= (ioexp_cfg_present && (reg_wdata[27:24] == 4'd1)) ? 1'b0 : 1'b1;
         end
         cur_cmd_req <= blk_wen;
     end
@@ -660,18 +670,8 @@ QLA25AA128 prom_qla(
 // MAX7317: I/O Expander
 // --------------------------------------------------------------------------
 
-wire ioexp_cfg_reset;       // 1 -> Check if I/O expander (MAX7317) present
-wire ioexp_cfg_present;     // 1 -> I/O expander (MAX7317) detected
-
 wire safety_fb_n;           // 0 -> voltage present on safety line
 wire mv_fb;                 // Feedback from comparator between DAC4 and motor supply
-
-wire cur_ctrl[1:4];
-// PK TEMP
-assign cur_ctrl[1] = 1;
-assign cur_ctrl[2] = 1;
-assign cur_ctrl[3] = 1;
-assign cur_ctrl[4] = 1;
 
 wire disable_f[1:4];
 // PK TEMP
