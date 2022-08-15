@@ -490,18 +490,79 @@ assign reg_adc_data = {pot_fb[reg_raddr[7:4]], cur_fb[reg_raddr[7:4]]};
 assign reg_rd[`OFF_ADC_DATA] = reg_adc_data;
 
 // ----------------------------------------------------------------------------
-// Read/Write of commanded current (cur_cmd)
-// This is now done outside CtrlDac to support digital control implementations.
+// Read/Write of commanded current (cur_cmd) and amplifier enable
+//
+// This is now done in MotorChannelQLA (rather than CtrlDac) to support digital
+// control implementations.
 // ----------------------------------------------------------------------------
 
 wire ioexp_cfg_reset;       // 1 -> Check if I/O expander (MAX7317) present
 wire ioexp_cfg_present;     // 1 -> I/O expander (MAX7317) detected
 
-reg[15:0] cur_cmd[1:`NUM_CHANNELS];
-reg cur_ctrl[1:4];                    // 1 -> current control, 0 -> voltage control
+// safety_amp_enable from SafetyCheck module
+wire[4:1] safety_amp_disable;
+
+// amp_disable is output from BoardRegs (set by host PC)
+wire[4:1] amp_disable;
+
+// amp_disable_pin is output from MotorChannelQLA and is output via FPGA
+wire[4:1] amp_disable_pin;
+
+// Fault signal from op amp, active low (1 -> amplifier on, 0 -> fault)
+wire[4:1] amp_fault;
+assign amp_fault = { IO2[37], IO2[35], IO2[33], IO2[31] };
+
+// If we are attempting to enable power (amp_disable == 0) and an amplifier fault
+// has occurred (amp_fault == 0)
+wire amp_fault_fb[1:4];
+
+wire[4:1] cur_ctrl_error;
+wire[4:1] disable_f_error;
+
+wire[15:0] cur_cmd[1:4];     // Commanded current per channel
+wire[3:0] ctrl_mode[1:4];    // Control mode per channel
+wire cur_ctrl[1:4];          // 1 -> current control, 0 -> voltage control
+
+// Delay clock, used to delay the amplifier enable.
+// 49.152 MHz / 2**5 ==> 1.536 MHz (1 cnt = 0.651 us)
+wire clkdiv32, clk_delay;
+ClkDiv div32clk(sysclk, clkdiv32);
+defparam div32clk.width = 5;
+BUFG delayclk(.I(clkdiv32), .O(clk_delay));
+
+genvar k;
+generate
+    for (k = 1; k <= 4; k = k + 1) begin
+        MotorChannelQLA #(.CHANNEL(k)) Motor_instance(
+            .clk(sysclk),
+            .delay_clk(clk_delay),
+
+            .reg_waddr(reg_waddr),
+            .reg_wdata(reg_wdata),
+            .reg_wen(reg_wen),
+
+            .ioexp_present(ioexp_cfg_present),
+
+            .safety_amp_disable(safety_amp_disable[k]),
+            .amp_disable(amp_disable[k]),
+            .amp_disable_pin(amp_disable_pin[k]),
+
+            .cur_cmd(cur_cmd[k]),
+            .ctrl_mode(ctrl_mode[k]),
+            .cur_ctrl(cur_ctrl[k])
+        );
+
+        assign amp_fault_fb[k] = ~(amp_disable[k]|amp_fault[k]);
+    end
+endgenerate
+
+assign IO2[32] = amp_disable_pin[1];
+assign IO2[34] = amp_disable_pin[2];
+assign IO2[36] = amp_disable_pin[3];
+assign IO2[38] = amp_disable_pin[4];
 
 // Check for non-zero channel number (reg_waddr[7:4]) to ignore write to global register.
-// It would be even better to check that channel number is 1-(`NUM_CHANNELS-1).
+// It would be even better to check that channel number is 1-4.
 wire reg_waddr_dac;
 assign reg_waddr_dac = ((reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[7:4] != 4'd0) &&
                         (reg_waddr[3:0]==`OFF_DAC_CTRL)) ? 1'd1 : 1'd0;
@@ -509,33 +570,11 @@ assign reg_waddr_dac = ((reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[7:4] != 4'd
 wire dac_busy;
 reg cur_cmd_updated;
 
-`ifdef DIAGNOSTIC
-
-always @(posedge(sysclk))
-begin
-    cur_cmd[1] <= { board_id, 12'h000 };
-    cur_cmd[2] <= { board_id, 12'h000 };
-    cur_cmd[3] <= { board_id, 12'h000 };
-    cur_cmd[4] <= { board_id, 12'h000 };
-    cur_cmd_updated <= ~dac_busy;
-end
-
-`else
-
 reg cur_cmd_req;
 
 always @(posedge(sysclk))
 begin
     if (reg_waddr_dac) begin
-        if (reg_wen) begin
-            cur_cmd[reg_waddr[7:4]] <= reg_wdata[15:0];
-            // Current or voltage control
-            //   (reg_wdata[27:24] == 0) --> current control, set cur_ctrl[i] = 1
-            //   (reg_wdata[27:24] == 1) --> voltage control, set cur_ctrl[i] = 0
-            // For any other value of reg_wdata[27:24], assume current control.
-            // Also, can only have voltage control if ioexp_cfg_present (QLA 1.5+).
-            cur_ctrl[reg_waddr[7:4]] <= (ioexp_cfg_present && (reg_wdata[27:24] == 4'd1)) ? 1'b0 : 1'b1;
-        end
         cur_cmd_req <= blk_wen;
     end
     else if (cur_cmd_req&(~dac_busy)) begin
@@ -544,27 +583,22 @@ begin
     cur_cmd_updated <= cur_cmd_req&(~dac_busy);
 end
 
-`endif
-
 assign reg_rd[`OFF_DAC_CTRL] = cur_cmd[reg_raddr[7:4]];
+
+wire[31:0] reg_motor_status;
+assign reg_motor_status = { 3'b000, ~amp_disable[reg_raddr[7:4]],
+                            ctrl_mode[reg_raddr[7:4]], 3'd0, cur_ctrl[reg_raddr[7:4]],
+                            cur_ctrl_error[reg_raddr[7:4]], disable_f_error[reg_raddr[7:4]],
+                            safety_amp_disable[reg_raddr[7:4]], amp_fault_fb[reg_raddr[7:4]],
+                            cur_cmd[reg_raddr[7:4]] };
+assign reg_rd[`OFF_MOTOR_STATUS] = reg_motor_status;
 
 // --------------------------------------------------------------------------
 // dacs
 // --------------------------------------------------------------------------
 
-wire[31:0] reg_motor_status;
-
 wire is_quad_dac;         // type of DAC: 0 = 4xLTC2601, 1 = 1xLTC2604
 wire dac_test_reset;      // reset (repeat) detection of DAC type
-
-wire amp_disable_vec[1:4];
-assign amp_disable_vec[1] = IO2[32];
-assign amp_disable_vec[2] = IO2[34];
-assign amp_disable_vec[3] = IO2[36];
-assign amp_disable_vec[4] = IO2[38];
-
-assign reg_motor_status = { 3'b000, ~amp_disable_vec[reg_raddr[7:4]], 12'd0, cur_cmd[reg_raddr[7:4]] };
-assign reg_rd[`OFF_MOTOR_STATUS] = reg_motor_status;
 
 // the dac controller manages access to the dacs
 CtrlDac dac(
@@ -767,13 +801,6 @@ QLA25AA128 prom_qla(
 wire safety_fb_n;           // 0 -> voltage present on safety line
 wire mv_fb;                 // Feedback from comparator between DAC4 and motor supply
 
-wire disable_f[1:4];
-// PK TEMP
-assign disable_f[1] = amp_disable_vec[1];
-assign disable_f[2] = amp_disable_vec[2];
-assign disable_f[3] = amp_disable_vec[3];
-assign disable_f[4] = amp_disable_vec[4];
-
 Max7317 IO_Exp(
     .clk(sysclk),
 
@@ -798,8 +825,11 @@ Max7317 IO_Exp(
 
     // Signals
     .P30({cur_ctrl[1], cur_ctrl[2], cur_ctrl[3], cur_ctrl[4]}),
-    .P74({disable_f[1], disable_f[2], disable_f[3], disable_f[4]}),
-    .P98({mv_fb, safety_fb_n})
+    .P74({amp_disable[1], amp_disable[2], amp_disable[3], amp_disable[4]}),
+    .P98({mv_fb, safety_fb_n}),
+
+    .P30_error({cur_ctrl_error[1], cur_ctrl_error[2], cur_ctrl_error[3], cur_ctrl_error[4]}),
+    .P74_error({disable_f_error[1], disable_f_error[2], disable_f_error[3], disable_f_error[4]})
 );
 
 // --------------------------------------------------------------------------
@@ -832,9 +862,6 @@ DS2505 ds_instrument(
 // miscellaneous board I/Os
 // --------------------------------------------------------------------------
 
-// safety_amp_enable from SafetyCheck module
-wire[4:1] safety_amp_disable;
-
 // pwr_enable_cmd and amp_enable_cmd from BoardRegs; used to clear safety_amp_disable
 wire pwr_enable_cmd;
 wire[4:1] amp_enable_cmd;
@@ -854,7 +881,7 @@ wire wdog_timeout;
 BoardRegs chan0(
     .sysclk(sysclk),
     .reboot(reboot),
-    .amp_disable({IO2[38],IO2[36],IO2[34],IO2[32]}),
+    .amp_disable(amp_disable),
     .dout(dout),
     .dout_cfg_valid(dout_config_valid),
     .dout_cfg_bidir(dout_config_bidir),
@@ -871,7 +898,7 @@ BoardRegs chan0(
     .neg_limit({IO2[26],IO2[24],IO2[25],IO2[22]}),
     .pos_limit({IO2[30],IO2[29],IO2[28],IO2[27]}),
     .home({IO2[20],IO2[18],IO2[16],IO2[14]}),
-    .fault({IO2[37],IO2[35],IO2[33],IO2[31]}),
+    .fault(amp_fault),
     .relay(IO2[9]),
     .mv_faultn(IO1[7]),
     .mv_good(IO2[11]),

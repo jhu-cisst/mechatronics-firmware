@@ -64,7 +64,13 @@ module Max7317(
     // Signals to be passed to I/O expander
     input wire[3:0] P30,           // Ports 0-3, cur_ctrl[1:4]
     input wire[3:0] P74,           // Ports 4-7, disable_f[1:4]
-    output reg[1:0] P98            // Ports 8-9, mv-fb (9), safety-fb (8)
+    output reg[1:0] P98,           // Ports 8-9, mv-fb (9), safety-fb (8)
+
+    // Following output errors indicate whether value read from output
+    // port (outputs_fb) does not match value written. One possible cause
+    // would be a missing pull-up resistor.
+    output wire[3:0] P30_error,
+    output wire[3:0] P74_error
 );
    
 initial CSn = 1'bz;
@@ -154,7 +160,10 @@ initial outputs_fb = 8'hff;
 // cause is a missing pullup resistor on the port output.
 wire output_error;
 reg[7:0] output_error_mask;
+assign P30_error = output_error_mask[3:0];
+assign P74_error = output_error_mask[7:4];
 assign output_error = (output_error_mask == 8'd0) ? 1'b0 : 1'b1;
+reg[7:0] num_output_error;
 
 // Commands used to configure the Max7317
 wire[15:0] ConfigCommands[0:1];
@@ -184,7 +193,7 @@ reg[7:0] P_Shadow;
 
 reg read_debug;
 // Data read by host PC
-assign reg_rdata = read_debug ? { 8'd0, output_error_mask, outputs_fb, P_Outputs } :
+assign reg_rdata = read_debug ? { num_output_error, output_error_mask, outputs_fb, P_Outputs } :
                    { 3'b000, other_busy, reg_io_read, do_reg_io, read_error, output_error, output_error_mask, read_data_saved };
 
 // Following signals are used to determine whether we can do more
@@ -238,8 +247,12 @@ begin
         if (step == 4'd2) begin
             if (read_data[15:8] == PollCommands[0][15:8]) begin
                 outputs_fb <= read_data[7:0];
+                output_error_mask <= read_data[7:0]^P_Shadow;
                 if ((read_data[7:0]^P_Shadow) != 8'd0) begin
-                    output_error_mask <= read_data[7:0]^P_Shadow;
+                    num_output_error <= num_output_error + 8'd1;
+                    // Output again after 16 consecutive output errors
+                    if (num_output_error[3:0] == 4'd0)
+                        do_output <= 1'b1;
                 end
             end
             else begin
@@ -351,7 +364,7 @@ begin
         //   reg_wdata[30]   1 --> switch to debug data
         if (reg_wdata[31]) begin
             read_error <= 1'b0;
-            output_error_mask <= 8'd0;
+            num_output_error <= 8'd0;
         end
         read_debug <= reg_wdata[30];
         // If upper bits clear, send command to I/O expander
