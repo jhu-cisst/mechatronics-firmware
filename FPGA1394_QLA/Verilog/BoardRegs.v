@@ -223,11 +223,7 @@ always @(posedge(sysclk))
 
         // Disable axes when wdog timeout or safety amp disable. Note the minor efficiency gain
         // below by combining safety_amp_disable with !wdog_timeout.
-`ifdef DIAGNOSTIC
-        reg_disable[3:0] <= reg_disable[3:0] | (wdog_timeout ? 4'b1111 : 4'b0000);
-`else
         reg_disable[3:0] <= reg_disable[3:0] | (wdog_timeout ? 4'b1111 : safety_amp_disable[4:1]);
-`endif
         // Turn off dout_cfg_reset in case it was previously set
         dout_cfg_reset <= 1'b0;
         // Turn off ioexp_cfg_reset in case it was previously set

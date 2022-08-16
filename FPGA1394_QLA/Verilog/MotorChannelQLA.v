@@ -20,10 +20,14 @@ module MotorChannelQLA
     input  wire[15:0] reg_waddr,     // write address
     input  wire[31:0] reg_wdata,     // register write data
     input  wire reg_wen,             // reg write enable
+    output wire[31:0] motor_status,  // motor status feedback
 
     input wire ioexp_present,        // whether I/O expander present
 
     input wire safety_amp_disable,   // from SafetyCheck module
+    input wire amp_fault,            // amplifier fault feedback
+    input wire cur_ctrl_error,       // 1 -> error in cur_ctrl output
+    input wire disable_f_error,      // 1 -> error in disable_f output
     input wire amp_disable,          // from BoardRegs (set by host PC)
     output wire amp_disable_pin,     // signal to drive FPGA pin
 
@@ -38,6 +42,11 @@ module MotorChannelQLA
 // For any other value of ctrl_mode, assume current control.
 // Also, can only have voltage control if ioexp_present (QLA 1.5+).
 assign cur_ctrl = (ioexp_present && (ctrl_mode == 4'd1)) ? 1'b0 : 1'b1;
+
+// If we are attempting to enable power (amp_disable == 0) and an amplifier fault
+// has occurred (amp_fault == 0)
+wire amp_fault_fb;
+assign amp_fault_fb = ~(amp_disable|amp_fault);
 
 // Delay counter
 // Based on oscilloscope measurements, using a resistive load, it takes about 45 us
@@ -58,6 +67,10 @@ assign dac_reg_wen = ((reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[7:4] == CHANN
 wire motor_reg_wen;
 assign motor_reg_wen = ((reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[7:4] == CHANNEL) &&
                         (reg_waddr[3:0]==`OFF_MOTOR_STATUS)) ? reg_wen : 1'd0;
+
+assign motor_status = { 3'b000, ~amp_disable, ctrl_mode, 3'd0, cur_ctrl,
+                        cur_ctrl_error, disable_f_error, safety_amp_disable, amp_fault_fb,
+                        cur_cmd};
 
 always @(posedge clk)
 begin

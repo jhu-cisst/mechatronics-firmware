@@ -219,25 +219,21 @@ begin
         ioexp_wen <= 1'b0;
         step <= next_step;
     end
-    else if (ioexp_cfg_reset) begin
-        // Restart check for MAX7317
-        ioexp_cfg_valid <= 1'b0;
-        ioexp_cfg_present <= 1'b0;
-        step <= 4'd0;
-    end
     else if (!ioexp_cfg_valid) begin
         // This code attempts to initialize the MAX7317 by setting all
         // ports tri-state (input), and then reading back the command
         // after writing a NOP. If read_data is equal to the initial
         // command, then the MAX7317 I/O expander is present.
-        write_data <= ConfigCommands[step[0]];
-        ioexp_wen <= 1'b1;
-        next_step <= step + 4'd1;
-        P_Shadow <= 8'hff;
         if (step == 4'd2) begin
             ioexp_cfg_present <= (read_data == ConfigCommands[0]) ? 1'b1 : 1'b0;
             ioexp_cfg_valid <= 1'b1;
             step <= 4'd0;
+        end
+        else begin
+            write_data <= ConfigCommands[step[0]];
+            ioexp_wen <= 1'b1;
+            next_step <= step + 4'd1;
+            P_Shadow <= 8'hff;
         end
     end
     else if (do_poll) begin
@@ -250,9 +246,10 @@ begin
                 output_error_mask <= read_data[7:0]^P_Shadow;
                 if ((read_data[7:0]^P_Shadow) != 8'd0) begin
                     num_output_error <= num_output_error + 8'd1;
+                    // Following removed since it does not seem to help
                     // Output again after 16 consecutive output errors
-                    if (num_output_error[3:0] == 4'd0)
-                        do_output <= 1'b1;
+                    //if (num_output_error[3:0] == 4'd0)
+                    //    do_output <= 1'b1;
                 end
             end
             else begin
@@ -335,7 +332,13 @@ begin
         step <= 4'd0;
         next_step <= 4'd0;
 
-        if (ioexp_cfg_present) begin
+        if (ioexp_cfg_reset) begin
+            // Restart check for MAX7317
+            ioexp_cfg_valid <= 1'b0;
+            ioexp_cfg_present <= 1'b0;
+            step <= 4'd0;
+        end
+        else if (ioexp_cfg_present) begin
             // Poll timer waits for about 1.3 usec before starting next poll
             poll_timer <= poll_timer + 6'd1;
             if (P_Outputs != P_Shadow) begin

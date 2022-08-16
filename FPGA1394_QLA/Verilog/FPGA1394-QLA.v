@@ -17,10 +17,6 @@
 
 `timescale 1ns / 1ps
 
-// Define DIAGNOSTIC for diagnostic build, where DAC output is determined by
-// rotary switch setting (0-15).
-// `define DIAGNOSTIC
-
 // clock information
 // clk1394: 49.152 MHz 
 // sysclk: same as clk1394 49.152 MHz
@@ -321,16 +317,16 @@ wire[4:1] amp_disable_pin;
 wire[4:1] amp_fault;
 assign amp_fault = { IO2[37], IO2[35], IO2[33], IO2[31] };
 
-// If we are attempting to enable power (amp_disable == 0) and an amplifier fault
-// has occurred (amp_fault == 0)
-wire amp_fault_fb[1:4];
-
 wire[4:1] cur_ctrl_error;
 wire[4:1] disable_f_error;
 
 wire[15:0] cur_cmd[1:4];     // Commanded current per channel
 wire[3:0] ctrl_mode[1:4];    // Control mode per channel
 wire cur_ctrl[1:4];          // 1 -> current control, 0 -> voltage control
+
+// Motor status feedback
+wire[31:0] motor_status[1:4];
+wire[31:0] reg_motor_status;
 
 // Delay clock, used to delay the amplifier enable.
 // 49.152 MHz / 2**5 ==> 1.536 MHz (1 cnt = 0.651 us)
@@ -341,7 +337,7 @@ BUFG delayclk(.I(clkdiv32), .O(clk_delay));
 
 genvar k;
 generate
-    for (k = 1; k <= 4; k = k + 1) begin
+    for (k = 1; k <= 4; k = k + 1) begin : mchan_loop
         MotorChannelQLA #(.CHANNEL(k)) Motor_instance(
             .clk(sysclk),
             .delay_clk(clk_delay),
@@ -349,10 +345,14 @@ generate
             .reg_waddr(reg_waddr),
             .reg_wdata(reg_wdata),
             .reg_wen(reg_wen),
+            .motor_status(motor_status[k]),
 
             .ioexp_present(ioexp_cfg_present),
 
             .safety_amp_disable(safety_amp_disable[k]),
+            .amp_fault(amp_fault[k]),
+            .cur_ctrl_error(cur_ctrl_error[k]),
+            .disable_f_error(disable_f_error[k]),
             .amp_disable(amp_disable[k]),
             .amp_disable_pin(amp_disable_pin[k]),
 
@@ -360,8 +360,6 @@ generate
             .ctrl_mode(ctrl_mode[k]),
             .cur_ctrl(cur_ctrl[k])
         );
-
-        assign amp_fault_fb[k] = ~(amp_disable[k]|amp_fault[k]);
     end
 endgenerate
 
@@ -394,12 +392,7 @@ end
 
 assign reg_rd[`OFF_DAC_CTRL] = cur_cmd[reg_raddr[7:4]];
 
-wire[31:0] reg_motor_status;
-assign reg_motor_status = { 3'b000, ~amp_disable[reg_raddr[7:4]],
-                            ctrl_mode[reg_raddr[7:4]], 3'd0, cur_ctrl[reg_raddr[7:4]],
-                            cur_ctrl_error[reg_raddr[7:4]], disable_f_error[reg_raddr[7:4]],
-                            safety_amp_disable[reg_raddr[7:4]], amp_fault_fb[reg_raddr[7:4]],
-                            cur_cmd[reg_raddr[7:4]] };
+assign reg_motor_status = motor_status[reg_raddr[7:4]];
 assign reg_rd[`OFF_MOTOR_STATUS] = reg_motor_status;
 
 // --------------------------------------------------------------------------
