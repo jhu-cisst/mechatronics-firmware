@@ -25,18 +25,20 @@ module MotorChannelQLA
 
     input wire ioexp_present,        // whether I/O expander present
 
-    input wire safety_amp_disable,   // from SafetyCheck module
+    output wire safety_amp_disable,  // from SafetyCheck module
     input wire amp_fault,            // amplifier fault feedback
     input wire cur_ctrl_error,       // 1 -> error in cur_ctrl output
     input wire disable_f_error,      // 1 -> error in disable_f output
     input wire amp_disable,          // from BoardRegs (set by host PC)
     output wire amp_disable_pin,     // signal to drive FPGA pin
     output wire force_disable_f,     // 1 -> force disable_f to 0 (follower amp enabled)
-    output wire disable_safety,      // 1 -> disable motor current safety check
 
     output reg[15:0] cur_cmd,        // Commanded current (or voltage)
     output reg[3:0] ctrl_mode,       // Control mode
-    output wire cur_ctrl             // 1 -> current control, 0 -> voltage control
+    output wire cur_ctrl,            // 1 -> current control, 0 -> voltage control
+
+    input wire[15:0] cur_fb,         // Measured current
+    input wire clr_safety_disable    // 1 -> clear disable due to safety check
 );
 
 // Motor configuration register
@@ -46,6 +48,8 @@ module MotorChannelQLA
 initial motor_config = 32'd20;   // 20 --> 104.2 us delay
 
 assign force_disable_f = motor_config[16];
+
+wire disable_safety;             // 1 -> disable motor current safety check
 assign disable_safety = motor_config[17];
 
 // Current or voltage control
@@ -110,5 +114,14 @@ end
 
 // Only delay the enable (i.e., amp_disable == 0)
 assign amp_disable_pin = ((amp_enable_cnt == delay_cnt) || !ioexp_present) ? amp_disable : 1'b1;
+
+SafetyCheck safe(
+    .clk(clk),
+    .cur_in(cur_fb),
+    .dac_in(cur_cmd),
+    .enable_check((~disable_safety) & cur_ctrl),
+    .clear_disable(clr_safety_disable),
+    .amp_disable(safety_amp_disable)
+);
 
 endmodule

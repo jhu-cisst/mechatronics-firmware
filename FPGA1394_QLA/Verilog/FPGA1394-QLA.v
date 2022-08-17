@@ -319,9 +319,6 @@ assign amp_fault = { IO2[37], IO2[35], IO2[33], IO2[31] };
 // 1 -> Force follower op amp to always be enabled
 wire[4:1] force_disable_f;
 
-// 1 -> Disable motor current safety check (for debugging only)
-wire[4:1] disable_safety;
-
 wire[4:1] cur_ctrl_error;
 wire[4:1] disable_f_error;
 
@@ -346,6 +343,9 @@ BUFG delayclk(.I(clkdiv32), .O(clk_delay));
 genvar k;
 generate
     for (k = 1; k <= 4; k = k + 1) begin : mchan_loop
+        wire clr_safety_disable;
+        assign clr_safety_disable = pwr_enable_cmd | amp_enable_cmd[k];
+
         MotorChannelQLA #(.CHANNEL(k)) Motor_instance(
             .clk(sysclk),
             .delay_clk(clk_delay),
@@ -365,11 +365,13 @@ generate
             .amp_disable(amp_disable[k]),
             .amp_disable_pin(amp_disable_pin[k]),
             .force_disable_f(force_disable_f[k]),
-            .disable_safety(disable_safety[k]),
 
             .cur_cmd(cur_cmd[k]),
             .ctrl_mode(ctrl_mode[k]),
-            .cur_ctrl(cur_ctrl[k])
+            .cur_ctrl(cur_ctrl[k]),
+
+            .cur_fb(cur_fb[k]),
+            .clr_safety_disable(clr_safety_disable)
         );
     end
 endgenerate
@@ -790,46 +792,6 @@ WriteRtData rt_write(
     .bw_block_wstart(bw_blk_wstart),
     .bw_reg_waddr(bw_reg_waddr),
     .bw_reg_wdata(bw_reg_wdata)
-);
-
-// ----------------------------------------------------------------------------
-// safety check 
-//    1. get adc feedback current & dac command current
-//    2. check if cur_fb > 2 * cur_cmd
-SafetyCheck safe1(
-    .clk(sysclk),
-    .cur_in(cur_fb[1]),
-    .dac_in(cur_cmd[1]),
-    .enable_check((~disable_safety[1]) & cur_ctrl[1]),
-    .clear_disable(pwr_enable_cmd | amp_enable_cmd[1]),
-    .amp_disable(safety_amp_disable[1])
-);
-
-SafetyCheck safe2(
-    .clk(sysclk),
-    .cur_in(cur_fb[2]),
-    .dac_in(cur_cmd[2]),
-    .enable_check((~disable_safety[2]) & cur_ctrl[2]),
-    .clear_disable(pwr_enable_cmd | amp_enable_cmd[2]),
-    .amp_disable(safety_amp_disable[2])
-);
-
-SafetyCheck safe3(
-    .clk(sysclk),
-    .cur_in(cur_fb[3]),
-    .dac_in(cur_cmd[3]),
-    .enable_check((~disable_safety[3]) & cur_ctrl[3]),
-    .clear_disable(pwr_enable_cmd | amp_enable_cmd[3]),
-    .amp_disable(safety_amp_disable[3])
-);
-
-SafetyCheck safe4(
-    .clk(sysclk),
-    .cur_in(cur_fb[4]),
-    .dac_in(cur_cmd[4]),
-    .enable_check((~disable_safety[4]) & cur_ctrl[4]),
-    .clear_disable(pwr_enable_cmd | amp_enable_cmd[4]),
-    .amp_disable(safety_amp_disable[4])
 );
 
 // --------------------------------------------------------------------------
