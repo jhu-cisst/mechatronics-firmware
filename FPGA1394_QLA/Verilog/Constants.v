@@ -53,6 +53,7 @@
 `define ADDR_DS       4'h6         // Dallas 1-wire memory (dV instrument)
 `define ADDR_DATA_BUF 4'h7         // Data buffer address space
 `define ADDR_WAVEFORM 4'h8         // Waveform table address space (DOUT waveforms)
+`define ADDR_CTRL     4'h9         // Closed-loop control
 
 // channel 0 (board) registers
 `define REG_STATUS   4'd0          // board id (8), fault (8), enable/masks (16)
@@ -85,9 +86,9 @@
 `define OFF_DOUT_CTRL 4'h8         // dout hi/lo period (16-bits hi, 16-bits lo)
 `define OFF_QTR5_DATA 4'h9         // enc most recent quarter offset
 `define OFF_RUN_DATA  4'hA         // enc running counter offset
-`define OFF_UNUSED_11 4'hB
-`define OFF_MOTOR_STATUS 4'hC
-`define OFF_MOTOR_CONFIG 4'hD
+`define OFF_MOTOR_CONFIG 4'hB      // motor configuration
+`define OFF_MOTOR_STATUS 4'hC      // motor status
+`define OFF_UNUSED_13 4'hD
 `define OFF_UNUSED_14 4'hE
 `define OFF_UNUSED_15 4'hF
 
