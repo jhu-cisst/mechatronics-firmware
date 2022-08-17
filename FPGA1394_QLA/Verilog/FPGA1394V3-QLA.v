@@ -188,7 +188,6 @@ assign reg_rdata = (reg_raddr[15:12]==`ADDR_HUB) ? (reg_rdata_hub) :
 assign reg_rd[`OFF_UNUSED_02] = 32'd0;
 assign reg_rd[`OFF_UNUSED_03] = 32'd0;
 assign reg_rd[`OFF_UNUSED_11] = 32'd0;
-assign reg_rd[`OFF_UNUSED_13] = 32'd0;
 assign reg_rd[`OFF_UNUSED_14] = 32'd0;
 assign reg_rd[`OFF_UNUSED_15] = 32'd0;
 
@@ -445,6 +444,12 @@ wire[4:1] amp_disable_pin;
 wire[4:1] amp_fault;
 assign amp_fault = { IO2[37], IO2[35], IO2[33], IO2[31] };
 
+// 1 -> Force follower op amp to always be enabled
+wire[4:1] force_disable_f;
+
+// 1 -> Disable motor current safety check (for debugging only)
+wire[4:1] disable_safety;
+
 wire[4:1] cur_ctrl_error;
 wire[4:1] disable_f_error;
 
@@ -456,11 +461,14 @@ wire cur_ctrl[1:4];          // 1 -> current control, 0 -> voltage control
 wire[31:0] motor_status[1:4];
 wire[31:0] reg_motor_status;
 
+// Motor configuration
+wire[31:0] motor_config[1:4];
+
 // Delay clock, used to delay the amplifier enable.
-// 49.152 MHz / 2**5 ==> 1.536 MHz (1 cnt = 0.651 us)
+// 49.152 MHz / 2**8 ==> 0.192 MHz (1 cnt = 5.21 us)
 wire clkdiv32, clk_delay;
 ClkDiv div32clk(sysclk, clkdiv32);
-defparam div32clk.width = 5;
+defparam div32clk.width = 8;
 BUFG delayclk(.I(clkdiv32), .O(clk_delay));
 
 genvar k;
@@ -474,6 +482,7 @@ generate
             .reg_wdata(reg_wdata),
             .reg_wen(reg_wen),
             .motor_status(motor_status[k]),
+            .motor_config(motor_config[k]),
 
             .ioexp_present(ioexp_cfg_present),
 
@@ -483,6 +492,8 @@ generate
             .disable_f_error(disable_f_error[k]),
             .amp_disable(amp_disable[k]),
             .amp_disable_pin(amp_disable_pin[k]),
+            .force_disable_f(force_disable_f[k]),
+            .disable_safety(disable_safety[k]),
 
             .cur_cmd(cur_cmd[k]),
             .ctrl_mode(ctrl_mode[k]),
@@ -522,6 +533,7 @@ assign reg_rd[`OFF_DAC_CTRL] = cur_cmd[reg_raddr[7:4]];
 
 assign reg_motor_status = motor_status[reg_raddr[7:4]];
 assign reg_rd[`OFF_MOTOR_STATUS] = reg_motor_status;
+assign reg_rd[`OFF_MOTOR_CONFIG] = motor_config[reg_raddr[7:4]];
 
 // --------------------------------------------------------------------------
 // dacs
@@ -697,6 +709,13 @@ QLA25AA128 prom_qla(
 // MAX7317: I/O Expander
 // --------------------------------------------------------------------------
 
+// amp_disable, bit reversed; if force_disable_f, then output is 0
+wire[4:1] amp_disable_rev;
+assign amp_disable_rev = { (~force_disable_f[1])&amp_disable[1],
+                           (~force_disable_f[2])&amp_disable[2],
+                           (~force_disable_f[3])&amp_disable[3],
+                           (~force_disable_f[4])&amp_disable[4] };
+
 wire safety_fb_n;           // 0 -> voltage present on safety line
 wire mv_fb;                 // Feedback from comparator between DAC4 and motor supply
 
@@ -724,7 +743,7 @@ Max7317 IO_Exp(
 
     // Signals
     .P30({cur_ctrl[1], cur_ctrl[2], cur_ctrl[3], cur_ctrl[4]}),
-    .P74({amp_disable[1], amp_disable[2], amp_disable[3], amp_disable[4]}),
+    .P74(amp_disable_rev),
     .P98({mv_fb, safety_fb_n}),
 
     .P30_error({cur_ctrl_error[1], cur_ctrl_error[2], cur_ctrl_error[3], cur_ctrl_error[4]}),
@@ -824,11 +843,7 @@ BoardRegs chan0(
     .ip_address(32'hffffffff),
     .eth_result(Eth_Result),
     .ds_status(ds_status),
-`ifdef DISABLE_SAFETY_CHECK
-    .safety_amp_disable(4'd0),
-`else
     .safety_amp_disable(safety_amp_disable),
-`endif
     .pwr_enable_cmd(pwr_enable_cmd),
     .amp_enable_cmd(amp_enable_cmd),
     .reg_status(reg_status),
@@ -887,6 +902,7 @@ SafetyCheck safe1(
     .clk(sysclk),
     .cur_in(cur_fb[1]),
     .dac_in(cur_cmd[1]),
+    .enable_check((~disable_safety[1]) & cur_ctrl[1]),
     .clear_disable(pwr_enable_cmd | amp_enable_cmd[1]),
     .amp_disable(safety_amp_disable[1])
 );
@@ -895,6 +911,7 @@ SafetyCheck safe2(
     .clk(sysclk),
     .cur_in(cur_fb[2]),
     .dac_in(cur_cmd[2]),
+    .enable_check((~disable_safety[2]) & cur_ctrl[2]),
     .clear_disable(pwr_enable_cmd | amp_enable_cmd[2]),
     .amp_disable(safety_amp_disable[2])
 );
@@ -903,6 +920,7 @@ SafetyCheck safe3(
     .clk(sysclk),
     .cur_in(cur_fb[3]),
     .dac_in(cur_cmd[3]),
+    .enable_check((~disable_safety[3]) & cur_ctrl[3]),
     .clear_disable(pwr_enable_cmd | amp_enable_cmd[3]),
     .amp_disable(safety_amp_disable[3])
 );
@@ -911,6 +929,7 @@ SafetyCheck safe4(
     .clk(sysclk),
     .cur_in(cur_fb[4]),
     .dac_in(cur_cmd[4]),
+    .enable_check((~disable_safety[4]) & cur_ctrl[4]),
     .clear_disable(pwr_enable_cmd | amp_enable_cmd[4]),
     .amp_disable(safety_amp_disable[4])
 );

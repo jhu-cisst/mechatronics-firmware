@@ -12,15 +12,16 @@
  */
 
 module MotorChannelQLA
-#(parameter CHANNEL = 4'd1)
+#(parameter[3:0] CHANNEL = 4'd1)
 (
     input wire clk,                  // system clock (49.152 MHz)
-    input wire delay_clk,            // clock to use for delay (1.536 MHz)
+    input wire delay_clk,            // clock to use for delay (0.192 MHz)
 
     input  wire[15:0] reg_waddr,     // write address
     input  wire[31:0] reg_wdata,     // register write data
     input  wire reg_wen,             // reg write enable
     output wire[31:0] motor_status,  // motor status feedback
+    output reg[31:0] motor_config,   // motor configuration register
 
     input wire ioexp_present,        // whether I/O expander present
 
@@ -30,11 +31,22 @@ module MotorChannelQLA
     input wire disable_f_error,      // 1 -> error in disable_f output
     input wire amp_disable,          // from BoardRegs (set by host PC)
     output wire amp_disable_pin,     // signal to drive FPGA pin
+    output wire force_disable_f,     // 1 -> force disable_f to 0 (follower amp enabled)
+    output wire disable_safety,      // 1 -> disable motor current safety check
 
     output reg[15:0] cur_cmd,        // Commanded current (or voltage)
     output reg[3:0] ctrl_mode,       // Control mode
     output wire cur_ctrl             // 1 -> current control, 0 -> voltage control
 );
+
+// Motor configuration register
+//    17:   disable_safety
+//    16:   force_disable_f
+//   7-0:   delay
+initial motor_config = 32'd20;   // 20 --> 104.2 us delay
+
+assign force_disable_f = motor_config[16];
+assign disable_safety = motor_config[17];
 
 // Current or voltage control
 //   (ctrl_mode == 0) --> current control, set cur_ctrl = 1
@@ -54,19 +66,18 @@ assign amp_fault_fb = ~(amp_disable|amp_fault);
 // delay of 100 us.
 reg[7:0] amp_enable_cnt;
 
-// Specified delay
-reg[7:0] delay_cnt;
-initial delay_cnt = 8'd154;   // 154 --> 100 us
+// Specified delay, resolution is 5.21 us
+// With 8 bits, maximum possible delay is 1.3 ms
+wire[7:0] delay_cnt;
+assign delay_cnt = motor_config[7:0];
 
 // Write to DAC register
 wire dac_reg_wen;
-assign dac_reg_wen = ((reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[7:4] == CHANNEL) &&
-                      (reg_waddr[3:0]==`OFF_DAC_CTRL)) ? reg_wen : 1'd0;
+assign dac_reg_wen = (reg_waddr[15:0] == {`ADDR_MAIN, 4'd0, CHANNEL, `OFF_DAC_CTRL}) ? reg_wen : 1'd0;
 
-// PK TEMP: For now write to OFF_MOTOR_STATUS to set delay_cnt
+// Write to motor configuration register
 wire motor_reg_wen;
-assign motor_reg_wen = ((reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[7:4] == CHANNEL) &&
-                        (reg_waddr[3:0]==`OFF_MOTOR_STATUS)) ? reg_wen : 1'd0;
+assign motor_reg_wen = (reg_waddr[15:0] == {`ADDR_MAIN, 4'd0, CHANNEL, `OFF_MOTOR_CONFIG}) ? reg_wen : 1'd0;
 
 assign motor_status = { 3'b000, ~amp_disable, ctrl_mode, 3'd0, cur_ctrl,
                         cur_ctrl_error, disable_f_error, safety_amp_disable, amp_fault_fb,
@@ -83,7 +94,7 @@ begin
         ctrl_mode <= ioexp_present ? reg_wdata[27:24] : 4'd0;
     end
     else if (motor_reg_wen) begin
-        delay_cnt <= reg_wdata[7:0];
+        motor_config <= reg_wdata;
     end
 end
 
@@ -98,6 +109,6 @@ begin
 end
 
 // Only delay the enable (i.e., amp_disable == 0)
-assign amp_disable_pin = (amp_enable_cnt == delay_cnt) ? amp_disable : 1'b1;
+assign amp_disable_pin = ((amp_enable_cnt == delay_cnt) || !ioexp_present) ? amp_disable : 1'b1;
 
 endmodule

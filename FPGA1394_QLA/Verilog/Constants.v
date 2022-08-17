@@ -87,7 +87,7 @@
 `define OFF_RUN_DATA  4'hA         // enc running counter offset
 `define OFF_UNUSED_11 4'hB
 `define OFF_MOTOR_STATUS 4'hC
-`define OFF_UNUSED_13 4'hD
+`define OFF_MOTOR_CONFIG 4'hD
 `define OFF_UNUSED_14 4'hE
 `define OFF_UNUSED_15 4'hF
 

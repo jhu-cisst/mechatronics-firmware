@@ -354,6 +354,10 @@ begin
                 do_poll <= 1'b1;
             end
         end
+        else begin
+            // Make sure output_error_mask is 0
+            output_error_mask <= 8'd0;
+        end
     end
 
     // Always check for register writes from host and set corresponding flag (do_reg_io).

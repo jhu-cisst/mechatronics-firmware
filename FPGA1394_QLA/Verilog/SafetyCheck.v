@@ -2,7 +2,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2013-2020 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2013-2022 ERC CISST, Johns Hopkins University.
  *
  * This module performs a safety check by comparing the measured motor current
  * (cur_in) to the commanded motor current (dac_in). If the difference is too
@@ -35,6 +35,7 @@ module SafetyCheck(
     input  wire clk,            // system clock
     input  wire[15:0] cur_in,   // feedback current
     input  wire[15:0] dac_in,   // command current
+    input  wire enable_check,   // 1 -> enable safety check
     input  wire clear_disable,  // signal to clear amplifier disable
     output reg  amp_disable     // amplifier disable
     );
@@ -44,7 +45,7 @@ module SafetyCheck(
     reg [15:0] abs_error_cur;
     wire [15:0] high_limit;
     wire[15:0] low_limit;
-	 
+
     // ---- Code Starts Here -----
     initial begin
         amp_disable <= 1'b0;
@@ -56,25 +57,30 @@ module SafetyCheck(
 
     always @ (posedge clk)
     begin
-        // If measured current is small (150 mA), clear error counter
-        if ((cur_in < 16'h8300) && (cur_in > 16'h7d00)) begin
-           error_counter <= 24'd0;
-        end
-        
-        // else if commanded current is large, 
-        // clear error counter (margin = 0x0900 440 mA)
-        else if ((dac_in <= 16'h0900) || (dac_in >= 16'hf6ff)) begin
-           error_counter <= 24'd0;
-        end 
-          
-        // else perform safety check
-        else begin
-           if ((cur_in < low_limit) || (cur_in > high_limit)) begin
-               error_counter <= error_counter + 1'b1;
-           end
-           else begin
+        if (enable_check) begin
+            // If measured current is small (150 mA), clear error counter
+            if ((cur_in < 16'h8300) && (cur_in > 16'h7d00)) begin
                error_counter <= 24'd0;
-           end
+            end
+
+            // else if commanded current is large,
+            // clear error counter (margin = 0x0900 440 mA)
+            else if ((dac_in <= 16'h0900) || (dac_in >= 16'hf6ff)) begin
+               error_counter <= 24'd0;
+            end
+
+            // else perform safety check
+            else begin
+               if ((cur_in < low_limit) || (cur_in > high_limit)) begin
+                   error_counter <= error_counter + 1'b1;
+               end
+               else begin
+                   error_counter <= 24'd0;
+               end
+            end
+        end
+        else begin
+            error_counter <= 24'd0;
         end
     end
 
