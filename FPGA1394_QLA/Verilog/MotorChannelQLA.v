@@ -87,6 +87,9 @@ assign motor_status = { 3'b000, ~amp_disable, ctrl_mode, 3'd0, cur_ctrl,
                         cur_ctrl_error, disable_f_error, safety_amp_disable, amp_fault_fb,
                         cur_cmd};
 
+// Flag to indicate whether I/O expander needs a one-time fix
+reg[11:0] ioexp_cfg_hack;
+
 always @(posedge clk)
 begin
     if (dac_reg_wen) begin
@@ -95,7 +98,16 @@ begin
         // present to select anything other than current control (0).
         // This restriction could be removed if other control modes are created
         // that do not require QLA 1.5+.
-        ctrl_mode <= ioexp_present ? reg_wdata[27:24] : 4'd0;
+        if ((ioexp_cfg_hack != 12'hfff) && (cur_ctrl_error || (ioexp_cfg_hack != 12'd0))
+            && (reg_wdata[27:24] == 4'd0)) begin
+            // Temporary fix for startup problem. If cur_ctrl_error, temporarily
+            // switch to voltage control.
+            ioexp_cfg_hack <= ioexp_cfg_hack + 12'd1;
+            ctrl_mode <= 4'd1;
+        end
+        else begin
+            ctrl_mode <= ioexp_present ? reg_wdata[27:24] : 4'd0;
+        end
     end
     else if (motor_reg_wen) begin
         motor_config <= reg_wdata;
