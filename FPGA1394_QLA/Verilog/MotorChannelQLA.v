@@ -15,7 +15,7 @@ module MotorChannelQLA
 #(parameter[3:0] CHANNEL = 4'd1)
 (
     input wire clk,                  // system clock (49.152 MHz)
-    input wire delay_clk,            // clock to use for delay (0.192 MHz)
+    input wire delay_clk,            // clock to use for delay (48 kHz)
 
     input  wire[15:0] reg_waddr,     // write address
     input  wire[31:0] reg_wdata,     // register write data
@@ -44,8 +44,13 @@ module MotorChannelQLA
 // Motor configuration register
 //    17:   disable_safety
 //    16:   force_disable_f
-//   7-0:   delay (5.21 us resolution)
-initial motor_config = 32'd48;   // 48 --> 250 us delay
+//   7-0:   delay (20.83 us resolution)
+//
+// Based on oscilloscope measurements, using a resistive load, it takes about 45 us
+// for the follower op amp to reach Vm/2 after it is enabled. However, testing on a
+// dVRK MTM indicates that the delay must be greater than 1 ms to avoid jerks when
+// powering up the motors.
+initial motor_config = 32'd120;   // 120 --> 2.5 ms delay
 
 assign force_disable_f = motor_config[16];
 
@@ -65,9 +70,6 @@ wire amp_fault_fb;
 assign amp_fault_fb = ~(amp_disable|amp_fault);
 
 // Delay counter
-// Based on oscilloscope measurements, using a resistive load, it takes about 45 us
-// for the follower op amp to reach Vm/2 after it is enabled. Thus, we set a nominal
-// delay of 100 us.
 reg[7:0] amp_enable_cnt;
 
 // Specified delay, resolution is 5.21 us

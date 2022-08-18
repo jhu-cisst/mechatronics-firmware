@@ -334,10 +334,10 @@ wire[31:0] reg_motor_status;
 wire[31:0] motor_config[1:4];
 
 // Delay clock, used to delay the amplifier enable.
-// 49.152 MHz / 2**8 ==> 0.192 MHz (1 cnt = 5.21 us)
+// 49.152 MHz / 2**10 ==> 48 kHz (1 cnt = 20.83 us)
 wire clkdiv32, clk_delay;
 ClkDiv div32clk(sysclk, clkdiv32);
-defparam div32clk.width = 8;
+defparam div32clk.width = 10;
 BUFG delayclk(.I(clkdiv32), .O(clk_delay));
 
 genvar k;
