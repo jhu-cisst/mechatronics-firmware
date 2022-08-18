@@ -107,15 +107,15 @@ begin
         seqn <= seqn + 1'b1;             // counter, also creates sclk
         if (sclk == 1'b1) begin          // update data on falling sclk
             data <= (word_edge ? word : (data<<1));
-        end
-        if (isQuadDac && (seqn[5:1] == word_edge)) begin
-            // For LTC2604, need to deassert /CS (csel) at start of each word
-            csel <= 1'b1;
-        end
-        if (seqn[5:1] == 5'b01000) begin
-            // For LTC2604, need to assert /CS (csel) 16 counts (8 SCLKs) later.
-            // For LTC2601, /CS (csel) is already asserted (0)
-            csel <= 1'b0;
+            if (isQuadDac && word_edge) begin
+                // For LTC2604, need to deassert /CS (csel) at start of each word
+                csel <= 1'b1;
+            end
+            if (seqn[5:1] == 5'b00111) begin
+                // For LTC2604, need to assert /CS (csel) 16 counts (8 SCLKs) later.
+                // For LTC2601, /CS (csel) is already asserted (0)
+                csel <= 1'b0;
+           end
         end
         if (seqn == `SEQN_DONE) begin    // transfer complete
             csel <= trig;                // finalize transfer, if necessary

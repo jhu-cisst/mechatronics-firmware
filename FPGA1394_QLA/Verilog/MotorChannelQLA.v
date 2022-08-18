@@ -44,8 +44,8 @@ module MotorChannelQLA
 // Motor configuration register
 //    17:   disable_safety
 //    16:   force_disable_f
-//   7-0:   delay
-initial motor_config = 32'd20;   // 20 --> 104.2 us delay
+//   7-0:   delay (5.21 us resolution)
+initial motor_config = 32'd48;   // 48 --> 250 us delay
 
 assign force_disable_f = motor_config[16];
 
