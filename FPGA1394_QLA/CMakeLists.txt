@@ -75,6 +75,7 @@ set (VERILOG_SOURCE_REV1 "${VERILOG_SOURCE_DIR}/FPGA1394-QLA.v"
 set (VERILOG_SOURCE_REV2 "${VERILOG_SOURCE_DIR}/FPGA1394Eth-QLA.v"
                          ${VERILOG_SOURCE_COMMON}
                          ${VERILOG_SOURCE_REV1_REV2}
+                         "${VERILOG_SOURCE_DIR}/KSZ8851.v"
                          "${VERILOG_SOURCE_DIR}/EthernetIO.v")
 
 # Verilog source files for Rev 3 firmware

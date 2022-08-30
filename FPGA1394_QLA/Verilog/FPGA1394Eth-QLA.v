@@ -202,7 +202,8 @@ assign lreq_type = eth_lreq_trig ? eth_lreq_type : fw_lreq_type;
 wire[31:0] reg_rdata_hub;      // reg_rdata_hub is for hub memory
 wire[31:0] reg_rdata_prom;     // reg_rdata_prom is for block reads from PROM
 wire[31:0] reg_rdata_prom_qla; // reads from QLA prom
-wire[31:0] reg_rdata_eth;      // for eth memory access
+wire[31:0] reg_rdata_eth;      // for eth memory access (EthernetIO)
+wire[31:0] reg_rdata_ksz;      // for eth memory access (KSZ8851)
 wire[31:0] reg_rdata_fw;       // for fw memory access
 wire[31:0] reg_rdata_ds;       // for DS2505 memory access
 wire[31:0] reg_rdata_chan0;    // 'channel 0' is a special axis that contains various board I/Os
@@ -214,7 +215,7 @@ wire[31:0] reg_rdata_ioexp;    // reads from MAX7317 I/O expander (QLA 1.5+)
 assign reg_rdata = (reg_raddr[15:12]==`ADDR_HUB) ? (reg_rdata_hub) :
                    (reg_raddr[15:12]==`ADDR_PROM) ? (reg_rdata_prom) :
                    (reg_raddr[15:12]==`ADDR_PROM_QLA) ? (reg_rdata_prom_qla) :
-                   (reg_raddr[15:12]==`ADDR_ETH) ? (reg_rdata_eth) :
+                   (reg_raddr[15:12]==`ADDR_ETH) ? (reg_rdata_eth|reg_rdata_ksz) :
                    (reg_raddr[15:12]==`ADDR_FW) ? (reg_rdata_fw) :
                    (reg_raddr[15:12]==`ADDR_DS) ? (reg_rdata_ds) :
                    (reg_raddr[15:12]==`ADDR_DATA_BUF) ? (reg_rdata_databuf) :
@@ -357,16 +358,28 @@ PhyRequest phyreq(
 
 wire[31:0] Eth_Result;
 
-// address decode for IP address access
-wire   ip_reg_wen;
-assign ip_reg_wen = (reg_waddr == {`ADDR_MAIN, 8'h0, `REG_IPADDR}) ? reg_wen : 1'b0;
-wire[31:0] ip_address;
+// Wires between KSZ8851/RTL8211F and EthernetIO
+wire eth_resetActive;           // Indicates that reset is active
+wire eth_isForward;             // Indicates that FireWire receiver is forwarding to Ethernet
+wire eth_responseRequired;      // Indicates that the received packet requires a response
+wire[15:0] eth_responseByteCount;   // Number of bytes in required response
+wire eth_recvRequest;           // Request EthernetIO to start receiving
+wire eth_recvBusy;              // EthernetIO receive state machine busy
+wire eth_recvReady;             // Indicates that recv_word is valid
+wire[15:0] eth_recv_word;       // Word received via Ethernet (`SDSwapped for KSZ8851)
+wire eth_sendRequest;           // Request EthernetIO to get ready to start sending
+wire eth_sendBusy;              // EthernetIO send state machine busy
+wire eth_sendReady;             // Request EthernetIO to provide next send_word
+wire[15:0] eth_send_word;       // Word to send via Ethernet (SDRegDWR for KSZ8851)
+wire eth_bw_active;             // Indicates that block write module is active
+wire eth_InternalError;         // Error summary bit to EthernetIO
+wire[5:0] eth_ioErrors;         // Error bits from EthernetIO
+wire useUDP;                    // Whether EthernetIO is using UDP
 
-EthernetIO EthernetTransfers(
+KSZ8851  EthernetMacPhy(
     .sysclk(sysclk),          // in: global clock
 
     .board_id(board_id),      // in: board id (rotary switch)
-    .node_id(node_id),        // in: phy node id
 
     // Interface to KSZ8851
     .ETH_IRQn(ETH_IRQn),      // in: interrupt request from KSZ8851
@@ -384,6 +397,43 @@ EthernetIO EthernetTransfers(
     .fw_reg_wdata(fw_reg_wdata),       // in: data from FireWire
     .eth_data(Eth_Result[15:0]),       // out: Last register read
     .eth_status(Eth_Result[31:16]),    // out: Ethernet status register
+
+    // Register interface to Ethernet memory space (ADDR_ETH=0x4000)
+    .reg_rdata(reg_rdata_ksz),         // Data from Ethernet memory space
+    .reg_raddr(reg_raddr),             // Read address for Ethernet memory
+
+    // Interface from Firewire (for sending packets via Ethernet)
+    .sendReq(eth_send_req),
+
+    // Interface to EthernetIO
+    .resetActive(eth_resetActive),    // Indicates that reset is active
+    .isForward(eth_isForward),        // Indicates that FireWire receiver is forwarding to Ethernet
+    .responseRequired(eth_responseRequired),   // Indicates that the received packet requires a response
+    .responseByteCount(eth_responseByteCount), // Number of bytes in required response
+    .recvRequest(eth_recvRequest),    // Request EthernetIO to start receiving
+    .recvBusy(eth_recvBusy),          // To KSZ8851
+    .recvReady(eth_recvReady),        // Indicates that recv_word is valid
+    .recv_word(eth_recv_word),        // Word received via Ethernet (`SDSwapped for KSZ8851)
+    .sendRequest(eth_sendRequest),    // Request EthernetIO to get ready to start sending
+    .sendBusy(eth_sendBusy),          // To KSZ8851
+    .sendReady(eth_sendReady),        // Request EthernetIO to provide next send_word
+    .send_word(eth_send_word),        // Word to send via Ethernet (SDRegDWR for KSZ8851)
+    .bw_active(eth_bw_active),        // Indicates that block write module is active
+    .ethInternalError(eth_InternalError),   // Error summary bit to EthernetIO
+    .ethioErrors(eth_ioErrors),       // Error bits from EthernetIO
+    .useUDP(useUDP)                   // Whether EthernetIO is using UDP
+);
+
+// address decode for IP address access
+wire   ip_reg_wen;
+assign ip_reg_wen = (reg_waddr == {`ADDR_MAIN, 8'h0, `REG_IPADDR}) ? reg_wen : 1'b0;
+wire[31:0] ip_address;
+
+EthernetIO EthernetTransfers(
+    .sysclk(sysclk),          // in: global clock
+
+    .board_id(board_id),      // in: board id (rotary switch)
+    .node_id(node_id),        // in: phy node id
 
     // Register interface to Ethernet memory space (ADDR_ETH=0x4000)
     // and IP address register (REG_IPADDR=11).
@@ -419,7 +469,7 @@ EthernetIO EthernetTransfers(
     .host_fw_addr(eth_host_fw_addr),   // out: eth fw host address (e.g., ffd0)
 
     // Interface from Firewire (for sending packets via Ethernet)
-    .sendReq(eth_send_req),
+    // Note that sendReq(eth_send_req) is in KSZ8851
     .sendAck(eth_send_ack),
     .sendAddr(eth_send_addr),
     .sendData(reg_rdata_fw),
@@ -439,7 +489,25 @@ EthernetIO EthernetTransfers(
     .sample_read(eth_sample_read),     // 1 -> reading from sample memory
     .sample_raddr(eth_sample_raddr),   // Read address for sampled data
     .sample_rdata(sample_rdata),       // Sampled data (for block read)
-    .timestamp(timestamp)              // timestamp
+    .timestamp(timestamp),             // timestamp
+
+    // Interface to EthernetIO
+    .resetActive(eth_resetActive),    // Indicates that reset is active
+    .isForward(eth_isForward),        // Indicates that FireWire receiver is forwarding to Ethernet
+    .responseRequired(eth_responseRequired),   // Indicates that the received packet requires a response
+    .responseByteCount(eth_responseByteCount), // Number of bytes in required response
+    .recvRequest(eth_recvRequest),    // Request EthernetIO to start receiving
+    .recvBusy(eth_recvBusy),          // To KSZ8851
+    .recvReady(eth_recvReady),        // Indicates that recv_word is valid
+    .recv_word(eth_recv_word),        // Word received via Ethernet (`SDSwapped for KSZ8851)
+    .sendRequest(eth_sendRequest),    // Request EthernetIO to get ready to start sending
+    .sendBusy(eth_sendBusy),          // To KSZ8851
+    .sendReady(eth_sendReady),        // Request EthernetIO to provide next send_word
+    .send_word(eth_send_word),        // Word to send via Ethernet (SDRegDWR for KSZ8851)
+    .bw_active(eth_bw_active),        // Indicates that block write module is active
+    .ethLLError(eth_InternalError),   // Error summary bit to EthernetIO
+    .ethioErrors(eth_ioErrors),       // Error bits from EthernetIO
+    .useUDP(useUDP)                   // Whether EthernetIO is using UDP
 );
 
 // --------------------------------------------------------------------------
