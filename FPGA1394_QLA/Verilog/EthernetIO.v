@@ -678,13 +678,19 @@ hub_mem_gen fw_packet(.clka(sysclk),
 
 reg FireWirePacketFresh;   // 1 -> FireWirePacket data is valid (fresh)
 
-// Following data is accessible via block read from address `ADDR_ETH (0x4000)
-//    4000 - 407f (128 quadlets) FireWire packet (first 128 quadlets only)
-//    4080 - 408f (16 quadlets) Debug data
-//    4090 - 409f (16 quadlets) Unused
-//    40a0 - 40bf (32 quadlets) RunProgram
-//    40c0 - 40df (32 quadlets) PacketBuffer/ReplyBuffer (64 words)
-//    40e0 - 40ff (32 quadlets) ReplyIndex (64 words)
+// Following data is accessible via block read from address `ADDR_ETH (0x4000),
+// where 'x' specifies the port number.
+//   FPGA V2 (1 Ethernet port):  Set x=0
+//   FPGA V3 (2 Ethernet ports): Set x=1 or 2
+// Note that some data is provided by this module (EthernetIO) whereas other
+// data is provided by the low-level interface (KSZ8851 for FPGA V2, or RTL8211F
+// for FPGA V3).
+//    4x00 - 4x7f (128 quadlets) FireWire packet (first 128 quadlets only)
+//    4x80 - 4x8f (16 quadlets) Debug data
+//    4x90 - 4x9f (16 quadlets) Unused
+//    4xa0 - 4xbf (32 quadlets) RunProgram -- FPGA V2 only
+//    4xc0 - 4xdf (32 quadlets) PacketBuffer/ReplyBuffer (64 words)
+//    4xe0 - 4xff (32 quadlets) ReplyIndex (64 words)
 // Note that full address decoding is not done, so other addresses will work too
 // (for example, 4f80-4f9f will also give Debug data)
 always @(*)

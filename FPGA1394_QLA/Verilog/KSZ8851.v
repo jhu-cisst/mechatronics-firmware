@@ -575,17 +575,17 @@ end
 reg[4:0] runPC;    // Program counter for RunProgram
 
 // Following data is accessible via block read from address `ADDR_ETH (0x4000)
+// Note that some data (some DebugData and RunProgram) is provided by this module
+// (KSZ8851) whereas everything else is provided by the high-level interface (EthernetIO).
 //    4000 - 407f (128 quadlets) FireWire packet (first 128 quadlets only)
 //    4080 - 408f (16 quadlets) Debug data
 //    4090 - 409f (16 quadlets) Unused
 //    40a0 - 40bf (32 quadlets) RunProgram
 //    40c0 - 40df (32 quadlets) PacketBuffer/ReplyBuffer (64 words)
 //    40e0 - 40ff (32 quadlets) ReplyIndex (64 words)
-// Note that full address decoding is not done, so other addresses will work too
-// (for example, 4f80-4f9f will also give Debug data)
 always @(*)
 begin
-   if (reg_raddr[7:6] == 2'b10) begin
+   if (reg_raddr[11:6] == 6'b000010) begin
       if (reg_raddr[5] == 0) begin
 `ifdef HAS_DEBUG_DATA
          reg_rdata = (reg_raddr[4]==0) ? DebugData[reg_raddr[3:0]] : 32'd0;
@@ -596,6 +596,9 @@ begin
       else begin
          reg_rdata = {6'd0, RunProgram[reg_raddr[4:0]]};
       end
+   end
+   else begin
+      reg_rdata = 32'd0;
    end
 end
 
