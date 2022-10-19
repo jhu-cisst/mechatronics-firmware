@@ -394,36 +394,30 @@ reg[9:0] bw_wait;
 // -----------------------------------------------
 `ifdef HAS_DEBUG_DATA
 wire[31:0] DebugData[0:15];
-assign DebugData[0]  = "1GBD";  // DBG1 byte-swapped
-assign DebugData[1]  = 32'd0;
-assign DebugData[2]  = { 8'd0,
-                         isDMAWrite, sendRequest, 6'd0, eth_status};
-assign DebugData[3]  = { 3'd0, state, 2'd0, linkStatus, retState,
-                         4'd0,
-                         3'd0, ~ETH_IRQn,
-                         isForward, isInIRQ, 2'd0,
-                         4'd0};
-assign DebugData[4]  = { 16'd0, RegISROther};
-assign DebugData[5]  = { 16'd0, FrameCount, numPacketSent};
-assign DebugData[6]  = { 1'b0, nextState, 10'd0, 16'd0 };
-assign DebugData[7]  = { 16'd0, 4'd0, rxPktWords };
-assign DebugData[8]  = { timeSend, timeReceive };
-assign DebugData[9]  = { 3'd0, runPC, numPacketInvalid, numPacketValid };
+assign DebugData[0]  = "2GBD";  // DBG2 byte-swapped
+assign DebugData[1]  = { isDMAWrite, sendRequest, ~ETH_IRQn, isInIRQ,     // 31:28
+                         linkStatus, 3'd0,                                // 27:24
+                         8'd0,
+                         eth_status };                                    // 16
+assign DebugData[2]  = { 3'd0, state, 3'd0, retState, 3'd0, nextState, 3'd0, runPC }; // 5, 5, 5, 5
+assign DebugData[3]  = { 16'd0, RegISROther};                             // 16
+assign DebugData[4]  = { 6'd0, bw_wait, FrameCount, numPacketSent};       // 10, 8, 8
+assign DebugData[5]  = { 16'd0, 4'd0, rxPktWords };                       // 12
+assign DebugData[6]  = { timeSend, timeReceive };                         // 16, 16
+assign DebugData[7]  = { numReset, numPacketInvalid, numPacketValid };    // 8, 8, 16
+`ifdef DEBOUNCE_STATES
+assign DebugData[8] = { 16'd0, numStateGlitch, 3'd0, nextStateLatched };  // 8, 5
+assign DebugData[9] = errorInfo;
+`else
+assign DebugData[8] = 32'd0;
+assign DebugData[9] = 32'd0;
+`endif
 assign DebugData[10] = 32'd0;
 assign DebugData[11] = 32'd0;
-`ifdef DEBOUNCE_STATES
-assign DebugData[12] = { 16'd0, numStateGlitch, 8'd0 };
-assign DebugData[13] = { 8'd0, numReset, 3'd0, nextStateLatched, 8'd0 };
-`else
 assign DebugData[12] = 32'd0;
-assign DebugData[13] = { 8'd0, numReset, 16'd0 };
-`endif
-assign DebugData[14] = { 6'd0, bw_wait, 16'b0 };
-`ifdef DEBOUNCE_STATES
-assign DebugData[15] = errorInfo;
-`else
+assign DebugData[13] = 32'd0;
+assign DebugData[14] = 32'd0;
 assign DebugData[15] = 32'd0;
-`endif
 `endif
 
 //***************************************************************************************
@@ -578,24 +572,22 @@ reg[4:0] runPC;    // Program counter for RunProgram
 // Note that some data (some DebugData and RunProgram) is provided by this module
 // (KSZ8851) whereas everything else is provided by the high-level interface (EthernetIO).
 //    4000 - 407f (128 quadlets) FireWire packet (first 128 quadlets only)
-//    4080 - 408f (16 quadlets) Debug data
-//    4090 - 409f (16 quadlets) Unused
+//    4080 - 408f (16 quadlets) EthernetIO Debug data
+//    4090 - 409f (16 quadlets) Low-level (e.g., KSZ8851) Debug data
 //    40a0 - 40bf (32 quadlets) RunProgram
 //    40c0 - 40df (32 quadlets) PacketBuffer/ReplyBuffer (64 words)
 //    40e0 - 40ff (32 quadlets) ReplyIndex (64 words)
 always @(*)
 begin
-   if (reg_raddr[11:6] == 6'b000010) begin
-      if (reg_raddr[5] == 0) begin
+   if (reg_raddr[11:4] == 8'h09) begin             // 4090-409f
 `ifdef HAS_DEBUG_DATA
-         reg_rdata = (reg_raddr[4]==0) ? DebugData[reg_raddr[3:0]] : 32'd0;
+      reg_rdata = DebugData[reg_raddr[3:0]];
 `else
-         reg_rdata = (reg_raddr[4]==0) ? "0GBD" : 32'd0;
+      reg_rdata = "0GBD";
 `endif
-      end
-      else begin
-         reg_rdata = {6'd0, RunProgram[reg_raddr[4:0]]};
-      end
+   end
+   else if (reg_raddr[11:5] == 7'b0000101) begin   // 40a0-40bf
+      reg_rdata = {6'd0, RunProgram[reg_raddr[4:0]]};
    end
    else begin
       reg_rdata = 32'd0;

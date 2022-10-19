@@ -414,10 +414,12 @@ assign reg_rdata_rtl = (reg_raddr[11:8] == 4'd1) ? reg_rdata_rtl_e1 :
                        (reg_raddr[11:8] == 4'd2) ? reg_rdata_rtl_e2 :
                        32'd0;
 
+// Can write to 4xay, where x is the Ethernet port number (1 or 2) and y is the offset.
+// Currently, y=0 is the only valid write address.
 wire reg_wen_e1;
-assign reg_wen_e1 = (reg_waddr[15:7] == {`ADDR_ETH, 4'd1, 1'd1}) ? reg_wen : 1'b0;
+assign reg_wen_e1 = (reg_waddr[15:4] == {`ADDR_ETH, 4'h1, 4'ha}) ? reg_wen : 1'b0;
 wire reg_wen_e2;
-assign reg_wen_e2 = (reg_waddr[15:7] == {`ADDR_ETH, 4'd2, 1'd1}) ? reg_wen : 1'b0;
+assign reg_wen_e2 = (reg_waddr[15:4] == {`ADDR_ETH, 4'h2, 4'ha}) ? reg_wen : 1'b0;
 
 // Wires between KSZ8851/RTL8211F and EthernetIO
 wire eth_resetActive;           // Indicates that reset is active

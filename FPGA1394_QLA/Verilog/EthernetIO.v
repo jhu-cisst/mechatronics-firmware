@@ -605,27 +605,28 @@ assign ethioErrors[0] = ethSendStateError;  // 1 -> Unable to access internal bu
 // -----------------------------------------------
 `ifdef HAS_DEBUG_DATA
 wire[31:0] DebugData[0:15];
-assign DebugData[0]  = "1GBD";  // DBG1 byte-swapped
+assign DebugData[0]  = "2GBD";  // DBG2 byte-swapped
 assign DebugData[1]  = timestamp;
-assign DebugData[2]  = { writeRequestQuad, writeRequestBlock, bw_local_active, eth_send_isIdle,
-                         eth_recv_isIdle, ethUDPError, ethAccessError, ethIPv4Error,
-                         sendBusy, sendRequest, node_id, 16'd0};
-assign DebugData[3]  = { 8'd0, eth_send_fw_ack, eth_send_fw_req, 6'd0,
-                         sample_start, sample_busy, isLocal, isRemote,
-                         FireWirePacketFresh, 3'd0,
-                         isForward, 1'd0, sendARP, isUDP,
-                         isICMP, isEcho, is_IPv4_Long, is_IPv4_Short};
-assign DebugData[4]  = { fw_ctrl, 16'd0 };
-assign DebugData[5]  = { host_fw_addr, 16'd0 };
-assign DebugData[6]  = { 6'd0, maxCountFW, LengthFW };
-assign DebugData[7]  = { sendState, txPktWords, nextSendState, 12'd0 };  // rxPktWords
-assign DebugData[8]  = 32'd0;
+assign DebugData[2]  = { writeRequestQuad, writeRequestBlock, bw_local_active, eth_send_isIdle,  // 31:28
+                         eth_recv_isIdle, ethUDPError, ethAccessError, ethIPv4Error,             // 27:24
+                         sendBusy, sendRequest, eth_send_fw_ack, eth_send_fw_req,                // 23:20
+                         sample_start, sample_busy, isLocal, isRemote,                           // 19:16
+                         FireWirePacketFresh, isForward, sendARP, isUDP,                         // 15:12
+                         isICMP, isEcho, is_IPv4_Long, is_IPv4_Short,                            // 11:8
+                         fw_bus_reset, 3'd0,                                                     //  7:4
+                         4'd0 };                                                                 //  3:0
+assign DebugData[3]  = { node_id, maxCountFW, LengthFW };                  // 6, 10, 16
+assign DebugData[4]  = { fw_ctrl, host_fw_addr };                          // 16, 16
+assign DebugData[5]  = { sendState, txPktWords, nextSendState, 12'd0 };    // 4, 12, 4, 12 (rxPktWords)
+assign DebugData[6]  = { 6'd0, numUDP, 6'd0, numIPv4 };                    // 6, 10, 6, 10
+assign DebugData[7]  = { 8'd0, numICMP, fw_bus_gen, numARP };              // 8, 8, 8, 8
+assign DebugData[8]  = { 7'd0, bw_left, 5'd0, bwState, numPacketError };   // 7, 9, 5, 3, 8
 assign DebugData[9]  = 32'd0;
-assign DebugData[10] = { 6'd0, numUDP, 6'd0, numIPv4 };
-assign DebugData[11] = { 5'd0, bwState, numICMP, fw_bus_gen, numARP };
-assign DebugData[12] = { 7'd0, fw_bus_reset, 16'd0, numPacketError };
+assign DebugData[10] = 32'd0;
+assign DebugData[11] = 32'd0;
+assign DebugData[12] = 32'd0;
 assign DebugData[13] = 32'd0;
-assign DebugData[14] = { 16'd0, 7'b0, bw_left };
+assign DebugData[14] = 32'd0;
 assign DebugData[15] = 32'd0;
 `endif
 
@@ -686,35 +687,39 @@ reg FireWirePacketFresh;   // 1 -> FireWirePacket data is valid (fresh)
 // data is provided by the low-level interface (KSZ8851 for FPGA V2, or RTL8211F
 // for FPGA V3).
 //    4x00 - 4x7f (128 quadlets) FireWire packet (first 128 quadlets only)
-//    4x80 - 4x8f (16 quadlets) Debug data
-//    4x90 - 4x9f (16 quadlets) Unused
-//    4xa0 - 4xbf (32 quadlets) RunProgram -- FPGA V2 only
-//    4xc0 - 4xdf (32 quadlets) PacketBuffer/ReplyBuffer (64 words)
+//    4x80 - 4x8f (16 quadlets) EthernetIO DebugData
+//    4x90 - 4x9f (16 quadlets) Lower-level module debug data
+//    4xa0 - 4xbf (32 quadlets) Used by lower-level module
+//    4xc0 - 4xcf (16 quadlets) PacketBuffer (32 words)
+//    4xd0 - 4xdf (16 quadlets) ReplyBuffer (32 words)
 //    4xe0 - 4xff (32 quadlets) ReplyIndex (64 words)
 // Note that full address decoding is not done, so other addresses will work too
-// (for example, 4f80-4f9f will also give Debug data)
+// (for example, 4f80-4f9f will also give Debug data).
+// TODO: This will need to be changed to properly decode the port number.
 always @(*)
 begin
-   if (reg_raddr[7] == 0) begin
+   if (reg_raddr[7] == 0) begin               // 4x00-4x7f
       // read_error = eth_send_fw_ack|bw_local_active|icmp_read_en;
       reg_rdata = mem_rdata;
    end
-   else begin
-      case (reg_raddr[6:5])
-      2'b00:
+   else if (reg_raddr[6:4] == 3'b000) begin   // 4x80-4x8f
 `ifdef HAS_DEBUG_DATA
-         reg_rdata = (reg_raddr[4]==0) ? DebugData[reg_raddr[3:0]] : 32'd0;
+         reg_rdata = DebugData[reg_raddr[3:0]];
 `else
-         reg_rdata = (reg_raddr[4]==0) ? "0GBD" : 32'd0;
+         reg_rdata = "0GBD";
 `endif
-      2'b01:
-         reg_rdata = 32'd0;   // Get RunProgram[reg_raddr[4:0]] from KSZ8851
-      2'b10:
-         reg_rdata = (reg_raddr[4]==0) ? {PacketBuffer[{reg_raddr[3:0],1'b1}], PacketBuffer[{reg_raddr[3:0],1'b0}]} :
-                                         {ReplyBuffer[{reg_raddr[2:0],1'b1}],  ReplyBuffer[{reg_raddr[2:0],1'b0}]};
-      2'b11:
+   end
+   else if (reg_rdata[6:4] == 3'b100) begin   // 4xc0-4xcf
+         reg_rdata = {PacketBuffer[{reg_raddr[3:0],1'b1}], PacketBuffer[{reg_raddr[3:0],1'b0}]};
+   end
+   else if (reg_rdata[6:4] == 3'b101) begin   // 4xd0-4xdf
+         reg_rdata = {ReplyBuffer[{reg_raddr[2:0],1'b1}],  ReplyBuffer[{reg_raddr[2:0],1'b0}]};
+   end
+   else if (reg_rdata[6:5] == 2'b11) begin    // 4xe0-4xff
          reg_rdata = {10'd0, ReplyIndex[{reg_raddr[4:0],1'b1}], 10'd0, ReplyIndex[{reg_raddr[4:0],1'b0}]};
-      endcase
+   end
+   else begin
+         reg_rdata = 32'd0;
    end
 end
 

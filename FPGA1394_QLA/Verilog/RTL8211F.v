@@ -159,7 +159,7 @@ begin
         begin
             MDIO_T <= 1'b1;
             cnt <= 9'd0;
-            if (reg_wen && (reg_waddr[6:0] == 7'd0)) begin
+            if (reg_wen && (reg_waddr[3:0] == 4'd0)) begin
                 write_data <= reg_wdata;
                 MDIO_T <= 1'b0;
                 MDIO_O <= 1'b1;
@@ -646,63 +646,48 @@ assign ethInternalError = RxErr|recv_preamble_error;
 // -----------------------------------------------
 // Debug data
 // -----------------------------------------------
-`ifdef HAS_DEBUG_DATA
-wire[31:0] DebugData[0:15];
-assign DebugData[0]  = "1GBD";  // DBG1 byte-swapped
-assign DebugData[1]  = 32'd0;
-assign DebugData[2]  = { 8'd0, 1'b0, sendRequest, 6'd0, 16'd0};
-assign DebugData[3]  = { 16'd0, 8'd0, isForward, 7'd0};
-assign DebugData[4]  = 32'd0;
-assign DebugData[5]  = { 16'd0, 8'd0, numPacketSent};
-assign DebugData[6]  = 32'd0;
-assign DebugData[7]  = { 16'd0, 4'd0, rxPktWords };
-//assign DebugData[8]  = { timeSend, timeReceive };
-assign DebugData[8]  = 32'd0;
-assign DebugData[9]  = { 8'd0, numPacketInvalid, numPacketValid };
-assign DebugData[10] = 32'd0;
-assign DebugData[11] = 32'd0;
-assign DebugData[12] = 32'd0;
-assign DebugData[13] = 32'd0;
-assign DebugData[14] = 32'd0;
-assign DebugData[15] = 32'd0;
-`endif
 
-// TODO: move reg_rdata_dbg into DebugData
-wire[31:0] reg_rdata_dbg;   // Debug data
-assign reg_rdata_dbg = { 2'd0, tx_underflow, RxErr, recv_preamble_error, recv_fifo_reset, recv_fifo_full, recv_fifo_empty,
-                         8'd0, 16'd0 };
+`ifdef HAS_DEBUG_DATA
+wire[31:0] DebugData[0:7];
+assign DebugData[0]  = "2GBD";  // DBG2 byte-swapped
+assign DebugData[1]  = { RxErr, recv_preamble_error, recv_fifo_reset, recv_fifo_full,      // 31:28
+                         recv_fifo_empty, recv_info_fifo_empty, 2'd0,                      // 27:24
+                         sendRequest, tx_underflow, 2'd0,                                  // 23:20
+                         20'd0 };
+assign DebugData[2]  = { 16'd0, 4'd0, rxPktWords };     // 12
+assign DebugData[3]  = { numPacketSent, numPacketInvalid, numPacketValid };  // 8, 8, 16
+assign DebugData[4]  = recv_crc_in;
+//assign DebugData[5]  = { timeSend, timeReceive };
+assign DebugData[5]  = 32'd0;
+assign DebugData[6]  = 32'd0;
+assign DebugData[7]  = 32'd0;
+`endif
 
 // Following data is accessible via block read from address `ADDR_ETH (0x4000),
 // where x is the Ethernet channel (1 or 2).
-// Note that some data (addresses 90-93) is provided by this module (RTL8211F) whereas everything
-// else is provided by the high-level interface (EthernetIO).
+// Note that some data is provided by this module (RTL8211F) whereas most is provided
+// by the high-level interface (EthernetIO).
 //    4x00 - 4x7f (128 quadlets) FireWire packet (first 128 quadlets only)
-//    4x80 - 4x8f (16 quadlets)  Debug data
-// PK TODO: Change PC software to read following from 90-93 instead of 80-83
-//    4x90                       MDIO feedback (data read from management interface)
-//    4x91                       Receive info (if available)
-//    4x92                       Computed CRC
-//    4x93                       Debug data (reg_rdata_dbg)
-//    4x94 - 4x9f (12 quadlets) Unused
-//    4xa0 - 4xbf (32 quadlets) Unused
-//    4xc0 - 4xdf (32 quadlets) PacketBuffer/ReplyBuffer (64 words)
-//    4xe0 - 4xff (32 quadlets) ReplyIndex (64 words)
+//    4080 - 408f (16 quadlets)  EthernetIO Debug data
+//    4090 - 409f (16 quadlets)  Low-level (e.g., RTL8211F) Debug data
+//    4xa0        (1 quadlet)    MDIO feedback (data read from management interface)
+//    4xa1 - 4xbf (31 quadlets)  Unused
+//    4xc0 - 4xdf (32 quadlets)  PacketBuffer/ReplyBuffer (64 words)
+//    4xe0 - 4xff (32 quadlets)  ReplyIndex (64 words)
 
 `ifdef HAS_DEBUG_DATA
-assign reg_rdata = (reg_raddr[7:4] == 4'h8) ? DebugData[reg_raddr[3:0]] :
+assign reg_rdata = (reg_raddr[7:4] == 4'h9) ? DebugData[reg_raddr[2:0]] :   // Note [2:0] instead of [3:0]
 `else
-assign reg_rdata = (reg_raddr[7:4] == 4'h8) ? "0GBD" :
+assign reg_rdata = (reg_raddr[7:4] == 4'h9) ? "0GBD" :
 `endif
-                   (reg_raddr[7:0] == 8'h90) ? { 5'd0, state, 3'd0, read_reg_addr, read_data} :
-                   ((reg_raddr[7:0] == 8'h91) && (~recv_info_fifo_empty)) ? recv_info_dout :
-                   (reg_raddr[7:0] == 8'h92) ? recv_crc_in :
-                   (reg_raddr[7:0] == 8'h93) ? reg_rdata_dbg : 32'd0;
+                   (reg_raddr[7:0] == 8'ha0) ? { 5'd0, mdioState, 3'd0, read_reg_addr, read_data} :
+                   32'd0;
 
 // For debugging
 always @(posedge(clk))
 begin
-    // Reset the FIFOs by writing to 4x81, where x is channel number
-    if (reg_wen && (reg_waddr[6:0] == 7'd1)) begin
+    // Reset the FIFOs by writing to 4xa1, where x is channel number
+    if (reg_wen && (reg_waddr[3:0] == 4'd1)) begin
        recv_fifo_reset <= 1'b1;
        send_fifo_reset <= 1'b1;
     end
