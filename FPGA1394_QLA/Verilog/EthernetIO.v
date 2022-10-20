@@ -865,7 +865,7 @@ begin
             writeRequestQuad <= 1;
       end
       else begin
-         // Normal idle state. Wait for recvDMAreq to be set.
+         // Normal idle state. Wait for recvRequest to be set.
          recvBusy <= 0;
          writeRequestQuad <= 1'b0;
          writeRequestBlock <= 1'b0;

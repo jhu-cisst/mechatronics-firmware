@@ -303,6 +303,9 @@ assign recv_crc_error = (recv_crc_in != 32'h7bdd04c7) ? 1'b0 : 1'b1;
 // Bit index in recv_info_din and recv_info_dout
 `define RECV_CRC_ERROR_BIT 26
 
+// Whether current packet is valid (passed CRC check)
+reg curPacketValid;
+
 assign recv_info_din = { 5'd0, recv_crc_error, RxErr, recv_preamble_error, recv_first_byte, 4'd0, recv_nbytes };
 
 always @(posedge RxClk)
@@ -355,12 +358,6 @@ begin
             if (recv_nbytes != 12'd0) begin
                 // Write to recv_info FIFO (on next RxClk)
                 recv_info_wr_en <= ~recv_info_fifo_full;
-`ifdef HAS_DEBUG_DATA
-                if (recv_crc_error)
-                    numPacketInvalid <= numPacketInvalid + 8'd1;
-                else
-                    numPacketValid <= numPacketValid + 16'd1;
-`endif
             end
         end
     end
@@ -547,8 +544,9 @@ end
 
 localparam[1:0]
     ST_IDLE = 2'd0,
-    ST_RECEIVE = 2'd1,
-    ST_SEND = 2'd2;
+    ST_RECEIVE_WAIT = 2'd1,
+    ST_RECEIVE = 2'd2,
+    ST_SEND = 2'd3;
 
 reg[1:0] state;
 
@@ -591,10 +589,13 @@ begin
             rxPktWords <= ((recv_info_dout[11:0]+12'd3)>>1)&12'hffe;
             recv_info_rd_en <= 1'b1;
             // Request EthernetIO to receive if CRC valid (flush if not valid)
+            curPacketValid <= ~recv_info_dout[`RECV_CRC_ERROR_BIT];
             recvRequest <= ~recv_info_dout[`RECV_CRC_ERROR_BIT];
             recvReady <= 1'b1;
-            state <= ST_RECEIVE;
-`ifdef __HAS_DEBUG_DATA
+            dataValid <= 1'b0;
+            recvTransition <= 1'b0;
+            state <= recv_info_dout[`RECV_CRC_ERROR_BIT] ? ST_RECEIVE : ST_RECEIVE_WAIT;
+`ifdef HAS_DEBUG_DATA
             if (recv_info_dout[`RECV_CRC_ERROR_BIT])
                 numPacketInvalid <= numPacketInvalid + 8'd1;
             else
@@ -603,31 +604,30 @@ begin
         end
     end
 
+    ST_RECEIVE_WAIT:
+    begin
+        // Wait for recvRequest to be acknowledged
+        if (recvBusy) begin
+            recvRequest <= 1'b0;
+            state <= ST_RECEIVE;
+        end
+    end
+
     ST_RECEIVE:
     begin
-        if (recvBusy)
-            recvRequest <= 1'b0;
-        if (recvReady) begin
-            recvReady <= 1'b0;
-            dataValid <= 1'b1;
-        end
-        else if (dataValid) begin
-           dataValid <= 1'b0;
-           recvTransition <= 1'b1;
-           recv_rd_en <= 1'b1;
-        end
-        else begin  // recvTransition
-           recvTransition <= 1'b0;
-           recvReady <= 1'b1;
-           recv_info_rd_en <= 1'b0;
-           recv_rd_en <= 1'b0;
-           if (recvCnt == rxPktWords) begin
-               sendRequest <= responseRequired;
-               state <= responseRequired ? ST_SEND : ST_IDLE;
-           end
-           else begin
-               recvCnt <= recvCnt + 12'd1;
-           end
+        recv_info_rd_en <= 1'b0;
+        recvReady <= recvTransition;
+        dataValid <= recvReady;           // 1 clock after recvReady
+        recvTransition <= dataValid;      // 1 clock after dataValid
+        recv_rd_en <= dataValid;
+        if (recvTransition) begin
+            if (recvCnt == rxPktWords) begin
+                sendRequest <= curPacketValid&responseRequired;
+                state <= (curPacketValid&responseRequired) ? ST_SEND : ST_IDLE;
+            end
+            else begin
+                recvCnt <= recvCnt + 12'd1;
+            end
         end
     end
 
@@ -652,12 +652,6 @@ begin
 
     end
 
-    default:
-    begin
-       // Could note this as an error
-       state <= ST_IDLE;
-    end
-
     endcase
 end
 
@@ -672,7 +666,7 @@ assign ethInternalError = RxErr|recv_preamble_error;
 wire[31:0] DebugData[0:7];
 assign DebugData[0]  = "2GBD";  // DBG2 byte-swapped
 assign DebugData[1]  = { RxErr, recv_preamble_error, recv_fifo_reset, recv_fifo_full,      // 31:28
-                         recv_fifo_empty, recv_info_fifo_empty, 2'd0,                      // 27:24
+                         recv_fifo_empty, recv_info_fifo_empty, curPacketValid, 1'd0,      // 27:24
                          sendRequest, tx_underflow, send_fifo_full, send_fifo_empty,       // 23:20
                          20'd0 };
 assign DebugData[2]  = { 11'd0, state, txState, rxState, 4'd0, rxPktWords };     // 2, 2, 2, 12
