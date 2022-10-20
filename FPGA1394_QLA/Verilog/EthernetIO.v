@@ -658,7 +658,7 @@ reg      icmp_read_en;    // 1 -> ICMP needs to read from memory
 assign mem_raddr = eth_send_fw_ack   ? eth_fwpkt_raddr :
                    bw_local_active   ? local_raddr :
                    icmp_read_en      ? sfw_count[9:1]
-                                     : reg_raddr[8:0];
+                                     : {2'd0, reg_raddr[6:0]};
 assign eth_fwpkt_rdata = mem_rdata;
 
 reg[31:0] FireWireQuadlet;   // the current quadlet being read
@@ -709,13 +709,13 @@ begin
          reg_rdata = "0GBD";
 `endif
    end
-   else if (reg_rdata[6:4] == 3'b100) begin   // 4xc0-4xcf
+   else if (reg_raddr[6:4] == 3'b100) begin   // 4xc0-4xcf
          reg_rdata = {PacketBuffer[{reg_raddr[3:0],1'b1}], PacketBuffer[{reg_raddr[3:0],1'b0}]};
    end
-   else if (reg_rdata[6:4] == 3'b101) begin   // 4xd0-4xdf
+   else if (reg_raddr[6:4] == 3'b101) begin   // 4xd0-4xdf
          reg_rdata = {ReplyBuffer[{reg_raddr[2:0],1'b1}],  ReplyBuffer[{reg_raddr[2:0],1'b0}]};
    end
-   else if (reg_rdata[6:5] == 2'b11) begin    // 4xe0-4xff
+   else if (reg_raddr[6:5] == 2'b11) begin    // 4xe0-4xff
          reg_rdata = {10'd0, ReplyIndex[{reg_raddr[4:0],1'b1}], 10'd0, ReplyIndex[{reg_raddr[4:0],1'b0}]};
    end
    else begin
