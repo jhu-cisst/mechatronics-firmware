@@ -25,7 +25,7 @@
 
 `include "Constants.v"
 
-// Define following for debug data (DBG1)
+// Define following for debug data (DBG2)
 `define HAS_DEBUG_DATA
 
 module RTL8211F
@@ -228,6 +228,12 @@ end
 // 16-bit FIFO provided by the KSZ8851.
 // ----------------------------------------------------------------------------
 
+localparam
+    ST_RX_IDLE = 1'd0,
+    ST_RX_RECV = 1'd1;
+
+reg rxState;
+
 // crc registers
 wire[7:0] recv_crc_data;    // data into crc module to compute crc on
 reg[31:0] recv_crc_in;      // input to crc module (starts at all ones)
@@ -251,9 +257,8 @@ reg[7:0]   recv_byte;
 reg[7:0]   recv_first_byte;
 wire[15:0] recv_fifo_dout;
 
-reg[2:0]   recv_preamble_cnt;
-reg  recv_preamble_done;
-reg  recv_preamble_error;
+reg[2:0] recv_preamble_cnt;
+reg      recv_preamble_error;
 
 reg[11:0] recv_nbytes;  // Number of bytes received (not including preamble)
 
@@ -302,16 +307,18 @@ assign recv_info_din = { 5'd0, recv_crc_error, RxErr, recv_preamble_error, recv_
 
 always @(posedge RxClk)
 begin
-    recv_wr_en <= 1'b0;
-    recv_info_wr_en <= 1'b0;
+
     if (RxValid) begin
         recv_byte <= RxD;
-        if (~recv_preamble_done) begin
+        recv_info_wr_en <= 1'b0;
+        if (rxState == ST_RX_IDLE) begin
+            // Here, ST_RX_IDLE means receiving preamble
+            recv_wr_en <= 1'b0;
             if (RxD == 8'h55) begin
                 recv_preamble_cnt <= recv_preamble_cnt + 3'd1;
             end
             else begin
-                recv_preamble_done <= 1'b1;
+                rxState <= ST_RX_RECV;
                 recv_preamble_cnt <= 3'd0;
                 recv_crc_in <= 32'hffffffff;    // Initialize CRC
                 if ((RxD != 8'hd5) ||
@@ -320,7 +327,7 @@ begin
                 end
             end
         end
-        else begin
+        else begin      // (rxState == ST_RX_RECV)
             if (recv_nbytes == 12'd0)
                 recv_first_byte <= RxD;
             recv_nbytes <= recv_nbytes + 12'd1;
@@ -329,23 +336,31 @@ begin
         end
     end
     else begin
-        recv_preamble_done <= 1'b0;
-        recv_preamble_cnt <= 3'd0;
-        if (recv_nbytes != 12'd0) begin
-            if (recv_info_wr_en == 1'b0) begin
-                // First time through
-                // If an odd number of bytes, pad with 0
-                if (recv_nbytes[0]) begin
-                    recv_byte <= 8'd0;
-                    recv_wr_en <= ~recv_fifo_full;
-                end
-                // TODO: better handling of full FIFO
+        if (rxState == ST_RX_IDLE) begin
+            recv_nbytes <= 12'd0;
+            recv_preamble_cnt <= 3'd0;
+            recv_wr_en <= 1'b0;
+            recv_info_wr_en <= 1'b0;
+            recv_preamble_error <= 1'b0;
+        end
+        else begin
+            // This state is entered when a receive has just ended;
+            // rxState should be ST_RX_RECV and recv_nbytes should be non-zero.
+            rxState <= ST_RX_IDLE;
+            recv_info_wr_en <= 1'b0;
+            // If an odd number of bytes, pad with 0
+            recv_byte <= 8'd0;
+            recv_wr_en <= recv_nbytes[0] ? ~recv_fifo_full : 1'b0;
+            // TODO: better handling of full FIFO
+            if (recv_nbytes != 12'd0) begin
                 // Write to recv_info FIFO (on next RxClk)
                 recv_info_wr_en <= ~recv_info_fifo_full;
-            end
-            else begin
-                recv_nbytes <= 12'd0;
-                recv_preamble_error <= 1'b0;
+`ifdef HAS_DEBUG_DATA
+                if (recv_crc_error)
+                    numPacketInvalid <= numPacketInvalid + 8'd1;
+                else
+                    numPacketValid <= numPacketValid + 16'd1;
+`endif
             end
         end
     end
@@ -545,7 +560,7 @@ reg[7:0]  numPacketSent;     // Number of packets sent to host PC
 
 reg[11:0] rxPktWords;  // Num of words in receive queue
 
-reg[5:0] recvCnt;      // Counts number of received words
+reg[11:0] recvCnt;     // Counts number of received words
 reg dataValid;
 reg recvTransition;
 
@@ -560,7 +575,7 @@ begin
 
     ST_IDLE:
     begin
-        recvCnt <= 6'd0;
+        recvCnt <= 12'd0;
         sendCnt <= 12'd0;
         isForward <= 0;
         sendReady <= 1'b0;
@@ -579,7 +594,7 @@ begin
             recvRequest <= ~recv_info_dout[`RECV_CRC_ERROR_BIT];
             recvReady <= 1'b1;
             state <= ST_RECEIVE;
-`ifdef HAS_DEBUG_DATA
+`ifdef __HAS_DEBUG_DATA
             if (recv_info_dout[`RECV_CRC_ERROR_BIT])
                 numPacketInvalid <= numPacketInvalid + 8'd1;
             else
@@ -611,7 +626,7 @@ begin
                state <= responseRequired ? ST_SEND : ST_IDLE;
            end
            else begin
-               recvCnt <= recvCnt + 6'd1;
+               recvCnt <= recvCnt + 12'd1;
            end
         end
     end
@@ -637,6 +652,12 @@ begin
 
     end
 
+    default:
+    begin
+       // Could note this as an error
+       state <= ST_IDLE;
+    end
+
     endcase
 end
 
@@ -652,9 +673,9 @@ wire[31:0] DebugData[0:7];
 assign DebugData[0]  = "2GBD";  // DBG2 byte-swapped
 assign DebugData[1]  = { RxErr, recv_preamble_error, recv_fifo_reset, recv_fifo_full,      // 31:28
                          recv_fifo_empty, recv_info_fifo_empty, 2'd0,                      // 27:24
-                         sendRequest, tx_underflow, 2'd0,                                  // 23:20
+                         sendRequest, tx_underflow, send_fifo_full, send_fifo_empty,       // 23:20
                          20'd0 };
-assign DebugData[2]  = { 16'd0, 4'd0, rxPktWords };     // 12
+assign DebugData[2]  = { 11'd0, state, txState, rxState, 4'd0, rxPktWords };     // 2, 2, 2, 12
 assign DebugData[3]  = { numPacketSent, numPacketInvalid, numPacketValid };  // 8, 8, 16
 assign DebugData[4]  = recv_crc_in;
 //assign DebugData[5]  = { timeSend, timeReceive };

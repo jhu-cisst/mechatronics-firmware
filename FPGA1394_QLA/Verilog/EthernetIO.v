@@ -19,7 +19,7 @@
 // global constant e.g. register & device address
 `include "Constants.v"
 
-// Define following for debug data (DBG1)
+// Define following for debug data (DBG2)
 `define HAS_DEBUG_DATA
 
 // Sizes of packet headers (in bytes)
