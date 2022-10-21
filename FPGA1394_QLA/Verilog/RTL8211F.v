@@ -562,7 +562,7 @@ reg[11:0] recvCnt;     // Counts number of received words
 reg dataValid;
 reg recvTransition;
 
-assign recv_word = { recv_fifo_dout[7:0], recv_fifo_dout[15:8] };  // Byte swap?
+assign recv_word = recv_fifo_dout;
 
 reg[11:0] sendCnt;     // Counts number of sent bytes
 
@@ -588,10 +588,10 @@ begin
         else if (~recv_info_fifo_empty) begin
             rxPktWords <= ((recv_info_dout[11:0]+12'd3)>>1)&12'hffe;
             recv_info_rd_en <= 1'b1;
-            // Request EthernetIO to receive if CRC valid (flush if not valid)
             curPacketValid <= ~recv_info_dout[`RECV_CRC_ERROR_BIT];
+            // Request EthernetIO to receive if CRC valid (flush if not valid).
             recvRequest <= ~recv_info_dout[`RECV_CRC_ERROR_BIT];
-            recvReady <= 1'b1;
+            recvReady <= recv_info_dout[`RECV_CRC_ERROR_BIT];
             dataValid <= 1'b0;
             recvTransition <= 1'b0;
             state <= recv_info_dout[`RECV_CRC_ERROR_BIT] ? ST_RECEIVE : ST_RECEIVE_WAIT;
@@ -609,6 +609,7 @@ begin
         // Wait for recvRequest to be acknowledged
         if (recvBusy) begin
             recvRequest <= 1'b0;
+            recvReady <= 1'b1;
             state <= ST_RECEIVE;
         end
     end
