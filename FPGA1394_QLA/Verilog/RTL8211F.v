@@ -456,9 +456,6 @@ fifo_32x32 send_info_fifo(
 
 always @(posedge TxClk)
 begin
-    // TODO: Send CRC -- maybe from higher level instead
-    // TODO: maybe also use a send info queue, so that we do not have to
-    //       worry about running out of data in the FIFO
     case (txState)
 
     ST_TX_IDLE:
@@ -542,19 +539,23 @@ end
 // legacy from the KSZ8851 interface used for FPGA V2.
 // ----------------------------------------------------------------------------
 
-localparam[1:0]
-    ST_IDLE = 2'd0,
-    ST_RECEIVE_WAIT = 2'd1,
-    ST_RECEIVE = 2'd2,
-    ST_SEND = 2'd3;
+localparam[2:0]
+    ST_IDLE = 3'd0,
+    ST_RECEIVE_WAIT = 3'd1,
+    ST_RECEIVE = 3'd2,
+    ST_SEND_WAIT = 3'd3,
+    ST_SEND = 3'd4;
 
-reg[1:0] state;
+reg[2:0] state;
 
 `ifdef HAS_DEBUG_DATA
 reg[15:0] numPacketValid;    // Number of valid Ethernet frames received
 reg[7:0]  numPacketInvalid;  // Number of invalid Ethernet frames received
 reg[7:0]  numPacketSent;     // Number of packets sent to host PC
 `endif
+
+reg[11:0] last_sendCnt;
+reg[11:0] last_responseBC;
 
 reg[11:0] rxPktWords;  // Num of words in receive queue
 
@@ -624,7 +625,7 @@ begin
         if (recvTransition) begin
             if (recvCnt == rxPktWords) begin
                 sendRequest <= curPacketValid&responseRequired;
-                state <= (curPacketValid&responseRequired) ? ST_SEND : ST_IDLE;
+                state <= (curPacketValid&responseRequired) ? ST_SEND_WAIT : ST_IDLE;
             end
             else begin
                 recvCnt <= recvCnt + 12'd1;
@@ -632,17 +633,29 @@ begin
         end
     end
 
+    ST_SEND_WAIT:
+    begin
+        // Wait for sendRequest to be acknowledged
+        if (sendBusy) begin
+            sendRequest <= 1'b0;
+            sendReady <= 1'b1;
+            send_wr_en <= 1'b1;
+            state <= ST_SEND;
+        end
+    end
+
     ST_SEND:
     begin
         if (sendBusy) begin
             sendCnt <= sendCnt + 12'd1;  // Essentially counts number of bytes
-            sendRequest <= 1'b0;
             sendReady <= ~sendReady;
-            send_wr_en <= sendReady;
+            send_wr_en <= ~sendReady;
         end
         else begin
             // All done
             // Compare sendCnt to responseByteCount
+            last_sendCnt <= sendCnt;    // for debugging
+            last_responseBC <= responseByteCount;  // for debugging
             send_wr_en <= 1'b0;
             send_info_wr_en <= 1'b1;
 `ifdef HAS_DEBUG_DATA
@@ -650,7 +663,12 @@ begin
 `endif
             state <= ST_IDLE;
         end
+    end
 
+    default:
+    begin
+        // Could set an error flag
+        state <= ST_IDLE;
     end
 
     endcase
@@ -670,11 +688,11 @@ assign DebugData[1]  = { RxErr, recv_preamble_error, recv_fifo_reset, recv_fifo_
                          recv_fifo_empty, recv_info_fifo_empty, curPacketValid, 1'd0,      // 27:24
                          sendRequest, tx_underflow, send_fifo_full, send_fifo_empty,       // 23:20
                          20'd0 };
-assign DebugData[2]  = { 11'd0, state, txState, rxState, 4'd0, rxPktWords };     // 2, 2, 2, 12
+assign DebugData[2]  = { 10'd0, state, txState, rxState, 4'd0, rxPktWords };     // 3, 2, 2, 12
 assign DebugData[3]  = { numPacketSent, numPacketInvalid, numPacketValid };  // 8, 8, 16
 assign DebugData[4]  = recv_crc_in;
 //assign DebugData[5]  = { timeSend, timeReceive };
-assign DebugData[5]  = 32'd0;
+assign DebugData[5]  = { 4'd0, last_sendCnt, 4'd0, last_responseBC };
 assign DebugData[6]  = 32'd0;
 assign DebugData[7]  = 32'd0;
 `endif
