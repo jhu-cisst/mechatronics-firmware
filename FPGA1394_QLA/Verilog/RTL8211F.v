@@ -40,6 +40,7 @@ module RTL8211F
     input  wire reg_wen,           // reg write enable
 
     output wire RSTn,              // Reset to RTL8211F (active low)
+    input wire IRQn,               // Interrupt from RTL8211F (active low), FPGA V3.1+
 
     // MDIO signals
     // When connecting directly to PHY, only need MDIO (inout) and
@@ -488,12 +489,12 @@ begin
 
     ST_TX_SEND:
     begin
-        send_rd_en <= 1'b1;
         if (send_fifo_empty) begin
             tx_underflow <= 1'b1;
             TxD <= 8'd0;
         end          
         else begin
+            send_rd_en <= 1'b1;
             TxD <= send_fifo_dout;
         end
         send_crc_in <= send_crc_8b;
@@ -687,7 +688,7 @@ assign DebugData[0]  = "2GBD";  // DBG2 byte-swapped
 assign DebugData[1]  = { RxErr, recv_preamble_error, recv_fifo_reset, recv_fifo_full,      // 31:28
                          recv_fifo_empty, recv_info_fifo_empty, curPacketValid, 1'd0,      // 27:24
                          sendRequest, tx_underflow, send_fifo_full, send_fifo_empty,       // 23:20
-                         20'd0 };
+                         ~IRQn, 19'd0 };
 assign DebugData[2]  = { 10'd0, state, txState, rxState, 4'd0, rxPktWords };     // 3, 2, 2, 12
 assign DebugData[3]  = { numPacketSent, numPacketInvalid, numPacketValid };  // 8, 8, 16
 assign DebugData[4]  = recv_crc_in;

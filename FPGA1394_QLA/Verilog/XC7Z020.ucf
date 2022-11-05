@@ -3,6 +3,7 @@
 ################################################################################
 # Main I/O Ports
 ################################################################################
+NET  "IO1[0]"     LOC = " N18"    | IOSTANDARD = "LVCMOS33" | PULLUP;  # FPGA V3.1 (LED in V3.0)
 NET  "IO1[1]"     LOC = " M20"    | IOSTANDARD = "LVCMOS33" | PULLUP;  # MISO prom_qla
 NET  "IO1[2]"     LOC = " M19"    | IOSTANDARD = "LVCMOS33" | PULLUP;  # MOSI
 NET  "IO1[3]"     LOC = " L20"    | IOSTANDARD = "LVCMOS33" | PULLUP;  # SCLK
@@ -35,7 +36,9 @@ NET  "IO1[29]"    LOC = " J14"    | IOSTANDARD = "LVCMOS33" | PULLUP;
 NET  "IO1[30]"    LOC = " G14"    | IOSTANDARD = "LVCMOS33" | PULLUP;
 NET  "IO1[31]"    LOC = " M14"    | IOSTANDARD = "LVCMOS33";           # pwr_enable
 NET  "IO1[32]"    LOC = " L14"    | IOSTANDARD = "LVCMOS33";           # relay_on
+NET  "IO1[33]"    LOC = " N17"    | IOSTANDARD = "LVCMOS33";           # FPGA V3.1
 
+NET  "IO2[0]"     LOC = "T16"     | IOSTANDARD = "LVCMOS33";           # FPGA V3.1
 NET  "IO2[1]"     LOC = "P16"     | IOSTANDARD = "LVCMOS33";           # LED 1 green
 NET  "IO2[2]"     LOC = "P18"     | IOSTANDARD = "LVCMOS33" | PULLUP;
 NET  "IO2[3]"     LOC = "R17"     | IOSTANDARD = "LVCMOS33";           # LED 1 red
@@ -74,6 +77,7 @@ NET  "IO2[35]"    LOC = "U12"     | IOSTANDARD = "LVCMOS33" | PULLDOWN;  # /faul
 NET  "IO2[36]"    LOC = "T11"     | IOSTANDARD = "LVCMOS33";             # amp_disable
 NET  "IO2[37]"    LOC = "T10"     | IOSTANDARD = "LVCMOS33" | PULLDOWN;  # /fault (1=amp_on)
 NET  "IO2[38]"    LOC = "T12"     | IOSTANDARD = "LVCMOS33";             # amp_disable
+NET  "IO2[39]"    LOC = "U17"     | IOSTANDARD = "LVCMOS33";             # FPGA V3.1
 
 ################################################################################
 # Clock Inputs
@@ -102,7 +106,7 @@ TIMESPEC "TS_CLK_IN1394x" = PERIOD "CLK_IN1394x" 20.345 ns HIGH 50% INPUT_JITTER
 ################################################################################
 # LED Output
 ################################################################################
-NET  "LED"        LOC = "N18"     | IOSTANDARD = "LVCMOS33";
+NET  "LED"        LOC = "U13"     | IOSTANDARD = "LVCMOS33";  # FPGA V3.1 (was N18 in V3.0)
 
 ################################################################################
 # Board ID
@@ -123,6 +127,9 @@ NET  "E1_RSTn"    LOC = "P20"     | IOSTANDARD = "LVCMOS33" | PULLUP;
 # Directly connect bidirectional MDIO from GMII to RGMII core to pin T20
 #NET  "E1_MDIO_D"  LOC = "T20"     | IOSTANDARD = "LVCMOS33";
 NET  "*/gmii_to_rgmii_1/MDIO"     LOC = "T20" | IOSTANDARD = "LVCMOS33";
+
+NET  "E1_IRQn"    LOC = "R16"     | IOSTANDARD = "LVCMOS33" | PULLUP;   # FPGA V3.1
+NET  "E2_IRQn"    LOC = "U14"     | IOSTANDARD = "LVCMOS33" | PULLUP;   # FPGA V3.1
 
 # FPGA BANK 13, which is configured for 1.8V
 #

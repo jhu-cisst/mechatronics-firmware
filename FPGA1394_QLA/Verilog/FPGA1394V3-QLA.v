@@ -37,8 +37,8 @@ module FPGA1394V3QLA
 
     // misc board I/Os
     input [3:0]      wenid,     // rotary switch
-    inout [1:32]     IO1,
-    inout [1:38]     IO2,
+    inout [0:33]     IO1,
+    inout [0:39]     IO2,
     output wire      LED,
 
     // Ethernet PHYs (RTL8211F)
@@ -49,6 +49,8 @@ module FPGA1394V3QLA
     inout wire       E2_MDIO_D,   // eth2 MDIO data
     output wire      E1_RSTn,     // eth1 PHY reset
     output wire      E2_RSTn,     // eth2 PHY reset
+    input wire       E1_IRQn,     // eth1 IRQ (FPGA V3.1+)
+    input wire       E2_IRQn,     // eth2 IRQ (FPGA V3.1+)
 
     input wire       E1_RxCLK,    // eth1 receive clock (from PHY)
     input wire       E1_RxVAL,    // eth1 receive valid
@@ -77,6 +79,7 @@ module FPGA1394V3QLA
     // local wires to tie the instantiated modules and I/Os
     //
 
+    wire LED_Int;               // internal signal to drive LED on FPGA
     wire lreq_trig;             // phy request trigger
     wire fw_lreq_trig;          // phy request trigger from FireWire
     wire eth_lreq_trig;         // phy request trigger from Ethernet
@@ -240,6 +243,12 @@ assign reg_rd[`OFF_UNUSED_15] = 32'd0;
 
 // 1394 phy low reset, never reset
 assign reset_phy = 1'b1; 
+
+// Extra IO from FPGA V3.1, not used for QLA
+// IO1[0] is used for LED in FPGA V3.0
+assign IO1[33] = 1'bz;
+assign IO2[0] = 1'bz;
+assign IO2[39] = 1'bz;
 
 // --------------------------------------------------------------------------
 // hub register module
@@ -449,6 +458,7 @@ RTL8211F #(.CHANNEL(4'd1)) EthPhy1(
     .reg_wen(reg_wen_e1),     // in:  write enable
 
     .RSTn(E1_RSTn),           // Reset to RTL8211F
+    .IRQn(E1_IRQn),           // Interrupt from RTL8211F (FPGA V3.1+)
 
     .MDC(E1_mdio_clk),        // Clock to GMII core (and RTL8211F PHY)
     .MDIO_I(E1_mdio_i),       // IN to RTL8211F module, OUT from GMII core
@@ -495,6 +505,7 @@ RTL8211F #(.CHANNEL(4'd2)) EthPhy2(
     .reg_wen(reg_wen_e2),     // in:  write enable
 
     .RSTn(E2_RSTn),           // Reset to RTL8211F
+    .IRQn(E2_IRQn),           // Interrupt from RTL8211F (FPGA V3.1+)
 
     .MDC(E2_mdio_clk),        // Clock to GMII core (if present) and RTL8211F PHY
     .MDIO_I(E2_mdio_i),       // IN to RTL8211F module, OUT from GMII core or RTL8211F PHY
@@ -1180,7 +1191,13 @@ DataBuffer data_buffer(
 );
 
 // LED on FPGA
-assign LED = IO1[32];     // NOTE: IO1[32] pwr_enable
+assign LED_Int = IO1[32];     // NOTE: IO1[32] pwr_enable
+
+// LED is connected to different pins on V3.0 and V3.1
+// For V3.0, it is fine to drive both pins
+// TODO: For V3.1, should comment out first line below
+assign IO1[0] = LED_Int;     // FPGA V3.0 (pin N18)
+assign LED = LED_Int;        // FPGA V3.1 (pin U13)
 
 //------------------------------------------------------------------------------
 // LEDs on QLA 
