@@ -61,6 +61,9 @@ module RTL8211F
     output reg TxEn,               // Tx Enable
     output reg[7:0] TxD,           // Tx Data
 
+    input wire[1:0] clock_speed,   // Detected clock speed (Rx)
+    input wire[1:0] speed_mode,    // Speed mode (Tx)
+
     // Interface from Firewire (for sending packets via Ethernet)
     input wire sendReq,              // Send request from FireWire
 
@@ -689,7 +692,8 @@ assign DebugData[1]  = { RxErr, recv_preamble_error, recv_fifo_reset, recv_fifo_
                          recv_fifo_empty, recv_info_fifo_empty, curPacketValid, 1'd0,      // 27:24
                          sendRequest, tx_underflow, send_fifo_full, send_fifo_empty,       // 23:20
                          ~IRQn, 19'd0 };
-assign DebugData[2]  = { 10'd0, state, txState, rxState, 4'd0, rxPktWords };     // 3, 2, 2, 12
+assign DebugData[2]  = { 6'd0, speed_mode, clock_speed, state, txState, rxState, 4'd0, rxPktWords };
+                       //          2,          2,         3,      2,       1,             12
 assign DebugData[3]  = { numPacketSent, numPacketInvalid, numPacketValid };  // 8, 8, 16
 assign DebugData[4]  = recv_crc_in;
 //assign DebugData[5]  = { timeSend, timeReceive };

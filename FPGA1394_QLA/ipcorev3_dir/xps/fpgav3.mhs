@@ -14,7 +14,6 @@
  PORT gmii_to_rgmii_1_rgmii_rxd_pin = gmii_to_rgmii_1_rgmii_rxd, DIR = I, VEC = [3:0]
  PORT gmii_to_rgmii_1_rgmii_rx_ctl_pin = gmii_to_rgmii_1_rgmii_rx_ctl, DIR = I
  PORT gmii_to_rgmii_1_rgmii_rxc_pin = gmii_to_rgmii_1_rgmii_rxc, DIR = I, SIGIS = CLK
- PORT gmii_to_rgmii_1_gmii_clk_pin = gmii_to_rgmii_1_gmii_clk, DIR = I, SIGIS = CLK
  PORT gmii_to_rgmii_1_gmii_rxd_pin = gmii_to_rgmii_1_gmii_rxd, DIR = O, VEC = [7:0]
  PORT gmii_to_rgmii_1_gmii_rx_dv_pin = gmii_to_rgmii_1_gmii_rx_dv, DIR = O
  PORT gmii_to_rgmii_1_gmii_rx_er_pin = gmii_to_rgmii_1_gmii_rx_er, DIR = O
@@ -28,6 +27,8 @@
  PORT gmii_to_rgmii_1_gmii_tx_clk_pin = gmii_to_rgmii_1_gmii_tx_clk, DIR = O, SIGIS = CLK
  PORT gmii_to_rgmii_1_MDC_pin = gmii_to_rgmii_1_MDC, DIR = O
  PORT gmii_to_rgmii_1_MDIO = gmii_to_rgmii_1_MDIO, DIR = IO
+ PORT gmii_to_rgmii_1_clock_speed_pin = gmii_to_rgmii_1_clock_speed, DIR = O, VEC = [1:0]
+ PORT gmii_to_rgmii_1_speed_mode_pin = gmii_to_rgmii_1_speed_mode, DIR = O, VEC = [1:0]
 
 
 BEGIN processing_system7
@@ -127,5 +128,7 @@ BEGIN gmii_to_rgmii
  PORT gmii_tx_er = net_gnd
  PORT MDC = gmii_to_rgmii_1_MDC
  PORT MDIO = gmii_to_rgmii_1_MDIO
+ PORT clock_speed = gmii_to_rgmii_1_clock_speed
+ PORT speed_mode = gmii_to_rgmii_1_speed_mode
 END
 

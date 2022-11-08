@@ -390,6 +390,8 @@ wire[7:0]  E1_gmii_rxd;
 wire       E1_gmii_rx_dv;
 wire       E1_gmii_rx_er;
 wire       E1_gmii_rx_clk;
+wire[1:0]  E1_clock_speed;
+wire[1:0]  E1_speed_mode;
 wire       E1_mdio_o;         // OUT from RTL8211F module, IN to GMII core (or PHY)
 wire       E1_mdio_i;         // IN to RTL8211F module, OUT from GMII core (or PHY)
 wire       E1_mdio_t;         // OUT from RTL8211F module (tristate control)
@@ -403,6 +405,8 @@ wire[7:0]  E2_gmii_rxd;
 wire       E2_gmii_rx_dv;
 wire       E2_gmii_rx_er;
 wire       E2_gmii_rx_clk;
+wire[1:0]  E2_clock_speed;
+wire[1:0]  E2_speed_mode;
 `endif
 wire       E2_mdio_o;         // OUT from RTL8211F module, IN to GMII core (or PHY)
 wire       E2_mdio_i;         // IN to RTL8211F module, OUT from GMII core (or PHY)
@@ -474,6 +478,9 @@ RTL8211F #(.CHANNEL(4'd1)) EthPhy1(
     .TxEn(E1_gmii_tx_en),     // Tx Enable
     .TxD(E1_gmii_txd),        // Tx Data
 
+    .clock_speed(E1_clock_speed),
+    .speed_mode(E1_speed_mode),
+
     // Interface from Firewire (for sending packets via Ethernet)
     .sendReq(eth_send_req),
 
@@ -522,6 +529,9 @@ RTL8211F #(.CHANNEL(4'd2)) EthPhy2(
     .TxEn(E2_gmii_tx_en),     // Tx Enable
     .TxD(E2_gmii_txd),        // Tx Data
 
+    .clock_speed(E2_clock_speed),
+    .speed_mode(E2_speed_mode),
+
     // Interface from Firewire (for sending packets via Ethernet)
     .sendReq(eth_send_req),
 
@@ -544,7 +554,7 @@ RTL8211F #(.CHANNEL(4'd2)) EthPhy2(
 `else
     .RxClk(1'b0),
     .RxValid(1'b0),
-    .RxD(4'd0),
+    .RxD(8'd0),
     .RxErr(1'b0),
     .TxClk(1'b0),
     .sendReq(1'b0)
@@ -1243,7 +1253,9 @@ fpgav3 zynq_ps7(
     .gmii_to_rgmii_1_MDIO_I_pin(E1_mdio_i),           // OUT from GMII core, IN to RTL8211F module
     .gmii_to_rgmii_1_MDIO_O_pin(E1_mdio_o),           // IN to GMII core, OUT from RTL8211F module
     .gmii_to_rgmii_1_MDIO_T_pin(E1_mdio_t),           // Tristate control from RTL8211F module
-    .gmii_to_rgmii_1_MDC_pin(E1_MDIO_C)               // MDIO clock from GMII core (derived from E1_mdio_clk)
+    .gmii_to_rgmii_1_MDC_pin(E1_MDIO_C),              // MDIO clock from GMII core (derived from E1_mdio_clk)
+    .gmii_to_rgmii_1_clock_speed_pin(E1_clock_speed), // Clock speed (Rx)
+    .gmii_to_rgmii_1_speed_mode_pin(E1_speed_mode)    // Speed mode (Tx)
 
 `ifdef ETHERNET_DUAL
     ,
