@@ -80,7 +80,7 @@ module RTL8211F
     // Ethernet send
     output reg sendRequest,           // Request EthernetIO to start providing data to be sent
     input wire sendBusy,              // From EthernetIO
-    output reg sendReady,             // Request EthernetIO to provide next send_word
+    output wire sendReady,            // Request EthernetIO to provide next send_word
     input wire[15:0] send_word,       // Word to send via Ethernet (SDRegDWR for KSZ8851)
     // Feedback bits
     input wire bw_active,             // Indicates that block write module is active
@@ -419,17 +419,13 @@ reg[2:0]  tx_cnt;       // Counter used for preamble and crc
 reg tx_underflow;       // Attempt to read send_fifo when empty
 
 reg  send_fifo_reset;
-wire send_wr_en;
+reg  send_wr_en;
 reg  send_rd_en;
 wire send_fifo_full;
 wire send_fifo_empty;
 reg send_fifo_error;    // First byte in send_fifo not as expected
 wire[15:0] send_fifo_din;
 wire[7:0] send_fifo_dout;
-
-// Enable writes when EthernetIO is providing send_word (sendBusy) and we are one
-// clock after sendReady was asserted (i.e., when data is valid).
-assign send_wr_en = sendBusy&(~sendReady);
 
 assign send_fifo_din = {send_word[7:0], send_word[15:8]};
 
@@ -494,6 +490,7 @@ begin
         TxEn <= 1'b1;
         if (tx_cnt == 3'd7) begin
             txState <= ST_TX_SEND;
+            send_rd_en <= ~send_fifo_empty;
             send_crc_in <= 32'hffffffff;    // Initialize CRC
             padding_cnt <= 6'd59;           // Minimum frame size is 64 (-4 for CRC)
             TxD <= 8'hd5;
@@ -506,7 +503,6 @@ begin
 
     ST_TX_SEND:
     begin
-        send_rd_en <= ~send_fifo_empty;
         if (send_fifo_empty) begin
             tx_underflow <= 1'b1;
             TxD <= 8'd0;
@@ -520,10 +516,12 @@ begin
         end
         send_crc_in <= send_crc_8b;
         if (send_cnt == (send_nbytes-16'd1)) begin
+            send_rd_en <= 1'b0;
             tx_cnt <= 3'd0;
             txState <= (padding_cnt == 6'd0) ? ST_TX_CRC : ST_TX_PADDING;
         end
         else begin
+            send_rd_en <= ~send_fifo_empty;
             send_cnt <= send_cnt + 16'd1;
         end
         if (padding_cnt != 6'd0) begin
@@ -533,7 +531,6 @@ begin
 
     ST_TX_PADDING:
     begin
-        send_rd_en <= 1'b0;
         TxD <= 8'd0;
         padding_cnt <= padding_cnt - 6'd1;
         if (padding_cnt == 6'd0)
@@ -616,6 +613,12 @@ assign recv_word = recv_fifo_dout;
 
 reg[11:0] sendCnt;     // Counts number of sent bytes
 
+// sendCtrl==100 when sending not active
+reg[2:0] sendCtrl = 3'b100;
+assign sendReady = sendCtrl[0];
+wire sendValid;
+assign sendValid = sendCtrl[1];
+
 always @(posedge(clk))
 begin
 
@@ -626,7 +629,6 @@ begin
         recvCnt <= 12'd0;
         sendCnt <= 12'd0;
         isForward <= 0;
-        sendReady <= 1'b0;
         send_info_wr_en <= 1'b0;
         if (sendReq & (~send_fifo_full)) begin
             // forward packet from FireWire
@@ -691,7 +693,7 @@ begin
         // Wait for sendRequest to be acknowledged
         if (sendBusy) begin
             sendRequest <= 1'b0;
-            sendReady <= 1'b1;
+            sendCtrl <= 3'b100;
             state <= ST_SEND;
         end
     end
@@ -699,14 +701,19 @@ begin
     ST_SEND:
     begin
         if (sendBusy) begin
-            if (~sendReady) sendCnt <= sendCnt + 12'd2;  // Bytes
-            sendReady <= ~sendReady;
-            if (sendCnt == 12'd0)
-                send_first_byte_in <= send_word[7:0];
+            sendCtrl <= {sendCtrl[1:0], sendCtrl[2] };
+            send_wr_en <= sendValid;  // could check if FIFO full
+            if (sendValid) begin
+                sendCnt <= sendCnt + 12'd2;  // Bytes
+                if (sendCnt == 12'd0)
+                    send_first_byte_in <= send_word[7:0];
+            end
         end
         else begin
             // All done
             // Compare sendCnt to responseByteCount
+            sendCtrl <= 3'b100;
+            send_wr_en <= 1'b0;
             last_sendCnt <= sendCnt;    // for debugging
             last_responseBC <= responseByteCount;  // for debugging
             send_info_wr_en <= 1'b1;
