@@ -608,6 +608,7 @@ reg[11:0] rxPktWords;  // Num of words in receive queue
 reg[11:0] recvCnt;     // Counts number of received words
 reg dataValid;
 reg recvTransition;
+reg recvWait;
 
 assign recv_word = recv_fifo_dout;
 
@@ -646,6 +647,7 @@ begin
             recvReady <= recv_info_dout[`RECV_CRC_ERROR_BIT];
             dataValid <= 1'b0;
             recvTransition <= 1'b0;
+            recvWait <= 1'b0;
             state <= recv_info_dout[`RECV_CRC_ERROR_BIT] ? ST_RECEIVE : ST_RECEIVE_WAIT;
 `ifdef HAS_DEBUG_DATA
             if (recv_info_dout[`RECV_CRC_ERROR_BIT])
@@ -669,9 +671,10 @@ begin
     ST_RECEIVE:
     begin
         recv_info_rd_en <= 1'b0;
-        recvReady <= recvTransition;
+        recvReady <= recvWait;
         dataValid <= recvReady;           // 1 clock after recvReady
         recvTransition <= dataValid;      // 1 clock after dataValid
+        recvWait <= recvTransition;
         recv_rd_en <= dataValid;
         if (dataValid && (recvCnt == 12'd0)) begin
             recv_fifo_error <= (recv_fifo_dout[15:8] == recv_first_byte_out) ? 1'b0 : 1'b1;
