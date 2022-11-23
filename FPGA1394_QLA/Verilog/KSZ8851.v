@@ -307,12 +307,13 @@ localparam[4:0]
     ST_SEND_DMA_CONTROLWORD = 5'd16,
     ST_SEND_DMA_BYTECOUNT = 5'd17,
     ST_SEND_DMA_WAIT = 5'd18,
-    ST_SEND_TXQ_ENQUEUE = 5'd19,
-    ST_SEND_TXQ_ENQUEUE_WAIT = 5'd20,
-    ST_SEND_END = 5'd21,
+    ST_SEND_DMA_DWORD_PAD = 5'd19,
+    ST_SEND_TXQ_ENQUEUE = 5'd20,
+    ST_SEND_TXQ_ENQUEUE_WAIT = 5'd21,
+    ST_SEND_END = 5'd22,
     // KSZIO states
-    ST_WAVEFORM_ADDR = 5'd22,    // write the address to the KSZ8851
-    ST_WAVEFORM_DATA = 5'd23;    // read/write data from/to the KSZ8851
+    ST_WAVEFORM_ADDR = 5'd23,    // write the address to the KSZ8851
+    ST_WAVEFORM_DATA = 5'd24;    // read/write data from/to the KSZ8851
 
 // Current state
 reg[4:0] state = ST_RESET_ASSERT;
@@ -747,7 +748,17 @@ begin
 
    ST_SEND_DMA_WAIT:
    begin
-      nextState = sendBusy ? ST_SEND_DMA_WAIT : ST_RUN_PROGRAM_EXECUTE;
+      // The KSZ8851MLL Step-by-Step guide specifies that the TXQ must
+      // be DWORD (32-bit) aligned. In practice, this does not seem to
+      // be necessary, but we do it anyway to be safe.
+      nextState = sendBusy ? ST_SEND_DMA_WAIT :
+                  (responseByteCount[1]|responseByteCount[0]) ? ST_SEND_DMA_DWORD_PAD
+                           : ST_RUN_PROGRAM_EXECUTE;
+   end
+
+   ST_SEND_DMA_DWORD_PAD:
+   begin
+      nextState = sendTransition ? ST_RUN_PROGRAM_EXECUTE : ST_SEND_DMA_DWORD_PAD;
    end
 
    ST_SEND_TXQ_ENQUEUE_WAIT:
@@ -1219,11 +1230,26 @@ always @(posedge sysclk) begin
       sendCtrl <= {sendCtrl[1:0], sendCtrl[2] };
       SDRegDWR <= send_word;
       if (~sendBusy) begin
-         isDMAWrite <= 1'b0;
          waitInfo <= WAIT_NONE;
-         isForward <= 1'd0;
-         runPC <= ID_DISABLE_DMA;
+         if (~(responseByteCount[1]|responseByteCount[0])) begin
+             isDMAWrite <= 1'b0;
+             isForward <= 1'd0;
+             runPC <= ID_DISABLE_DMA;
+         end
       end
+   end
+
+   ST_SEND_DMA_DWORD_PAD:
+   begin
+      // The KSZ8851MLL Step-by-Step guide specifies that the TXQ must
+      // be DWORD (32-bit) aligned. In practice, this does not seem to
+      // be necessary, but we do it anyway to be safe.
+      // Left shift and rotate sendCtrl
+      sendCtrl <= {sendCtrl[1:0], sendCtrl[2] };
+      SDRegDWR <= 16'h0;
+      isDMAWrite <= 1'b0;
+      isForward <= 1'd0;
+      runPC <= ID_DISABLE_DMA;
    end
 
    ST_SEND_TXQ_ENQUEUE_WAIT:

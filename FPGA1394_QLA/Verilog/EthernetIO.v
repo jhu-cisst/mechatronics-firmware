@@ -1400,18 +1400,9 @@ begin
    begin
       icmp_read_en <= 0;
       sendAck <= 0;
-      // If an odd number of words, first send a dummy word (not sure if this is necessary).
-      if (txPktWords[0]) begin
-         send_word <= 16'd0;
-         // we are done
-         nextSendState <= ST_SEND_DMA_IDLE;
-      end
-      else begin
-         // Otherwise, go directly to IDLE state
-         sendBusy <= 0;
-         sendState <= ST_SEND_DMA_IDLE;
-         nextSendState <= ST_SEND_DMA_IDLE;
-      end
+      sendBusy <= 0;
+      sendState <= ST_SEND_DMA_IDLE;
+      nextSendState <= ST_SEND_DMA_IDLE;
    end
 
    default:
