@@ -257,8 +257,10 @@ reg  recv_wr_en;
 reg  recv_rd_en;
 wire recv_fifo_full;
 wire recv_fifo_empty;
+reg recv_fifo_error;       // First byte in recv_fifo not as expected
 reg[7:0]   recv_byte;
-reg[7:0]   recv_first_byte;
+reg[7:0]   recv_first_byte_in;
+reg[7:0]   recv_first_byte_out;
 wire[15:0] recv_fifo_dout;
 
 reg[2:0] recv_preamble_cnt;
@@ -310,7 +312,7 @@ assign recv_crc_error = (recv_crc_in != 32'h7bdd04c7) ? 1'b0 : 1'b1;
 // Whether current packet is valid (passed CRC check)
 reg curPacketValid;
 
-assign recv_info_din = { 5'd0, recv_crc_error, RxErr, recv_preamble_error, recv_first_byte, 4'd0, recv_nbytes };
+assign recv_info_din = { 5'd0, recv_crc_error, RxErr, recv_preamble_error, recv_first_byte_in, 4'd0, recv_nbytes };
 
 always @(posedge RxClk)
 begin
@@ -336,7 +338,7 @@ begin
         end
         else begin      // (rxState == ST_RX_RECV)
             if (recv_nbytes == 12'd0)
-                recv_first_byte <= RxD;
+                recv_first_byte_in <= RxD;
             recv_nbytes <= recv_nbytes + 12'd1;
             recv_wr_en <= ~recv_fifo_full;
             recv_crc_in <= recv_crc_8b;
@@ -386,13 +388,14 @@ end
 // implemented to interface to the 16-bit FIFO provided by the KSZ8851.
 // ----------------------------------------------------------------------------
 
-localparam[1:0]
-    ST_TX_IDLE = 2'd0,
-    ST_TX_PREAMBLE = 2'd1,
-    ST_TX_SEND = 2'd2,
-    ST_TX_CRC = 2'd3;
+localparam[2:0]
+    ST_TX_IDLE = 3'd0,
+    ST_TX_PREAMBLE = 3'd1,
+    ST_TX_SEND = 3'd2,
+    ST_TX_PADDING = 3'd3,
+    ST_TX_CRC = 3'd4;
 
-reg[1:0] txState;
+reg[2:0] txState;
 
 // crc registers
 wire[7:0] send_crc_data;    // data into crc module to compute crc on
@@ -410,17 +413,23 @@ crc32 send_crc(send_crc_data, send_crc_in, send_crc_2b, send_crc_4b, send_crc_8b
 
 reg[15:0] send_nbytes;  // Number of bytes to send (not including preamble or CRC), from send_info_fifo
 reg[15:0] send_cnt;     // Counts number of bytes sent (not including preamble or CRC)
+reg[5:0]  padding_cnt;  // Counter used to ensure minimum Ethernet frame size (64)
 reg[2:0]  tx_cnt;       // Counter used for preamble and crc
 
 reg tx_underflow;       // Attempt to read send_fifo when empty
 
 reg  send_fifo_reset;
-reg  send_wr_en;
+wire send_wr_en;
 reg  send_rd_en;
 wire send_fifo_full;
 wire send_fifo_empty;
+reg send_fifo_error;    // First byte in send_fifo not as expected
 wire[15:0] send_fifo_din;
 wire[7:0] send_fifo_dout;
+
+// Enable writes when EthernetIO is providing send_word (sendBusy) and we are one
+// clock after sendReady was asserted (i.e., when data is valid).
+assign send_wr_en = sendBusy&(~sendReady);
 
 assign send_fifo_din = {send_word[7:0], send_word[15:8]};
 
@@ -443,8 +452,10 @@ reg send_info_wr_en;
 reg send_info_rd_en;
 wire send_info_fifo_full;
 wire[31:0] send_info_dout;
+reg[7:0]   send_first_byte_in;   // for error checking
+reg[7:0]   send_first_byte_out;  // for error checking
 
-assign send_info_din = { 16'd0, responseByteCount };
+assign send_info_din = { 8'd0, send_first_byte_in, responseByteCount };
 
 fifo_32x32 send_info_fifo(
     .rst(send_fifo_reset),
@@ -470,7 +481,9 @@ begin
         TxEn <= 1'b0;
         if (~send_info_fifo_empty) begin
             send_info_rd_en <= 1'b1;
+            tx_underflow <= 1'b0;
             send_nbytes <= send_info_dout[15:0];
+            send_first_byte_out <= send_info_dout[23:16];
             txState <= ST_TX_PREAMBLE;
         end
     end
@@ -482,6 +495,7 @@ begin
         if (tx_cnt == 3'd7) begin
             txState <= ST_TX_SEND;
             send_crc_in <= 32'hffffffff;    // Initialize CRC
+            padding_cnt <= 6'd59;           // Minimum frame size is 64 (-4 for CRC)
             TxD <= 8'hd5;
         end
         else begin
@@ -492,36 +506,66 @@ begin
 
     ST_TX_SEND:
     begin
+        send_rd_en <= ~send_fifo_empty;
         if (send_fifo_empty) begin
             tx_underflow <= 1'b1;
             TxD <= 8'd0;
         end          
         else begin
-            send_rd_en <= 1'b1;
             TxD <= send_fifo_dout;
+            if (send_cnt == 16'd0) begin
+                send_fifo_error <= (send_first_byte_out == send_fifo_dout) ? 1'b0 : 1'b1;
+                // May not be easy to handle an error if it occurs
+            end
         end
         send_crc_in <= send_crc_8b;
-        if (send_cnt == send_nbytes) begin
+        if (send_cnt == (send_nbytes-16'd1)) begin
             tx_cnt <= 3'd0;
-            txState <= ST_TX_CRC;
+            txState <= (padding_cnt == 6'd0) ? ST_TX_CRC : ST_TX_PADDING;
         end
         else begin
             send_cnt <= send_cnt + 16'd1;
         end
+        if (padding_cnt != 6'd0) begin
+            padding_cnt <= padding_cnt - 6'd1;
+        end
+    end
+
+    ST_TX_PADDING:
+    begin
+        send_rd_en <= 1'b0;
+        TxD <= 8'd0;
+        padding_cnt <= padding_cnt - 6'd1;
+        if (padding_cnt == 6'd0)
+            txState <= ST_TX_CRC;
     end
 
     ST_TX_CRC:
     begin
-        send_rd_en <= 1'b0;
-        TxD <= send_crc_in[31:24];
-        if (tx_cnt == 3'd3) begin
-            txState <= ST_TX_IDLE;
+        if (send_nbytes[0] && (tx_cnt == 3'd0)) begin
+            // If the number of bytes is odd, we need to pop the last
+            // byte from the FIFO because the producer provides words.
+            send_rd_en <= 1'b1;
         end
         else begin
-            send_crc_in <= {send_crc_in[23:0], 8'd0};
+            send_rd_en <= 1'b0;
+        end
+        TxD <= send_crc_in[31:24];
+        send_crc_in <= {send_crc_in[23:0], send_crc_in[31:24]};
+        if (tx_cnt == 3'd3) begin
+            txState <= ST_TX_IDLE;
+            numTxSent <= numTxSent + 8'd1;
+        end
+        else begin
             tx_cnt <= tx_cnt + 3'd1;
         end
-   end
+    end
+
+    default:
+    begin
+        // Could set an error flag
+        txState <= ST_TX_IDLE;
+    end
 
    endcase
 end
@@ -556,6 +600,7 @@ reg[2:0] state;
 reg[15:0] numPacketValid;    // Number of valid Ethernet frames received
 reg[7:0]  numPacketInvalid;  // Number of invalid Ethernet frames received
 reg[7:0]  numPacketSent;     // Number of packets sent to host PC
+reg[7:0]  numTxSent;         // Number of packets sent to host PC
 `endif
 
 reg[11:0] last_sendCnt;
@@ -582,7 +627,6 @@ begin
         sendCnt <= 12'd0;
         isForward <= 0;
         sendReady <= 1'b0;
-        send_wr_en <= 1'b0;
         send_info_wr_en <= 1'b0;
         if (sendReq & (~send_fifo_full)) begin
             // forward packet from FireWire
@@ -592,6 +636,7 @@ begin
         end
         else if (~recv_info_fifo_empty) begin
             rxPktWords <= ((recv_info_dout[11:0]+12'd3)>>1)&12'hffe;
+            recv_first_byte_out <= recv_info_dout[23:16];
             recv_info_rd_en <= 1'b1;
             curPacketValid <= ~recv_info_dout[`RECV_CRC_ERROR_BIT];
             // Request EthernetIO to receive if CRC valid (flush if not valid).
@@ -626,6 +671,10 @@ begin
         dataValid <= recvReady;           // 1 clock after recvReady
         recvTransition <= dataValid;      // 1 clock after dataValid
         recv_rd_en <= dataValid;
+        if (dataValid && (recvCnt == 12'd0)) begin
+            recv_fifo_error <= (recv_fifo_dout[15:8] == recv_first_byte_out) ? 1'b0 : 1'b1;
+            // May not be easy to handle an error if it occurs
+        end
         if (recvTransition) begin
             if (recvCnt == rxPktWords) begin
                 sendRequest <= curPacketValid&responseRequired;
@@ -643,7 +692,6 @@ begin
         if (sendBusy) begin
             sendRequest <= 1'b0;
             sendReady <= 1'b1;
-            send_wr_en <= 1'b1;
             state <= ST_SEND;
         end
     end
@@ -651,16 +699,16 @@ begin
     ST_SEND:
     begin
         if (sendBusy) begin
-            sendCnt <= sendCnt + 12'd1;  // Essentially counts number of bytes
+            if (~sendReady) sendCnt <= sendCnt + 12'd2;  // Bytes
             sendReady <= ~sendReady;
-            send_wr_en <= ~sendReady;
+            if (sendCnt == 12'd0)
+                send_first_byte_in <= send_word[7:0];
         end
         else begin
             // All done
             // Compare sendCnt to responseByteCount
             last_sendCnt <= sendCnt;    // for debugging
             last_responseBC <= responseByteCount;  // for debugging
-            send_wr_en <= 1'b0;
             send_info_wr_en <= 1'b1;
 `ifdef HAS_DEBUG_DATA
             numPacketSent <= numPacketSent + 8'd1;
@@ -691,15 +739,15 @@ assign DebugData[0]  = "2GBD";  // DBG2 byte-swapped
 assign DebugData[1]  = { RxErr, recv_preamble_error, recv_fifo_reset, recv_fifo_full,      // 31:28
                          recv_fifo_empty, recv_info_fifo_empty, curPacketValid, 1'd0,      // 27:24
                          sendRequest, tx_underflow, send_fifo_full, send_fifo_empty,       // 23:20
-                         ~IRQn, 19'd0 };
-assign DebugData[2]  = { 6'd0, speed_mode, clock_speed, state, txState, rxState, 4'd0, rxPktWords };
-                       //          2,          2,         3,      2,       1,             12
+                         ~IRQn, recv_fifo_error, send_fifo_error, 17'd0 };
+assign DebugData[2]  = { 5'd0, speed_mode, clock_speed, state, txState, rxState, 4'd0, rxPktWords };
+                       //          2,          2,         3,      3,       1,             12
 assign DebugData[3]  = { numPacketSent, numPacketInvalid, numPacketValid };  // 8, 8, 16
 assign DebugData[4]  = recv_crc_in;
 //assign DebugData[5]  = { timeSend, timeReceive };
 assign DebugData[5]  = { 4'd0, last_sendCnt, 4'd0, last_responseBC };
-assign DebugData[6]  = 32'd0;
-assign DebugData[7]  = 32'd0;
+assign DebugData[6]  = { 8'd0, recv_first_byte_out, send_first_byte_out, numTxSent };
+assign DebugData[7]  = send_crc_in;
 `endif
 
 // Following data is accessible via block read from address `ADDR_ETH (0x4000),
