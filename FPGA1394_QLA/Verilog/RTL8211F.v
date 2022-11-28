@@ -92,6 +92,9 @@ assign RSTn = 1'b1;
 
 initial MDIO_T = 1'b1;
 
+// ----------------------------------------------------------------------------
+// MDIO (management) interface
+
 // State machine
 localparam[2:0]
     ST_MDIO_IDLE = 0,
@@ -216,6 +219,26 @@ begin
 end
 
 // ----------------------------------------------------------------------------
+// Ethernet low-level interface
+
+// Byte offsets into Ethernet frame (Begin is offset to first byte, End is offset to byte
+// after last byte)
+localparam[5:0]
+   OFF_Frame_Begin       = 0,                   // ********* FrameHeader [length=14] *********
+   OFF_Frame_Length      = OFF_Frame_Begin+12,  // EtherType/Length
+   OFF_Frame_End         = OFF_Frame_Begin+14,  // ******** End of Frame Header *************
+   OFF_IPv4_Begin        = OFF_Frame_End,       // ******* IPv4 Header (14) [length=20]  *****
+   OFF_IPv4_Protocol     = OFF_IPv4_Begin+9,    // Protocol (UDP=17, ICMP=1)
+   OFF_IPv4_Checksum     = OFF_IPv4_Begin+10,   // Header checksum
+   OFF_IPv4_End          = OFF_IPv4_Begin+20,   // ******** End of IPv4 Header **************
+   OFF_UDP_Begin         = OFF_IPv4_End,        // ******* UDP Header (34) [Length=8] *******
+   OFF_UDP_hostPort      = OFF_UDP_Begin,      // Source (host) port
+   OFF_UDP_destPort      = OFF_UDP_Begin+2,    // Destination (fpga) port
+   OFF_UDP_Length        = OFF_UDP_Begin+4,    // UDP Length
+   OFF_UDP_Checksum      = OFF_UDP_Begin+6,    // UDP Checksum
+   OFF_UDP_End           = OFF_UDP_Begin+8;    // ******** End of UDP Header **************
+
+// ----------------------------------------------------------------------------
 // Ethernet receive
 //
 // Receives bytes from the Ethernet PHY, via GMII interface. Since the RTL8211F
@@ -252,6 +275,9 @@ assign recv_crc_data = { RxD[0], RxD[1], RxD[2], RxD[3], RxD[4], RxD[5], RxD[6],
 // initialize, feed back, and latch crc values as necessary
 crc32 recv_crc(recv_crc_data, recv_crc_in, recv_crc_2b, recv_crc_4b, recv_crc_8b);
 
+reg[16:0] recv_ipv4_cksum;   // Used to verify IPv4 header checksum
+reg recv_ipv4_err;           // 1 -> IPv4 checksum error
+
 reg  recv_fifo_reset;
 reg  recv_wr_en;
 reg  recv_rd_en;
@@ -266,7 +292,15 @@ wire[15:0] recv_fifo_dout;
 reg[2:0] recv_preamble_cnt;
 reg      recv_preamble_error;
 
-reg[11:0] recv_nbytes;  // Number of bytes received (not including preamble)
+reg[11:0] recv_nbytes;    // Number of bytes received (not including preamble)
+
+// Ethernet frame length/type and IPv4 protocol are used to compute checksums.
+// This duplicates some code from EthernetIO.v, but the advantage is that we
+// can detect checksum errors before the packet is processed in EthernetIO.v.
+reg[15:0] recv_length;    // Ethernet frame length/type (0x0800 is IPv4)
+wire recv_ipv4;
+assign recv_ipv4 = (recv_length == 16'h0800) ? 1'b1 : 1'b0;
+reg       recv_udp;       // Indicates UDP protocol
 
 // Receive FIFO: 8 KByte (for now)
 // KSZ8851 has 12 KByte receive FIFO and 6 KByte transmit FIFO
@@ -337,8 +371,25 @@ begin
             end
         end
         else begin      // (rxState == ST_RX_RECV)
-            if (recv_nbytes == 12'd0)
+            if (recv_nbytes == OFF_Frame_Begin)
                 recv_first_byte_in <= RxD;
+            else if (recv_nbytes == OFF_Frame_Length)
+                recv_length[15:8] <= RxD;
+            else if (recv_nbytes == OFF_Frame_Length+1)
+                recv_length[7:0] <= RxD;
+            else if (recv_nbytes == OFF_IPv4_Protocol)
+                recv_udp <= (recv_ipv4 && (RxD == 8'd17)) ? 1'd1 : 1'd0;
+
+            // IPv4 header checksum. Note that the carry bit is added to the sum.
+            if (recv_nbytes == OFF_IPv4_Begin)
+                recv_ipv4_cksum <= {1'b0, RxD, 8'd0};
+            else if (recv_nbytes == OFF_IPv4_End)
+                recv_ipv4_err <= ((recv_ipv4_cksum == 17'h0ffff) || (recv_ipv4_cksum == 17'h1fffe)) ? 1'b0 : recv_ipv4;
+            else if (~recv_nbytes[0])
+                recv_ipv4_cksum <= {1'b0, recv_ipv4_cksum[15:0]} + {RxD, 7'd0, recv_ipv4_cksum[16]};
+            else
+                recv_ipv4_cksum <= recv_ipv4_cksum + { 9'd0, RxD };
+
             recv_nbytes <= recv_nbytes + 12'd1;
             recv_wr_en <= ~recv_fifo_full;
             recv_crc_in <= recv_crc_8b;
@@ -404,9 +455,6 @@ wire[31:0] send_crc_2b;     // current crc module output for data width 2 (not u
 wire[31:0] send_crc_4b;     // current crc module output for data width 4 (not used)
 wire[31:0] send_crc_8b;     // current crc module output for data width 8
 
-// Reverse bits when computing CRC
-assign send_crc_data = { TxD[0], TxD[1], TxD[2], TxD[3], TxD[4], TxD[5], TxD[6], TxD[7] };
-
 // This module computes crc continuously, so it is up to the state machine to
 // initialize, feed back, and latch crc values as necessary
 crc32 send_crc(send_crc_data, send_crc_in, send_crc_2b, send_crc_4b, send_crc_8b);
@@ -427,7 +475,11 @@ reg send_fifo_error;    // First byte in send_fifo not as expected
 wire[15:0] send_fifo_din;
 wire[7:0] send_fifo_dout;
 
-assign send_fifo_din = {send_word[7:0], send_word[15:8]};
+// Reverse bits for computing CRC
+wire[7:0] TxRev = { send_fifo_dout[0], send_fifo_dout[1], send_fifo_dout[2], send_fifo_dout[3],
+                    send_fifo_dout[4], send_fifo_dout[5], send_fifo_dout[6], send_fifo_dout[7] };
+
+assign send_crc_data = (txState == ST_TX_SEND) ? TxRev : 8'd0;
 
 // Send FIFO: 4 KByte (for now)
 // KSZ8851 has 6 KByte transmit FIFO
@@ -513,8 +565,8 @@ begin
                 send_fifo_error <= (send_first_byte_out == send_fifo_dout) ? 1'b0 : 1'b1;
                 // May not be easy to handle an error if it occurs
             end
+            send_crc_in <= send_crc_8b;
         end
-        send_crc_in <= send_crc_8b;
         if (send_cnt == (send_nbytes-16'd1)) begin
             send_rd_en <= 1'b0;
             tx_cnt <= 3'd0;
@@ -532,6 +584,7 @@ begin
     ST_TX_PADDING:
     begin
         TxD <= 8'd0;
+        send_crc_in <= send_crc_8b;
         padding_cnt <= padding_cnt - 6'd1;
         if (padding_cnt == 6'd0)
             txState <= ST_TX_CRC;
@@ -539,10 +592,10 @@ begin
 
     ST_TX_CRC:
     begin
-        if (send_nbytes[0] && (tx_cnt == 3'd0)) begin
+        if (tx_cnt == 3'd0) begin
             // If the number of bytes is odd, we need to pop the last
             // byte from the FIFO because the producer provides words.
-            send_rd_en <= 1'b1;
+            send_rd_en <= send_nbytes[0];
         end
         else begin
             send_rd_en <= 1'b0;
@@ -613,12 +666,17 @@ reg recvWait;
 assign recv_word = recv_fifo_dout;
 
 reg[11:0] sendCnt;     // Counts number of sent bytes
+reg send_ipv4;         // 1 -> IPv4 packet being sent
+
+assign send_fifo_din = {send_word[7:0], send_word[15:8]};
 
 // sendCtrl==100 when sending not active
 reg[2:0] sendCtrl = 3'b100;
 assign sendReady = sendCtrl[0];
 wire sendValid;
 assign sendValid = sendCtrl[1];
+wire sendIncr;
+assign sendIncr = sendCtrl[2];
 
 always @(posedge(clk))
 begin
@@ -696,7 +754,7 @@ begin
         // Wait for sendRequest to be acknowledged
         if (sendBusy) begin
             sendRequest <= 1'b0;
-            sendCtrl <= 3'b100;
+            sendCtrl <= 3'b001;
             state <= ST_SEND;
         end
     end
@@ -707,9 +765,13 @@ begin
             sendCtrl <= {sendCtrl[1:0], sendCtrl[2] };
             send_wr_en <= sendValid;  // could check if FIFO full
             if (sendValid) begin
-                sendCnt <= sendCnt + 12'd2;  // Bytes
-                if (sendCnt == 12'd0)
+                if (sendCnt == OFF_Frame_Begin)
                     send_first_byte_in <= send_word[7:0];
+                else if (sendCnt == OFF_Frame_Length)
+                    send_ipv4 <= (send_word == 16'h0008) ? 1'b1 : 1'b0;
+            end
+            else if (sendIncr) begin
+                sendCnt <= sendCnt + 12'd2;  // Bytes
             end
         end
         else begin
@@ -749,7 +811,8 @@ assign DebugData[0]  = "2GBD";  // DBG2 byte-swapped
 assign DebugData[1]  = { RxErr, recv_preamble_error, recv_fifo_reset, recv_fifo_full,      // 31:28
                          recv_fifo_empty, recv_info_fifo_empty, curPacketValid, 1'd0,      // 27:24
                          sendRequest, tx_underflow, send_fifo_full, send_fifo_empty,       // 23:20
-                         ~IRQn, recv_fifo_error, send_fifo_error, 17'd0 };
+                         ~IRQn, recv_fifo_error, send_fifo_error, recv_ipv4,               // 19:16
+                         recv_ipv4_err, recv_udp, send_ipv4, 13'd0 };
 assign DebugData[2]  = { 5'd0, speed_mode, clock_speed, state, txState, rxState, 4'd0, rxPktWords };
                        //          2,          2,         3,      3,       1,             12
 assign DebugData[3]  = { numPacketSent, numPacketInvalid, numPacketValid };  // 8, 8, 16

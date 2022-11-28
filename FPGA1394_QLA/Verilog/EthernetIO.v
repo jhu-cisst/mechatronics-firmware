@@ -37,7 +37,9 @@
 `define FW_BWRITE_SIZE  16'd24     // Firewire block write header and CRCs
 `define FW_BWRITE_HDR_SIZE 16'd20  // Firewire block write header size
 
-module EthernetIO(
+module EthernetIO
+    #(parameter IPv4_CSUM = 0)     // Set to 1 to generate IPv4 header checksum
+(
     // global clock
     input wire sysclk,
 
@@ -285,14 +287,14 @@ localparam[3:0]
    ID_Rep_IPv4_Length   = ID_Reply_Begin+6,  // IPv4 Flags (in case different)
    ID_Rep_IPv4_Flags    = ID_Reply_Begin+7,  // IPv4 Flags (in case different)
    ID_Rep_IPv4_Prot     = ID_Reply_Begin+8,  // IPv4 Protocol (UDP or ICMP)
-   ID_Rep_IPv4_Address0 = ID_Reply_Begin+9,  // Source (FPGA) IP address (MSW)
-   ID_Rep_IPv4_Address1 = ID_Reply_Begin+10, // Source (FPGA) IP address (LSW)
-   ID_Rep_UDP_fpgaPort  = ID_Reply_Begin+11, // UDP port on FPGA (1394)
-   ID_Rep_UDP_hostPort  = ID_Reply_Begin+12, // UDP port on host (ID_UDP_hostPort)
-   ID_Rep_UDP_Length    = ID_Reply_Begin+13, // UDP Reply Length
-   ID_Rep_ARP_Oper      = ID_Reply_Begin+14, // ARP reply operation = 2
-   ID_Rep_Unused        = ID_Reply_Begin+15, // unused
-   ID_Reply_End         = ID_Reply_Begin+15; // ******** End of all data (14) ***********
+   ID_Rep_IPv4_Csum     = ID_Reply_Begin+9,  // IPv4 Header checksum
+   ID_Rep_IPv4_Address0 = ID_Reply_Begin+10, // Source (FPGA) IP address (MSW)
+   ID_Rep_IPv4_Address1 = ID_Reply_Begin+11, // Source (FPGA) IP address (LSW)
+   ID_Rep_UDP_fpgaPort  = ID_Reply_Begin+12, // UDP port on FPGA (1394)
+   ID_Rep_UDP_hostPort  = ID_Reply_Begin+13, // UDP port on host (ID_UDP_hostPort)
+   ID_Rep_UDP_Length    = ID_Reply_Begin+14, // UDP Reply Length
+   ID_Rep_ARP_Oper      = ID_Reply_Begin+15, // ARP reply operation = 2
+   ID_Reply_End         = ID_Reply_Begin+15; // ******** End of all data (15) ***********
 
 reg[15:0] ReplyBuffer[0:15];
 
@@ -308,14 +310,40 @@ initial begin
    ReplyBuffer[ID_Rep_IPv4_Length]   = 16'd0;      // updated in ST_SEND_DMA_BYTECOUNT
    ReplyBuffer[ID_Rep_IPv4_Flags]    = {3'b010, 13'd0};  // 0x4000
    ReplyBuffer[ID_Rep_IPv4_Prot]     = {8'd64, 8'd17};   // TTL=64; Prot updated in ST_SEND_DMA_BYTECOUNT
+   ReplyBuffer[ID_Rep_IPv4_Csum]     = 16'd0;
    ReplyBuffer[ID_Rep_IPv4_Address0] = IP_UNASSIGNED[31:16];  // updated when IP address assigned
    ReplyBuffer[ID_Rep_IPv4_Address1] = IP_UNASSIGNED[15:0];   // updated when IP address assigned
    ReplyBuffer[ID_Rep_UDP_fpgaPort]  = 16'd1394;
    ReplyBuffer[ID_Rep_UDP_hostPort]  = 16'd0;      // Needs to be updated
    ReplyBuffer[ID_Rep_UDP_Length]    = 16'd0;      // updated in ST_SEND_DMA_BYTECOUNT
    ReplyBuffer[ID_Rep_ARP_Oper]      = 16'h0002;   // ARP Operation (OPER): 2 for reply
-   ReplyBuffer[ID_Rep_Unused]        = 16'd0;
 end
+
+wire[15:0] Rep_IPv4_Csum16;
+
+generate
+if (IPv4_CSUM) begin
+    wire[18:0] Rep_IPv4_Csum19;
+    assign Rep_IPv4_Csum19 = {3'd0, ReplyBuffer[ID_Rep_IPv4_Word0]} +
+                             {3'd0, ReplyBuffer[ID_Rep_IPv4_Length]} +
+                             {3'd0, ReplyBuffer[ID_Rep_IPv4_Flags]} +
+                             {3'd0, ReplyBuffer[ID_Rep_IPv4_Prot]} +
+                             {3'd0, ReplyBuffer[ID_Rep_IPv4_Address0]} +
+                             {3'd0, ReplyBuffer[ID_Rep_IPv4_Address1]} +
+                             {3'd0, PacketBuffer[ID_IPv4_hostIP0]} +
+                             {3'd0, PacketBuffer[ID_IPv4_hostIP1]};
+
+    // First part of IPv4 checksum carry
+    wire[16:0] Rep_IPv4_Csum17;
+    assign Rep_IPv4_Csum17 = { 1'd0, Rep_IPv4_Csum19[15:0]} + {14'd0, Rep_IPv4_Csum19[18:16]};
+
+    // Second part of IPv4 checksum carry, with ones complement of result
+    assign Rep_IPv4_Csum16 = ~(Rep_IPv4_Csum17[15:0] + {15'd0, Rep_IPv4_Csum17[16]});
+end
+else begin
+    assign Rep_IPv4_Csum16 = 16'd0;
+end
+endgenerate
 
 //************************** Ethernet Frame Header ********************************
 wire[15:0] Eth_EtherType;
@@ -481,7 +509,7 @@ initial begin
    ReplyIndex[IPv4_Reply_Begin+2]   = {isReply,  ID_Rep_Zero};       // Identification
    ReplyIndex[IPv4_Reply_Begin+3]   = {isReply,  ID_Rep_IPv4_Flags};
    ReplyIndex[IPv4_Reply_Begin+4]   = {isReply,  ID_Rep_IPv4_Prot};
-   ReplyIndex[IPv4_Reply_Begin+5]   = {isReply,  ID_Rep_Zero};       // Header checksum
+   ReplyIndex[IPv4_Reply_Begin+5]   = {isReply,  ID_Rep_IPv4_Csum};  // Header checksum
    ReplyIndex[IPv4_Reply_Begin+6]   = {isReply,  ID_Rep_IPv4_Address0};
    ReplyIndex[IPv4_Reply_Begin+7]   = {isReply,  ID_Rep_IPv4_Address1};
    ReplyIndex[IPv4_Reply_Begin+8]   = {isPacket, ID_IPv4_hostIP0};
@@ -1218,6 +1246,7 @@ begin
 
    ST_SEND_DMA_ETHERNET_HEADERS:
    begin
+      ReplyBuffer[ID_Rep_IPv4_Csum] <= Rep_IPv4_Csum16;
       if (sendTransition) replyCnt <= replyCnt + 6'd1;
       `send_word_swapped <= (ReplyIndex[replyCnt][5]==isPacket) ?
                              PacketBuffer[ReplyIndex[replyCnt][4:0]] :

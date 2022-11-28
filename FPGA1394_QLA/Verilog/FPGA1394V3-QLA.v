@@ -574,7 +574,7 @@ wire   ip_reg_wen;
 assign ip_reg_wen = (reg_waddr == {`ADDR_MAIN, 8'h0, `REG_IPADDR}) ? reg_wen : 1'b0;
 wire[31:0] ip_address;
 
-EthernetIO EthernetTransfers1(
+EthernetIO  #(.IPv4_CSUM(1)) EthernetTransfers1(
     .sysclk(sysclk),          // in: global clock
 
     .board_id(board_id),      // in: board id (rotary switch)
