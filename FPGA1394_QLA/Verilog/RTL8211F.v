@@ -39,7 +39,7 @@ module RTL8211F
     input  wire[31:0] reg_wdata,   // register write data 
     input  wire reg_wen,           // reg write enable
 
-    output wire RSTn,              // Reset to RTL8211F (active low)
+    output reg RSTn,               // Reset to RTL8211F (active low)
     input wire IRQn,               // Interrupt from RTL8211F (active low), FPGA V3.1+
 
     // MDIO signals
@@ -88,7 +88,7 @@ module RTL8211F
     input wire useUDP                 // Whether EthernetIO is using UDP
 );
 
-assign RSTn = 1'b1;
+initial RSTn = 1'b1;
 
 initial MDIO_T = 1'b1;
 
@@ -600,7 +600,9 @@ begin
         else begin
             send_rd_en <= 1'b0;
         end
-        TxD <= send_crc_in[31:24];
+        // Need to bit-reverse CRC when sending
+        TxD <= ~{send_crc_in[24], send_crc_in[25], send_crc_in[26], send_crc_in[27],
+                 send_crc_in[28], send_crc_in[29], send_crc_in[30], send_crc_in[31]};
         send_crc_in <= {send_crc_in[23:0], send_crc_in[31:24]};
         if (tx_cnt == 3'd3) begin
             txState <= ST_TX_IDLE;
@@ -846,14 +848,20 @@ assign reg_rdata = (reg_raddr[7:4] == 4'h9) ? "0GBD" :
 // For debugging
 always @(posedge(clk))
 begin
-    // Reset the FIFOs by writing to 4xa1, where x is channel number
+    // RTL8211F Control Register, address = 4xa1, where x is channel number
+    // All bits are active high
+    //    Bit 0 --> PHY reset (must be at least 10 ms)
+    //    Bit 1 --> recv_fifo_reset
+    //    Bit 2 --> send_fifo_reset
     if (reg_wen && (reg_waddr[3:0] == 4'd1)) begin
-       recv_fifo_reset <= 1'b1;
-       send_fifo_reset <= 1'b1;
+        RSTn <= ~reg_wdata[0];
+        recv_fifo_reset <= reg_wdata[1];
+        send_fifo_reset <= reg_wdata[2];
     end
     else begin
-       recv_fifo_reset <= 1'b0;
-       send_fifo_reset <= 1'b0;
+        // Automatically clear FIFO resets (may remove this in future)
+        recv_fifo_reset <= 1'b0;
+        send_fifo_reset <= 1'b0;
     end
 end
 
