@@ -464,6 +464,7 @@ wire useUDP;                    // Whether EthernetIO is using UDP
 
 RTL8211F #(.CHANNEL(4'd1)) EthPhy1(
     .clk(sysclk),             // in:  global clock
+    .board_id(board_id),      // in:  board id
 
     .reg_raddr(reg_raddr),    // in:  read address
     .reg_waddr(reg_waddr),    // in:  write address
@@ -523,6 +524,7 @@ RTL8211F #(.CHANNEL(4'd1)) EthPhy1(
 
 RTL8211F #(.CHANNEL(4'd2)) EthPhy2(
     .clk(sysclk),             // in:  global clock
+    .board_id(board_id),      // in:  board id
 
     .reg_raddr(reg_raddr),    // in:  read address
     .reg_waddr(reg_waddr),    // in:  write address

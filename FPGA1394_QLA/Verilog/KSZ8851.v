@@ -522,7 +522,7 @@ initial begin
     // Enable UDP checksums; pass packets with 0 checksum
     RunProgram[9] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_RXCR2, 16'h001C};
     // Following are hard-coded values for which hash register to use and which bit to set
-    // for multicast address FB:61:0E:13:19:FF. This is obtained by computing the CRC for
+    // for multicast address FB:61:0E:13:94:FF. This is obtained by computing the CRC for
     // this MAC address and then using the first two (most significant) bits to determine
     // the register and the next four bits to determine which bit to set.
     // See code in mainEth1394.cpp.
