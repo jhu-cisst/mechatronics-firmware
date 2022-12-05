@@ -42,6 +42,7 @@ module RTL8211F
 
     output reg RSTn,               // Reset to RTL8211F (active low)
     input wire IRQn,               // Interrupt from RTL8211F (active low), FPGA V3.1+
+    output reg resetActive,        // Indicates that reset is active
 
     // MDIO signals
     // When connecting directly to PHY, only need MDIO (inout) and
@@ -69,7 +70,6 @@ module RTL8211F
     input wire sendReq,              // Send request from FireWire
 
     // Interface to EthernetIO
-    output reg resetActive,           // Indicates that reset is active
     output reg isForward,             // Indicates that FireWire receiver is forwarding to Ethernet
     input wire responseRequired,      // Indicates that the received packet requires a response
     input wire[15:0] responseByteCount,   // Number of bytes in required response
@@ -86,7 +86,8 @@ module RTL8211F
     // Feedback bits
     input wire bw_active,             // Indicates that block write module is active
     output wire ethInternalError,     // Error summary bit to EthernetIO
-    input wire useUDP                 // Whether EthernetIO is using UDP
+    input wire useUDP,                // Whether EthernetIO is using UDP
+    output wire[11:0] eth_status      // Ethernet status bits
 );
 
 initial RSTn = 1'b1;
@@ -130,6 +131,15 @@ assign MDC = cnt[3];     // MDC toggles every 8 clocks (160 ns)
 `define WRITE_SETUP  3
 `define READ_READY   6   // Wrap-around from 7 to 6 (15 counts)
 
+reg mdioRequest;         // 1 -> Request MDIO transaction (write_data was set)
+wire mdioBusy;           // 1 -> MDIO busy processing request
+assign mdioBusy = (mdioState == ST_MDIO_IDLE) ? 1'b0 : 1'b1;
+
+// For MDIO requests from PC
+reg mdioRequest_pending;
+reg[31:0] write_data_pending;
+reg[31:0] mdio_result;
+
 // Following is the 32-bits of data written to the RTL8211F after the preamble.
 // Note that for a read command, the last 18 bits (TA + DATA) are ignored and
 // handled in separate states (ST_MDIO_READ_TA and ST_MDIO_READ_DATA).
@@ -167,8 +177,8 @@ begin
         begin
             MDIO_T <= 1'b1;
             cnt <= 9'd0;
-            if (reg_wen && (reg_waddr[3:0] == 4'd0)) begin
-                write_data <= reg_wdata;
+            if (mdioRequest) begin
+                // write_data already set by caller
                 MDIO_T <= 1'b0;
                 MDIO_O <= 1'b1;
                 mdioState <= ST_MDIO_WRITE_PREAMBLE;
@@ -750,21 +760,112 @@ end
 // legacy from the KSZ8851 interface used for FPGA V2.
 // ----------------------------------------------------------------------------
 
-localparam[2:0]
-    ST_IDLE = 3'd0,
-    ST_RECEIVE_WAIT = 3'd1,
-    ST_RECEIVE = 3'd2,
-    ST_SEND_WAIT = 3'd3,
-    ST_SEND = 3'd4;
+localparam[3:0]
+    ST_IDLE = 4'd0,
+    ST_RESET_ASSERT = 4'd1,         // assert reset (low) -- 10 msec
+    ST_RESET_WAIT = 4'd2,           // wait after bringing reset high -- 50 msec
+    ST_RUN_PROGRAM_EXECUTE = 4'd3,
+    ST_WAIT_MDIO_RESULT = 4'd4,
+    ST_INIT_CHECK_CHIPID1 = 4'd5,
+    ST_INIT_CHECK_CHIPID2 = 4'd6,
+    ST_SET_GMII_SPEED = 4'd7,
+    ST_RECEIVE_WAIT = 4'd8,
+    ST_RECEIVE = 4'd9,
+    ST_SEND_WAIT = 4'd10,
+    ST_SEND = 4'd11;
 
-reg[2:0] state;
+reg[3:0] state = ST_RESET_ASSERT;
+
+localparam[4:0]
+        ADDR_BMCR = 5'd0,       // Basic Mode Control Register, page 0
+        ADDR_PHYID1 = 5'd2,     // PHY Identifier Register 1, page 0
+        ADDR_PHYID2 = 5'd3,     // PHY Identifier Register 2, page 0
+        ADDR_INER = 5'd18,      // Interrupt Enable Register, page 0xa42
+        ADDR_PHYSR = 5'd26,     // PHY Specific Status Register, page 0xa43
+        ADDR_INSR = 5'd29,      // Interrupt Status Register, page 0xa43
+        ADDR_PAGSR = 5'd31;     // Page Select Register, 0xa43
+
+// Speed bits in BMCR (and GMII control register)
+`define SPEED_LSB 13
+`define SPEED_MSB  6
+
+//***************************************************************************************
+// Microcode for RTL8211F register access
+//
+// A simple microcode is defined to streamline access to the RTL8211F registers.
+//
+// The instruction length is 27 bits, defined as follows:
+// | R/W (1) | Phy (5) | Reg (5) | Data (16) |
+// |    26   |  25:21  |  20:16  |   15:0    |
+//
+// Bit 26      Write (0) or Read (1)
+// Bits 25:21  PHY address (00001 for RTL8211F, 01000 for RGMII-to-GMII)
+// Bits 20:16  Address of register to read or write
+// Bits 15:0   Data to write to register; for Read commands, the 4 LSB indicate
+//             the next state
+
+`define READ_BIT 26
+`define PHY_BITS 25:21
+`define REG_BITS 20:16
+`define PHY_REG_BITS 25:16
+`define DATA_BITS 15:0
+`define NEXT_BITS 3:0
+
+localparam CMD_WRITE = 1'b0,        // Write to register
+           CMD_READ  = 1'b1;        // Read from register
+
+localparam[4:0] PHY_RTL  = 5'd1,    // PHY address for RTL8211F
+                PHY_GMII = 5'd8;    // PHY address for GMII core
+
+// Program for initialization (0-9) and IRQ handler (4-9)
+reg[26:0] RunProgram[0:9];
+reg[3:0] runPC;    // Program counter for RunProgram
+
+localparam[3:0] PC_RESET_BEGIN = 4'd0,   // Program counter for starting reset handler
+                PC_IRQ_BEGIN = 4'd4,     // Program counter for starting IRQ handler
+                PC_END = 4'd9;           // End (also used for MDIO requests from PC)
+
+initial begin
+    // Read Chip ID1 (should be 001c)
+    RunProgram[0] = {CMD_READ,  PHY_RTL, ADDR_PHYID1, 12'd0, ST_INIT_CHECK_CHIPID1};
+    // Read Chip ID2 (should be c916)
+    RunProgram[1] = {CMD_READ,  PHY_RTL, ADDR_PHYID2, 12'd0, ST_INIT_CHECK_CHIPID2};
+    // Change page to 0xa42 to access INER
+    RunProgram[2] = {CMD_WRITE, PHY_RTL, ADDR_PAGSR, 16'h0a42};
+    // Enable link change interrupt
+    RunProgram[3] = {CMD_WRITE, PHY_RTL, ADDR_INER, 16'h0010};
+    // Change page to 0xa43 to access INSR
+    RunProgram[4] = {CMD_WRITE, PHY_RTL, ADDR_PAGSR, 16'h0a43};
+    // Read interrupt status register (clears interrupt)
+    RunProgram[5] = {CMD_READ,  PHY_RTL, ADDR_INSR, 12'd0, ST_RUN_PROGRAM_EXECUTE};
+    // Change page to 0 to access BMCR (might not be necessary)
+    RunProgram[6] = {CMD_WRITE, PHY_RTL, ADDR_PAGSR, 16'd0};
+    // Read BMCR to get speed bits, which are used to update RunProgram[8]
+    RunProgram[7] = {CMD_READ,  PHY_RTL, ADDR_BMCR, 12'd0, ST_SET_GMII_SPEED};
+    // Write speed bits to GMII core register 16 (ST_SET_GMII_SPEED updates the data field)
+    RunProgram[8] = {CMD_WRITE, PHY_GMII, 5'd16, 16'd0};
+    // Change page to 0xa42 since that is the default page (probably not necessary)
+    RunProgram[9] = {CMD_WRITE, PHY_RTL, ADDR_PAGSR, 16'h0a42};
+end
 
 `ifdef HAS_DEBUG_DATA
 reg[15:0] numPacketValid;    // Number of valid Ethernet frames received
 reg[7:0]  numPacketFlushed;  // Number of received Ethernet frames flushed
 reg[7:0]  numPacketSent;     // Number of packets sent to host PC
 reg[7:0]  numTxSent;         // Number of packets sent to host PC
+reg[15:0] debug_PhyId1;
+reg[15:0] debug_PhyId2;
 `endif
+
+reg[20:0] initCount;
+reg initOK;                  // 1 -> Initialization successful
+reg resetRequest;            // 1 -> Request PHY reset
+reg[7:0] numReset;           // Number of times reset called
+
+reg hasIRQ;                  // 1 -> PHY IRQn available (FPGA V3.1+)
+reg IRQn_latched;            // 1 -> IRQn synchronized with sysclk
+reg IRQn_disable;            // 1 -> disable handling of IRQn
+reg IRQ_sw;                  // 1 -> software-generated IRQ (active high)
 
 reg[11:0] last_sendCnt;
 reg[11:0] last_responseBC;
@@ -794,15 +895,56 @@ assign sendIncr = sendCtrl[2];
 always @(posedge(clk))
 begin
 
+    // Synchronize IRQn with clk
+    IRQn_latched <= IRQn;
+
+    // Request write to RTL8211F register via MDIO, address = 4xa0,
+    // where x is channel number.
+    // Store it as pending and handle it when in IDLE state.
+    if (reg_wen && (reg_waddr[3:0] == 4'd0)) begin
+        write_data_pending <= reg_wdata;
+        mdioRequest_pending <= 1;
+    end
+
+    // RTL8211F Control Register, address = 4xa1, where x is channel number
+    // All bits are active high
+    //    Bit 0 --> PHY reset request (ignored if already in reset)
+    //    Bit 1 --> Disable PHY IRQn
+    //    Bit 2 --> Generate software IRQ
+    //    Bit 3 --> recv_fifo_reset
+    //    Bit 4 --> send_fifo_reset
+    if (reg_wen && (reg_waddr[3:0] == 4'd1)) begin
+        resetRequest <= reg_wdata[0]&RSTn;
+        IRQn_disable <= reg_wdata[1];
+        IRQ_sw <= reg_wdata[2];
+        //recv_fifo_reset <= reg_wdata[3];
+        send_fifo_reset <= reg_wdata[4];
+    end
+    else begin
+        // Automatically clear FIFO resets (may remove this in future)
+        //recv_fifo_reset <= 1'b0;
+        send_fifo_reset <= 1'b0;
+    end
+
     case (state)
 
     ST_IDLE:
     begin
+        initCount <= 21'd0;
         recvCnt <= 12'd0;
         sendCnt <= 12'd0;
         isForward <= 0;
         send_info_wr_en <= 1'b0;
-        if (sendReq & (~send_fifo_full)) begin
+        if (resetRequest) begin
+            state <= ST_RESET_ASSERT;
+        end
+        else if (((~IRQn_latched)&(~IRQn_disable)) | IRQ_sw) begin
+            // Link change interrupt: clear interrupt,then read speed bits from
+            // RTL8211F BMCR register and write them to GMII control register.
+            state <= ST_RUN_PROGRAM_EXECUTE;
+            runPC <= PC_IRQ_BEGIN;
+        end
+        else if (sendReq & (~send_fifo_full)) begin
             // forward packet from FireWire
             isForward <= 1;
             sendRequest <= 1;
@@ -828,7 +970,103 @@ begin
                 numPacketValid <= numPacketValid + 16'd1;
 `endif
         end
+        else if (mdioRequest_pending) begin
+            write_data <= write_data_pending;
+            mdioRequest <= 1'b1;
+            state <= ST_WAIT_MDIO_RESULT;
+            runPC <= PC_END;
+        end
     end
+
+    //******************* RESET STATES ***********************
+    ST_RESET_ASSERT:
+    begin
+        // 10 ms (49.152 MHz sysclk)
+        if (initCount == 21'd491520) begin  // 10 ms (49.152 MHz sysclk)
+            state <= ST_RESET_WAIT;
+            RSTn <= 1;   // Remove the reset
+            resetRequest <= 1'b0;
+            numReset <= numReset + 8'd1;
+        end
+        else begin
+            RSTn <= 0;
+            initOK <= 0;
+            resetActive <= 1;
+            initCount <= initCount + 21'd1;
+        end
+    end
+
+    ST_RESET_WAIT:
+    begin
+        if (initCount == 21'h1FFFFF) begin
+            hasIRQ <= ~IRQn_latched;
+            resetActive <= 0;
+            state <= ST_RUN_PROGRAM_EXECUTE;
+            runPC <= PC_RESET_BEGIN;
+        end
+        else begin
+            initCount <= initCount + 21'd1;
+        end
+    end
+
+    ST_RUN_PROGRAM_EXECUTE:
+    begin
+        write_data <= { 2'b01, RunProgram[runPC][`READ_BIT], ~RunProgram[runPC][`READ_BIT],
+                        RunProgram[runPC][`PHY_REG_BITS], 2'b10,
+                        RunProgram[runPC][`DATA_BITS] };
+        mdioRequest <= 1'b1;
+        state <= ST_WAIT_MDIO_RESULT;
+    end
+
+    ST_WAIT_MDIO_RESULT:
+    begin
+        if (mdioRequest&mdioBusy) begin
+            mdioRequest <= 1'b0;
+        end
+        else if (~(mdioRequest|mdioBusy)) begin
+            if (runPC == PC_END) begin
+                state <= ST_IDLE;
+                if (mdioRequest_pending) begin
+                    mdio_result <= { 5'd0, mdioState, 3'd0, read_reg_addr, read_data};
+                end
+                mdioRequest_pending <= 1'b0;
+                IRQ_sw <= 1'b0;
+            end
+            else begin
+                state <= RunProgram[runPC][`READ_BIT] ? RunProgram[runPC][`NEXT_BITS]
+                         : ST_RUN_PROGRAM_EXECUTE;
+                runPC <= runPC + 4'd1;
+            end
+        end
+    end
+
+    ST_INIT_CHECK_CHIPID1:
+    begin
+        // ChipID1 should be 001c; if not, go to IDLE
+        state <= (read_data == 16'h001c) ? ST_RUN_PROGRAM_EXECUTE : ST_IDLE;
+`ifdef HAS_DEBUG_DATA
+        debug_PhyId1 <= read_data;
+`endif
+    end
+
+    ST_INIT_CHECK_CHIPID2:
+    begin
+        // ChipID2 should be c916; if not, go to IDLE
+        state <= (read_data == 16'hc916) ? ST_RUN_PROGRAM_EXECUTE : ST_IDLE;
+        initOK <= (read_data == 16'hc916) ? 1'b1 : 1'b0;
+`ifdef HAS_DEBUG_DATA
+        debug_PhyId2 <= read_data;
+`endif
+    end
+
+    ST_SET_GMII_SPEED:
+    begin
+        RunProgram[runPC][`SPEED_LSB] <= read_data[`SPEED_LSB];
+        RunProgram[runPC][`SPEED_MSB] <= read_data[`SPEED_MSB];
+        state <= ST_RUN_PROGRAM_EXECUTE;
+    end
+
+    //******************* RECEIVE STATES ***********************
 
     ST_RECEIVE_WAIT:
     begin
@@ -864,6 +1102,8 @@ begin
             end
         end
     end
+
+    //******************* SEND STATES ***********************
 
     ST_SEND_WAIT:
     begin
@@ -917,27 +1157,33 @@ end
 // Error bit provided to EthernetIO (reported back to PC in ExtraData)
 assign ethInternalError = RxErr|recv_preamble_error;
 
+// Ethernet status bits for this port
+assign eth_status = { initOK, hasIRQ, 10'd0 };
+
 // -----------------------------------------------
 // Debug data
 // -----------------------------------------------
 
 `ifdef HAS_DEBUG_DATA
-wire[31:0] DebugData[0:7];
+wire[31:0] DebugData[0:9];
 assign DebugData[0]  = "2GBD";  // DBG2 byte-swapped
 assign DebugData[1]  = { RxErr, recv_preamble_error, recv_fifo_reset, recv_fifo_full,      // 31:28
                          recv_fifo_empty, recv_info_fifo_empty, curPacketValid, 1'd0,      // 27:24
                          sendRequest, tx_underflow, send_fifo_full, send_fifo_empty,       // 23:20
-                         ~IRQn, recv_fifo_error, send_fifo_error, recv_ipv4,               // 19:16
-                         recv_ipv4_err, recv_udp, send_ipv4, 1'b0,                         // 15:12
-                         isUnicast, isMulticast, isBroadcast, 9'd0 };
-assign DebugData[2]  = { 5'd0, speed_mode, clock_speed, state, txState, rxState, 4'd0, rxPktWords };
-                       //          2,          2,         3,      3,       1,             12
+                         ~IRQn_latched, recv_fifo_error, send_fifo_error, recv_ipv4,       // 19:16
+                         recv_ipv4_err, recv_udp, send_ipv4, hasIRQ,                       // 15:12
+                         isUnicast, isMulticast, isBroadcast, initOK,                      // 11:8
+                         8'd0 };
+assign DebugData[2]  = { 4'd0, speed_mode, clock_speed, state, txState, rxState, 4'd0, rxPktWords };
+                       //          2,          2,         4,      3,       1,             12
 assign DebugData[3]  = { numPacketSent, numPacketFlushed, numPacketValid };  // 8, 8, 16
 assign DebugData[4]  = recv_crc_in;
 //assign DebugData[5]  = { timeSend, timeReceive };
 assign DebugData[5]  = { 4'd0, last_sendCnt, 4'd0, last_responseBC };
 assign DebugData[6]  = { numRxDropped, recv_first_byte_out, send_first_byte_out, numTxSent };
 assign DebugData[7]  = send_crc_in;
+assign DebugData[8]  = { 24'd0, numReset };
+assign DebugData[9]  = { debug_PhyId2, debug_PhyId1 };
 `endif
 
 // Following data is accessible via block read from address `ADDR_ETH (0x4000),
@@ -953,31 +1199,10 @@ assign DebugData[7]  = send_crc_in;
 //    4xe0 - 4xff (32 quadlets)  ReplyIndex (64 words)
 
 `ifdef HAS_DEBUG_DATA
-assign reg_rdata = (reg_raddr[7:4] == 4'h9) ? DebugData[reg_raddr[2:0]] :   // Note [2:0] instead of [3:0]
+assign reg_rdata = (reg_raddr[7:4] == 4'h9) ? DebugData[reg_raddr[3:0]] :   // Note [2:0] instead of [3:0]
 `else
 assign reg_rdata = (reg_raddr[7:4] == 4'h9) ? "0GBD" :
 `endif
-                   (reg_raddr[7:0] == 8'ha0) ? { 5'd0, mdioState, 3'd0, read_reg_addr, read_data} :
-                   32'd0;
-
-// For debugging
-always @(posedge(clk))
-begin
-    // RTL8211F Control Register, address = 4xa1, where x is channel number
-    // All bits are active high
-    //    Bit 0 --> PHY reset (must be at least 10 ms)
-    //    Bit 1 --> recv_fifo_reset
-    //    Bit 2 --> send_fifo_reset
-    if (reg_wen && (reg_waddr[3:0] == 4'd1)) begin
-        RSTn <= ~reg_wdata[0];
-        //recv_fifo_reset <= reg_wdata[1];
-        send_fifo_reset <= reg_wdata[2];
-    end
-    else begin
-        // Automatically clear FIFO resets (may remove this in future)
-        //recv_fifo_reset <= 1'b0;
-        send_fifo_reset <= 1'b0;
-    end
-end
+                   (reg_raddr[7:0] == 8'ha0) ? mdio_result : 32'd0;
 
 endmodule
