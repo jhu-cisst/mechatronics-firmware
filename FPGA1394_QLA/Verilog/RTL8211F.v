@@ -583,6 +583,7 @@ reg[15:0] send_cnt;     // Counts number of bytes sent (not including preamble o
 reg[5:0]  padding_cnt;  // Counter used to ensure minimum Ethernet frame size (64)
 reg[2:0]  tx_cnt;       // Counter used for preamble and crc
 
+reg txStateError;       // Invalid state
 reg tx_underflow;       // Attempt to read send_fifo when empty
 
 reg  send_fifo_reset;
@@ -646,7 +647,10 @@ begin
         tx_cnt <= 3'd0;
         send_rd_en <= 1'b0;
         TxEn <= 1'b0;
-        if (~send_info_fifo_empty) begin
+        if (resetActive) begin
+            txStateError <= 1'b0;
+        end
+        else if (~send_info_fifo_empty) begin
             send_info_rd_en <= 1'b1;
             tx_underflow <= 1'b0;
             send_nbytes <= send_info_dout[15:0];
@@ -736,7 +740,7 @@ begin
 
     default:
     begin
-        // Could set an error flag
+        txStateError <= 1'b1;
         txState <= ST_TX_IDLE;
     end
 
@@ -763,7 +767,7 @@ end
 localparam[3:0]
     ST_IDLE = 4'd0,
     ST_RESET_ASSERT = 4'd1,         // assert reset (low) -- 10 msec
-    ST_RESET_WAIT = 4'd2,           // wait after bringing reset high -- 50 msec
+    ST_RESET_WAIT = 4'd2,           // wait after bringing reset high -- at least 50 msec
     ST_RUN_PROGRAM_EXECUTE = 4'd3,
     ST_WAIT_MDIO_RESULT = 4'd4,
     ST_INIT_CHECK_CHIPID1 = 4'd5,
@@ -855,12 +859,14 @@ reg[7:0]  numPacketSent;     // Number of packets sent to host PC
 reg[7:0]  numTxSent;         // Number of packets sent to host PC
 reg[15:0] debug_PhyId1;
 reg[15:0] debug_PhyId2;
+reg[23:0] debug_initCount;
 `endif
 
-reg[20:0] initCount;
+reg[23:0] initCount;
 reg initOK;                  // 1 -> Initialization successful
 reg resetRequest;            // 1 -> Request PHY reset
 reg[7:0] numReset;           // Number of times reset called
+reg[7:0] numIRQ;             // Number of times IRQ handler called
 
 reg hasIRQ;                  // 1 -> PHY IRQn available (FPGA V3.1+)
 reg IRQn_latched;            // 1 -> IRQn synchronized with sysclk
@@ -930,7 +936,7 @@ begin
 
     ST_IDLE:
     begin
-        initCount <= 21'd0;
+        initCount <= 24'd0;
         recvCnt <= 12'd0;
         sendCnt <= 12'd0;
         isForward <= 0;
@@ -943,6 +949,7 @@ begin
             // RTL8211F BMCR register and write them to GMII control register.
             state <= ST_RUN_PROGRAM_EXECUTE;
             runPC <= PC_IRQ_BEGIN;
+            numIRQ <= numIRQ + 8'd1;
         end
         else if (sendReq & (~send_fifo_full)) begin
             // forward packet from FireWire
@@ -982,7 +989,7 @@ begin
     ST_RESET_ASSERT:
     begin
         // 10 ms (49.152 MHz sysclk)
-        if (initCount == 21'd491520) begin  // 10 ms (49.152 MHz sysclk)
+        if (initCount == 24'd491520) begin  // 10 ms (49.152 MHz sysclk)
             state <= ST_RESET_WAIT;
             RSTn <= 1;   // Remove the reset
             resetRequest <= 1'b0;
@@ -992,14 +999,20 @@ begin
             RSTn <= 0;
             initOK <= 0;
             resetActive <= 1;
-            initCount <= initCount + 21'd1;
+            initCount <= initCount + 24'd1;
         end
     end
 
     ST_RESET_WAIT:
     begin
-        if (initCount == 21'h1FFFFF) begin
+        // Wait until IRQn is asserted (low). Experimentally, this
+        // seems to take about 160 ms, so we have a timeout at
+        // 0xFFFFFF (340 msec).
+        if ((initCount == 24'hFFFFFF) || (~IRQn_latched)) begin
             hasIRQ <= ~IRQn_latched;
+`ifdef HAS_DEBUG_DATA
+            debug_initCount <= initCount;
+`endif
             resetActive <= 0;
             state <= ST_RUN_PROGRAM_EXECUTE;
             runPC <= PC_RESET_BEGIN;
@@ -1165,7 +1178,7 @@ assign eth_status = { initOK, hasIRQ, 10'd0 };
 // -----------------------------------------------
 
 `ifdef HAS_DEBUG_DATA
-wire[31:0] DebugData[0:9];
+wire[31:0] DebugData[0:10];
 assign DebugData[0]  = "2GBD";  // DBG2 byte-swapped
 assign DebugData[1]  = { RxErr, recv_preamble_error, recv_fifo_reset, recv_fifo_full,      // 31:28
                          recv_fifo_empty, recv_info_fifo_empty, curPacketValid, 1'd0,      // 27:24
@@ -1173,7 +1186,7 @@ assign DebugData[1]  = { RxErr, recv_preamble_error, recv_fifo_reset, recv_fifo_
                          ~IRQn_latched, recv_fifo_error, send_fifo_error, recv_ipv4,       // 19:16
                          recv_ipv4_err, recv_udp, send_ipv4, hasIRQ,                       // 15:12
                          isUnicast, isMulticast, isBroadcast, initOK,                      // 11:8
-                         8'd0 };
+                         txStateError, 7'd0 };
 assign DebugData[2]  = { 4'd0, speed_mode, clock_speed, state, txState, rxState, 4'd0, rxPktWords };
                        //          2,          2,         4,      3,       1,             12
 assign DebugData[3]  = { numPacketSent, numPacketFlushed, numPacketValid };  // 8, 8, 16
@@ -1182,8 +1195,9 @@ assign DebugData[4]  = recv_crc_in;
 assign DebugData[5]  = { 4'd0, last_sendCnt, 4'd0, last_responseBC };
 assign DebugData[6]  = { numRxDropped, recv_first_byte_out, send_first_byte_out, numTxSent };
 assign DebugData[7]  = send_crc_in;
-assign DebugData[8]  = { 24'd0, numReset };
+assign DebugData[8]  = { 8'd0, numIRQ, 8'd0, numReset };
 assign DebugData[9]  = { debug_PhyId2, debug_PhyId1 };
+assign DebugData[10]  = { 8'd0, debug_initCount };
 `endif
 
 // Following data is accessible via block read from address `ADDR_ETH (0x4000),
