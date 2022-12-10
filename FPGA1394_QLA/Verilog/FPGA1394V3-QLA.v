@@ -249,12 +249,6 @@ assign reg_rd[`OFF_UNUSED_15] = 32'd0;
 // 1394 phy low reset, never reset
 assign reset_phy = 1'b1; 
 
-// Extra IO from FPGA V3.1, not used for QLA
-// IO1[0] is used for LED in FPGA V3.0
-assign IO1[33] = 1'bz;
-assign IO2[0] = 1'bz;
-assign IO2[39] = 1'bz;
-
 // --------------------------------------------------------------------------
 // hub register module
 // --------------------------------------------------------------------------
@@ -394,6 +388,17 @@ wire[31:0] Eth_Result;
 wire[11:0] e1_status;   // Status bits for Ethernet port 1
 wire[11:0] e2_status;   // Status bits for Ethernet port 2
 assign  Eth_Result = { 2'b01, 1'b0, clk200_ok, 4'h0, e2_status, e1_status };
+
+wire e1_hasIRQ;
+wire e2_hasIRQ;
+wire isV30;
+
+// We detect FPGA V3.0 by checking whether the IRQ line is connected to the
+// RTL8211F PHY (it is not connected in V3.0). There should only be two
+// possible states: e1_hasIRQ==e2_hasIRQ==0 or e1_hasIRQ==e2_hasIRQ==1.
+// The logic below will assume that the board is FPGA V3.1+ if either
+// PHY detects that the IRQ is connected.
+assign isV30 = (e1_hasIRQ|e2_hasIRQ) ? 1'b0 : 1'b1;
 
 // Power-on configuration of RTL8211F PHY chip (also works after reset)
 //    PhyAddr:  {RxVAL, RxClk, RxD[3]}, default: 001
@@ -536,7 +541,8 @@ RTL8211F #(.CHANNEL(4'd1)) EthPhy1(
     .bw_active(eth_bw_active),        // Indicates that block write module is active
     .ethInternalError(eth_InternalError),   // Error summary bit to EthernetIO
     .useUDP(useUDP),                  // Whether EthernetIO is using UDP
-    .eth_status(e1_status)            // Ethernet status bits
+    .eth_status(e1_status),           // Ethernet status bits
+    .hasIRQ(e1_hasIRQ)                // Whether IRQ is connected (FPGA V3.1+)
 `else
     .RxClk(1'b0),
     .RxValid(1'b0),
@@ -597,7 +603,8 @@ RTL8211F #(.CHANNEL(4'd2)) EthPhy2(
     .bw_active(eth_bw_active),        // Indicates that block write module is active
     .ethInternalError(eth_InternalError),   // Error summary bit to EthernetIO
     .useUDP(useUDP),                  // Whether EthernetIO is using UDP
-    .eth_status(e2_status)            // Ethernet status bits
+    .eth_status(e2_status),           // Ethernet status bits
+    .hasIRQ(e2_hasIRQ)                // Whether IRQ is connected (FPGA V3.1+)
 `else
     .RxClk(1'b0),
     .RxValid(1'b0),
@@ -972,6 +979,10 @@ assign IO1[19] = dout_config_bidir ^ dout[0];
 assign IO1[6] = (dout_config_valid && dout_config_bidir) ? dir12_cd : 1'bz;
 assign IO1[5] = (dout_config_valid && dout_config_bidir) ? (ds_enable ? dir34_ds : dir34_cd) : 1'bz;
 
+// FPGA V3.1 has 4 extra I/O lines; for now, we treat them as inputs.
+wire[3:0] io_extra;
+assign io_extra = isV30 ? 4'd0 : { IO2[39], IO2[0], IO1[33], IO1[0] };
+
 CtrlDout cdout(
     .sysclk(sysclk),
     .reg_raddr(reg_raddr),
@@ -987,7 +998,8 @@ CtrlDout cdout(
     .dir34_reg(dir34_cd),
     .dout_cfg_valid(dout_config_valid),
     .dout_cfg_bidir(dout_config_bidir),
-    .dout_cfg_reset(dout_config_reset)
+    .dout_cfg_reset(dout_config_reset),
+    .io_extra(io_extra)
 );
 
 // --------------------------------------------------------------------------
@@ -1262,13 +1274,11 @@ DataBuffer data_buffer(
 );
 
 // LED on FPGA
-assign LED_Int = IO1[32];     // NOTE: IO1[32] pwr_enable
-
+// Lights when PS clock is correctly initialized (clk200_ok)
+// and when firmware (this code) is running.
 // LED is connected to different pins on V3.0 and V3.1
-// For V3.0, it is fine to drive both pins
-// TODO: For V3.1, should comment out first line below
-assign IO1[0] = LED_Int;     // FPGA V3.0 (pin N18)
-assign LED = LED_Int;        // FPGA V3.1 (pin U13)
+assign IO1[0] = isV30 ? clk200_ok : 1'bz;     // FPGA V3.0 (pin N18)
+assign LED = isV30 ? 1'bz : clk200_ok;        // FPGA V3.1 (pin U13)
 
 //------------------------------------------------------------------------------
 // LEDs on QLA 

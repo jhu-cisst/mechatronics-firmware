@@ -783,7 +783,8 @@ CtrlDout cdout(
     .dir34_reg(dir34_cd),
     .dout_cfg_valid(dout_config_valid),
     .dout_cfg_bidir(dout_config_bidir),
-    .dout_cfg_reset(dout_config_reset)
+    .dout_cfg_reset(dout_config_reset),
+    .io_extra(4'd0)
 );
 
 // --------------------------------------------------------------------------

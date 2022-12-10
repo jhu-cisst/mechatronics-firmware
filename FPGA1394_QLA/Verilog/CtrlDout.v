@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2015-2020 Johns Hopkins University.
+ * Copyright(C) 2015-2022 Johns Hopkins University.
  *
  * This module controls access to the digital output bits. Each of the four digital
  * output bits can be set/cleared, put in PWM mode, or used as a 1-shot.
@@ -51,7 +51,8 @@ module CtrlDout(
     output reg  dir34_reg,        // direction control for channels 3-4 (QLA Rev 1.4+)
     output reg  dout_cfg_valid,   // 1 -> DOUT configuration valid
     output reg  dout_cfg_bidir,   // 1 -> new DOUT hardware (bidirectional control)
-    input  wire dout_cfg_reset    // 1 -> reset dout_cfg_valid
+    input  wire dout_cfg_reset,   // 1 -> reset dout_cfg_valid
+    input  wire[3:0] io_extra     // Extra I/O for FPGA V3.1+
 );
 
 initial begin
@@ -86,7 +87,10 @@ assign dout[1] = (dout_waveform_en[1]&entry_valid) ? table_rdata[1] : dout_pwm[2
 assign dout[2] = (dout_waveform_en[2]&entry_valid) ? table_rdata[2] : dout_pwm[3];
 assign dout[3] = (dout_waveform_en[3]&entry_valid) ? table_rdata[3] : dout_pwm[4];
 
-assign dout[15:4] = 12'd0;
+// Extra I/O for FPGA V3.1 (handled as inputs for now)
+assign dout[7:4] = io_extra;
+
+assign dout[15:8] = 8'd0;
 assign dout[25:16] = table_raddr;
 assign dout[29:26] = 4'd0;
 assign dout[30] = dout_waveform_any&entry_valid;

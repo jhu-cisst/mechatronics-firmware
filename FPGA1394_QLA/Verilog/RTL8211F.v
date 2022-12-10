@@ -87,7 +87,8 @@ module RTL8211F
     input wire bw_active,             // Indicates that block write module is active
     output wire ethInternalError,     // Error summary bit to EthernetIO
     input wire useUDP,                // Whether EthernetIO is using UDP
-    output wire[11:0] eth_status      // Ethernet status bits
+    output wire[11:0] eth_status,     // Ethernet status bits
+    output reg hasIRQ                 // 1 -> PHY IRQn available (FPGA V3.1+)
 );
 
 initial RSTn = 1'b1;
@@ -882,7 +883,6 @@ reg resetRequest;            // 1 -> Request PHY reset
 reg[7:0] numReset;           // Number of times reset called
 reg[7:0] numIRQ;             // Number of times IRQ handler called
 
-reg hasIRQ;                  // 1 -> PHY IRQn available (FPGA V3.1+)
 reg IRQn_latched;            // 1 -> IRQn synchronized with sysclk
 reg IRQn_disable;            // 1 -> disable handling of IRQn
 reg IRQ_sw;                  // 1 -> software-generated IRQ (active high)
