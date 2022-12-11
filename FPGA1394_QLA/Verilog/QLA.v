@@ -5,8 +5,7 @@
  *
  * Copyright(C) 2011-2022 ERC CISST, Johns Hopkins University.
  *
- * This module contains common code for the QLA and could work with any version of FPGA
- * (currently, it is only used for FPGA V3).
+ * This module contains common code for the QLA and used with all FPGA versions
  *
  * Revision history
  *     12/10/22    Peter Kazanzides    Created from FPGA1394V3-QLA.v
@@ -64,8 +63,8 @@ module QLA(
     output wire[31:0] timestamp,    // Timestamp used when sampling
 
     // Board register info
-    input wire[31:0] prom_status,       // Not supported in V3
-    input wire[31:0] prom_result,       // Not supported in V3
+    input wire[31:0] prom_status,
+    input wire[31:0] prom_result,
     input wire[31:0] ip_address,
     input wire[31:0] Eth_Result
 );

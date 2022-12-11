@@ -15,6 +15,7 @@
  *     08/29/18    Peter Kazanzides    Added DS2505 module
  *     01/13/20    Peter Kazanzides    Removed KSZ8851 module (now in EthernetIO)
  *     01/22/20    Peter Kazanzides    Removed global reset
+ *     12/10/22    Peter Kazanzides    Separated code to FPGA1394V2.v and QLA.v
  */
 
 `timescale 1ns / 1ps
@@ -50,7 +51,7 @@ module FPGA1394EthQLA
 
     input wire       clk25m,    // 25.0000 MHz 
     // debug I/Os
-    //output wire [3:0] DEBUG,
+    // output wire [3:0] DEBUG,
 
     // misc board I/Os
     input [3:0]      wenid,     // rotary switch
@@ -168,7 +169,7 @@ FPGA1394V2 fpga(
     .bw_blk_wstart(bw_blk_wstart),
     .bw_write_en(bw_write_en),
 
-    // Real-time write suppor
+    // Real-time write support
     .rt_wen(rt_wen),
     .rt_waddr(rt_waddr),
     .rt_wdata(rt_wdata),

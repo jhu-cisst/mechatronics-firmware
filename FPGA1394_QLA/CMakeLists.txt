@@ -33,7 +33,8 @@ add_subdirectory(ipcore_dir)
 add_subdirectory(ipcorev3_dir)
 
 # Verilog source files used by both versions of firmware
-set (VERILOG_SOURCE_COMMON "${VERILOG_SOURCE_DIR}/ClkDiv.v"
+set (VERILOG_SOURCE_COMMON "${VERILOG_SOURCE_DIR}/QLA.v"
+                           "${VERILOG_SOURCE_DIR}/ClkDiv.v"
                            "${VERILOG_SOURCE_DIR}/Ltc2601x4.v"
                            "${VERILOG_SOURCE_DIR}/Ltc1864x4.v"
                            "${VERILOG_SOURCE_DIR}/LEDPWM.v"
@@ -68,13 +69,13 @@ set (VERILOG_SOURCE_REV1_REV2
 
 # Verilog source files for Rev 1 firmware
 set (VERILOG_SOURCE_REV1 "${VERILOG_SOURCE_DIR}/FPGA1394-QLA.v"
+                         "${VERILOG_SOURCE_DIR}/FPGA1394V1.v"
                           ${VERILOG_SOURCE_COMMON}
                           ${VERILOG_SOURCE_REV1_REV2})
 
 # Verilog source files for Rev 2 firmware
 set (VERILOG_SOURCE_REV2 "${VERILOG_SOURCE_DIR}/FPGA1394Eth-QLA.v"
                          "${VERILOG_SOURCE_DIR}/FPGA1394V2.v"
-                         "${VERILOG_SOURCE_DIR}/QLA.v"
                          ${VERILOG_SOURCE_COMMON}
                          ${VERILOG_SOURCE_REV1_REV2}
                          "${VERILOG_SOURCE_DIR}/KSZ8851.v"
@@ -83,7 +84,6 @@ set (VERILOG_SOURCE_REV2 "${VERILOG_SOURCE_DIR}/FPGA1394Eth-QLA.v"
 # Verilog source files for Rev 3 firmware
 set (VERILOG_SOURCE_REV3 "${VERILOG_SOURCE_DIR}/FPGA1394V3-QLA.v"
                          "${VERILOG_SOURCE_DIR}/FPGA1394V3.v"
-                         "${VERILOG_SOURCE_DIR}/QLA.v"
                          ${VERILOG_SOURCE_COMMON}
                          "${VERILOG_SOURCE_DIR}/RTL8211F.v"
                          "${VERILOG_SOURCE_DIR}/EthernetIO.v"

@@ -5,7 +5,7 @@
  *
  * Copyright(C) 2011-2022 ERC CISST, Johns Hopkins University.
  *
- * This module contains common code for FPGA V3 and does not make any assumptions
+ * This module contains common code for FPGA V2 and does not make any assumptions
  * about which board is connected.
  *
  * Revision history
@@ -16,7 +16,7 @@ module FPGA1394V2(
     // global clock
     input wire       sysclk,
 
-    // reboot signal (not supported for FPGA V3)
+    // reboot signal
     input wire       reboot,
     // reboot clock (~12 MHz)
     input wire       reboot_clk,
@@ -79,8 +79,8 @@ module FPGA1394V2(
     input wire[31:0] timestamp,     // Timestamp used when sampling
 
     // Board register info
-    output wire[31:0] prom_status,       // Not supported in V3
-    output wire[31:0] prom_result,       // Not supported in V3
+    output wire[31:0] prom_status,
+    output wire[31:0] prom_result,
     output wire[31:0] ip_address,
     output wire[31:0] Eth_Result
 );

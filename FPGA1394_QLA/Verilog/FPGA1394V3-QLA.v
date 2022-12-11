@@ -14,7 +14,7 @@
  *     08/29/18    Peter Kazanzides    Added DS2505 module
  *     01/22/20    Peter Kazanzides    Removed global reset
  *     04/28/22    Peter Kazanzides    Adapted for FPGA V3
- *     12/10/22    Peter Kazanzides    Extracted code to FPGA1394V3.v
+ *     12/10/22    Peter Kazanzides    Separated code to FPGA1394V3.v and QLA.v
  */
 
 `timescale 1ns / 1ps
