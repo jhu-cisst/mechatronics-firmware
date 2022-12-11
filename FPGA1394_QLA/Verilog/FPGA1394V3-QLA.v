@@ -123,15 +123,6 @@ module FPGA1394V3QLA
     wire[31:0] sample_rdata;  // Output from sample_data buffer
     wire[31:0] timestamp;     // Timestamp used when sampling
 
-    // FPGA V3 does not have a PROM, but these are maintained for
-    // consistency with V1 and V2. The PROM_Status and PROM_Result
-    // registers can be used for other data.
-    wire[31:0] PROM_Status;
-    wire[31:0] PROM_Result;
-
-    wire[31:0] ip_address;
-    wire[31:0] Eth_Result;
-
 // LED on FPGA
 // Lights when PS clock is correctly initialized (clk200_ok)
 // and when firmware (this code) is running.
@@ -206,7 +197,7 @@ FPGA1394V3 fpga(
     .bw_blk_wstart(bw_blk_wstart),
     .bw_write_en(bw_write_en),
 
-    // Real-time write suppor
+    // Real-time write support
     .rt_wen(rt_wen),
     .rt_waddr(rt_waddr),
     .rt_wdata(rt_wdata),
@@ -217,13 +208,7 @@ FPGA1394V3 fpga(
     .sample_chan(sample_chan),
     .sample_raddr(sample_raddr),
     .sample_rdata(sample_rdata),
-    .timestamp(timestamp),
-
-    // Board register info
-    .prom_status(PROM_Status),
-    .prom_result(PROM_Result),
-    .ip_address(ip_address),
-    .Eth_Result(Eth_Result)
+    .timestamp(timestamp)
 );
 
 //******************************* QLA Module **************************************
@@ -286,13 +271,7 @@ QLA qla(
     .sample_chan(sample_chan),
     .sample_raddr(sample_raddr),
     .sample_rdata(sample_rdata),
-    .timestamp(timestamp),
-
-    // Board register info
-    .prom_status(PROM_Status),
-    .prom_result(PROM_Result),
-    .ip_address(ip_address),
-    .Eth_Result(Eth_Result)
+    .timestamp(timestamp)
 );
 
 endmodule

@@ -70,16 +70,6 @@ module BoardRegs(
     input  wire[31:0] reg_wdata,    // register write data
     input  wire reg_wen,            // write enable from FireWire module
     
-    // PROM feedback
-    input  wire[31:0] prom_status,
-    input  wire[31:0] prom_result,
-
-    // Ethernet IP address
-    input  wire[31:0] ip_address,
-
-    // Ethernet feedback
-    input  wire[31:0] eth_result,
-
     // Dallas chip status
     input  wire[31:0] ds_status,
 
@@ -144,7 +134,7 @@ initial reg_debug = 32'h2000;
 assign amp_disable = (reg_disable[3:0] | mv_amp_disable[4:1]);
 
 wire write_main;
-assign write_main = ((reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[7:4]==0) && reg_wen) ? 1'b1 : 1'b0;
+assign write_main = ((reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[7:4]==4'd0) && reg_wen) ? 1'b1 : 1'b0;
 wire write_status;
 assign write_status = (write_main && (reg_waddr[3:0] == `REG_STATUS)) ? 1'b1 : 1'b0;
 
@@ -200,6 +190,7 @@ always @(posedge(sysclk))
     end
 
     // return register data for reads
+    //    REG_PROMSTAT, REG_PROMRES, REG_IPADDR and REG_ETHRES handled by FPGA module
     else begin
         case (reg_raddr[3:0])
         `REG_STATUS: reg_rdata <= reg_status;
@@ -210,12 +201,8 @@ always @(posedge(sysclk))
         `REG_TEMPSNS: reg_rdata <= {16'd0, temp_sense};
         `REG_DIGIOUT: reg_rdata <= dout;
         `REG_FVERSION: reg_rdata <= `FW_VERSION;
-        `REG_PROMSTAT: reg_rdata <= prom_status;
-        `REG_PROMRES: reg_rdata <= prom_result;
         `REG_DSSTAT: reg_rdata <= ds_status;
         `REG_DIGIN: reg_rdata <= reg_digin;
-        `REG_IPADDR: reg_rdata <= ip_address;
-        `REG_ETHRES: reg_rdata <= eth_result;
         `REG_DEBUG:  reg_rdata <= reg_debug;
 
         default:  reg_rdata <= 32'd0;

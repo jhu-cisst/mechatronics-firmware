@@ -12,6 +12,8 @@
  *     12/11/22    Peter Kazanzides    Created from FPGA1394-QLA.v
  */
 
+`include "Constants.v"
+
 module FPGA1394V1(
     // global clock
     input wire       sysclk,
@@ -72,22 +74,11 @@ module FPGA1394V1(
     input wire[3:0] sample_chan,    // Channel for sampling
     output wire[5:0] sample_raddr,  // Address in sample_data buffer
     input wire[31:0] sample_rdata,  // Output from sample_data buffer
-    input wire[31:0] timestamp,     // Timestamp used when sampling
-
-    // Board register info
-    output wire[31:0] prom_status,
-    output wire[31:0] prom_result,
-    output wire[31:0] ip_address,
-    output wire[31:0] Eth_Result
+    input wire[31:0] timestamp      // Timestamp used when sampling
 );
 
 // 1394 phy low reset, never reset
 assign reset_phy = 1'b1; 
-
-// There is no Ethernet on this version of board, so set the result to 0
-// and the IP address to 255.255.255.255
-assign  Eth_Result = 32'b0;
-assign ip_address = 32'hffffffff;
 
     // -------------------------------------------------------------------------
     // local wires to tie the instantiated modules and I/Os
@@ -101,6 +92,15 @@ assign ip_address = 32'hffffffff;
     wire[15:0] fw_reg_raddr;    // 16-bit reg read address from FireWire
     wire[15:0] fw_reg_waddr;    // 16-bit reg write address from FireWire
     wire[31:0] fw_reg_wdata;    // reg write data from FireWire
+    wire[31:0] prom_status;
+    wire[31:0] prom_result;
+    wire[31:0] Eth_Result;
+    wire[31:0] ip_address;
+
+// There is no Ethernet on this version of board, so set the result to 0
+// and the IP address to 255.255.255.255
+assign  Eth_Result = 32'b0;
+assign ip_address = 32'hffffffff;
 
 // For data sampling
 wire fw_sample_start;
@@ -132,11 +132,19 @@ wire[31:0] reg_rdata;
 wire[31:0] reg_rdata_hub;      // reg_rdata_hub is for hub memory
 wire[31:0] reg_rdata_prom;     // reg_rdata_prom is for block reads from PROM
 
+wire isAddrMain;
+assign isAddrMain = ((reg_raddr[15:12]==`ADDR_MAIN) && (reg_raddr[7:4]==4'd0)) ? 1'b1 : 1'b0;
+
 // Mux routing read data based on read address
 //   See Constants.v for details
 //     addr[15:12]  main | hub | prom | prom_qla | eth | firewire | dallas | databuf | waveform
 assign reg_rdata = (reg_raddr[15:12]==`ADDR_HUB) ? (reg_rdata_hub) :
-                   (reg_raddr[15:12]==`ADDR_PROM) ? (reg_rdata_prom) : reg_rdata_ext;
+                   (reg_raddr[15:12]==`ADDR_PROM) ? (reg_rdata_prom) :
+                   (isAddrMain && (reg_raddr[3:0]==`REG_PROMSTAT)) ? prom_status :
+                   (isAddrMain && (reg_raddr[3:0]==`REG_PROMRES)) ? prom_result :
+                   (isAddrMain && (reg_raddr[3:0]==`REG_IPADDR)) ? ip_address :
+                   (isAddrMain && (reg_raddr[3:0]==`REG_ETHRES)) ? Eth_Result :
+                   reg_rdata_ext;
 
 
 // --------------------------------------------------------------------------

@@ -14,6 +14,8 @@
 
 `define ETH1    // Also need to update XC7Z020.ucf
 
+`include "Constants.v"
+
 module FPGA1394V3(
     // global clock
     input wire       sysclk,
@@ -95,19 +97,11 @@ module FPGA1394V3(
     input wire[3:0] sample_chan,    // Channel for sampling
     output wire[5:0] sample_raddr,  // Address in sample_data buffer
     input wire[31:0] sample_rdata,  // Output from sample_data buffer
-    input wire[31:0] timestamp,     // Timestamp used when sampling
-
-    // Board register info
-    output wire[31:0] prom_status,       // Not supported in V3
-    output wire[31:0] prom_result,       // Not supported in V3
-    output wire[31:0] ip_address,
-    output wire[31:0] Eth_Result
+    input wire[31:0] timestamp      // Timestamp used when sampling
 );
 
 // 1394 phy low reset, never reset
 assign reset_phy = 1'b1;
-// prom_result not used (see below for prom_status)
-assign prom_result = 32'd0;
 
     // -------------------------------------------------------------------------
     // local wires to tie the instantiated modules and I/Os
@@ -136,6 +130,13 @@ assign prom_result = 32'd0;
     // If neither is active, then Firewire is driving the write bus.
     wire eth_write_en;          // 1 -> Ethernet is driving write bus
     wire[5:0] node_id;          // 6-bit phy node id
+    wire[31:0] prom_status;
+    wire[31:0] prom_result;
+    wire[31:0] Eth_Result;
+    wire[31:0] ip_address;
+
+// prom_result not used (see below for prom_status)
+assign prom_result = 32'd0;
 
 // For real-time write
 wire       fw_rt_wen;
@@ -186,13 +187,21 @@ wire[31:0] reg_rdata_fw;       // for fw memory access
 // No PROM for FPGA V3
 assign reg_rdata_prom = 32'd0;
 
+wire isAddrMain;
+assign isAddrMain = ((reg_raddr[15:12]==`ADDR_MAIN) && (reg_raddr[7:4]==4'd0)) ? 1'b1 : 1'b0;
+
 // Mux routing read data based on read address
 //   See Constants.v for details
 //     addr[15:12]  main | hub | prom | prom_qla | eth | firewire | dallas | databuf | waveform
 assign reg_rdata = (reg_raddr[15:12]==`ADDR_HUB) ? (reg_rdata_hub) :
                    (reg_raddr[15:12]==`ADDR_PROM) ? (reg_rdata_prom) :
                    (reg_raddr[15:12]==`ADDR_ETH) ? (reg_rdata_eth|reg_rdata_rtl) :
-                   (reg_raddr[15:12]==`ADDR_FW) ? (reg_rdata_fw) : reg_rdata_ext;
+                   (reg_raddr[15:12]==`ADDR_FW) ? (reg_rdata_fw) :
+                   (isAddrMain && (reg_raddr[3:0]==`REG_PROMSTAT)) ? prom_status :
+                   (isAddrMain && (reg_raddr[3:0]==`REG_PROMRES)) ? prom_result :
+                   (isAddrMain && (reg_raddr[3:0]==`REG_IPADDR)) ? ip_address :
+                   (isAddrMain && (reg_raddr[3:0]==`REG_ETHRES)) ? Eth_Result :
+                   reg_rdata_ext;
 
 // Multiplexing of write bus between WriteRtData (bw = real-time block write module),
 // Ethernet (eth) and Firewire.

@@ -112,12 +112,6 @@ module FPGA1394EthQLA
     wire[31:0] sample_rdata;  // Output from sample_data buffer
     wire[31:0] timestamp;     // Timestamp used when sampling
 
-    wire[31:0] PROM_Status;
-    wire[31:0] PROM_Result;
-
-    wire[31:0] ip_address;
-    wire[31:0] Eth_Result;
-
 assign LED = IO1[32];     // NOTE: IO1[32] pwr_enable
 
 //******************************* FPGA Module *************************************
@@ -180,13 +174,7 @@ FPGA1394V2 fpga(
     .sample_chan(sample_chan),
     .sample_raddr(sample_raddr),
     .sample_rdata(sample_rdata),
-    .timestamp(timestamp),
-
-    // Board register info
-    .prom_status(PROM_Status),
-    .prom_result(PROM_Result),
-    .ip_address(ip_address),
-    .Eth_Result(Eth_Result)
+    .timestamp(timestamp)
 );
 
 //******************************* QLA Module **************************************
@@ -241,13 +229,7 @@ QLA qla(
     .sample_chan(sample_chan),
     .sample_raddr(sample_raddr),
     .sample_rdata(sample_rdata),
-    .timestamp(timestamp),
-
-    // Board register info
-    .prom_status(PROM_Status),
-    .prom_result(PROM_Result),
-    .ip_address(ip_address),
-    .Eth_Result(Eth_Result)
+    .timestamp(timestamp)
 );
 
 endmodule

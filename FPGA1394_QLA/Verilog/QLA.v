@@ -60,13 +60,7 @@ module QLA(
     output wire[3:0] sample_chan,   // Channel for sampling
     input wire[5:0] sample_raddr,   // Address in sample_data buffer
     output wire[31:0] sample_rdata, // Output from sample_data buffer
-    output wire[31:0] timestamp,    // Timestamp used when sampling
-
-    // Board register info
-    input wire[31:0] prom_status,
-    input wire[31:0] prom_result,
-    input wire[31:0] ip_address,
-    input wire[31:0] Eth_Result
+    output wire[31:0] timestamp     // Timestamp used when sampling
 );
 
     // SPI interface to QLA PROM and I/O Expander
@@ -551,10 +545,6 @@ BoardRegs chan0(
     .reg_rdata(reg_rdata_chan0),
     .reg_wdata(reg_wdata),
     .reg_wen(reg_wen),
-    .prom_status(prom_status),
-    .prom_result(prom_result),
-    .ip_address(ip_address),
-    .eth_result(Eth_Result),
     .ds_status(ds_status),
     .safety_amp_disable(safety_amp_disable),
     .pwr_enable_cmd(pwr_enable_cmd),
