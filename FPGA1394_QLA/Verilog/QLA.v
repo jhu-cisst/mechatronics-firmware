@@ -11,6 +11,8 @@
  *     12/10/22    Peter Kazanzides    Created from FPGA1394V3-QLA.v
  */
 
+`include "Constants.v"
+
 module QLA(
     // global clock
     input wire       sysclk,
