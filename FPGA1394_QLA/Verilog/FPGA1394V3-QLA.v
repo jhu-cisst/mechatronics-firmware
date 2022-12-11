@@ -14,6 +14,7 @@
  *     08/29/18    Peter Kazanzides    Added DS2505 module
  *     01/22/20    Peter Kazanzides    Removed global reset
  *     04/28/22    Peter Kazanzides    Adapted for FPGA V3
+ *     12/10/22    Peter Kazanzides    Extracted code to FPGA1394V3.v
  */
 
 `timescale 1ns / 1ps
@@ -80,51 +81,144 @@ module FPGA1394V3QLA
     input            PS_PORB
 );
 
+    // System clock
+    BUFG clksysclk(.I(clk1394), .O(sysclk));
+
     // -------------------------------------------------------------------------
     // local wires to tie the instantiated modules and I/Os
     //
-
-    wire LED_Int;               // internal signal to drive LED on FPGA
-    wire lreq_trig;             // phy request trigger
-    wire fw_lreq_trig;          // phy request trigger from FireWire
-    wire eth_lreq_trig;         // phy request trigger from Ethernet
-    wire[2:0] lreq_type;        // phy request type
-    wire[2:0] fw_lreq_type;     // phy request type from FireWire
-    wire[2:0] eth_lreq_type;    // phy request type from Ethernet
-    reg reg_wen;                // register write signal
-    wire fw_reg_wen;            // register write signal from FireWire
-    wire eth_reg_wen;           // register write signal from Ethernet
-    wire bw_reg_wen;            // register write signal from WriteRtData
-    reg blk_wen;                // block write enable
-    wire fw_blk_wen;            // block write enable from FireWire
-    wire eth_blk_wen;           // block write enable from Ethernet
-    wire bw_blk_wen;            // block write enable from WriteRtData
-    reg blk_wstart;             // block write start
-    wire fw_blk_wstart;         // block write start from FireWire
-    wire eth_blk_wstart;        // block write start from Ethernet
-    wire bw_blk_wstart;         // block write start from WriteRtData
-    wire[15:0] reg_raddr;       // 16-bit reg read address
-    wire[15:0] fw_reg_raddr;    // 16-bit reg read address from FireWire
-    wire[15:0] eth_reg_raddr;   // 16-bit reg read address from Ethernet
-    reg[15:0] reg_waddr;        // 16-bit reg write address
-    wire[15:0] fw_reg_waddr;    // 16-bit reg write address from FireWire
-    wire[15:0] eth_reg_waddr;   // 16-bit reg write address from Ethernet
-    wire[7:0] bw_reg_waddr;     // 16-bit reg write address from WriteRtData
-    wire[31:0] reg_rdata;       // reg read data
-    reg[31:0] reg_wdata;        // reg write data
-    wire[31:0] fw_reg_wdata;    // reg write data from FireWire
-    wire[31:0] eth_reg_wdata;   // reg write data from Ethernet
-    wire[31:0] bw_reg_wdata;    // reg write data from WriteRtData
-    wire[31:0] reg_rd[0:15];
-    wire eth_read_en;           // 1 -> Ethernet is driving reg_raddr to read from board registers
-    // Following two wires indicate which module is driving the write bus
-    // (reg_waddr, reg_wdata, reg_wen, blk_wen, blk_wstart).
-    // If neither is active, then Firewire is driving the write bus.
-    wire eth_write_en;          // 1 -> Ethernet is driving write bus
-    wire bw_write_en;           // 1 -> WriteRtData (real-time block write) is driving write bus
-    wire[5:0] node_id;          // 6-bit phy node id
+    wire reboot;                // Reboot FPGA (not supported for FPGA V3)
     wire[3:0] board_id;         // 4-bit board id
     assign board_id = ~wenid;
+    wire LED_Out;
+    wire isV30;
+
+    wire[15:0] reg_raddr;       // 16-bit reg read address
+    wire[15:0] reg_waddr;       // 16-bit reg write address
+    wire[31:0] reg_rdata;       // reg read data
+    wire[31:0] reg_wdata;       // reg write data
+    wire reg_wen;               // register write signal
+    wire blk_wen;               // block write enable
+    wire blk_wstart;            // block write start
+
+    // Wires for block write
+    wire bw_reg_wen;            // register write signal from WriteRtData
+    wire bw_blk_wen;            // block write enable from WriteRtData
+    wire bw_blk_wstart;         // block write start from WriteRtData
+    wire[7:0] bw_reg_waddr;     // 16-bit reg write address from WriteRtData
+    wire[31:0] bw_reg_wdata;    // reg write data from WriteRtData
+    wire bw_write_en;           // 1 -> WriteRtData (real-time block write) is driving write bus
+
+    // Wires for real-time write
+    wire  rt_wen;
+    wire [3:0] rt_waddr;
+    wire [31:0] rt_wdata;
+
+    // Wires for sampling block read data
+    wire sample_start;        // Start sampling read data
+    wire sample_busy;         // 1 -> data sampler has control of bus
+    wire[3:0] sample_chan;    // Channel for sampling
+    wire[5:0] sample_raddr;   // Address in sample_data buffer
+    wire[31:0] sample_rdata;  // Output from sample_data buffer
+    wire[31:0] timestamp;     // Timestamp used when sampling
+
+    // FPGA V3 does not have a PROM, but these are maintained for
+    // consistency with V1 and V2. The PROM_Status and PROM_Result
+    // registers can be used for other data.
+    wire[31:0] PROM_Status;
+    wire[31:0] PROM_Result;
+
+    wire[31:0] ip_address;
+    wire[31:0] Eth_Result;
+
+// LED on FPGA
+// Lights when PS clock is correctly initialized (clk200_ok)
+// and when firmware (this code) is running.
+// LED is connected to different pins on V3.0 and V3.1
+assign IO1[0] = isV30 ? LED_Out : 1'bz;     // FPGA V3.0 (pin N18)
+assign LED = isV30 ? 1'bz : LED_Out;        // FPGA V3.1 (pin U13)
+
+// FPGA module, including Firewire and Ethernet
+FPGA1394V3 fpga(
+    .sysclk(sysclk),
+    .board_id(board_id),
+    .LED(LED_Out),
+    .isV30(isV30),
+
+    // Firewire
+    .data(data),
+    .ctl(ctl),
+    .lreq(lreq),
+    .reset_phy(reset_phy),
+
+    // Ethernet port 1
+    .E1_RSTn(E1_RSTn),
+    .E1_IRQn(E1_IRQn),
+    .E1_MDIO_C(E1_MDIO_C),
+    .E1_MDIO_D(E1_MDIO_D),
+    .E1_RxCLK(E1_RxCLK),
+    .E1_RxVAL(E1_RxVAL),
+    .E1_RxD(E1_RxD),
+    .E1_TxCLK(E1_TxCLK),
+    .E1_TxEN(E1_TxEN),
+    .E1_TxD(E1_TxD),
+
+    // Ethernet port 2
+    .E2_RSTn(E2_RSTn),
+    .E2_IRQn(E2_IRQn),
+    .E2_MDIO_C(E2_MDIO_C),
+    .E2_MDIO_D(E2_MDIO_D),
+    .E2_RxCLK(E2_RxCLK),
+    .E2_RxVAL(E2_RxVAL),
+    .E2_RxD(E2_RxD),
+    .E2_TxCLK(E2_TxCLK),
+    .E2_TxEN(E2_TxEN),
+    .E2_TxD(E2_TxD),
+
+    // PS7 interface
+    .MIO(MIO),
+    .PS_SRSTB(PS_SRSTB),
+    .PS_CLK(PS_CLK),
+    .PS_PORB(PS_PORB),
+
+     // Read/write bus
+    .reg_raddr(reg_raddr),
+    .reg_waddr(reg_waddr),
+    .reg_rdata_ext(reg_rdata),
+    .reg_wdata(reg_wdata),
+    .reg_wen(reg_wen),
+    .blk_wen(blk_wen),
+    .blk_wstart(blk_wstart),
+
+    // Block write support
+    .bw_reg_waddr(bw_reg_waddr),
+    .bw_reg_wdata(bw_reg_wdata),
+    .bw_reg_wen(bw_reg_wen),
+    .bw_blk_wen(bw_blk_wen),
+    .bw_blk_wstart(bw_blk_wstart),
+    .bw_write_en(bw_write_en),
+
+    // Real-time write suppor
+    .rt_wen(rt_wen),
+    .rt_waddr(rt_waddr),
+    .rt_wdata(rt_wdata),
+
+    // Sampling support
+    .sample_start(sample_start),
+    .sample_busy(sample_busy),
+    .sample_chan(sample_chan),
+    .sample_raddr(sample_raddr),
+    .sample_rdata(sample_rdata),
+    .timestamp(timestamp),
+
+    // Board register info
+    .prom_status(PROM_Status),
+    .prom_result(PROM_Result),
+    .ip_address(ip_address),
+    .Eth_Result(Eth_Result)
+);
+
+//************************* Following is specific to QLA **************************************
 
     // SPI interface to QLA PROM and I/O Expander
     // IO1[1] is MISO (input to FPGA), so can be shared between QLA PROM and I/O Expander
@@ -141,86 +235,13 @@ module FPGA1394V3QLA
     assign IO1[3] = qla_prom_busy ? qla_prom_sclk :
                     io_exp_busy   ? io_exp_sclk : 1'bz;
 
+    wire[31:0] reg_rd[0:15];
+
 //------------------------------------------------------------------------------
 // hardware description
 //
 
-BUFG clksysclk(.I(clk1394), .O(sysclk));
-
-// Wires for sampling block read data (shared between Ethernet and Firewire)
-wire sample_start;        // Start sampling read data
-wire sample_busy;         // 1 -> data sampler has control of bus
-wire[3:0] sample_chan;    // Channel for sampling
-wire[5:0] sample_raddr;   // Address in sample_data buffer
-wire[31:0] sample_rdata;  // Output from sample_data buffer
-wire[31:0] timestamp;     // Timestamp used when sampling
-
-// For real-time write
-reg        rt_wen;
-wire       fw_rt_wen;
-wire       eth_rt_wen;
-reg[3:0]   rt_waddr;
-wire[3:0]  fw_rt_waddr;
-wire[3:0]  eth_rt_waddr;
-reg[31:0]  rt_wdata;
-wire[31:0] fw_rt_wdata;
-wire[31:0] eth_rt_wdata;
-
-// Manage access to data sampling between Ethernet and Firewire.
-// As with most shared Ethernet/Firewire functionality, it is assumed that
-// only one interface will be receiving packets from the host PC, so this is
-// likely to fail if the host PC sends packets by both Ethernet and Firewire.
-wire fw_sample_start;
-wire eth_sample_start;
-assign sample_start = (eth_sample_start|fw_sample_start) & ~sample_busy;
-
-wire eth_sample_read;      // 1 -> Ethernet module has control of sample_raddr
-wire[5:0] fw_sample_raddr;
-wire[5:0] eth_sample_raddr;
-assign sample_raddr = eth_sample_read ? eth_sample_raddr : fw_sample_raddr;
-
-assign reg_raddr = sample_busy ? {`ADDR_MAIN, 4'd0, sample_chan, 4'd0} :
-                   eth_read_en ? eth_reg_raddr :
-                   fw_reg_raddr;
-
-// Multiplexing of write bus between WriteRtData (bw = real-time block write module),
-// Ethernet (eth) and Firewire.
-always @(*)
-begin
-   if (bw_write_en) begin
-      reg_wen = bw_reg_wen;
-      blk_wen = bw_blk_wen;
-      blk_wstart = bw_blk_wstart;
-      reg_waddr = {8'd0, bw_reg_waddr};
-      reg_wdata = bw_reg_wdata;
-   end
-   else if (eth_write_en) begin
-      reg_wen = eth_reg_wen;
-      blk_wen = eth_blk_wen;
-      blk_wstart = eth_blk_wstart;
-      reg_waddr = eth_reg_waddr;
-      reg_wdata = eth_reg_wdata;
-   end
-   else begin
-      reg_wen = fw_reg_wen;
-      blk_wen = fw_blk_wen;
-      blk_wstart = fw_blk_wstart;
-      reg_waddr = fw_reg_waddr;
-      reg_wdata = fw_reg_wdata;
-   end
-end
-
-// Following is for debugging; it is a little risky to allow Ethernet to
-// access the FireWire PHY registers without some type of arbitration.
-assign lreq_trig = eth_lreq_trig | fw_lreq_trig;
-assign lreq_type = eth_lreq_trig ? eth_lreq_type : fw_lreq_type;
-
-wire[31:0] reg_rdata_hub;      // reg_rdata_hub is for hub memory
-wire[31:0] reg_rdata_prom;     // reg_rdata_prom is for block reads from PROM
 wire[31:0] reg_rdata_prom_qla; // reads from QLA prom
-wire[31:0] reg_rdata_eth;      // for eth memory access (EthernetIO)
-wire[31:0] reg_rdata_rtl;      // for eth memory access (RTL8211F)
-wire[31:0] reg_rdata_fw;       // for fw memory access
 wire[31:0] reg_rdata_ds;       // for DS2505 memory access
 wire[31:0] reg_rdata_chan0;    // 'channel 0' is a special axis that contains various board I/Os
 wire[31:0] reg_rdata_ioexp;    // reads from MAX7317 I/O expander (QLA 1.5+)
@@ -228,11 +249,7 @@ wire[31:0] reg_rdata_ioexp;    // reads from MAX7317 I/O expander (QLA 1.5+)
 // Mux routing read data based on read address
 //   See Constants.v for details
 //     addr[15:12]  main | hub | prom | prom_qla | eth | firewire | dallas | databuf | waveform
-assign reg_rdata = (reg_raddr[15:12]==`ADDR_HUB) ? (reg_rdata_hub) :
-                   (reg_raddr[15:12]==`ADDR_PROM) ? (reg_rdata_prom) :
-                   (reg_raddr[15:12]==`ADDR_PROM_QLA) ? (reg_rdata_prom_qla) :
-                   (reg_raddr[15:12]==`ADDR_ETH) ? (reg_rdata_eth|reg_rdata_rtl) :
-                   (reg_raddr[15:12]==`ADDR_FW) ? (reg_rdata_fw) :
+assign reg_rdata = (reg_raddr[15:12]==`ADDR_PROM_QLA) ? (reg_rdata_prom_qla) :
                    (reg_raddr[15:12]==`ADDR_DS) ? (reg_rdata_ds) :
                    (reg_raddr[15:12]==`ADDR_DATA_BUF) ? (reg_rdata_databuf) :
                    (reg_raddr[15:12]==`ADDR_WAVEFORM) ? (reg_rtable) :
@@ -245,481 +262,6 @@ assign reg_rd[`OFF_UNUSED_03] = 32'd0;
 assign reg_rd[`OFF_UNUSED_13] = 32'd0;
 assign reg_rd[`OFF_UNUSED_14] = 32'd0;
 assign reg_rd[`OFF_UNUSED_15] = 32'd0;
-
-// 1394 phy low reset, never reset
-assign reset_phy = 1'b1; 
-
-// --------------------------------------------------------------------------
-// hub register module
-// --------------------------------------------------------------------------
-
-wire[15:0] bc_sequence;
-wire       hub_write_trig;
-wire       hub_write_trig_reset;
-wire       fw_idle;
-
-HubReg hub(
-    .sysclk(sysclk),
-    .reg_wen(reg_wen),
-    .reg_raddr(reg_raddr),
-    .reg_waddr(reg_waddr),
-    .reg_rdata(reg_rdata_hub),
-    .reg_wdata(reg_wdata),
-    .sequence(bc_sequence),
-    .board_id(board_id),
-    .write_trig(hub_write_trig),
-    .write_trig_reset(hub_write_trig_reset),
-    .fw_idle(fw_idle)
-);
-
-
-// --------------------------------------------------------------------------
-// firewire modules
-// --------------------------------------------------------------------------
-wire eth_send_fw_req;
-wire eth_send_fw_ack;
-wire[8:0] eth_fwpkt_raddr;
-wire[31:0] eth_fwpkt_rdata;
-wire[15:0] eth_fwpkt_len;
-wire[15:0] eth_host_fw_addr;
-
-wire eth_send_req;
-wire eth_send_ack;
-wire[8:0]  eth_send_addr;
-wire[15:0] eth_send_len;
-
-wire fw_bus_reset;
-
-wire[8:0] eth_send_addr_mux;
-assign eth_send_addr_mux = eth_send_ack ? eth_send_addr : reg_raddr[8:0];
-
-// phy-link interface
-PhyLinkInterface phy(
-    .sysclk(sysclk),         // in: global clk  
-    .board_id(board_id),     // in: board id (rotary switch)
-    .node_id(node_id),       // out: phy node id
-
-    .ctl_ext(ctl),           // bi: phy ctl lines
-    .data_ext(data),         // bi: phy data lines
-    
-    .reg_wen(fw_reg_wen),       // out: reg write signal
-    .blk_wen(fw_blk_wen),       // out: block write signal
-    .blk_wstart(fw_blk_wstart), // out: block write is starting
-
-    .reg_raddr(fw_reg_raddr),  // out: register address
-    .reg_waddr(fw_reg_waddr),  // out: register address
-    .reg_rdata(reg_rdata),     // in:  read data to external register
-    .reg_wdata(fw_reg_wdata),  // out: write data to external register
-
-    .eth_send_fw_req(eth_send_fw_req), // in: send req from eth
-    .eth_send_fw_ack(eth_send_fw_ack), // out: ack send req to eth
-    .eth_fwpkt_raddr(eth_fwpkt_raddr), // out: eth fw packet addr
-    .eth_fwpkt_rdata(eth_fwpkt_rdata), // in: eth fw packet data
-    .eth_fwpkt_len(eth_fwpkt_len),     // out: eth fw packet length
-    .eth_fw_addr(eth_host_fw_addr),    // in: eth fw host address (e.g., ffd0)
-
-    // Request from Firewire to send Ethernet packet
-    // Note that if !eth_send_ack, then the Firewire packet memory
-    // is accessible via reg_raddr/reg_rdata.
-    .eth_send_req(eth_send_req),
-    .eth_send_ack(eth_send_ack),
-    .eth_send_addr(eth_send_addr_mux),
-    .eth_send_data(reg_rdata_fw),
-    .eth_send_len(eth_send_len),
-
-    // Signal indicating bus reset in process
-    .fw_bus_reset(fw_bus_reset),
-
-    .lreq_trig(fw_lreq_trig),  // out: phy request trigger
-    .lreq_type(fw_lreq_type),  // out: phy request type
-
-    .rx_bc_sequence(bc_sequence),  // in: broadcast sequence num
-    .write_trig(hub_write_trig),   // in: 1 -> broadcast write this board's hub data
-    .write_trig_reset(hub_write_trig_reset),
-    .fw_idle(fw_idle),
-
-    // Interface for real-time block write
-    .fw_rt_wen(fw_rt_wen),
-    .fw_rt_waddr(fw_rt_waddr),
-    .fw_rt_wdata(fw_rt_wdata),
-
-    // Interface for sampling data (for block read)
-    .sample_start(fw_sample_start),   // 1 -> start sampling for block read
-    .sample_busy(sample_busy),        // Sampling in process
-    .sample_raddr(fw_sample_raddr),   // Read address for sampled data
-    .sample_rdata(sample_rdata)       // Sampled data (for block read)
-);
-
-
-// phy request module
-PhyRequest phyreq(
-    .sysclk(sysclk),          // in: global clock
-    .lreq(lreq),              // out: phy request line
-    .trigger(lreq_trig),      // in: phy request trigger
-    .rtype(lreq_type),        // in: phy request type
-    .data(reg_wdata[11:0])    // in: phy request data
-);
-
-// --------------------------------------------------------------------------
-// Ethernet module
-// --------------------------------------------------------------------------
-//
-// When using the GMII to RGMII core, MDIO signals from the RTL8211F module
-// are connected to the GMII to RGMII core, and then the MDIO and MDC signals
-// from the core are connected to the RTL8211F PHY. If the GMII to RGMII core
-// is not used, the MDIO signals from the RTL8211F module are connected directly
-// to the RTL8211F PHY.
-//
-// Currently, E1 uses the GMII to RGMII core, whereas E2 does not. This is because
-// it is not yet possible to instantiate a second GMII to RGMII core due to the
-// duplicate IDELAYCTRL.
-
-wire clk200_ok;    // Whether the 200 MHz clock (from PS) seems to be running
-
-// The Ethernet result is used to distinguish between FPGA versions
-//    Rev 1:  Eth_Result == 32'd0
-//    Rev 2:  Eth_Result[31] == 1, other bits variable
-//    Rev 3:  Eth_Result[31:30] == 01, other bits variable
-// For Rev 3 (this file), Eth_Result is allocated as follows:
-//    31:24  (8 bits)  Global (board) status
-//    23:12 (12 bits)  Port 2 status
-//    11:0  (12 bits)  Port 1 status
-wire[31:0] Eth_Result;
-wire[11:0] e1_status;   // Status bits for Ethernet port 1
-wire[11:0] e2_status;   // Status bits for Ethernet port 2
-assign  Eth_Result = { 2'b01, 1'b0, clk200_ok, 4'h0, e2_status, e1_status };
-
-wire e1_hasIRQ;
-wire e2_hasIRQ;
-wire isV30;
-
-// We detect FPGA V3.0 by checking whether the IRQ line is connected to the
-// RTL8211F PHY (it is not connected in V3.0). There should only be two
-// possible states: e1_hasIRQ==e2_hasIRQ==0 or e1_hasIRQ==e2_hasIRQ==1.
-// The logic below will assume that the board is FPGA V3.1+ if either
-// PHY detects that the IRQ is connected.
-assign isV30 = (e1_hasIRQ|e2_hasIRQ) ? 1'b0 : 1'b1;
-
-// Power-on configuration of RTL8211F PHY chip (also works after reset)
-//    PhyAddr:  {RxVAL, RxClk, RxD[3]}, default: 001
-//    PLLOFF:   RxD[2], default: 0
-//    TXDLY:    RxD[1], default: 0
-//    RXDLY:    RxD[0], default: 1
-// RTL8211F has pullup/pulldown resistors to set default values.
-// All default values are fine, except that we want TXDLY=1, so we
-// drive RxD[1] high during reset. The other three bits do not need
-// to be driven, but the code below drives them to their default values.
-//
-assign E1_RxD[3:0] = e1_resetActive ? 4'b1011 : 4'bzzzz;
-assign E2_RxD[3:0] = e2_resetActive ? 4'b1011 : 4'bzzzz;
-
-// GMII signals (generated by gmii_to_rgmii cores)
-
-`ifdef ETH1
-wire[7:0]  E1_gmii_txd;
-wire       E1_gmii_tx_en;
-wire       E1_gmii_tx_clk;
-wire[7:0]  E1_gmii_rxd;
-wire       E1_gmii_rx_dv;
-wire       E1_gmii_rx_er;
-wire       E1_gmii_rx_clk;
-wire[1:0]  E1_clock_speed;
-wire[1:0]  E1_speed_mode;
-`else
-wire[7:0]  E2_gmii_txd;
-wire       E2_gmii_tx_en;
-wire       E2_gmii_tx_clk;
-wire[7:0]  E2_gmii_rxd;
-wire       E2_gmii_rx_dv;
-wire       E2_gmii_rx_er;
-wire       E2_gmii_rx_clk;
-wire[1:0]  E2_clock_speed;
-wire[1:0]  E2_speed_mode;
-`endif
-
-wire       E1_mdio_o;         // OUT from RTL8211F module, IN to GMII core (or PHY)
-wire       E1_mdio_i;         // IN to RTL8211F module, OUT from GMII core (or PHY)
-wire       E1_mdio_t;         // OUT from RTL8211F module (tristate control)
-wire       E1_mdio_clk;       // OUT from RTL8211F module, IN to GMII core (or PHY)
-
-wire       E2_mdio_o;         // OUT from RTL8211F module, IN to GMII core (or PHY)
-wire       E2_mdio_i;         // IN to RTL8211F module, OUT from GMII core (or PHY)
-wire       E2_mdio_t;         // OUT from RTL8211F module (tristate control)
-wire       E2_mdio_clk;       // OUT from RTL8211F module, IN to GMII core (or PHY)
-
-wire[31:0] reg_rdata_e1;
-wire[31:0] reg_rdata_e2;
-
-assign reg_rdata_eth = (reg_raddr[11:8] == 4'd1) ? reg_rdata_e1 :
-                       (reg_raddr[11:8] == 4'd2) ? reg_rdata_e2 :
-                       32'd0;
-
-wire[31:0] reg_rdata_rtl_e1;
-wire[31:0] reg_rdata_rtl_e2;
-
-assign reg_rdata_rtl = (reg_raddr[11:8] == 4'd1) ? reg_rdata_rtl_e1 :
-                       (reg_raddr[11:8] == 4'd2) ? reg_rdata_rtl_e2 :
-                       32'd0;
-
-// Can write to 4xay, where x is the Ethernet port number (1 or 2) and y is the offset.
-// Currently, y=0 is the only valid write address.
-wire reg_wen_e1;
-assign reg_wen_e1 = (reg_waddr[15:4] == {`ADDR_ETH, 4'h1, 4'ha}) ? reg_wen : 1'b0;
-wire reg_wen_e2;
-assign reg_wen_e2 = (reg_waddr[15:4] == {`ADDR_ETH, 4'h2, 4'ha}) ? reg_wen : 1'b0;
-
-// Wires between KSZ8851/RTL8211F and EthernetIO
-wire e1_resetActive;            // Ethernet port 1 reset active
-wire e2_resetActive;            // Ethernet port 2 reset active
-wire eth_resetActive;           // Indicates that Ethernet reset is active
-wire eth_isForward;             // Indicates that FireWire receiver is forwarding to Ethernet
-wire eth_responseRequired;      // Indicates that the received packet requires a response
-wire[15:0] eth_responseByteCount;   // Number of bytes in required response
-wire eth_recvRequest;           // Request EthernetIO to start receiving
-wire eth_recvBusy;              // EthernetIO receive state machine busy
-wire eth_recvReady;             // Indicates that recv_word is valid
-wire[15:0] eth_recv_word;       // Word received via Ethernet (`SDSwapped for KSZ8851)
-wire eth_sendRequest;           // Request EthernetIO to get ready to start sending
-wire eth_sendBusy;              // EthernetIO send state machine busy
-wire eth_sendReady;             // Request EthernetIO to provide next send_word
-wire[15:0] eth_send_word;       // Word to send via Ethernet (SDRegDWR for KSZ8851)
-wire eth_bw_active;             // Indicates that block write module is active
-wire eth_InternalError;         // Error summary bit to EthernetIO
-wire[5:0] eth_ioErrors;         // Error bits from EthernetIO
-wire useUDP;                    // Whether EthernetIO is using UDP
-
-// For now, eth_resetActive is OR of e1 and e2
-assign eth_resetActive = e1_resetActive|e2_resetActive;
-
-RTL8211F #(.CHANNEL(4'd1)) EthPhy1(
-    .clk(sysclk),             // in:  global clock
-    .board_id(board_id),      // in:  board id
-
-    .reg_raddr(reg_raddr),    // in:  read address
-    .reg_waddr(reg_waddr),    // in:  write address
-    .reg_rdata(reg_rdata_rtl_e1), // out: read data
-    .reg_wdata(reg_wdata),    // in:  write data
-    .reg_wen(reg_wen_e1),     // in:  write enable
-
-    .RSTn(E1_RSTn),           // Reset to RTL8211F
-    .IRQn(E1_IRQn),           // Interrupt from RTL8211F (FPGA V3.1+)
-    .resetActive(e1_resetActive),     // Indicates that reset is active
-
-    .MDC(E1_mdio_clk),        // Clock to GMII core (and RTL8211F PHY)
-    .MDIO_I(E1_mdio_i),       // IN to RTL8211F module, OUT from GMII core
-    .MDIO_O(E1_mdio_o),       // OUT from RTL8211F module, IN to GMII core
-    .MDIO_T(E1_mdio_t),       // Tristate signal from RTL8211F module
-
-`ifdef ETH1
-    .RxClk(E1_gmii_rx_clk),   // Rx Clk
-    .RxValid(E1_gmii_rx_dv),  // Rx Valid
-    .RxD(E1_gmii_rxd),        // Rx Data
-    .RxErr(E1_gmii_rx_er),    // Rx Error
-
-    .TxClk(E1_gmii_tx_clk),   // Tx Clk
-    .TxEn(E1_gmii_tx_en),     // Tx Enable
-    .TxD(E1_gmii_txd),        // Tx Data
-
-    .clock_speed(E1_clock_speed),
-    .speed_mode(E1_speed_mode),
-
-    // Interface from Firewire (for sending packets via Ethernet)
-    .sendReq(eth_send_req),
-
-    // Interface to EthernetIO
-    .isForward(eth_isForward),        // Indicates that FireWire receiver is forwarding to Ethernet
-    .responseRequired(eth_responseRequired),   // Indicates that the received packet requires a response
-    .responseByteCount(eth_responseByteCount), // Number of bytes in required response
-    .recvRequest(eth_recvRequest),    // Request EthernetIO to start receiving
-    .recvBusy(eth_recvBusy),          // To RTL8211F
-    .recvReady(eth_recvReady),        // Indicates that recv_word is valid
-    .recv_word(eth_recv_word),        // Word received via Ethernet (`SDSwapped for KSZ8851)
-    .sendRequest(eth_sendRequest),    // Request EthernetIO to get ready to start sending
-    .sendBusy(eth_sendBusy),          // To KSZ8851
-    .sendReady(eth_sendReady),        // Request EthernetIO to provide next send_word
-    .send_word(eth_send_word),        // Word to send via Ethernet (SDRegDWR for KSZ8851)
-    .bw_active(eth_bw_active),        // Indicates that block write module is active
-    .ethInternalError(eth_InternalError),   // Error summary bit to EthernetIO
-    .useUDP(useUDP),                  // Whether EthernetIO is using UDP
-    .eth_status(e1_status),           // Ethernet status bits
-    .hasIRQ(e1_hasIRQ)                // Whether IRQ is connected (FPGA V3.1+)
-`else
-    .RxClk(1'b0),
-    .RxValid(1'b0),
-    .RxD(8'd0),
-    .RxErr(1'b0),
-    .TxClk(1'b0),
-    .sendReq(1'b0)
-`endif
-);
-
-RTL8211F #(.CHANNEL(4'd2)) EthPhy2(
-    .clk(sysclk),             // in:  global clock
-    .board_id(board_id),      // in:  board id
-
-    .reg_raddr(reg_raddr),    // in:  read address
-    .reg_waddr(reg_waddr),    // in:  write address
-    .reg_rdata(reg_rdata_rtl_e2), // out: read data
-    .reg_wdata(reg_wdata),    // in:  write data
-    .reg_wen(reg_wen_e2),     // in:  write enable
-
-    .RSTn(E2_RSTn),           // Reset to RTL8211F
-    .IRQn(E2_IRQn),           // Interrupt from RTL8211F (FPGA V3.1+)
-    .resetActive(e2_resetActive),     // Indicates that reset is active
-
-    .MDC(E2_mdio_clk),        // Clock to GMII core (and RTL8211F PHY)
-    .MDIO_I(E2_mdio_i),       // IN to RTL8211F module, OUT from GMII core
-    .MDIO_O(E2_mdio_o),       // OUT from RTL8211F module, IN to GMII core
-    .MDIO_T(E2_mdio_t),       // Tristate signal from RTL8211F module
-
-`ifndef ETH1
-    .RxClk(E2_gmii_rx_clk),   // Rx Clk
-    .RxValid(E2_gmii_rx_dv),  // Rx Valid
-    .RxD(E2_gmii_rxd),        // Rx Data
-    .RxErr(E2_gmii_rx_er),    // Rx Error
-
-    .TxClk(E2_gmii_tx_clk),   // Tx Clk
-    .TxEn(E2_gmii_tx_en),     // Tx Enable
-    .TxD(E2_gmii_txd),        // Tx Data
-
-    .clock_speed(E2_clock_speed),
-    .speed_mode(E2_speed_mode),
-
-    // Interface from Firewire (for sending packets via Ethernet)
-    .sendReq(eth_send_req),
-
-    // Interface to EthernetIO
-    .isForward(eth_isForward),        // Indicates that FireWire receiver is forwarding to Ethernet
-    .responseRequired(eth_responseRequired),   // Indicates that the received packet requires a response
-    .responseByteCount(eth_responseByteCount), // Number of bytes in required response
-    .recvRequest(eth_recvRequest),    // Request EthernetIO to start receiving
-    .recvBusy(eth_recvBusy),          // To RTL8211F
-    .recvReady(eth_recvReady),        // Indicates that recv_word is valid
-    .recv_word(eth_recv_word),        // Word received via Ethernet (`SDSwapped for KSZ8851)
-    .sendRequest(eth_sendRequest),    // Request EthernetIO to get ready to start sending
-    .sendBusy(eth_sendBusy),          // To KSZ8851
-    .sendReady(eth_sendReady),        // Request EthernetIO to provide next send_word
-    .send_word(eth_send_word),        // Word to send via Ethernet (SDRegDWR for KSZ8851)
-    .bw_active(eth_bw_active),        // Indicates that block write module is active
-    .ethInternalError(eth_InternalError),   // Error summary bit to EthernetIO
-    .useUDP(useUDP),                  // Whether EthernetIO is using UDP
-    .eth_status(e2_status),           // Ethernet status bits
-    .hasIRQ(e2_hasIRQ)                // Whether IRQ is connected (FPGA V3.1+)
-`else
-    .RxClk(1'b0),
-    .RxValid(1'b0),
-    .RxD(8'd0),
-    .RxErr(1'b0),
-    .TxClk(1'b0),
-    .sendReq(1'b0)
-`endif
-);
-
-`ifndef ETH1
-assign E1_MDIO_C = E1_mdio_clk;
-assign E1_MDIO_D = E1_mdio_t ? 1'bz : E1_mdio_o;
-assign E1_mdio_i = E1_MDIO_D;
-assign E1_TxCLK = 1'b0;
-assign E1_TxEN = 1'b0;
-assign E1_TxD = 4'd0;
-`else
-assign E2_MDIO_C = E2_mdio_clk;
-assign E2_MDIO_D = E2_mdio_t ? 1'bz : E2_mdio_o;
-assign E2_mdio_i = E2_MDIO_D;
-assign E2_TxCLK = 1'b0;
-assign E2_TxEN = 1'b0;
-assign E2_TxD = 4'd0;
-`endif
-
-// address decode for IP address access
-wire   ip_reg_wen;
-assign ip_reg_wen = (reg_waddr == {`ADDR_MAIN, 8'h0, `REG_IPADDR}) ? reg_wen : 1'b0;
-wire[31:0] ip_address;
-
-EthernetIO  #(.IPv4_CSUM(1)) EthernetTransfers(
-    .sysclk(sysclk),          // in: global clock
-
-    .board_id(board_id),      // in: board id (rotary switch)
-    .node_id(node_id),        // in: phy node id
-
-    // Register interface to Ethernet memory space (ADDR_ETH=0x4000)
-    // and IP address register (REG_IPADDR=11).
-`ifdef ETH1
-    .reg_rdata(reg_rdata_e1),          // Data from Ethernet memory space
-`else
-    .reg_rdata(reg_rdata_e2),          // Data from Ethernet memory space
-`endif
-    .reg_raddr(reg_raddr),             // Read address for Ethernet memory
-    .reg_wdata(reg_wdata),             // Data to write to IP address register
-    .ip_reg_wen(ip_reg_wen),           // Enable write to IP address register
-    .ip_address(ip_address),           // IP address of this board
-
-    // Interface to/from board registers. These enable the Ethernet module to drive
-    // the internal bus on the FPGA. In particular, they are used to read registers
-    // to respond to quadlet read and block read commands.
-    .eth_reg_rdata(reg_rdata),         //  in: reg read data
-    .eth_reg_raddr(eth_reg_raddr),     // out: reg read addr
-    .eth_read_en(eth_read_en),         // out: reg read enable
-    .eth_reg_wdata(eth_reg_wdata),     // out: reg write data
-    .eth_reg_waddr(eth_reg_waddr),     // out: reg write addr
-    .eth_reg_wen(eth_reg_wen),         // out: reg write enable
-    .eth_block_wen(eth_blk_wen),       // out: blk write enable
-    .eth_block_wstart(eth_blk_wstart), // out: blk write start
-    .eth_write_en(eth_write_en),       // out: write bus enable
-
-    // Low-level Firewire PHY access
-    .lreq_trig(eth_lreq_trig),   // out: phy request trigger
-    .lreq_type(eth_lreq_type),   // out: phy request type
-
-    // Interface to FireWire module (for sending packets via FireWire)
-    .eth_send_fw_req(eth_send_fw_req), // out: req to send fw pkt
-    .eth_send_fw_ack(eth_send_fw_ack), // in: ack from fw module
-    .eth_fwpkt_raddr(eth_fwpkt_raddr), // out: eth fw packet addr
-    .eth_fwpkt_rdata(eth_fwpkt_rdata), // in: eth fw packet data
-    .eth_fwpkt_len(eth_fwpkt_len),     // out: eth fw packet len
-    .host_fw_addr(eth_host_fw_addr),   // out: eth fw host address (e.g., ffd0)
-
-    // Interface from Firewire (for sending packets via Ethernet)
-    // Note that sendReq(eth_send_req) is in KSZ8851
-    .sendAck(eth_send_ack),
-    .sendAddr(eth_send_addr),
-    .sendData(reg_rdata_fw),
-    .sendLen(eth_send_len),
-
-    // Signal from Firewire indicating bus reset in process
-    .fw_bus_reset(fw_bus_reset),
-
-    // Interface for real-time block write
-    .eth_rt_wen(eth_rt_wen),
-    .eth_rt_waddr(eth_rt_waddr),
-    .eth_rt_wdata(eth_rt_wdata),
-
-    // Interface for sampling data (for block read)
-    .sample_start(eth_sample_start),   // 1 -> start sampling for block read
-    .sample_busy(sample_busy),         // Sampling in process
-    .sample_read(eth_sample_read),     // 1 -> reading from sample memory
-    .sample_raddr(eth_sample_raddr),   // Read address for sampled data
-    .sample_rdata(sample_rdata),       // Sampled data (for block read)
-    .timestamp(timestamp),             // timestamp
-
-    // Interface to EthernetIO
-    .resetActive(eth_resetActive),    // Indicates that reset is active
-    .isForward(eth_isForward),        // Indicates that FireWire receiver is forwarding to Ethernet
-    .responseRequired(eth_responseRequired),   // Indicates that the received packet requires a response
-    .responseByteCount(eth_responseByteCount), // Number of bytes in required response
-    .recvRequest(eth_recvRequest),    // Request EthernetIO to start receiving
-    .recvBusy(eth_recvBusy),          // To KSZ8851
-    .recvReady(eth_recvReady),        // Indicates that recv_word is valid
-    .recv_word(eth_recv_word),        // Word received via Ethernet (`SDSwapped for KSZ8851)
-    .sendRequest(eth_sendRequest),    // Request EthernetIO to get ready to start sending
-    .sendBusy(eth_sendBusy),          // To KSZ8851
-    .sendReady(eth_sendReady),        // Request EthernetIO to provide next send_word
-    .send_word(eth_send_word),        // Word to send via Ethernet (SDRegDWR for KSZ8851)
-    .bw_active(eth_bw_active),        // Indicates that block write module is active
-    .ethLLError(eth_InternalError),   // Error summary bit to EthernetIO
-    .ethioErrors(eth_ioErrors),       // Error bits from EthernetIO
-    .useUDP(useUDP)                   // Whether EthernetIO is using UDP
-);
 
 // --------------------------------------------------------------------------
 // adcs: pot + current 
@@ -1138,13 +680,10 @@ wire[31:0] reg_digio;     // Digital I/O register
 wire[15:0] tempsense;     // Temperature sensor
 wire[15:0] reg_databuf;   // Data collection status
 
-wire reboot;              // Reboot the FPGA
-
 // used to check status of user defined watchdog period; used to control LED 
 wire      wdog_period_led;
 wire[2:0] wdog_period_status;
 wire wdog_timeout;
-wire[31:0] clk_test;
 
 BoardRegs chan0(
     .sysclk(sysclk),
@@ -1180,8 +719,8 @@ BoardRegs chan0(
     .reg_rdata(reg_rdata_chan0),
     .reg_wdata(reg_wdata),
     .reg_wen(reg_wen),
-    .prom_status(clk_test),       // Not supported in V3
-    .prom_result(32'd0),          // Not supported in V3
+    .prom_status(PROM_Status),
+    .prom_result(PROM_Result),
     .ip_address(ip_address),
     .eth_result(Eth_Result),
     .ds_status(ds_status),
@@ -1223,20 +762,6 @@ SampleData sampler(
 // Write data for real-time block
 // --------------------------------------------------------------------------
 
-always @(*)
-begin
-   if (eth_rt_wen) begin
-      rt_wen = eth_rt_wen;
-      rt_waddr = eth_rt_waddr;
-      rt_wdata = eth_rt_wdata;
-   end
-   else begin
-      rt_wen = fw_rt_wen;
-      rt_waddr = fw_rt_waddr;
-      rt_wdata = fw_rt_wdata;
-   end
-end
-
 WriteRtData rt_write(
     .clk(sysclk),
     .rt_write_en(rt_wen),       // Write enable
@@ -1273,13 +798,6 @@ DataBuffer data_buffer(
     .ts(timestamp)                  // timestamp from SampleData
 );
 
-// LED on FPGA
-// Lights when PS clock is correctly initialized (clk200_ok)
-// and when firmware (this code) is running.
-// LED is connected to different pins on V3.0 and V3.1
-assign IO1[0] = isV30 ? clk200_ok : 1'bz;     // FPGA V3.0 (pin N18)
-assign LED = isV30 ? 1'bz : clk200_ok;        // FPGA V3.1 (pin U13)
-
 //------------------------------------------------------------------------------
 // LEDs on QLA 
 wire clk_12hz;
@@ -1296,94 +814,5 @@ CtrlLED qla_led(
     .led2_grn(IO2[5]),
     .led2_red(IO2[7])
 );
-
-wire clk_200MHz;
-
-fpgav3 zynq_ps7(
-    .processing_system7_0_MIO(MIO),
-    .processing_system7_0_PS_SRSTB_pin(PS_SRSTB),
-    .processing_system7_0_PS_CLK_pin(PS_CLK),
-    .processing_system7_0_PS_PORB_pin(PS_PORB),
-    .processing_system7_0_GPIO_I_pin({60'd0, board_id}),
-    .processing_system7_0_FCLK_CLK0_pin(clk_200MHz),
-
-`ifdef ETH1
-    .gmii_to_rgmii_1_rgmii_txd_pin(E1_TxD),
-    .gmii_to_rgmii_1_rgmii_tx_ctl_pin(E1_TxEN),
-    .gmii_to_rgmii_1_rgmii_txc_pin(E1_TxCLK),
-    .gmii_to_rgmii_1_rgmii_rxd_pin(E1_RxD),
-    .gmii_to_rgmii_1_rgmii_rx_ctl_pin(E1_RxVAL),
-    .gmii_to_rgmii_1_rgmii_rxc_pin(E1_RxCLK),
-    .gmii_to_rgmii_1_gmii_txd_pin(E1_gmii_txd),
-    .gmii_to_rgmii_1_gmii_tx_en_pin(E1_gmii_tx_en),
-    .gmii_to_rgmii_1_gmii_tx_clk_pin(E1_gmii_tx_clk),
-    .gmii_to_rgmii_1_gmii_rxd_pin(E1_gmii_rxd),
-    .gmii_to_rgmii_1_gmii_rx_dv_pin(E1_gmii_rx_dv),
-    .gmii_to_rgmii_1_gmii_rx_er_pin(E1_gmii_rx_er),
-    .gmii_to_rgmii_1_gmii_rx_clk_pin(E1_gmii_rx_clk),
-    .gmii_to_rgmii_1_MDIO_MDC_pin(E1_mdio_clk),       // MDIO clock from RTL8211F module
-    .gmii_to_rgmii_1_MDIO_I_pin(E1_mdio_i),           // OUT from GMII core, IN to RTL8211F module
-    .gmii_to_rgmii_1_MDIO_O_pin(E1_mdio_o),           // IN to GMII core, OUT from RTL8211F module
-    .gmii_to_rgmii_1_MDIO_T_pin(E1_mdio_t),           // Tristate control from RTL8211F module
-    .gmii_to_rgmii_1_MDC_pin(E1_MDIO_C),              // MDIO clock from GMII core (derived from E1_mdio_clk)
-    .gmii_to_rgmii_1_clock_speed_pin(E1_clock_speed), // Clock speed (Rx)
-    .gmii_to_rgmii_1_speed_mode_pin(E1_speed_mode)    // Speed mode (Tx)
-`else
-    // Temporarily use rgmii_1 (instead of rgmii_2) below
-    .gmii_to_rgmii_1_rgmii_txd_pin(E2_TxD),
-    .gmii_to_rgmii_1_rgmii_tx_ctl_pin(E2_TxEN),
-    .gmii_to_rgmii_1_rgmii_txc_pin(E2_TxCLK),
-    .gmii_to_rgmii_1_rgmii_rxd_pin(E2_RxD),
-    .gmii_to_rgmii_1_rgmii_rx_ctl_pin(E2_RxVAL),
-    .gmii_to_rgmii_1_rgmii_rxc_pin(E2_RxCLK),
-    .gmii_to_rgmii_1_gmii_txd_pin(E2_gmii_txd),
-    .gmii_to_rgmii_1_gmii_tx_en_pin(E2_gmii_tx_en),
-    .gmii_to_rgmii_1_gmii_tx_clk_pin(E2_gmii_tx_clk),
-    .gmii_to_rgmii_1_gmii_rxd_pin(E2_gmii_rxd),
-    .gmii_to_rgmii_1_gmii_rx_dv_pin(E2_gmii_rx_dv),
-    .gmii_to_rgmii_1_gmii_rx_er_pin(E2_gmii_rx_er),
-    .gmii_to_rgmii_1_gmii_rx_clk_pin(E2_gmii_rx_clk),
-    .gmii_to_rgmii_1_MDIO_MDC_pin(E2_mdio_clk),       // MDIO clock from RTL8211F module
-    .gmii_to_rgmii_1_MDIO_I_pin(E2_mdio_i),           // OUT from GMII core, IN to RTL8211F module
-    .gmii_to_rgmii_1_MDIO_O_pin(E2_mdio_o),           // IN to GMII core, OUT from RTL8211F module
-    .gmii_to_rgmii_1_MDIO_T_pin(E2_mdio_t),           // Tristate control from RTL8211F module
-    .gmii_to_rgmii_1_MDC_pin(E2_MDIO_C),              // MDIO clock from GMII core (derived from E2_mdio_clk)
-    .gmii_to_rgmii_1_clock_speed_pin(E2_clock_speed), // Clock speed (Rx)
-    .gmii_to_rgmii_1_speed_mode_pin(E2_speed_mode)    // Speed mode (Tx)
-`endif
-);
-
-// *** BEGIN: TEST code for PS clocks
-
-reg[7:0] cnt_200;     // Counter incremented by clk_200MHz
-reg[7:0] sysclk200;   // Counter increment by sysclk, sampled and cleared every 128 clk_200MHz
-reg[7:0] clk200per;   // Last measured half-period of clk_200MHz (should be about 31 sysclks)
-reg cur_msb;
-reg last_msb;
-
-assign clk_test = {clk200_ok, 7'd0, clk200per, 8'd0, cnt_200};   // quadlet read from 8 (PROM Status)
-
-always @(posedge clk_200MHz)
-begin
-    cnt_200 <= cnt_200 + 8'd1;
-end
-
-always @(posedge sysclk)
-begin
-    cur_msb <= cnt_200[7];
-    last_msb <= cur_msb;
-    if (cur_msb != last_msb) begin
-       sysclk200 <= 8'd0;
-       clk200per <= sysclk200;
-    end
-    else begin
-       sysclk200 <= sysclk200 + 8'd1;
-    end
-end
-
-// Emperically verified that clk200per is either 30 or 31
-assign clk200_ok = ((clk200per == 6'd30) || (clk200per == 6'd31)) ? 1'b1 : 1'b0;
-
-// *** END: TEST code for PS clocks
 
 endmodule

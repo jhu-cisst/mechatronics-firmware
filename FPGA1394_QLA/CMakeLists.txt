@@ -80,6 +80,7 @@ set (VERILOG_SOURCE_REV2 "${VERILOG_SOURCE_DIR}/FPGA1394Eth-QLA.v"
 
 # Verilog source files for Rev 3 firmware
 set (VERILOG_SOURCE_REV3 "${VERILOG_SOURCE_DIR}/FPGA1394V3-QLA.v"
+                         "${VERILOG_SOURCE_DIR}/FPGA1394V3.v"
                          ${VERILOG_SOURCE_COMMON}
                          "${VERILOG_SOURCE_DIR}/RTL8211F.v"
                          "${VERILOG_SOURCE_DIR}/EthernetIO.v"
