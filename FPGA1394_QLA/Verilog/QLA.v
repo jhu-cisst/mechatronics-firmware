@@ -22,6 +22,9 @@ module QLA(
     // 400k clock for temperature sensors
     input wire       clk400k,
 
+    // ~12MHz clock for SPI to ADCs
+    input wire       clkadc,
+
     // Board ID (rotary switch)
     input wire[3:0]  board_id,
 
@@ -113,13 +116,6 @@ assign reg_rd[`OFF_UNUSED_15] = 32'd0;
 // --------------------------------------------------------------------------
 // adcs: pot + current 
 // --------------------------------------------------------------------------
-
-// ~12 MHz clock for spi communication with the adcs
-wire clkdiv2, clkadc;
-ClkDiv div2clk(sysclk, clkdiv2);
-defparam div2clk.width = 2;
-BUFG adcclk(.I(clkdiv2), .O(clkadc));
-
 
 // local wire for cur_fb(1-4) 
 wire[15:0] cur_fb[1:4];

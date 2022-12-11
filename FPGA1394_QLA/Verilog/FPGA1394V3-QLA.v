@@ -82,6 +82,7 @@ module FPGA1394V3QLA
 );
 
     // System clock
+    wire sysclk;
     BUFG clksysclk(.I(clk1394), .O(sysclk));
 
     // -------------------------------------------------------------------------
@@ -142,11 +143,12 @@ assign LED = isV30 ? 1'bz : LED_Out;        // FPGA V3.1 (pin U13)
 wire[3:0] io_extra;
 assign io_extra = isV30 ? 4'd0 : { IO2[39], IO2[0], IO1[33], IO1[0] };
 
-//******************************* QLA Module **************************************
+//******************************* FPGA Module *************************************
 
 // FPGA module, including Firewire and Ethernet
 FPGA1394V3 fpga(
     .sysclk(sysclk),
+    .reboot(reboot),
     .board_id(board_id),
     .LED(LED_Out),
     .isV30(isV30),
@@ -226,6 +228,12 @@ FPGA1394V3 fpga(
 
 //******************************* QLA Module **************************************
 
+// ~12 MHz clock
+wire clkdiv2, clk_12M;
+ClkDiv div2clk(sysclk, clkdiv2);
+defparam div2clk.width = 2;
+BUFG clk12(.I(clkdiv2), .O(clk_12M));
+
 // divide 49.152 MHz clock down to 400 kHz for temperature sensor readings
 wire clk400k_raw;
 wire clk400k;
@@ -236,18 +244,21 @@ BUFG clktemp(.I(clk400k_raw), .O(clk400k));
 
 QLA qla(
     .sysclk(sysclk),
+    .reboot(reboot),
     .board_id(board_id),
     // Supplying 400k clock because different versions of hardware create
     // this clock differently.
     .clk400k(clk400k),
+    // ~12MHz clock for ADC
+    .clkadc(clk_12M),
 
-     // I/O between FPGA and QLA (connectors J1 and J2)
+    // I/O between FPGA and QLA (connectors J1 and J2)
     .IO1(IO1[1:32]),
     .IO2(IO2[1:38]),
      // Extra I/O (FPGA V3.1+)
     .io_extra(io_extra),
 
-     // Read/write bus
+    // Read/write bus
     .reg_raddr(reg_raddr),
     .reg_waddr(reg_waddr),
     .reg_rdata(reg_rdata),
@@ -264,7 +275,7 @@ QLA qla(
     .bw_blk_wstart(bw_blk_wstart),
     .bw_write_en(bw_write_en),
 
-    // Real-time write suppor
+    // Real-time write support
     .rt_wen(rt_wen),
     .rt_waddr(rt_waddr),
     .rt_wdata(rt_wdata),
