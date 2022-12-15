@@ -17,9 +17,6 @@ module QLA(
     // global clock
     input wire       sysclk,
 
-    // reboot signal
-    output wire      reboot,
-
     // 400k clock for temperature sensors
     input wire       clk400k,
 
@@ -62,7 +59,13 @@ module QLA(
     output wire[3:0] sample_chan,   // Channel for sampling
     input wire[5:0] sample_raddr,   // Address in sample_data buffer
     output wire[31:0] sample_rdata, // Output from sample_data buffer
-    output wire[31:0] timestamp     // Timestamp used when sampling
+    output wire[31:0] timestamp,    // Timestamp used when sampling
+
+    // Watchdog support
+    input wire wdog_period_led,     // 1 -> external LED displays wdog_period_status
+    input wire[2:0] wdog_period_status,
+    input wire wdog_timeout,        // watchdog timeout status flag
+    output wire wdog_clear          // clear watchdog timeout (e.g., on powerup)
 );
 
     // SPI interface to QLA PROM and I/O Expander
@@ -508,14 +511,8 @@ wire[31:0] reg_digio;     // Digital I/O register
 wire[15:0] tempsense;     // Temperature sensor
 wire[15:0] reg_databuf;   // Data collection status
 
-// used to check status of user defined watchdog period; used to control LED 
-wire      wdog_period_led;
-wire[2:0] wdog_period_status;
-wire wdog_timeout;
-
-BoardRegs chan0(
+BoardRegsQLA chan0(
     .sysclk(sysclk),
-    .reboot(reboot),
     .amp_disable(amp_disable),
     .dout(dout),
     .dout_cfg_valid(dout_config_valid),
@@ -553,9 +550,8 @@ BoardRegs chan0(
     .amp_enable_cmd(amp_enable_cmd),
     .reg_status(reg_status),
     .reg_digin(reg_digio),
-    .wdog_period_led(wdog_period_led),
-    .wdog_period_status(wdog_period_status),
-    .wdog_timeout(wdog_timeout)
+    .wdog_timeout(wdog_timeout),
+    .wdog_clear(wdog_clear)
 );
 
 // --------------------------------------------------------------------------

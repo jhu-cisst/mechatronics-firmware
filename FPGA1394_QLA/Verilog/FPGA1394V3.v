@@ -20,9 +20,6 @@ module FPGA1394V3(
     // global clock
     input wire       sysclk,
 
-    // reboot signal (not supported for FPGA V3)
-    input wire       reboot,
-
     // Board ID (rotary switch)
     input wire[3:0]  board_id,
 
@@ -97,7 +94,13 @@ module FPGA1394V3(
     input wire[3:0] sample_chan,    // Channel for sampling
     output wire[5:0] sample_raddr,  // Address in sample_data buffer
     input wire[31:0] sample_rdata,  // Output from sample_data buffer
-    input wire[31:0] timestamp      // Timestamp used when sampling
+    input wire[31:0] timestamp,     // Timestamp used when sampling
+
+    // Watchdog support
+    output wire wdog_period_led,    // 1 -> external LED displays wdog_period_status
+    output wire[2:0] wdog_period_status,
+    output wire wdog_timeout,       // watchdog timeout status flag
+    input  wire wdog_clear          // clear watchdog timeout (e.g., on powerup)
 );
 
 // 1394 phy low reset, never reset
@@ -183,6 +186,7 @@ wire[31:0] reg_rdata_prom;     // reg_rdata_prom is for block reads from PROM
 wire[31:0] reg_rdata_eth;      // for eth memory access (EthernetIO)
 wire[31:0] reg_rdata_rtl;      // for eth memory access (RTL8211F)
 wire[31:0] reg_rdata_fw;       // for fw memory access
+wire[31:0] reg_rdata_chan0;    // for reads from board registers
 
 // No PROM for FPGA V3
 assign reg_rdata_prom = 32'd0;
@@ -197,10 +201,19 @@ assign reg_rdata = (reg_raddr[15:12]==`ADDR_HUB) ? (reg_rdata_hub) :
                    (reg_raddr[15:12]==`ADDR_PROM) ? (reg_rdata_prom) :
                    (reg_raddr[15:12]==`ADDR_ETH) ? (reg_rdata_eth|reg_rdata_rtl) :
                    (reg_raddr[15:12]==`ADDR_FW) ? (reg_rdata_fw) :
-                   (isAddrMain && (reg_raddr[3:0]==`REG_PROMSTAT)) ? prom_status :
-                   (isAddrMain && (reg_raddr[3:0]==`REG_PROMRES)) ? prom_result :
-                   (isAddrMain && (reg_raddr[3:0]==`REG_IPADDR)) ? ip_address :
-                   (isAddrMain && (reg_raddr[3:0]==`REG_ETHRES)) ? Eth_Result :
+                   isAddrMain ? reg_rdata_chan0 : reg_rdata_ext;
+
+// Data for channel 0 (board registers) is distributed across several FPGA modules, as well
+// as coming from the external board (e.g., QLA). In the following, we mux these together
+// and then provide it as input to BoardRegs, which muxes a few additional registers,
+// and provides the final result as reg_rdata_chan0, which is muxed to reg_rdata above.
+// It is not necessary to check isAddrMain in the following because it is done above.
+wire[31:0] reg_rdata_chan0_ext;
+assign reg_rdata_chan0_ext =
+                   (reg_raddr[3:0]==`REG_PROMSTAT) ? prom_status :
+                   (reg_raddr[3:0]==`REG_PROMRES) ? prom_result :
+                   (reg_raddr[3:0]==`REG_IPADDR) ? ip_address :
+                   (reg_raddr[3:0]==`REG_ETHRES) ? Eth_Result :
                    reg_rdata_ext;
 
 // Multiplexing of write bus between WriteRtData (bw = real-time block write module),
@@ -689,6 +702,30 @@ EthernetIO  #(.IPv4_CSUM(1)) EthernetTransfers(
     .useUDP(useUDP)                   // Whether EthernetIO is using UDP
 );
 
+
+// --------------------------------------------------------------------------
+// FPGA board regs (Firewire PHY, firmware version, watchdog, partial status)
+// --------------------------------------------------------------------------
+
+BoardRegs chan0(
+    .sysclk(sysclk),
+
+    .reg_raddr(reg_raddr),
+    .reg_waddr(reg_waddr),
+    .reg_rdata(reg_rdata_chan0),
+    .reg_wdata(reg_wdata),
+    .reg_wen(reg_wen),
+    .reg_rdata_ext(reg_rdata_chan0_ext),
+
+    .wdog_period_led(wdog_period_led),
+    .wdog_period_status(wdog_period_status),
+    .wdog_timeout(wdog_timeout),
+    .wdog_clear(wdog_clear)
+);
+
+// --------------------------------------------------------------------------
+// Zynq PS interface
+// --------------------------------------------------------------------------
 
 wire clk_200MHz;
 

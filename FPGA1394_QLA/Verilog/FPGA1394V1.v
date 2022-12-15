@@ -18,8 +18,6 @@ module FPGA1394V1(
     // global clock
     input wire       sysclk,
 
-    // reboot signal
-    input wire       reboot,
     // reboot clock (~12 MHz)
     input wire       reboot_clk,
 
@@ -74,7 +72,13 @@ module FPGA1394V1(
     input wire[3:0] sample_chan,    // Channel for sampling
     output wire[5:0] sample_raddr,  // Address in sample_data buffer
     input wire[31:0] sample_rdata,  // Output from sample_data buffer
-    input wire[31:0] timestamp      // Timestamp used when sampling
+    input wire[31:0] timestamp,     // Timestamp used when sampling
+
+    // Watchdog support
+    output wire wdog_period_led,    // 1 -> external LED displays wdog_period_status
+    output wire[2:0] wdog_period_status,
+    output wire wdog_timeout,       // watchdog timeout status flag
+    input  wire wdog_clear          // clear watchdog timeout (e.g., on powerup)
 );
 
 // 1394 phy low reset, never reset
@@ -84,6 +88,7 @@ assign reset_phy = 1'b1;
     // local wires to tie the instantiated modules and I/Os
     //
 
+    wire reboot;                // FPGA reboot request
     wire lreq_trig;             // phy request trigger
     wire[2:0] lreq_type;        // phy request type
     wire fw_reg_wen;            // register write signal from FireWire
@@ -131,6 +136,7 @@ end
 wire[31:0] reg_rdata;
 wire[31:0] reg_rdata_hub;      // reg_rdata_hub is for hub memory
 wire[31:0] reg_rdata_prom;     // reg_rdata_prom is for block reads from PROM
+wire[31:0] reg_rdata_chan0;    // for reads from board registers
 
 wire isAddrMain;
 assign isAddrMain = ((reg_raddr[15:12]==`ADDR_MAIN) && (reg_raddr[7:4]==4'd0)) ? 1'b1 : 1'b0;
@@ -140,12 +146,20 @@ assign isAddrMain = ((reg_raddr[15:12]==`ADDR_MAIN) && (reg_raddr[7:4]==4'd0)) ?
 //     addr[15:12]  main | hub | prom | prom_qla | eth | firewire | dallas | databuf | waveform
 assign reg_rdata = (reg_raddr[15:12]==`ADDR_HUB) ? (reg_rdata_hub) :
                    (reg_raddr[15:12]==`ADDR_PROM) ? (reg_rdata_prom) :
-                   (isAddrMain && (reg_raddr[3:0]==`REG_PROMSTAT)) ? prom_status :
-                   (isAddrMain && (reg_raddr[3:0]==`REG_PROMRES)) ? prom_result :
-                   (isAddrMain && (reg_raddr[3:0]==`REG_IPADDR)) ? ip_address :
-                   (isAddrMain && (reg_raddr[3:0]==`REG_ETHRES)) ? Eth_Result :
-                   reg_rdata_ext;
+                   isAddrMain ? reg_rdata_chan0 : reg_rdata_ext;
 
+// Data for channel 0 (board registers) is distributed across several FPGA modules, as well
+// as coming from the external board (e.g., QLA). In the following, we mux these together
+// and then provide it as input to BoardRegs, which muxes a few additional registers,
+// and provides the final result as reg_rdata_chan0, which is muxed to reg_rdata above.
+// It is not necessary to check isAddrMain in the following because it is done above.
+wire[31:0] reg_rdata_chan0_ext;
+assign reg_rdata_chan0_ext =
+                   (reg_raddr[3:0]==`REG_PROMSTAT) ? prom_status :
+                   (reg_raddr[3:0]==`REG_PROMRES) ? prom_result :
+                   (reg_raddr[3:0]==`REG_IPADDR) ? ip_address :
+                   (reg_raddr[3:0]==`REG_ETHRES) ? Eth_Result :
+                   reg_rdata_ext;
 
 // --------------------------------------------------------------------------
 // hub register module
@@ -245,6 +259,27 @@ M25P16 prom(
     .prom_miso(XMISO),
     .prom_sclk(XCCLK),
     .prom_cs(XCSn)
+);
+
+// --------------------------------------------------------------------------
+// FPGA board regs (Firewire PHY, firmware version, watchdog, partial status)
+// --------------------------------------------------------------------------
+
+BoardRegs chan0(
+    .sysclk(sysclk),
+    .reboot(reboot),
+
+    .reg_raddr(reg_raddr),
+    .reg_waddr(reg_waddr),
+    .reg_rdata(reg_rdata_chan0),
+    .reg_wdata(reg_wdata),
+    .reg_wen(reg_wen),
+    .reg_rdata_ext(reg_rdata_chan0_ext),
+
+    .wdog_period_led(wdog_period_led),
+    .wdog_period_status(wdog_period_status),
+    .wdog_timeout(wdog_timeout),
+    .wdog_clear(wdog_clear)
 );
 
 // --------------------------------------------------------------------------

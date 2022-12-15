@@ -184,7 +184,10 @@
 // This is not currently used (using General ROM format)
 `define MIN_ROM_ENTRY  {4'h01, `JHU_LCSR_CID}
 
-module PhyLinkInterface(
+module PhyLinkInterface
+    #(parameter NUM_MOTORS = 4,
+      parameter NUM_ENCODERS = 4)
+(
     // globals
     input wire sysclk,           // system clock
     input wire[3:0] board_id,    // global board id
@@ -564,19 +567,23 @@ module PhyLinkInterface(
         ST_TX_DONE2 = 15;         // tx state, phy regains phy-link bus
 
 
+    // Number of quadlets in real-time block read (not including Firewire header and CRC)
+    localparam NUM_RT_READ_QUADS = (4 + 2*NUM_MOTORS + 5*NUM_ENCODERS);
+    // Number of quadlets in broadcast real-time block; includes sequence number
+    localparam NUM_BC_READ_QUADS = (1+NUM_RT_READ_QUADS);
 
     // real-time feedback broadcast packet size, in bits, including Firewire header/CRC
     //    32*[FW_header (4) + header_CRC (1) + seq (1) + data (N) + data_CRC (1)] = 32*(N+7)
     //    Rev 4-6: N=16 --> SZ_BBC = 16'd736  (should have been N=20, SZ_BBC = 16'd864)
     //    Rev 7:   N=28 --> SZ_BBC = 16'd1120
     //    `SZ_BWRITE includes FW_header + header_CRC + data_CRC
-    localparam[15:0] SZ_BBC = (`SZ_BWRITE + 32*`NUM_BC_READ_QUADS);
+    localparam[15:0] SZ_BBC = (`SZ_BWRITE + 32*NUM_BC_READ_QUADS);
 
     // real-time feedback broadcast packet size, in quadlets, not including Firewire header/CRC
-    localparam[7:0] SZ_BBC_QUADS = `NUM_BC_READ_QUADS;
+    localparam[7:0] SZ_BBC_QUADS = NUM_BC_READ_QUADS;
 
     // real-time feedback broadcast packet size, in bytes, not including Firewire header/CRC
-    localparam[15:0] SZ_BBC_BYTES = (4*`NUM_BC_READ_QUADS);
+    localparam[15:0] SZ_BBC_BYTES = (4*NUM_BC_READ_QUADS);
 
 // -----------------------------------------------------------------------------
 // hardware description

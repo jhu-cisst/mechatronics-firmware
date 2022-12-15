@@ -88,7 +88,6 @@ module FPGA1394V3QLA
     // -------------------------------------------------------------------------
     // local wires to tie the instantiated modules and I/Os
     //
-    wire reboot;                // Reboot FPGA (not supported for FPGA V3)
     wire[3:0] board_id;         // 4-bit board id
     assign board_id = ~wenid;
     wire LED_Out;
@@ -123,6 +122,12 @@ module FPGA1394V3QLA
     wire[31:0] sample_rdata;  // Output from sample_data buffer
     wire[31:0] timestamp;     // Timestamp used when sampling
 
+    // Wires for watchdog
+    wire wdog_period_led;     // 1 -> external LED displays wdog_period_status
+    wire[2:0] wdog_period_status;
+    wire wdog_timeout;        // watchdog timeout status flag
+    wire wdog_clear;          // clear watchdog timeout (e.g., on powerup)
+
 // LED on FPGA
 // Lights when PS clock is correctly initialized (clk200_ok)
 // and when firmware (this code) is running.
@@ -139,7 +144,6 @@ assign io_extra = isV30 ? 4'd0 : { IO2[39], IO2[0], IO1[33], IO1[0] };
 // FPGA module, including Firewire and Ethernet
 FPGA1394V3 fpga(
     .sysclk(sysclk),
-    .reboot(reboot),
     .board_id(board_id),
     .LED(LED_Out),
     .isV30(isV30),
@@ -208,7 +212,13 @@ FPGA1394V3 fpga(
     .sample_chan(sample_chan),
     .sample_raddr(sample_raddr),
     .sample_rdata(sample_rdata),
-    .timestamp(timestamp)
+    .timestamp(timestamp),
+
+    // Watchdog support
+    .wdog_period_led(wdog_period_led),
+    .wdog_period_status(wdog_period_status),
+    .wdog_timeout(wdog_timeout),
+    .wdog_clear(wdog_clear)
 );
 
 //******************************* QLA Module **************************************
@@ -229,7 +239,6 @@ BUFG clktemp(.I(clk400k_raw), .O(clk400k));
 
 QLA qla(
     .sysclk(sysclk),
-    .reboot(reboot),
     .board_id(board_id),
     // Supplying 400k clock because different versions of hardware create
     // this clock differently.
@@ -271,7 +280,13 @@ QLA qla(
     .sample_chan(sample_chan),
     .sample_raddr(sample_raddr),
     .sample_rdata(sample_rdata),
-    .timestamp(timestamp)
+    .timestamp(timestamp),
+
+    // Watchdog support
+    .wdog_period_led(wdog_period_led),
+    .wdog_period_status(wdog_period_status),
+    .wdog_timeout(wdog_timeout),
+    .wdog_clear(wdog_clear)
 );
 
 endmodule

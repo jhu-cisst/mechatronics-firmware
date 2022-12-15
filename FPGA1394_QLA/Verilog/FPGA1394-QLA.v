@@ -69,7 +69,6 @@ module FPGA1394QLA
     // -------------------------------------------------------------------------
     // local wires to tie the instantiated modules and I/Os
     //
-    wire reboot;                // Reboot FPGA
     wire[3:0] board_id;         // 4-bit board id
     assign board_id = ~wenid;
 
@@ -102,13 +101,18 @@ module FPGA1394QLA
     wire[31:0] sample_rdata;  // Output from sample_data buffer
     wire[31:0] timestamp;     // Timestamp used when sampling
 
+    // Wires for watchdog
+    wire wdog_period_led;     // 1 -> external LED displays wdog_period_status
+    wire[2:0] wdog_period_status;
+    wire wdog_timeout;        // watchdog timeout status flag
+    wire wdog_clear;          // clear watchdog timeout (e.g., on powerup)
+
 assign LED = IO1[32];     // NOTE: IO1[32] pwr_enable
 
 //******************************* FPGA Module *************************************
 
 FPGA1394V1 fpga(
     .sysclk(sysclk),
-    .reboot(reboot),
     .reboot_clk(clk_12M),
     .board_id(board_id),
 
@@ -158,7 +162,13 @@ FPGA1394V1 fpga(
     .sample_chan(sample_chan),
     .sample_raddr(sample_raddr),
     .sample_rdata(sample_rdata),
-    .timestamp(timestamp)
+    .timestamp(timestamp),
+
+    // Watchdog support
+    .wdog_period_led(wdog_period_led),
+    .wdog_period_status(wdog_period_status),
+    .wdog_timeout(wdog_timeout),
+    .wdog_clear(wdog_clear)
 );
 
 //******************************* QLA Module **************************************
@@ -171,7 +181,6 @@ BUFG clktemp(.I(clk400k_raw), .O(clk400k));
 
 QLA qla(
     .sysclk(sysclk),
-    .reboot(reboot),
     .board_id(board_id),
     // Supplying 400k clock because different versions of hardware create
     // this clock differently.
@@ -212,7 +221,13 @@ QLA qla(
     .sample_chan(sample_chan),
     .sample_raddr(sample_raddr),
     .sample_rdata(sample_rdata),
-    .timestamp(timestamp)
+    .timestamp(timestamp),
+
+    // Watchdog support
+    .wdog_period_led(wdog_period_led),
+    .wdog_period_status(wdog_period_status),
+    .wdog_timeout(wdog_timeout),
+    .wdog_clear(wdog_clear)
 );
 
 endmodule

@@ -28,20 +28,7 @@
 //`define USE_CHIPSCOPE
 
 // firmware constants
-`define VERSION 32'h514C4131       // hard-wired version number "QLA1" = 0x514C4131
 `define FW_VERSION 32'h08          // firmware version = 8
-
-// define board components
-`define NUM_CHANNELS 4             // number of channels on QLA
-`define NUM_PER_CHN_FIELDS 7       // number of per-channel entries in block read
-                                   // (4 in Firmware Rev 1-6, 6 in Firmware Rev 7, 7 in Firmware Rev 8+)
-// Number of quadlets in real-time block read (not including Firewire header and CRC)
-//    Rev 4-6: 16 (should have been 20)
-//    Rev 7:   28
-//    Rev 8:   32
-`define NUM_RT_READ_QUADS (4+`NUM_CHANNELS*`NUM_PER_CHN_FIELDS)
-// Number of quadlets in broadcast real-time block; includes sequence number
-`define NUM_BC_READ_QUADS (1+`NUM_RT_READ_QUADS)
 
 // address space  
 `define ADDR_MAIN     4'h0         // board reg & device reg
@@ -71,7 +58,6 @@
 `define REG_ETHRES   4'd12         // Ethernet register I/O result (from KSZ8851)
 `define REG_DSSTAT   4'd13         // Dallas chip status
 `define REG_IO_EXP   4'd14         // I/O Expander (MAX7317)
-`define REG_DEBUG    4'd15         // Debug register for testing 
 
 // device register file offsets from channel base
 // For additional fields, please update SampleData.v to send back data in the correct slot

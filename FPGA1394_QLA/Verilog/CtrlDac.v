@@ -60,11 +60,11 @@ module CtrlDac(
     reg dac_test_done;             // true if we checked for DAC type (4xLTC2601 or 1xLTC2604)
 
     // mem_data is for writing to DAC; entries set to NOP after being written
-    reg[31:0] mem_data[0:`NUM_CHANNELS-1]; // register file for dac bitstreams
+    reg[31:0] mem_data[0:3];       // register file for dac bitstreams
 
     integer i;
     initial begin
-        for (i=0; i<`NUM_CHANNELS; i=i+1) mem_data[i] = 32'h00f08000;
+        for (i=0; i<4; i=i+1) mem_data[i] = 32'h00f08000;
     end
 
 //------------------------------------------------------------------------------
