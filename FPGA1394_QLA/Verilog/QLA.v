@@ -157,23 +157,23 @@ wire ioexp_cfg_reset;       // 1 -> Check if I/O expander (MAX7317) present
 wire ioexp_cfg_present;     // 1 -> I/O expander (MAX7317) detected
 
 // safety_amp_enable from SafetyCheck module
-wire[4:1] safety_amp_disable;
+wire[1:4] safety_amp_disable;
 
 // amp_disable is output from BoardRegs (set by host PC)
-wire[4:1] amp_disable;
+wire[1:4] amp_disable;
 
 // amp_disable_pin is output from MotorChannelQLA and is output via FPGA
-wire[4:1] amp_disable_pin;
+wire[1:4] amp_disable_pin;
 
 // Fault signal from op amp, active low (1 -> amplifier on, 0 -> fault)
-wire[4:1] amp_fault;
-assign amp_fault = { IO2[37], IO2[35], IO2[33], IO2[31] };
+wire[1:4] amp_fault;
+assign amp_fault = { IO2[31], IO2[33], IO2[35], IO2[37] };
 
 // 1 -> Force follower op amp to always be enabled
-wire[4:1] force_disable_f;
+wire[1:4] force_disable_f;
 
-wire[4:1] cur_ctrl_error;
-wire[4:1] disable_f_error;
+wire[1:4] cur_ctrl_error;
+wire[1:4] disable_f_error;
 
 wire[15:0] cur_cmd[1:4];     // Commanded current per channel
 wire[3:0] ctrl_mode[1:4];    // Control mode per channel
@@ -185,6 +185,10 @@ wire[31:0] reg_motor_status;
 
 // Motor configuration
 wire[31:0] motor_config[1:4];
+
+// pwr_enable_cmd and amp_enable_cmd from BoardRegs; used to clear safety_amp_disable
+wire pwr_enable_cmd;
+wire[1:4] amp_enable_cmd;
 
 // Delay clock, used to delay the amplifier enable.
 // 49.152 MHz / 2**10 ==> 48 kHz (1 cnt = 20.83 us)
@@ -431,13 +435,6 @@ QLA25AA128 prom_qla(
 // MAX7317: I/O Expander
 // --------------------------------------------------------------------------
 
-// amp_disable, bit reversed; if force_disable_f, then output is 0
-wire[4:1] amp_disable_rev;
-assign amp_disable_rev = { (~force_disable_f[1])&amp_disable[1],
-                           (~force_disable_f[2])&amp_disable[2],
-                           (~force_disable_f[3])&amp_disable[3],
-                           (~force_disable_f[4])&amp_disable[4] };
-
 wire safety_fb_n;           // 0 -> voltage present on safety line
 wire mv_fb;                 // Feedback from comparator between DAC4 and motor supply
 
@@ -465,11 +462,12 @@ Max7317 IO_Exp(
 
     // Signals
     .P30({cur_ctrl[1], cur_ctrl[2], cur_ctrl[3], cur_ctrl[4]}),
-    .P74(amp_disable_rev),
+    // if force_disable_f, then output is 0
+    .P74((~force_disable_f)&amp_disable),
     .P98({mv_fb, safety_fb_n}),
 
-    .P30_error({cur_ctrl_error[1], cur_ctrl_error[2], cur_ctrl_error[3], cur_ctrl_error[4]}),
-    .P74_error({disable_f_error[1], disable_f_error[2], disable_f_error[3], disable_f_error[4]})
+    .P30_error(cur_ctrl_error),
+    .P74_error(disable_f_error[1])
 );
 
 // --------------------------------------------------------------------------
@@ -502,10 +500,6 @@ DS2505 ds_instrument(
 // miscellaneous board I/Os
 // --------------------------------------------------------------------------
 
-// pwr_enable_cmd and amp_enable_cmd from BoardRegs; used to clear safety_amp_disable
-wire pwr_enable_cmd;
-wire[4:1] amp_enable_cmd;
-
 wire[31:0] reg_status;    // Status register
 wire[31:0] reg_digio;     // Digital I/O register
 wire[15:0] tempsense;     // Temperature sensor
@@ -525,11 +519,11 @@ BoardRegsQLA chan0(
     .ioexp_cfg_reset(ioexp_cfg_reset),
     .ioexp_present(ioexp_cfg_present),
     .enc_a({IO2[17], IO2[19], IO2[21], IO2[23]}),    // axis 4:1
-    .enc_b({IO2[10], IO2[12], IO2[13], IO2[15]}),
-    .enc_i({IO2[2], IO2[4], IO2[6], IO2[8]}),
-    .neg_limit({IO2[26],IO2[24],IO2[25],IO2[22]}),
-    .pos_limit({IO2[30],IO2[29],IO2[28],IO2[27]}),
-    .home({IO2[20],IO2[18],IO2[16],IO2[14]}),
+    .enc_b({IO2[10], IO2[12], IO2[13], IO2[15]}),    // axis 4:1
+    .enc_i({IO2[2], IO2[4], IO2[6], IO2[8]}),        // axis 4:1
+    .neg_limit({IO2[26],IO2[24],IO2[25],IO2[22]}),   // axis 4:1
+    .pos_limit({IO2[30],IO2[29],IO2[28],IO2[27]}),   // axis 4:1
+    .home({IO2[20],IO2[18],IO2[16],IO2[14]}),        // axis 4:1
     .fault(amp_fault),
     .relay(IO2[9]),
     .mv_faultn(IO1[7]),

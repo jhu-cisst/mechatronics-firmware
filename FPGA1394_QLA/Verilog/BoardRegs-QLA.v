@@ -33,7 +33,7 @@ module BoardRegsQLA
     input  wire sysclk, 
     
     // board input (PC writes)
-    output wire[4:1] amp_disable,   // hardware connection to op amps
+    output wire[1:4] amp_disable,   // hardware connection to op amps
     input  wire[31:0] dout,         // digital outputs
     input  wire dout_cfg_valid,     // digital output configuration valid
     input  wire dout_cfg_bidir,     // whether digital outputs are bidirectional (also need to be inverted)
@@ -52,7 +52,7 @@ module BoardRegsQLA
     input  wire[4:1] neg_limit,     // digi input negative limit
     input  wire[4:1] pos_limit,     // digi input positive limit
     input  wire[4:1] home,          // digi input home position
-    input  wire[4:1] fault,
+    input  wire[1:4] fault,
     
     input  wire relay,              // relay signal
     input  wire mv_faultn,          // motor power fault (active low) from LT4356, over-voltage or over-current
@@ -74,11 +74,11 @@ module BoardRegsQLA
     input  wire[31:0] ds_status,
 
     // Safety amp_disable
-    input  wire[4:1] safety_amp_disable,
+    input  wire[1:4] safety_amp_disable,
 
     // Signals used to clear error flags
     output wire pwr_enable_cmd,
-    output wire[4:1] amp_enable_cmd,
+    output wire[1:4] amp_enable_cmd,
 
     output wire[31:0] reg_status,  // Status register (for reading)
     output wire[31:0] reg_digin,   // Digital I/O register (for reading)
@@ -96,7 +96,14 @@ module BoardRegsQLA
 
     // mv good timer
     reg[23:0] mv_good_counter;  // mv_good counter
-    reg[4:1] mv_amp_disable;    // mv good amp_disable
+    reg[3:0] mv_amp_disable;    // mv good amp_disable
+
+    wire[3:0] amp_disable_rev;
+    assign amp_disable_rev = {amp_disable[4], amp_disable[3], amp_disable[2], amp_disable[1]};
+    wire[3:0] safety_amp_disable_rev;
+    assign safety_amp_disable_rev = {safety_amp_disable[4], safety_amp_disable[3], safety_amp_disable[2], safety_amp_disable[1]};
+    wire[3:0] fault_rev;
+    assign fault_rev = {fault[4], fault[3], fault[2], fault[1]};
 
     // PROGRAMMER NOTE: The higher-level software requires board_id to be in bits [27:24]
     //                  and wdog_timeout to be bit 23. By convention, bits [31:28] specify
@@ -111,9 +118,9 @@ module BoardRegsQLA
                 // mv_fault, unused (00), ioexp_present
                 ~mv_faultn, safety_fb, 1'b0, ioexp_present,
                 // amplifier: 1 -> amplifier on, 0 -> fault (4 axes)
-                fault,
+                fault_rev,
                 // Byte 0: 1 -> amplifier enabled, 0 -> disabled
-                safety_amp_disable[4:1], ~reg_disable[3:0] };
+                safety_amp_disable_rev, ~reg_disable };
 
     // dout[31] indicates that waveform table is driving at least one DOUT
     assign reg_digin = {v_fault, 1'b0, dout[31], mv_fb, enc_a, enc_b, enc_i, dout[3:0], neg_limit, pos_limit, home};
@@ -123,7 +130,7 @@ module BoardRegsQLA
 //
 
 // mv_amp_disable for 40 ms sleep after board pwr enable
-assign amp_disable = (reg_disable[3:0] | mv_amp_disable[4:1]);
+assign amp_disable = (reg_disable | mv_amp_disable);
 
 wire write_main;
 assign write_main = ((reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[7:4]==4'd0) && reg_wen) ? 1'b1 : 1'b0;
@@ -136,8 +143,8 @@ assign pwr_enable_cmd = write_status ? (reg_wdata[19]&reg_wdata[18]) : 1'd0;
 
 // amp_enable_cmd indicates that the host is attempting to enable amplifier power.
 // This is used to clear error flags, such as wdog_timeout and safety_amp_disable.
-assign amp_enable_cmd = write_status ? {reg_wdata[11]&reg_wdata[3], reg_wdata[10]&reg_wdata[2], 
-                                        reg_wdata[ 9]&reg_wdata[1], reg_wdata[ 8]&reg_wdata[0]}
+assign amp_enable_cmd = write_status ? {reg_wdata[ 8]&reg_wdata[0], reg_wdata[ 9]&reg_wdata[1],
+                                        reg_wdata[10]&reg_wdata[2], reg_wdata[11]&reg_wdata[3]}
                                      : 4'd0;
 
 // wdog_clear (previously called powerup_cmd) is true if the host is attempting to enable board power or any amplifier.
@@ -190,7 +197,7 @@ always @(posedge(sysclk))
 
         // Disable axes when wdog timeout or safety amp disable. Note the minor efficiency gain
         // below by combining safety_amp_disable with !wdog_timeout.
-        reg_disable[3:0] <= reg_disable[3:0] | (wdog_timeout ? 4'b1111 : safety_amp_disable[4:1]);
+        reg_disable <= reg_disable | (wdog_timeout ? 4'b1111 : safety_amp_disable_rev);
         // Turn off dout_cfg_reset in case it was previously set
         dout_cfg_reset <= 1'b0;
         // Turn off ioexp_cfg_reset in case it was previously set
