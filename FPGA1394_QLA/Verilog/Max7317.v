@@ -40,7 +40,9 @@
  *     07/27/22    Peter Kazanzides    Initial revision
  */
 
-module Max7317(
+module Max7317
+    #(parameter[3:0] IOEXP_ID = 4'd0)
+(
     input clk,                     // input clock
 
     //input  wire[15:0] reg_raddr,   // read address (not used)
@@ -81,6 +83,7 @@ reg[15:0] read_data;               // Data read from I/O Expander
 
 reg[15:0] reg_wdata_saved;         // Copy of data written from host PC
 reg[15:0] read_data_saved;         // Saved copy for host PC to read
+reg thisActive;                    // 1 -> this device most recently addressed
 
 reg doWrite;                       // 1 -> write pending or in process
 
@@ -193,8 +196,10 @@ reg[7:0] P_Shadow;
 
 reg read_debug;
 // Data read by host PC
-assign reg_rdata = read_debug ? { num_output_error, output_error_mask, outputs_fb, P_Outputs } :
-                   { 3'b000, other_busy, reg_io_read, do_reg_io, read_error, output_error, output_error_mask, read_data_saved };
+assign reg_rdata = thisActive ?
+                       read_debug ? { num_output_error, output_error_mask, outputs_fb, P_Outputs } :
+                       { 3'b010, other_busy, reg_io_read, do_reg_io, read_error, output_error, output_error_mask, read_data_saved } :
+                   32'd0;
 
 // Following signals are used to determine whether we can do more
 // efficient updates for P0-P3 and/or P4-P7, since often these will
@@ -369,15 +374,22 @@ begin
         // still attempt to write to MAX7317 even if it was not detected.
         //   reg_wdata[31]   1 --> clear errors
         //   reg_wdata[30]   1 --> switch to debug data
-        if (reg_wdata[31]) begin
-            read_error <= 1'b0;
-            num_output_error <= 8'd0;
+        //   reg_wdata[3:0]  I/O expander ID
+        if (reg_wdata[3:0] == IOEXP_ID) begin
+            thisActive <= 1'b1;
+            if (reg_wdata[31]) begin
+                read_error <= 1'b0;
+                num_output_error <= 8'd0;
+            end
+            read_debug <= reg_wdata[30];
+            // If upper bits clear, send command to I/O expander
+            if (reg_wdata[31:16] == 16'd0) begin
+                do_reg_io <= 1'b1;
+                reg_wdata_saved <= reg_wdata[15:0];
+            end
         end
-        read_debug <= reg_wdata[30];
-        // If upper bits clear, send command to I/O expander
-        if (reg_wdata[31:16] == 16'd0) begin
-            do_reg_io <= 1'b1;
-            reg_wdata_saved <= reg_wdata[15:0];
+        else begin
+            thisActive <= 1'b0;
         end
     end
 

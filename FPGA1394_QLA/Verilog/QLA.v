@@ -366,6 +366,16 @@ assign IO1[19] = dout_config_bidir ^ dout[0];
 assign IO1[6] = (dout_config_valid && dout_config_bidir) ? dir12_cd : 1'bz;
 assign IO1[5] = (dout_config_valid && dout_config_bidir) ? (ds_enable ? dir34_ds : dir34_cd) : 1'bz;
 
+DoutCfgCheck dconf(
+    .dir12_read(IO1[6]),
+    .dir34_read(IO1[5]),
+    .dir12_reg(dir12_cd),
+    .dir34_reg(dir34_cd),
+    .dout_cfg_valid(dout_config_valid),
+    .dout_cfg_bidir(dout_config_bidir),
+    .dout_cfg_reset(dout_config_reset)
+);
+
 CtrlDout cdout(
     .sysclk(sysclk),
     .reg_raddr(reg_raddr),
@@ -375,13 +385,6 @@ CtrlDout cdout(
     .reg_wdata(reg_wdata),
     .reg_wen(reg_wen),
     .dout(dout),
-    .dir12_read(IO1[6]),
-    .dir34_read(IO1[5]),
-    .dir12_reg(dir12_cd),
-    .dir34_reg(dir34_cd),
-    .dout_cfg_valid(dout_config_valid),
-    .dout_cfg_bidir(dout_config_bidir),
-    .dout_cfg_reset(dout_config_reset),
     .io_extra(io_extra)
 );
 
