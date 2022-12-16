@@ -65,7 +65,7 @@ reg[NUM_DOUT-1:0] dout_waveform_en;
 
 // Whether any digital output is configured to be driven by the table
 wire dout_waveform_any;
-assign dout_waveform_any = (dout_waveform_en == {NUM_DOUT{0}}) ? 1'b0 : 1'b1;
+assign dout_waveform_any = (dout_waveform_en == {NUM_DOUT{1'b0}}) ? 1'b0 : 1'b1;
 
 genvar i;
 generate
@@ -126,7 +126,7 @@ always @(posedge sysclk)
 begin
    if (dout_set) begin
       // If bit 31 set, enable DOUT based on mask bits reg_wdata[15:8]
-      dout_waveform_en <= reg_wdata[31] ? reg_wdata[15:8] : 8'd0;
+      dout_waveform_en <= reg_wdata[31] ? reg_wdata[NUM_DOUT+7:8] : {NUM_DOUT{1'b0}};
       table_raddr <= 10'd0;
       table_cnt <= 23'd0;
    end
@@ -142,7 +142,7 @@ begin
    end
    else begin
       // Idle
-      dout_waveform_en <= 8'd0;
+      dout_waveform_en <= {NUM_DOUT{1'b0}};
       table_raddr <= 10'd0;
       table_cnt <= 23'd0;
    end

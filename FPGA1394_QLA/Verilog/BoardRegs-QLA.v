@@ -98,8 +98,6 @@ module BoardRegsQLA
     reg[23:0] mv_good_counter;  // mv_good counter
     reg[3:0] mv_amp_disable;    // mv good amp_disable
 
-    wire[3:0] amp_disable_rev;
-    assign amp_disable_rev = {amp_disable[4], amp_disable[3], amp_disable[2], amp_disable[1]};
     wire[3:0] safety_amp_disable_rev;
     assign safety_amp_disable_rev = {safety_amp_disable[4], safety_amp_disable[3], safety_amp_disable[2], safety_amp_disable[1]};
     wire[3:0] fault_rev;
@@ -130,7 +128,10 @@ module BoardRegsQLA
 //
 
 // mv_amp_disable for 40 ms sleep after board pwr enable
-assign amp_disable = (reg_disable | mv_amp_disable);
+assign amp_disable[1] = (reg_disable[0] | mv_amp_disable[0]);
+assign amp_disable[2] = (reg_disable[1] | mv_amp_disable[1]);
+assign amp_disable[3] = (reg_disable[2] | mv_amp_disable[2]);
+assign amp_disable[4] = (reg_disable[3] | mv_amp_disable[3]);
 
 wire write_main;
 assign write_main = ((reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[7:4]==4'd0) && reg_wen) ? 1'b1 : 1'b0;

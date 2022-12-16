@@ -367,6 +367,7 @@ assign IO1[6] = (dout_config_valid && dout_config_bidir) ? dir12_cd : 1'bz;
 assign IO1[5] = (dout_config_valid && dout_config_bidir) ? (ds_enable ? dir34_ds : dir34_cd) : 1'bz;
 
 DoutCfgCheck dconf(
+    .sysclk(sysclk),
     .dir12_read(IO1[6]),
     .dir34_read(IO1[5]),
     .dir12_reg(dir12_cd),
@@ -470,7 +471,7 @@ Max7317 IO_Exp(
     .P98({mv_fb, safety_fb_n}),
 
     .P30_error(cur_ctrl_error),
-    .P74_error(disable_f_error[1])
+    .P74_error(disable_f_error)
 );
 
 // --------------------------------------------------------------------------
