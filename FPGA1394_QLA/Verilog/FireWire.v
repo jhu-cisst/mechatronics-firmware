@@ -185,8 +185,7 @@
 `define MIN_ROM_ENTRY  {4'h01, `JHU_LCSR_CID}
 
 module PhyLinkInterface
-    #(parameter NUM_MOTORS = 4,
-      parameter NUM_ENCODERS = 4)
+    #(parameter NUM_BC_READ_QUADS = 33)
 (
     // globals
     input wire sysclk,           // system clock
@@ -566,11 +565,6 @@ module PhyLinkInterface
         ST_TX_DONE1 = 14,         // tx state, link finalizes transmission
         ST_TX_DONE2 = 15;         // tx state, phy regains phy-link bus
 
-
-    // Number of quadlets in real-time block read (not including Firewire header and CRC)
-    localparam NUM_RT_READ_QUADS = (4 + 2*NUM_MOTORS + 5*NUM_ENCODERS);
-    // Number of quadlets in broadcast real-time block; includes sequence number
-    localparam NUM_BC_READ_QUADS = (1+NUM_RT_READ_QUADS);
 
     // real-time feedback broadcast packet size, in bits, including Firewire header/CRC
     //    32*[FW_header (4) + header_CRC (1) + seq (1) + data (N) + data_CRC (1)] = 32*(N+7)

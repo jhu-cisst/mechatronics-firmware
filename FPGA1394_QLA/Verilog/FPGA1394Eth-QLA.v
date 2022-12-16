@@ -66,6 +66,15 @@ module FPGA1394EthQLA
     output           XCSn
 );
 
+    // Number of motors and encoders
+    parameter NUM_MOTORS = 4;
+    parameter NUM_ENCODERS = 4;
+
+    // Number of quadlets in real-time block read (not including Firewire header and CRC)
+    localparam NUM_RT_READ_QUADS = (4 + 2*NUM_MOTORS + 5*NUM_ENCODERS);
+    // Number of quadlets in broadcast real-time block; includes sequence number
+    localparam NUM_BC_READ_QUADS = (1+NUM_RT_READ_QUADS);
+
     // System clock
     wire sysclk;
     BUFG clksysclk(.I(clk1394), .O(sysclk));
@@ -122,7 +131,9 @@ assign LED = IO1[32];     // NOTE: IO1[32] pwr_enable
 //******************************* FPGA Module *************************************
 
 // FPGA module, including Firewire and Ethernet
-FPGA1394V2 fpga(
+FPGA1394V2
+    #(.NUM_BC_READ_QUADS(NUM_BC_READ_QUADS))
+fpga(
     .sysclk(sysclk),
     .reboot_clk(clk_12M),
     .board_id(board_id),

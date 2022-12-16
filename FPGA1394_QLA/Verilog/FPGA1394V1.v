@@ -14,7 +14,9 @@
 
 `include "Constants.v"
 
-module FPGA1394V1(
+module FPGA1394V1
+    #(parameter NUM_BC_READ_QUADS = 33)
+(
     // global clock
     input wire       sysclk,
 
@@ -190,7 +192,9 @@ HubReg hub(
 // --------------------------------------------------------------------------
 
 // phy-link interface
-PhyLinkInterface phy(
+PhyLinkInterface
+    #(.NUM_BC_READ_QUADS(NUM_BC_READ_QUADS))
+phy(
     .sysclk(sysclk),         // in: global clk  
     .board_id(board_id),     // in: board id (rotary switch)
 

@@ -16,7 +16,9 @@
 
 `include "Constants.v"
 
-module FPGA1394V3(
+module FPGA1394V3
+    #(parameter NUM_BC_READ_QUADS = 33)
+(
     // global clock
     input wire       sysclk,
 
@@ -293,7 +295,9 @@ wire[8:0] eth_send_addr_mux;
 assign eth_send_addr_mux = eth_send_ack ? eth_send_addr : reg_raddr[8:0];
 
 // phy-link interface
-PhyLinkInterface phy(
+PhyLinkInterface
+    #(.NUM_BC_READ_QUADS(NUM_BC_READ_QUADS))
+phy(
     .sysclk(sysclk),         // in: global clk  
     .board_id(board_id),     // in: board id (rotary switch)
     .node_id(node_id),       // out: phy node id
@@ -617,7 +621,10 @@ RTL8211F #(.CHANNEL(4'd2)) EthPhy2(
 wire   ip_reg_wen;
 assign ip_reg_wen = (reg_waddr == {`ADDR_MAIN, 8'h0, `REG_IPADDR}) ? reg_wen : 1'b0;
 
-EthernetIO  #(.IPv4_CSUM(1)) EthernetTransfers(
+EthernetIO
+    #(.NUM_BC_READ_QUADS(NUM_BC_READ_QUADS),
+      .IPv4_CSUM(1))
+EthernetTransfers(
     .sysclk(sysclk),          // in: global clock
 
     .board_id(board_id),      // in: board id (rotary switch)
