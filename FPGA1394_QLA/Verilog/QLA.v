@@ -307,6 +307,7 @@ CtrlEnc enc(
     .sysclk(sysclk),
     .enc_a({IO2[23],IO2[21],IO2[19],IO2[17]}),
     .enc_b({IO2[15],IO2[13],IO2[12],IO2[10]}),
+    .enc_i({IO2[8], IO2[6], IO2[4], IO2[2]}),
     .reg_raddr_chan(reg_raddr[7:4]),
     .reg_waddr(reg_waddr),
     .reg_wdata(reg_wdata),
