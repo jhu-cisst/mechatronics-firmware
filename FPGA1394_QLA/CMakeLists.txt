@@ -32,9 +32,9 @@ set (XPSCORE_BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/ipcorev3_dir/xps")
 add_subdirectory(ipcore_dir)
 add_subdirectory(ipcorev3_dir)
 
-# Verilog source files used by both versions of firmware
-set (VERILOG_SOURCE_COMMON "${VERILOG_SOURCE_DIR}/QLA.v"
-                           "${VERILOG_SOURCE_DIR}/ClkDiv.v"
+# Verilog source files used by all QLA-based versions of firmware
+# (including DQLA)
+set (VERILOG_SOURCE_COMMON "${VERILOG_SOURCE_DIR}/ClkDiv.v"
                            "${VERILOG_SOURCE_DIR}/Ltc2601x4.v"
                            "${VERILOG_SOURCE_DIR}/Ltc1864x4.v"
                            "${VERILOG_SOURCE_DIR}/LEDPWM.v"
@@ -53,13 +53,22 @@ set (VERILOG_SOURCE_COMMON "${VERILOG_SOURCE_DIR}/QLA.v"
                            "${VERILOG_SOURCE_DIR}/CtrlDout.v"
                            "${VERILOG_SOURCE_DIR}/MotorChannelQLA.v"
                            "${VERILOG_SOURCE_DIR}/CtrlDac.v"
-                           "${VERILOG_SOURCE_DIR}/CtrlAdc.v"
                            "${VERILOG_SOURCE_DIR}/BoardRegs.v"
-                           "${VERILOG_SOURCE_DIR}/BoardRegs-QLA.v"
                            "${VERILOG_SOURCE_DIR}/DS2505.v"
                            "${VERILOG_SOURCE_DIR}/WriteRtData.v"
-                           "${VERILOG_SOURCE_DIR}/SampleData.v"
-                           "${VERILOG_SOURCE_DIR}/DataBuffer.v")
+                           "${VERILOG_SOURCE_DIR}/SampleData.v")
+
+set (VERILOG_SOURCE_QLA
+                           ${VERILOG_SOURCE_COMMON}
+                           "${VERILOG_SOURCE_DIR}/CtrlAdc.v"
+                           "${VERILOG_SOURCE_DIR}/BoardRegs-QLA.v"
+                           "${VERILOG_SOURCE_DIR}/DataBuffer.v"
+                           "${VERILOG_SOURCE_DIR}/QLA.v")
+
+set (VERILOG_SOURCE_DQLA
+                           ${VERILOG_SOURCE_COMMON}
+                           "${VERILOG_SOURCE_DIR}/BoardRegs-DQLA.v"
+                           "${VERILOG_SOURCE_DIR}/DQLA.v")
 
 set (VERILOG_SOURCE_REV1_REV2
                           "${IPCORE_BINARY_DIR}/hub_mem_gen.v"
@@ -71,13 +80,13 @@ set (VERILOG_SOURCE_REV1_REV2
 # Verilog source files for Rev 1 firmware
 set (VERILOG_SOURCE_REV1 "${VERILOG_SOURCE_DIR}/FPGA1394-QLA.v"
                          "${VERILOG_SOURCE_DIR}/FPGA1394V1.v"
-                          ${VERILOG_SOURCE_COMMON}
+                          ${VERILOG_SOURCE_QLA}
                           ${VERILOG_SOURCE_REV1_REV2})
 
 # Verilog source files for Rev 2 firmware
 set (VERILOG_SOURCE_REV2 "${VERILOG_SOURCE_DIR}/FPGA1394Eth-QLA.v"
                          "${VERILOG_SOURCE_DIR}/FPGA1394V2.v"
-                         ${VERILOG_SOURCE_COMMON}
+                         ${VERILOG_SOURCE_QLA}
                          ${VERILOG_SOURCE_REV1_REV2}
                          "${VERILOG_SOURCE_DIR}/KSZ8851.v"
                          "${VERILOG_SOURCE_DIR}/EthernetIO.v")
@@ -85,7 +94,20 @@ set (VERILOG_SOURCE_REV2 "${VERILOG_SOURCE_DIR}/FPGA1394Eth-QLA.v"
 # Verilog source files for Rev 3 firmware
 set (VERILOG_SOURCE_REV3 "${VERILOG_SOURCE_DIR}/FPGA1394V3-QLA.v"
                          "${VERILOG_SOURCE_DIR}/FPGA1394V3.v"
-                         ${VERILOG_SOURCE_COMMON}
+                         ${VERILOG_SOURCE_QLA}
+                         "${VERILOG_SOURCE_DIR}/RTL8211F.v"
+                         "${VERILOG_SOURCE_DIR}/EthernetIO.v"
+                         "${IPCOREV3_BINARY_DIR}/hub_mem_gen.v"
+                         "${IPCOREV3_BINARY_DIR}/Dual_port_RAM_32X1024.v"
+                         "${IPCOREV3_BINARY_DIR}/fifo_8x8192_16.v"
+                         "${IPCOREV3_BINARY_DIR}/fifo_16x2048_8.v"
+                         "${IPCOREV3_BINARY_DIR}/fifo_32x32.v"
+                         "${XPSCORE_BINARY_DIR}/hdl/fpgav3.v")
+
+# Verilog source files for DQLA Rev 3 firmware
+set (VERILOG_SOURCE_DQLA "${VERILOG_SOURCE_DIR}/FPGA1394V3-DQLA.v"
+                         "${VERILOG_SOURCE_DIR}/FPGA1394V3.v"
+                         ${VERILOG_SOURCE_DQLA}
                          "${VERILOG_SOURCE_DIR}/RTL8211F.v"
                          "${VERILOG_SOURCE_DIR}/EthernetIO.v"
                          "${IPCOREV3_BINARY_DIR}/hub_mem_gen.v"
@@ -128,6 +150,19 @@ ise_compile_fpga(PROJ_NAME      "FPGA1394V3QLA"
                  XPSCORE_DIR    "${XPSCORE_BINARY_DIR}/implementation"
                  TOP_LEVEL      "FPGA1394V3QLA"
                  PROJ_OUTPUT    "FPGA1394V3-QLA"
+                 IS_V3          ON)
+
+# Compile the Rev 3 firmware -- output is FPGA1394V3-DQLA.mcs, which is copied
+# to the Generated subdirectory in the source directory (if different).
+ise_compile_fpga(PROJ_NAME      "FPGA1394V3DQLA"
+                 DEPENDENCIES   "CoreGenV3" "PlatgenV3"
+                 FPGA_PARTNUM   ${FPGAV3_PARTNUM}
+                 VERILOG_SOURCE ${VERILOG_SOURCE_DQLA}
+                 UCF_FILE       "${VERILOG_SOURCE_DIR}/XC7Z020.ucf"
+                 IPCORE_DIR     ${IPCOREV3_BINARY_DIR}
+                 XPSCORE_DIR    "${XPSCORE_BINARY_DIR}/implementation"
+                 TOP_LEVEL      "FPGA1394V3DQLA"
+                 PROJ_OUTPUT    "FPGA1394V3-DQLA"
                  IS_V3          ON)
 
 # timing target only defined by ise_compile_fpga_old
