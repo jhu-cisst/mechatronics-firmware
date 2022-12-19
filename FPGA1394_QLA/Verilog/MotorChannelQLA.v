@@ -75,8 +75,8 @@ assign amp_fault_fb = ~(amp_disable|amp_fault);
 // Delay counter
 reg[7:0] amp_enable_cnt;
 
-// Specified delay, resolution is 5.21 us
-// With 8 bits, maximum possible delay is 1.3 ms
+// Specified delay, resolution is 20.83 us
+// With 8 bits, maximum possible delay is 5.3 ms
 wire[7:0] delay_cnt;
 assign delay_cnt = motor_config[7:0];
 

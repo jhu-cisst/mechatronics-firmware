@@ -372,18 +372,19 @@ begin
         // Note that the write will be ignored if another write is pending.
         // We do not check ioexp_cfg_present so that the external PC can
         // still attempt to write to MAX7317 even if it was not detected.
-        //   reg_wdata[31]   1 --> clear errors
-        //   reg_wdata[30]   1 --> switch to debug data
-        //   reg_wdata[3:0]  I/O expander ID
-        if (reg_wdata[3:0] == IOEXP_ID) begin
+        //   reg_wdata[31]     1 --> clear errors
+        //   reg_wdata[30]     1 --> switch to debug data
+        //   reg_wdata[19:16]  I/O expander ID
+        //   reg_wdata[15:0]   Command to I/O expander (if upper bits clear)
+        if (reg_wdata[19:16] == IOEXP_ID) begin
             thisActive <= 1'b1;
             if (reg_wdata[31]) begin
                 read_error <= 1'b0;
                 num_output_error <= 8'd0;
             end
             read_debug <= reg_wdata[30];
-            // If upper bits clear, send command to I/O expander
-            if (reg_wdata[31:16] == 16'd0) begin
+            // If upper 12 bits clear, send command to I/O expander
+            if (reg_wdata[31:20] == 12'd0) begin
                 do_reg_io <= 1'b1;
                 reg_wdata_saved <= reg_wdata[15:0];
             end
