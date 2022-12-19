@@ -418,21 +418,20 @@ wire ioexp_cfg_reset;          // 1 -> Check if I/O expander (MAX7317) present
 wire Q1_ioexp_cfg_present;     // 1 -> I/O expander (MAX7317) detected
 wire Q2_ioexp_cfg_present;     // 1 -> I/O expander (MAX7317) detected
 
-// Fault signal from op amp, active low (1 -> amplifier on, 0 -> fault)
-wire[1:8] amp_fault;
-assign amp_fault = { Q1_amp_fault, Q2_amp_fault };
-
-// safety_amp_enable from SafetyCheck module
-wire[1:8] safety_amp_disable;
-
-// amp_disable NOT YET SET; should also be combined with Qx_mv_amp_disable
-wire[1:8] amp_disable;
+// Delay between mv_good and amp enable (from BoardRegsDQLA)
+wire Q1_mv_amp_disable;
+wire Q2_mv_amp_disable;
 
 // amp_disable_pin is output from MotorChannelQLA and is output via FPGA
 wire[1:8] amp_disable_pin;
 
-// 1 -> Force follower op amp to always be enabled
-wire[1:8] force_disable_f;
+// amp_disable_f is output from MotorChannelQLA and is provided to the
+// follower op amp via the Max7317 I/O expander (QLA Rev 1.5+)
+wire[1:8] amp_disable_f;
+
+// Fault signal from op amp, active low (1 -> amplifier on, 0 -> fault)
+wire[1:8] amp_fault;
+assign amp_fault = { Q1_amp_fault, Q2_amp_fault };
 
 wire[1:8] cur_ctrl_error;
 wire[1:8] disable_f_error;
@@ -448,6 +447,15 @@ wire[31:0] reg_motor_status;
 // Motor configuration
 wire[31:0] motor_config[1:8];
 
+// pwr_enable_cmd (from BoardRegsDQLA) and amp_enable_cmd (from MotorChannelQLA) are
+// used to clear safety_amp_disable (in MotorChannelQLA) and wdog_timeout (wdog_clear to FPGA)
+wire pwr_enable_cmd;
+wire[1:8] amp_enable_cmd;
+
+// wdog_clear is true if the host is attempting to enable board power or any amplifier.
+// This is used to clear the watchdog status flag (wdog_timeout).
+assign wdog_clear = (pwr_enable_cmd || (amp_enable_cmd != 8'd0)) ? 1'b1 : 1'b0;
+
 // Delay clock, used to delay the amplifier enable.
 // 49.152 MHz / 2**10 ==> 48 kHz (1 cnt = 20.83 us)
 wire clkdiv32, clk_delay;
@@ -458,9 +466,6 @@ BUFG delayclk(.I(clkdiv32), .O(clk_delay));
 genvar k;
 generate
     for (k = 1; k <= 8; k = k + 1) begin : mchan_loop
-        wire clr_safety_disable;
-        assign clr_safety_disable = pwr_enable_cmd | amp_enable_cmd[k];
-
         MotorChannelQLA #(.CHANNEL(k)) Motor_instance(
             .clk(sysclk),
             .delay_clk(clk_delay),
@@ -473,20 +478,22 @@ generate
 
             .ioexp_present((k <= 4) ? Q1_ioexp_cfg_present : Q2_ioexp_cfg_present),
 
-            .safety_amp_disable(safety_amp_disable[k]),
+            .pwr_enable((k <= 4) ? Q1_pwr_en : Q2_pwr_en),
+            .pwr_enable_cmd(pwr_enable_cmd),
+            .amp_enable_cmd(amp_enable_cmd[k]),
+            .mv_amp_disable((k <= 4) ? Q1_mv_amp_disable : Q2_mv_amp_disable),
+            .wdog_timeout(wdog_timeout),
             .amp_fault(amp_fault[k]),
             .cur_ctrl_error(cur_ctrl_error[k]),
             .disable_f_error(disable_f_error[k]),
-            .amp_disable(amp_disable[k]),
             .amp_disable_pin(amp_disable_pin[k]),
-            .force_disable_f(force_disable_f[k]),
+            .amp_disable_f(amp_disable_f[k]),
 
             .cur_cmd(cur_cmd[k]),
             .ctrl_mode(ctrl_mode[k]),
             .cur_ctrl(cur_ctrl[k]),
 
-            .cur_fb(cur_fb[k]),
-            .clr_safety_disable(clr_safety_disable)
+            .cur_fb(cur_fb[k])
         );
     end
 endgenerate
@@ -787,8 +794,7 @@ Q1_IO_Exp(
 
     // Signals
     .P30(cur_ctrl[1:4]),
-    // if force_disable_f, then output is 0
-    .P74((~force_disable_f[1:4])&amp_disable[1:4]),
+    .P74(amp_disable_f[1:4]),
     .P98({Q1_mv_fb, Q1_safety_fb_n}),
 
     .P30_error(cur_ctrl_error[1:4]),
@@ -825,7 +831,7 @@ Q2_IO_Exp(
     // Signals
     .P30(cur_ctrl[5:8]),
     // if force_disable_f, then output is 0
-    .P74((~force_disable_f[5:8])&amp_disable[5:8]),
+    .P74(amp_disable_f[5:8]),
     .P98({Q2_mv_fb, Q2_safety_fb_n}),
 
     .P30_error(cur_ctrl_error[5:8]),
@@ -861,14 +867,6 @@ DS2505 ds_instrument(
 // --------------------------------------------------------------------------
 // miscellaneous board I/Os
 // --------------------------------------------------------------------------
-
-// pwr_enable_cmd and amp_enable_cmd from BoardRegs; used to clear safety_amp_disable
-wire pwr_enable_cmd;
-wire[1:8] amp_enable_cmd;
-
-// Delay between mv_good and amp enable
-wire Q1_mv_amp_disable;
-wire Q2_mv_amp_disable;
 
 wire[31:0] reg_status;    // Status register
 wire[31:0] reg_digio;     // Digital I/O register
@@ -916,15 +914,14 @@ BoardRegsDQLA chan0(
     .mv_amp_disable({Q2_mv_amp_disable, Q1_mv_amp_disable}),
     .reg_status(reg_status),
     .reg_digin(reg_digio),
-    .wdog_timeout(wdog_timeout),
-    .wdog_clear(wdog_clear)
+    .wdog_timeout(wdog_timeout)
 );
 
 // --------------------------------------------------------------------------
 // Sample data for block read
 // --------------------------------------------------------------------------
 
-SampleData sampler(
+SampleData #(.NUM_CHAN(8)) sampler(
     .clk(sysclk),
     .doSample(sample_start),
     .isBusy(sample_busy),
@@ -948,7 +945,7 @@ SampleData sampler(
 // Write data for real-time block
 // --------------------------------------------------------------------------
 
-WriteRtData rt_write(
+WriteRtData #(.NUM_MOTORS(8)) rt_write(
     .clk(sysclk),
     .rt_write_en(rt_wen),       // Write enable
     .rt_write_addr(rt_waddr),   // Write address

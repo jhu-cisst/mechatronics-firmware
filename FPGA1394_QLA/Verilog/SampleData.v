@@ -14,7 +14,9 @@
 
 `include "Constants.v"
 
-module SampleData(
+module SampleData
+#(parameter[3:0] NUM_CHAN = 4'd4)  // nummber of channels to sample
+(
     input wire        clk,         // system clock
     input wire        doSample,    // signal to trigger sampling
     output wire       isBusy,      // 1 -> busy sampling
@@ -36,12 +38,19 @@ module SampleData(
 
 // Number of quadlets in block response:
 //   1 (timestamp) + 3 (global regs) + num_channels*num_offsets
-//     num_channels: 4 (QLA)
+//     num_channels: 4 (QLA) or 8 (DQLA)
 //     num_offsets: 4 (Rev 1-6), 6 (Rev 7), 7 (Rev 8+)
-//   Thus, num_quadlets = 20 (Rev 1-6), 28 (Rev 7), or 32 (Rev 8+)
-// We allocate the full address of 32 quadlets
+//   Thus, for QLA, num_quadlets = 20 (Rev 1-6), 28 (Rev 7), or 32 (Rev 8+)
+//   For DQLA, num_quadlets = 60
+// We allocate the full address of 64 quadlets
 
-reg[31:0] RT_Feedback[0:31];
+reg[31:0] RT_Feedback[0:63];
+
+integer ii;
+initial begin
+   for (ii = 1; ii <= 63; ii = ii + 1)
+      RT_Feedback[ii] = 32'd0;
+end
 
 localparam[1:0]
    SD_IDLE = 2'd0,
@@ -49,7 +58,7 @@ localparam[1:0]
 
 reg[1:0] state;
 
-assign blk_data = RT_Feedback[blk_addr[4:0]];
+assign blk_data = RT_Feedback[blk_addr];
 assign isBusy = (state != SD_IDLE);
 
 // -------------------------------------------------------
@@ -84,11 +93,11 @@ begin
             RT_Feedback[2] <= reg_digio;
             RT_Feedback[3] <= reg_temp;
          end
-         if (chan == 4'd5) begin
+         if (chan == (NUM_CHAN+4'd1)) begin
             state <= SD_IDLE;
          end
          else begin
-            // For chan = 1,2,3,4
+            // For chan = 1,2,3,4,...
             RT_Feedback[3+chan] <= adc_in;
             RT_Feedback[7+chan] <= enc_pos;
             RT_Feedback[11+chan] <= enc_period;

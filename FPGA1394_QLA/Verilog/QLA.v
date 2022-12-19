@@ -156,28 +156,27 @@ assign reg_rd[`OFF_ADC_DATA] = reg_adc_data;
 wire ioexp_cfg_reset;       // 1 -> Check if I/O expander (MAX7317) present
 wire ioexp_cfg_present;     // 1 -> I/O expander (MAX7317) detected
 
-// safety_amp_enable from SafetyCheck module
-wire[1:4] safety_amp_disable;
-
-// amp_disable is output from BoardRegs (set by host PC)
-wire[1:4] amp_disable;
+// mv_amp_disable is from BoardRegsQLA and is used to disable amplifiers
+// for a specified time (~40 ms) after mv_good is detected.
+wire mv_amp_disable;
 
 // amp_disable_pin is output from MotorChannelQLA and is output via FPGA
 wire[1:4] amp_disable_pin;
 
+// amp_disable_f is output from MotorChannelQLA and is provided to the
+// follower op amp via the Max7317 I/O expander (QLA Rev 1.5+)
+wire[1:4] amp_disable_f;
+
 // Fault signal from op amp, active low (1 -> amplifier on, 0 -> fault)
 wire[1:4] amp_fault;
 assign amp_fault = { IO2[31], IO2[33], IO2[35], IO2[37] };
-
-// 1 -> Force follower op amp to always be enabled
-wire[1:4] force_disable_f;
 
 wire[1:4] cur_ctrl_error;
 wire[1:4] disable_f_error;
 
 wire[15:0] cur_cmd[1:4];     // Commanded current per channel
 wire[3:0] ctrl_mode[1:4];    // Control mode per channel
-wire cur_ctrl[1:4];          // 1 -> current control, 0 -> voltage control
+wire[1:4] cur_ctrl;          // 1 -> current control, 0 -> voltage control
 
 // Motor status feedback
 wire[31:0] motor_status[1:4];
@@ -186,9 +185,14 @@ wire[31:0] reg_motor_status;
 // Motor configuration
 wire[31:0] motor_config[1:4];
 
-// pwr_enable_cmd and amp_enable_cmd from BoardRegs; used to clear safety_amp_disable
+// pwr_enable_cmd (from BoardRegsQLA) and amp_enable_cmd (from MotorChannelQLA) are
+// used to clear safety_amp_disable (in MotorChannelQLA) and wdog_timeout (wdog_clear to FPGA)
 wire pwr_enable_cmd;
 wire[1:4] amp_enable_cmd;
+
+// wdog_clear is true if the host is attempting to enable board power or any amplifier.
+// This is used to clear the watchdog status flag (wdog_timeout).
+assign wdog_clear = (pwr_enable_cmd || (amp_enable_cmd != 4'd0)) ? 1'b1 : 1'b0;
 
 // Delay clock, used to delay the amplifier enable.
 // 49.152 MHz / 2**10 ==> 48 kHz (1 cnt = 20.83 us)
@@ -200,10 +204,7 @@ BUFG delayclk(.I(clkdiv32), .O(clk_delay));
 genvar k;
 generate
     for (k = 1; k <= 4; k = k + 1) begin : mchan_loop
-        wire clr_safety_disable;
-        assign clr_safety_disable = pwr_enable_cmd | amp_enable_cmd[k];
-
-        MotorChannelQLA #(.CHANNEL(k)) Motor_instance(
+        MotorChannelQLA #(.CHANNEL(k), .USE_STATUS_REG(1)) Motor_instance(
             .clk(sysclk),
             .delay_clk(clk_delay),
 
@@ -215,20 +216,22 @@ generate
 
             .ioexp_present(ioexp_cfg_present),
 
-            .safety_amp_disable(safety_amp_disable[k]),
+            .pwr_enable(IO1[32]),
+            .pwr_enable_cmd(pwr_enable_cmd),
+            .amp_enable_cmd(amp_enable_cmd[k]),
+            .mv_amp_disable(mv_amp_disable),
+            .wdog_timeout(wdog_timeout),
             .amp_fault(amp_fault[k]),
             .cur_ctrl_error(cur_ctrl_error[k]),
             .disable_f_error(disable_f_error[k]),
-            .amp_disable(amp_disable[k]),
             .amp_disable_pin(amp_disable_pin[k]),
-            .force_disable_f(force_disable_f[k]),
+            .amp_disable_f(amp_disable_f[k]),
 
             .cur_cmd(cur_cmd[k]),
             .ctrl_mode(ctrl_mode[k]),
             .cur_ctrl(cur_ctrl[k]),
 
-            .cur_fb(cur_fb[k]),
-            .clr_safety_disable(clr_safety_disable)
+            .cur_fb(cur_fb[k])
         );
     end
 endgenerate
@@ -237,6 +240,20 @@ assign IO2[32] = amp_disable_pin[1];
 assign IO2[34] = amp_disable_pin[2];
 assign IO2[36] = amp_disable_pin[3];
 assign IO2[38] = amp_disable_pin[4];
+
+// Set up status register 12 LSB (reg_status12) to provide amplifier feedback.
+// This preserves backward compatibility with previous versions of firmware and
+// may be eliminated in the future.
+wire[11:0] reg_status12;
+
+assign reg_status12 = {
+       // amplifier: 1 -> amplifier on, 0 -> fault (4 axes)
+       amp_fault[4], amp_fault[3], amp_fault[2], amp_fault[1],
+       // safety_amp_disable
+       motor_status[4][17], motor_status[3][17], motor_status[2][17], motor_status[1][17],
+       // ~reg_disable
+       motor_status[4][29], motor_status[3][29], motor_status[2][29], motor_status[1][29]
+       };
 
 // Check for non-zero channel number (reg_waddr[7:4]) to ignore write to global register.
 // It would be even better to check that channel number is 1-4.
@@ -467,8 +484,7 @@ Max7317 IO_Exp(
 
     // Signals
     .P30({cur_ctrl[1], cur_ctrl[2], cur_ctrl[3], cur_ctrl[4]}),
-    // if force_disable_f, then output is 0
-    .P74((~force_disable_f)&amp_disable),
+    .P74(amp_disable_f),
     .P98({mv_fb, safety_fb_n}),
 
     .P30_error(cur_ctrl_error),
@@ -512,7 +528,6 @@ wire[15:0] reg_databuf;   // Data collection status
 
 BoardRegsQLA chan0(
     .sysclk(sysclk),
-    .amp_disable(amp_disable),
     .dout(dout),
     .dout_cfg_valid(dout_config_valid),
     .dout_cfg_bidir(dout_config_bidir),
@@ -529,28 +544,26 @@ BoardRegsQLA chan0(
     .neg_limit({IO2[26],IO2[24],IO2[25],IO2[22]}),   // axis 4:1
     .pos_limit({IO2[30],IO2[29],IO2[28],IO2[27]}),   // axis 4:1
     .home({IO2[20],IO2[18],IO2[16],IO2[14]}),        // axis 4:1
-    .fault(amp_fault),
     .relay(IO2[9]),
     .mv_faultn(IO1[7]),
     .mv_good(IO2[11]),
+    .mv_amp_disable(mv_amp_disable),
     .v_fault(IO1[9]),
     .safety_fb(~safety_fb_n),
     .mv_fb(mv_fb),
     .board_id(board_id),
     .temp_sense(tempsense),
+    .reg_status12(reg_status12),
     .reg_raddr(reg_raddr),
     .reg_waddr(reg_waddr),
     .reg_rdata(reg_rdata_chan0),
     .reg_wdata(reg_wdata),
     .reg_wen(reg_wen),
     .ds_status(ds_status),
-    .safety_amp_disable(safety_amp_disable),
     .pwr_enable_cmd(pwr_enable_cmd),
-    .amp_enable_cmd(amp_enable_cmd),
     .reg_status(reg_status),
     .reg_digin(reg_digio),
-    .wdog_timeout(wdog_timeout),
-    .wdog_clear(wdog_clear)
+    .wdog_timeout(wdog_timeout)
 );
 
 // --------------------------------------------------------------------------

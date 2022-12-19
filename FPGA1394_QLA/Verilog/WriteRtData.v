@@ -15,12 +15,14 @@
 
 `include "Constants.v"
 
-module WriteRtData(
+module WriteRtData
+#(parameter NUM_MOTORS = 4)           // Warning: some code only supports 4 or 8
+(
     input wire       clk,             // system clock
     // Following signals are provided by the communication module
     // (Firewire or Ethernet) to store the block data in local memory
     input wire       rt_write_en,     // Write enable
-    input wire[3:0]  rt_write_addr,   // Write address (0-4)
+    input wire[3:0]  rt_write_addr,   // Write address (0-NUM_MOTORS)
     input wire[31:0] rt_write_data,   // Write data
     // Following signals are used to write to the DAC and power control
     output reg       bw_write_en,
@@ -42,13 +44,31 @@ parameter[2:0]
 
 reg[2:0] rtState = RT_IDLE;
 reg[1:0] rtCnt;
-reg[1:0] dac_addr;
+
+// Warning: following should be changed if more than 8 motors
+// (could instead use: clog2b(NUM_MOTORS)-1)
+localparam DACBIT = 2;
+
+reg[DACBIT:0] dac_addr;
 
 // For storing DAC values
-reg[31:0] RtDAC[0:3];
+reg[31:0] RtDAC[0:(NUM_MOTORS-1)];
 
 wire anyDacValid;
-assign anyDacValid = RtDAC[0][31]|RtDAC[1][31]|RtDAC[2][31]|RtDAC[3][31];
+wire rt_write_end;    // indicates that last rt write is in process
+
+// Warning: following generate code only supports 4 or 8 NUM_MOTORS
+generate
+if (NUM_MOTORS == 4) begin
+    assign anyDacValid = RtDAC[0][31]|RtDAC[1][31]|RtDAC[2][31]|RtDAC[3][31];
+    assign rt_write_end = rt_write_addr[2];
+end
+else if (NUM_MOTORS == 8) begin
+    assign anyDacValid = RtDAC[0][31]|RtDAC[1][31]|RtDAC[2][31]|RtDAC[3][31]|
+                         RtDAC[4][31]|RtDAC[5][31]|RtDAC[6][31]|RtDAC[7][31];
+    assign rt_write_end = rt_write_addr[3];
+end
+endgenerate
 
 // For storing power control quadlet. Note that we only save the lowest 20 bits, so
 // that we do not accidentally make other changes, such as requesting an FPGA reboot.
@@ -70,15 +90,8 @@ begin
       // Could check if rt_write_en is asserted when we are not in the idle state
       // and flag an error in that case
       if (rt_write_en) begin
-         if (rt_write_addr[2]) begin
-            // Rev 8 specifies the amp enable mask/state in the motor command (RtDAC), so copy
-            // these bits to the appropriate bits in RtCtrl. This is an easy way to implement
-            // the Rev 8 protocol with minimal changes to the firmware.
-            RtCtrl <= { rt_write_data[19:12],
-                        RtDAC[3][29], RtDAC[2][29], RtDAC[1][29], RtDAC[0][29],  // mask
-                        4'd0,
-                        RtDAC[3][28], RtDAC[2][28], RtDAC[1][28], RtDAC[0][28]   // state
-                      };
+         if (rt_write_end) begin
+            RtCtrl <= rt_write_data[19:0];
             // Now, start writing to the DAC and/or control register
             if (anyDacValid) begin
                // Assert bw_block_wstart for 80 ns before starting local block write
@@ -86,7 +99,7 @@ begin
                bw_write_en <= 1;
                bw_block_wstart <= 1;
                rtState <= RT_WSTART;
-               dac_addr <= 2'd0;
+               dac_addr <= 0;
             end
             else begin
                // No DAC valid, only write RtCtrl quadlet
@@ -95,7 +108,7 @@ begin
             end
          end
          else begin
-            RtDAC[rt_write_addr[1:0]] <= rt_write_data;
+            RtDAC[rt_write_addr[DACBIT:0]] <= rt_write_data;
          end
       end
    end
@@ -111,22 +124,22 @@ begin
 
    RT_WRITE:
    begin
-      dac_addr <= dac_addr + 2'd1;
+      dac_addr <= dac_addr + 1;
       bw_reg_waddr[7:4] <= bw_reg_waddr[7:4] + 4'd1;
-      bw_reg_wdata <= {1'b0, RtDAC[dac_addr][30:0]};
-      // MSB is "valid" bit for DAC write (addrMain)
-      bw_reg_wen <= RtDAC[dac_addr][31];
+      bw_reg_wdata <= RtDAC[dac_addr];
+      bw_reg_wen <= 1'b1;
       rtState <= RT_WRITE_GAP;
-      RtDAC[dac_addr][31] <= 0;         // Clear valid bit
-      RtDAC[dac_addr][29:28] <= 2'b00;  // Clear amp enable mask/bit
    end
 
    RT_WRITE_GAP:
    begin
       // hold reg_wen low for 60 nsec (3 cycles)
       bw_reg_wen <= 1'b0;
+      // clear valid bit and amp enable mask
+      RtDAC[dac_addr-1][31] <= 1'b0;
+      RtDAC[dac_addr-1][29] <= 1'b0;
       if (rtCnt == 2'd3) begin
-         if (dac_addr == 2'd0)  // end of DAC block
+         if (dac_addr == NUM_MOTORS[DACBIT:0])  // end of DAC block
             rtState <= RT_BLK_WEN;
          else
             rtState <= RT_WRITE;

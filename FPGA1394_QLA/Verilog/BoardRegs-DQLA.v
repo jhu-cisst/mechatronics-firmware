@@ -72,8 +72,7 @@ module BoardRegsDQLA
 
     output wire[31:0] reg_status,  // Status register (for reading)
     output wire[31:0] reg_digin,   // Digital I/O register (for reading)
-    input wire wdog_timeout,       // Watchdog timeout status flag
-    output wire wdog_clear         // Clear watchdog status flag
+    input wire wdog_timeout        // Watchdog timeout status flag
 );
 
     // -------------------------------------------------------------------------
@@ -108,11 +107,6 @@ assign write_status = (write_main && (reg_waddr[3:0] == `REG_STATUS)) ? 1'b1 : 1
 // pwr_enable_cmd indicates that the host is attempting to enable board power.
 // This is used to clear error flags, such as wdog_timeout and safety_amp_disable.
 assign pwr_enable_cmd = write_status ? (reg_wdata[19]&reg_wdata[18]) : 1'd0;
-
-// wdog_clear (previously called powerup_cmd) is true if the host is attempting to enable board power or any amplifier.
-// This is used to clear the watchdog status flag.
-// PK TODO: Should we restore amplifier enable check? If so, would need it to be input to this module.
-assign wdog_clear = pwr_enable_cmd;
 
 // clocked process simulating a register file
 always @(posedge(sysclk))
