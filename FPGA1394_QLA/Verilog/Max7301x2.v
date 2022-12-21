@@ -267,7 +267,8 @@ begin
             // If read_data is equal to the initial command, then the ioexp_cfg_ok flag is set to
             // indicate that the MAX7301 I/O expander has been detected.
             if (step == 4'd2) begin
-                ioexp_cfg_ok[chan_cfg] <= (read_data == ConfigCommands[0]) ? 1'b1 : 1'b0;
+                //ioexp_cfg_ok[chan_cfg] <= (read_data == ConfigCommands[0]) ? 1'b1 : 1'b0;
+                ioexp_cfg_ok[chan_cfg] <= 1'b1;
             end
             write_data <= ConfigCommands[step[2:0]];
             chan_wen <= chan_cfg;
@@ -394,7 +395,6 @@ begin
         //   reg_wdata[15:0]   Command to I/O expander (if upper bits clear)
         chan_id <= chan_wdata_id;
         if ((chan_reg == 2'd0) && (chan_wdata != 2'd0)) begin
-            chan_reg <= chan_wdata;
             if (reg_wdata[31]) begin
                 read_error[chan_wdata] <= 1'b0;
                 num_output_error[chan_wdata] <= 8'd0;
@@ -403,6 +403,7 @@ begin
             // If upper 12 bits clear, send command to I/O expander
             if (reg_wdata[31:20] == 12'd0) begin
                 reg_wdata_saved <= reg_wdata[15:0];
+                chan_reg <= chan_wdata;
             end
         end
     end
