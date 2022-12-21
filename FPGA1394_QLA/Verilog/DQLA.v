@@ -141,13 +141,13 @@ module DQLA(
     assign IO1[9]  = out_en ? Q2_dac_CSn : 1'bz;
    
     // DQLA I/O expander
-    wire Q1_exp_sclk;
-    wire Q1_exp_mosi;
+    wire exp_sclk;      // labeled Q1_exp_sclk on schematic
+    wire exp_mosi;      // labeled Q1_exp_mosi on schematic
     wire exp_miso;
     wire Q1_exp_CSn;
     wire Q2_exp_CSn;
-    assign IO1[18] = out_en ? Q1_exp_sclk : 1'bz;
-    assign IO1[16] = out_en ? Q1_exp_mosi : 1'bz;
+    assign IO1[18] = out_en ? exp_sclk : 1'bz;
+    assign IO1[16] = out_en ? exp_mosi : 1'bz;
     assign exp_miso = IO1[14];
     assign IO1[10] = out_en ? Q1_exp_CSn : 1'bz;
     assign IO1[12] = out_en ? Q2_exp_CSn : 1'bz;
@@ -195,6 +195,9 @@ module DQLA(
     assign Q2_temp[2] = IO2[19];
     
     //********************** I/O Expander Signals (MAX7301 on DQLA) *********************
+    wire Q1_DQLA_exp_ok;     // 1 -> I/O expander (MAX7301) detected
+    wire Q2_DQLA_exp_ok;     // 1 -> I/O expander (MAX7301) detected
+
     wire[31:4] Q1_IOP;
 
     wire Q1_led1_grn;
@@ -286,6 +289,7 @@ wire[31:0] reg_rdata_chan0;      // 'channel 0' is a special axis that contains 
 reg[31:0]  reg_rdata_ioexp;      // reads from MAX7317 I/O expander (QLA 1.5+)
 wire[31:0] reg_rdata_ioexp_1;    // reads from MAX7317 I/O expander (QLA 1.5+)
 wire[31:0] reg_rdata_ioexp_2;    // reads from MAX7317 I/O expander (QLA 1.5+)
+wire[31:0] reg_rdata_ioexp_3;    // reads from MAX7301 I/O expander (DQLA)
 
 assign reg_rdata_prom_qla = (reg_raddr[7:4] == 4'd1) ? reg_rdata_prom_qla1 :
                             (reg_raddr[7:4] == 4'd2) ? reg_rdata_prom_qla2 :
@@ -294,11 +298,12 @@ assign reg_rdata_prom_qla = (reg_raddr[7:4] == 4'd1) ? reg_rdata_prom_qla1 :
 // Only one I/O expander should be providing data to the host PC
 always @(*)
 begin
-    case ({reg_rdata_ioexp_2[30], reg_rdata_ioexp_1[30]})
-      2'b00:  reg_rdata_ioexp = 32'd0;   
-      2'b01:  reg_rdata_ioexp = reg_rdata_ioexp_1;
-      2'b10:  reg_rdata_ioexp = reg_rdata_ioexp_2;
-      2'b11:  reg_rdata_ioexp = 32'h80000000;
+    case ({reg_rdata_ioexp_3[30], reg_rdata_ioexp_2[30], reg_rdata_ioexp_1[30]})
+      3'b000:  reg_rdata_ioexp = 32'd0;
+      3'b001:  reg_rdata_ioexp = reg_rdata_ioexp_1;
+      3'b010:  reg_rdata_ioexp = reg_rdata_ioexp_2;
+      3'b100:  reg_rdata_ioexp = reg_rdata_ioexp_3;
+      default:  reg_rdata_ioexp = 32'h80000000;
     endcase
 end          
 
@@ -830,12 +835,43 @@ Q2_IO_Exp(
 
     // Signals
     .P30(cur_ctrl[5:8]),
-    // if force_disable_f, then output is 0
     .P74(amp_disable_f[5:8]),
     .P98({Q2_mv_fb, Q2_safety_fb_n}),
 
     .P30_error(cur_ctrl_error[5:8]),
     .P74_error(disable_f_error[5:8])
+);
+
+// --------------------------------------------------------------------------
+// MAX7301: I/O Expanders on DQLA
+// --------------------------------------------------------------------------
+
+Max7301x2 #(.IOEXP_ID1(3), .IOEXP_ID2(4)) DQLA_IOExp(
+    .clk(sysclk),
+
+    // address & wen
+    //.reg_raddr(reg_raddr),
+    .reg_waddr(reg_waddr),
+    .reg_rdata(reg_rdata_ioexp_3),
+    .reg_wdata(reg_wdata),
+    .reg_wen(reg_wen),
+
+    // Configuration
+    .ioexp_cfg_ok({Q2_DQLA_exp_ok, Q1_DQLA_exp_ok}),
+
+    // spi interface
+    .mosi(exp_mosi),
+    .miso(exp_miso),
+    .sclk(exp_sclk),
+    .CSn({Q2_exp_CSn, Q1_exp_CSn}),
+
+    // Signals
+    .IOP1_31_28(Q1_IOP[31:28]),
+    .IOP1_16_12(Q1_IOP[16:12]),
+    .IOP1_read({Q1_IOP[27:17],Q1_IOP[11:4]}),
+    .IOP2_31_28(Q2_IOP[31:28]),
+    .IOP2_16_12(Q2_IOP[16:12]),
+    .IOP2_read({Q2_IOP[27:17],Q2_IOP[11:4]})
 );
 
 // --------------------------------------------------------------------------
@@ -896,6 +932,7 @@ BoardRegsDQLA chan0(
     .dac_test_reset(dac_test_reset),
     .ioexp_cfg_reset(ioexp_cfg_reset),
     .ioexp_present({Q2_ioexp_cfg_present, Q1_ioexp_cfg_present}),
+    .dqla_exp_ok({Q2_DQLA_exp_ok, Q1_DQLA_exp_ok}),
     .neg_limit(neg_limit),
     .pos_limit(pos_limit),
     .home(home),

@@ -197,8 +197,9 @@ reg[7:0] P_Shadow;
 reg read_debug;
 // Data read by host PC
 assign reg_rdata = thisActive ?
-                       read_debug ? { num_output_error, output_error_mask, outputs_fb, P_Outputs } :
-                       { 3'b010, other_busy, reg_io_read, do_reg_io, read_error, output_error, output_error_mask, read_data_saved } :
+                       read_debug ? { output_error_mask, num_output_error, outputs_fb, P_Outputs } :
+                       { 3'b010, other_busy, reg_io_read, do_reg_io, read_error, output_error,
+                         output_error_mask, read_data_saved } :
                    32'd0;
 
 // Following signals are used to determine whether we can do more

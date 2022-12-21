@@ -43,6 +43,7 @@ module BoardRegsDQLA
     output reg dac_test_reset,          // repeat DAC test
     output reg ioexp_cfg_reset,         // redetect I/O expander (MAX7317)
     input  wire[2:1] ioexp_present,     // 1 -> I/O expander (MAX7317) detected
+    input  wire[2:1] dqla_exp_ok,       // 1 -> DQLA I/O expander (MAX7301) detected
 
     // board output (PC reads)
     input  wire[7:0] neg_limit,         // digi input negative limit
@@ -87,8 +88,8 @@ module BoardRegsDQLA
                 NUM_CHAN, board_id,
                 // Byte 2: wdog timeout, isQuadDac[2:1], 0, mv_good, pwr_enable, 0, safety relay control
                 wdog_timeout, isQuadDac, 1'b0, (mv_good[1]&mv_good[2]), (pwr_enable[1]&pwr_enable[2]), 1'b0, relay_on,
-                // Byte 1: mv_good[2:1], 00, dout_cfg_valid, dout_cfg_bidir,
-                mv_good, 2'b00, dout_cfg_valid, dout_cfg_bidir,
+                // Byte 1: mv_good[2:1], dqla_exp_ok[2:1], dout_cfg_valid[2:1], dout_cfg_bidir[2:1],
+                mv_good, dqla_exp_ok, dout_cfg_valid, dout_cfg_bidir,
                 // Byte 0: safety_fb[2:1], mv_fb[2:1], dout[31], 0, ioexp_present[2:1]
                 // dout[31] indicates that waveform table is driving at least one DOUT
                 safety_fb, mv_fb, dout[31], 1'b0, ioexp_present };

@@ -67,6 +67,7 @@ set (VERILOG_SOURCE_QLA
 
 set (VERILOG_SOURCE_DQLA
                            ${VERILOG_SOURCE_COMMON}
+                           "${VERILOG_SOURCE_DIR}/Max7301x2.v"
                            "${VERILOG_SOURCE_DIR}/BoardRegs-DQLA.v"
                            "${VERILOG_SOURCE_DIR}/DQLA.v")
 
