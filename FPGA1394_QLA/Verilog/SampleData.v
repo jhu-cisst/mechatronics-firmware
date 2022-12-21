@@ -99,12 +99,12 @@ begin
          else begin
             // For chan = 1,2,3,4,...
             RT_Feedback[3+chan] <= adc_in;
-            RT_Feedback[7+chan] <= enc_pos;
-            RT_Feedback[11+chan] <= enc_period;
-            RT_Feedback[15+chan] <= enc_qtr1;
-            RT_Feedback[19+chan] <= enc_qtr5;
-            RT_Feedback[23+chan] <= enc_run;
-            RT_Feedback[27+chan] <= motor_status;
+            RT_Feedback[3+NUM_CHAN+chan] <= enc_pos;
+            RT_Feedback[3+2*NUM_CHAN+chan] <= enc_period;
+            RT_Feedback[3+3*NUM_CHAN+chan] <= enc_qtr1;
+            RT_Feedback[3+4*NUM_CHAN+chan] <= enc_qtr5;
+            RT_Feedback[3+5*NUM_CHAN+chan] <= enc_run;
+            RT_Feedback[3+6*NUM_CHAN+chan] <= motor_status;
          end
       end
 
