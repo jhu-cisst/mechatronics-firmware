@@ -175,6 +175,9 @@ reg[3:0] Shadow_31_28[1:2];
 // Whether I/O expander has been configured
 reg[2:1] ioexp_cfg_done;
 
+// Request from host PC to reset (repeat configuration)
+reg[2:1] ioexp_cfg_reset;
+
 // For stepping through the configuration, polling and output
 reg[3:0] step;
 reg[3:0] next_step;
@@ -217,6 +220,8 @@ assign PollCommands[3] = 16'h0000;    // NOP
 // Externally-generated write (e.g., from PC)
 assign ioexp_reg_wen = (reg_waddr == {`ADDR_MAIN, 8'd0, `REG_IO_EXP}) ? reg_wen : 1'b0;
 
+reg last_ioexp_reg_wen;       // Used to detect initial edge of ioexp_reg_wen
+
 wire do_reg_io;               // 1 -> processing command (register read or write) from host PC
 
 reg[15:0] reg_wdata_saved;    // Copy of data written from host PC
@@ -236,15 +241,17 @@ assign chan_wdata = (chan_wdata_id == IOEXP_ID1) ? 2'd1 :
 // Latched copy of chan_wdata
 reg[1:0] chan_reg;
 
+reg reg_io_error;    // 1 -> Host command ignored (previous command not yet finished)
+
 assign do_reg_io = (chan_reg == 2'd0) ? 1'b0 : 1'b1;
 
 // Data read by host PC (must match last channel ID written by host)
 assign reg_rdata = (chan_id == IOEXP_ID1) ?
-                      { 3'b010, spi_busy, reg_io_read, do_reg_io, read_error[1], output_error[1],
+                      { 3'b010, reg_io_error, reg_io_read, do_reg_io, read_error[1], output_error[1],
                       (read_debug[1] ? num_output_error[1] : {~ioexp_cfg_ok[1], ~ioexp_cfg_done[1], 1'b0, IOP1_16_12_error}),
                       read_data_saved } :
                    (chan_id == IOEXP_ID2) ?
-                      { 3'b010, spi_busy, reg_io_read, do_reg_io, read_error[2], output_error[2],
+                      { 3'b010, reg_io_error, reg_io_read, do_reg_io, read_error[2], output_error[2],
                       (read_debug[2] ? num_output_error[2] : {~ioexp_cfg_ok[2], ~ioexp_cfg_done[2], 1'b0, IOP2_16_12_error}),
                       read_data_saved } :
                    32'd0;
@@ -271,6 +278,7 @@ begin
     if (spi_busy) begin
         step <= next_step;
         chan_wen <= 2'd0;
+        chan_reg <= 2'd0;
     end
     else if (chan_cfg != 2'd0) begin
         // This section initializes the MAX7301. Note that chan_cfg==2'd0 when both channels
@@ -284,8 +292,7 @@ begin
             // If read_data is equal to the initial command, then the ioexp_cfg_ok flag is set to
             // indicate that the MAX7301 I/O expander has been detected.
             if (step == 4'd2) begin
-                //ioexp_cfg_ok[chan_cfg] <= (read_data == ConfigCommands[0]) ? 1'b1 : 1'b0;
-                ioexp_cfg_ok[chan_cfg] <= 1'b1;
+                ioexp_cfg_ok[chan_cfg] <= (read_data == ConfigCommands[0]) ? 1'b1 : 1'b0;
             end
             write_data <= ConfigCommands[step[2:0]];
             chan_wen <= chan_cfg;
@@ -349,18 +356,10 @@ begin
     end
     else if (chan_reg != 2'd0) begin
         // This section handles commands from host PC
-        if (step == 4'd0) begin
-            write_data <= reg_wdata_saved;
-            chan_wen <= chan_reg;
-            // Save read data for host
-            spi_save <= reg_wdata_saved[15];
-            next_step <= 4'd1;
-        end
-        else begin
-            chan_reg <= 2'd0;
-            spi_save <= 1'b0;
-            step <= 4'd0;
-        end
+        write_data <= reg_wdata_saved;
+        chan_wen <= chan_reg;
+        // Save read data for host
+        spi_save <= reg_wdata_saved[15];
     end
     // Following 4 sections output data if any changes are detected
     else if (ioexp_cfg_ok[1] & P16_12_changed[1]) begin
@@ -390,7 +389,15 @@ begin
         step <= 4'd0;
         next_step <= 4'd0;
 
-        if (ioexp_cfg_ok[1]|ioexp_cfg_ok[2]) begin
+        if (ioexp_cfg_reset[1]) begin
+            ioexp_cfg_done[1] <= 1'b0;
+            ioexp_cfg_reset[1] <= 1'b0;
+        end
+        else if (ioexp_cfg_reset[2]) begin
+            ioexp_cfg_done[2] <= 1'b0;
+            ioexp_cfg_reset[2] <= 1'b0;
+        end
+        else if (ioexp_cfg_ok[1]|ioexp_cfg_ok[2]) begin
             // Poll timer waits for about 1.3 usec before starting next poll
             poll_timer <= poll_timer + 6'd1;
             if (poll_timer == 6'h3f) begin
@@ -401,26 +408,39 @@ begin
 
     // Always check for register writes from host and set corresponding flag (chan_reg)
     // The flag will not be acted upon until spi_busy is false.
-    if (ioexp_reg_wen) begin
+    if (ioexp_reg_wen&(~last_ioexp_reg_wen)) begin
         // Following handles external writes (e.g., from PC).
-        // Note that the write will be ignored if another write is pending.
+        // Note that the write will be ignored if another write is pending,
+        // but the reg_io_error flag will be set.
         // We do not check ioexp_cfg_ok so that the external PC can
         // still attempt to write to MAX7301 even if it was not detected.
         //   reg_wdata[31]     1 --> clear errors
         //   reg_wdata[30]     1 --> switch to debug data
+        //   reg_wdata[29]     1 --> reinitialize (reconfigure)
+        //   reg_wdata[28]     1 --> set OK flag
         //   reg_wdata[19:16]  I/O expander ID
         //   reg_wdata[15:0]   Command to I/O expander (if upper bits clear)
         chan_id <= chan_wdata_id;
-        if ((chan_reg == 2'd0) && (chan_wdata != 2'd0)) begin
+        if (chan_wdata != 2'd0) begin
             if (reg_wdata[31]) begin
                 read_error[chan_wdata] <= 1'b0;
                 num_output_error[chan_wdata] <= 8'd0;
             end
             read_debug[chan_wdata] <= reg_wdata[30];
-            // If upper 12 bits clear, send command to I/O expander
+            if (reg_wdata[29]) begin
+                ioexp_cfg_reset[chan_wdata] <= 1'b1;
+            end
+            if (reg_wdata[28]) begin
+                ioexp_cfg_ok[chan_wdata] <= 1'b1;
+            end
+            // If upper 12 bits clear, send command to I/O expander, unless
+            // previous command not yet finished (chan_reg != 2'd0).
             if (reg_wdata[31:20] == 12'd0) begin
-                reg_wdata_saved <= reg_wdata[15:0];
-                chan_reg <= chan_wdata;
+                reg_io_error <= (chan_reg != 2'd0) ? 1'b1 : 1'b0;
+                if (chan_reg == 2'd0) begin
+                    reg_wdata_saved <= reg_wdata[15:0];
+                    chan_reg <= chan_wdata;
+                end
             end
         end
     end
