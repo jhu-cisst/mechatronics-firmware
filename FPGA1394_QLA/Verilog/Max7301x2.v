@@ -23,6 +23,8 @@
  * When writing to MAX7301, send D15 first
  *
  * SCLK: maximum frequency = 26 MHz (period = 38.4 nsec)
+ * Output data propagation delay is 21 ns (max), measured from
+ * falling edge of SCLK.
  *
  * Revision history
  *     12/19/22    Peter Kazanzides    Created from Max7317.v
@@ -88,6 +90,14 @@ reg doWrite;                       // 1 -> write pending or in process
 //    2 --> write to channel 2 requested
 reg[1:0] chan_wen;
 
+// Writes from host PC are interleaved with normal operation (e.g., polling),
+// thus we need to save the result for later access by the host.
+reg spi_save;                 // 1 -> save result for host
+wire reg_io_read;             // 1 -> register read in process (from host PC)
+reg[7:0] reg_io_addr;         // last register address (and r/w bit) from host PC
+assign reg_io_read = reg_io_addr[7];
+reg[15:0] read_data_saved;    // Saved copy for host PC to read
+
 // SPI channel active
 reg[1:0] chan_spi;
 
@@ -97,7 +107,8 @@ assign sclk = seqn[0]&((~CSn[1])|(~CSn[2]));
 
 //   seqn   0  1   2   3   4   5
 //   sclk   ___|---|___|---|___|---   (rising edge on odd numbers)
-//   data  15     14      13          (data out on falling edge)
+//   dout  15     14      13          (data to MAX7301 on falling edge)
+//   din          15      14          (data from MAX7301)
 
 always @(posedge clk)
 begin
@@ -109,6 +120,10 @@ begin
         mosi <= write_data[15];   // Write first bit
         CSn[chan_wen] <= 1'b0;    // Assert CSn (low)
         chan_spi <= chan_wen;
+        if (spi_save) begin
+            read_data_saved <= 16'd0;
+            reg_io_addr <= write_data[15:8];
+        end
         spi_busy <= 1'b1;
     end
     else if (doWrite) begin
@@ -122,17 +137,24 @@ begin
             doWrite <= 1'b0;
             CSn[chan_spi] <= 1'b1;
             seqn <= 6'd0;
+            if (reg_io_read && (read_data[15:8] == reg_io_addr)) begin
+                // Save data for host PC
+                read_data_saved <= read_data;
+                reg_io_addr <= 8'd0;
+            end
         end
         else begin
             CSn[chan_spi] <= 1'b0;
             // Write data via SPI.
             if (seqn[0]) mosi <= write_data[~(seqn[4:1]+1)];
-            // Read data from SPI.
+            // Read data from SPI. In this case, it doesn't hurt to latch
+            // each value because only the last one (when seqn[0] == 1)
+            // will be kept.
             read_data[~seqn[4:1]] <= miso;
         end
     end
     else begin
-        // Idle state (or other_busy); make sure CSn is high
+        // Idle state; make sure CSn is high
         CSn[1] <= 1'b1;
         CSn[2] <= 1'b1;
         spi_busy <= 1'b0;
@@ -196,13 +218,8 @@ assign PollCommands[3] = 16'h0000;    // NOP
 assign ioexp_reg_wen = (reg_waddr == {`ADDR_MAIN, 8'd0, `REG_IO_EXP}) ? reg_wen : 1'b0;
 
 wire do_reg_io;               // 1 -> processing command (register read or write) from host PC
-wire reg_io_read;             // 1 -> register read in process (from host PC)
-reg[7:0] reg_io_addr;         // last register address (and r/w bit) from host PC
-
-assign reg_io_read = reg_io_addr[7];
 
 reg[15:0] reg_wdata_saved;    // Copy of data written from host PC
-reg[15:0] read_data_saved;    // Saved copy for host PC to read
 
 reg[2:1] read_debug;
 
@@ -223,12 +240,12 @@ assign do_reg_io = (chan_reg == 2'd0) ? 1'b0 : 1'b1;
 
 // Data read by host PC (must match last channel ID written by host)
 assign reg_rdata = (chan_id == IOEXP_ID1) ?
-                      { 4'b0100, reg_io_read, do_reg_io, read_error[1], output_error[1],
-                      (read_debug[1] ? num_output_error[1] : {~ioexp_cfg_ok[1], 2'd0, IOP1_16_12_error}),
+                      { 3'b010, spi_busy, reg_io_read, do_reg_io, read_error[1], output_error[1],
+                      (read_debug[1] ? num_output_error[1] : {~ioexp_cfg_ok[1], ~ioexp_cfg_done[1], 1'b0, IOP1_16_12_error}),
                       read_data_saved } :
                    (chan_id == IOEXP_ID2) ?
-                      { 4'b0100, reg_io_read, do_reg_io, read_error[2], output_error[2],
-                      (read_debug[2] ? num_output_error[2] : {~ioexp_cfg_ok[2], 2'd0, IOP2_16_12_error}),
+                      { 3'b010, spi_busy, reg_io_read, do_reg_io, read_error[2], output_error[2],
+                      (read_debug[2] ? num_output_error[2] : {~ioexp_cfg_ok[2], ~ioexp_cfg_done[2], 1'b0, IOP2_16_12_error}),
                       read_data_saved } :
                    32'd0;
 
@@ -330,46 +347,46 @@ begin
             end
         end
     end
-    // Following 4 sections output data if any changes are detected
-    else if (P16_12_changed[1]) begin
-        write_data <= { 8'h4c, 3'h0, IOP1_16_12 };
-        Shadow_16_12[1] <= IOP1_16_12;
-        chan_wen <= 2'd1;
-    end
-    else if (P16_12_changed[2]) begin
-        write_data <= { 8'h4c, 3'h0, IOP2_16_12 };
-        Shadow_16_12[2] <= IOP2_16_12;
-        chan_wen <= 2'd2;
-    end
-    else if (P31_28_changed[1]) begin
-        write_data <= { 8'h5c, 4'h0, IOP1_31_28 };
-        Shadow_31_28[1] <= IOP1_31_28;
-        chan_wen <= 2'd1;
-    end
-    else if (P31_28_changed[2]) begin
-        write_data <= { 8'h5c, 4'h0, IOP2_31_28 };
-        Shadow_31_28[2] <= IOP2_31_28;
-        chan_wen <= 2'd2;
-    end
     else if (chan_reg != 2'd0) begin
         // This section handles commands from host PC
         if (step == 4'd0) begin
             write_data <= reg_wdata_saved;
             chan_wen <= chan_reg;
+            // Save read data for host
+            spi_save <= reg_wdata_saved[15];
             next_step <= 4'd1;
         end
         else begin
-            // Indicate that a read was issued, so we can later save the
-            // result in read_data_saved (note that setting reg_io_addr
-            // will set reg_io_read if upper bit is set).
-            reg_io_addr <= write_data[15:8];
             chan_reg <= 2'd0;
+            spi_save <= 1'b0;
             step <= 4'd0;
         end
+    end
+    // Following 4 sections output data if any changes are detected
+    else if (ioexp_cfg_ok[1] & P16_12_changed[1]) begin
+        write_data <= { 8'h4c, 3'h0, IOP1_16_12 };
+        Shadow_16_12[1] <= IOP1_16_12;
+        chan_wen <= 2'd1;
+    end
+    else if (ioexp_cfg_ok[2] & P16_12_changed[2]) begin
+        write_data <= { 8'h4c, 3'h0, IOP2_16_12 };
+        Shadow_16_12[2] <= IOP2_16_12;
+        chan_wen <= 2'd2;
+    end
+    else if (ioexp_cfg_ok[1] & P31_28_changed[1]) begin
+        write_data <= { 8'h5c, 4'h0, IOP1_31_28 };
+        Shadow_31_28[1] <= IOP1_31_28;
+        chan_wen <= 2'd1;
+    end
+    else if (ioexp_cfg_ok[2] & P31_28_changed[2]) begin
+        write_data <= { 8'h5c, 4'h0, IOP2_31_28 };
+        Shadow_31_28[2] <= IOP2_31_28;
+        chan_wen <= 2'd2;
     end
     else begin
         // IDLE state (not writing or reading)
         chan_wen <= 2'd0;
+        spi_save <= 1'b0;
         step <= 4'd0;
         next_step <= 4'd0;
 
@@ -407,13 +424,6 @@ begin
             end
         end
     end
-
-    // Check if a register read (from host PC) is in process. If so, we save the result
-    // when we get a match on the command (upper 8 bits).
-    if (reg_io_read && !spi_busy && (read_data[15:8] == reg_io_addr)) begin
-        read_data_saved <= read_data;
-        reg_io_addr <= 8'd0;
-    end
-
 end
+
 endmodule
