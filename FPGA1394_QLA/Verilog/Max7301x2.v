@@ -105,10 +105,25 @@ reg[1:0] chan_spi;
 // except we would have to handle the case of chan_spi == 0.
 assign sclk = seqn[0]&((~CSn[1])|(~CSn[2]));
 
-//   seqn   0  1   2   3   4   5
-//   sclk   ___|---|___|---|___|---   (rising edge on odd numbers)
-//   dout  15     14      13          (data to MAX7301 on falling edge)
-//   din          15      14          (data from MAX7301)
+//  seqn     0   1   2   3   4   5   .....    30  31   32   33   34   0
+//  csn    |_________________________________________|-----------------
+//  sclk   |___|---|___|---|___|---       ---|___|---|_________________ (rising edge on odd numbers)
+//  mosi   15   14      13                    15                        (FPGA data to MAX7301 just after rising edge)
+//  miso         15      14                     0                       (data from MAX7301 latched by FPGA on falling edge)
+//
+// MAX7301 makes data (miso) available up to 21 ns after falling edge of sclk. The above timing latches
+// miso about 40 ns after the falling edge. But, this does not include transmission line delays. In
+// reality, the MAX7301 sees sclk some time after it is driven by the FPGA, and then there is also a delay
+// between when the MAX7301 outputs miso and when it is seen at the FPGA input pin.
+//
+// MAX7301 requires setup time for mosi of at least 9.5 ns before the rising edge of sclk. The above timing
+// makes mosi available about 40 ns before the rising edge, except for the first bit (15), which is only
+// available about 20 ns before the rising edge. The transmission line delay is less of an issue here
+// because both signals travel in the same direction and therefore should be delayed by about the same amount.
+//
+// MAX7301 has minimum chip select (CSn) high time of 19 ns. The above timing ensures that CSn is high
+// for at least 80 ns. One reason for the larger high time is that this code was originally developed
+// for MAX7317, which has a minimum high time of 38.4 ns.
 
 always @(posedge clk)
 begin
@@ -135,7 +150,6 @@ begin
         end
         else if (seqn == 6'h22) begin
             doWrite <= 1'b0;
-            CSn[chan_spi] <= 1'b1;
             seqn <= 6'd0;
             if (reg_io_read && (read_data[15:8] == reg_io_addr)) begin
                 // Save data for host PC
@@ -144,7 +158,6 @@ begin
             end
         end
         else begin
-            CSn[chan_spi] <= 1'b0;
             // Write data via SPI.
             if (seqn[0]) mosi <= write_data[~(seqn[4:1]+1)];
             // Read data from SPI. In this case, it doesn't hurt to latch
