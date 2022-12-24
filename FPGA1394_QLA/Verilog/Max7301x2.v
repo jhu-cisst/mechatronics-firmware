@@ -78,7 +78,7 @@ initial CSn = 2'b11;
 
 reg spi_busy;                      // 1 -> SPI in process
 
-reg[5:0] seqn;                     // 6-bit counter (0-63)
+reg[6:0] seqn;                     // 7-bit counter (0-127)
 reg[15:0] write_data;              // Data to write to I/O Expander
 reg[15:0] read_data;               // Data read from I/O Expander
 
@@ -103,26 +103,26 @@ reg[1:0] chan_spi;
 
 // Gate SCLK with ~CSn. Note that CSn[chan_spi] would be more correct,
 // except we would have to handle the case of chan_spi == 0.
-assign sclk = seqn[0]&((~CSn[1])|(~CSn[2]));
+assign sclk = seqn[1]&((~CSn[1])|(~CSn[2]));
 
-//  seqn     0   1   2   3   4   5   .....    30  31   32   33   34   0
-//  csn    |_________________________________________|-----------------
-//  sclk   |___|---|___|---|___|---       ---|___|---|_________________ (rising edge on odd numbers)
-//  mosi   15   14      13                    15                        (FPGA data to MAX7301 just after rising edge)
-//  miso         15      14                     0                       (data from MAX7301 latched by FPGA on falling edge)
+//  seqn     0   2   4   6   8   10  .....    60  62   64 65 0
+//  csn    |_________________________________________|--------
+//  sclk   |___|---|___|---|___|---       ---|___|---|________    (rising edge on 2n, n=1,2,..31)
+//  mosi   15   14      13                    15                  (FPGA data to MAX7301 just after rising edge)
+//  miso         15      14                     0                 (data from MAX7301 latched by FPGA on falling edge)
 //
 // MAX7301 makes data (miso) available up to 21 ns after falling edge of sclk. The above timing latches
-// miso about 40 ns after the falling edge. But, this does not include transmission line delays. In
+// miso about 80 ns after the falling edge. But, this does not include transmission line delays. In
 // reality, the MAX7301 sees sclk some time after it is driven by the FPGA, and then there is also a delay
 // between when the MAX7301 outputs miso and when it is seen at the FPGA input pin.
 //
 // MAX7301 requires setup time for mosi of at least 9.5 ns before the rising edge of sclk. The above timing
-// makes mosi available about 40 ns before the rising edge, except for the first bit (15), which is only
-// available about 20 ns before the rising edge. The transmission line delay is less of an issue here
+// makes mosi available about 80 ns before the rising edge, except for the first bit (15), which is only
+// available about 40 ns before the rising edge. The transmission line delay is less of an issue here
 // because both signals travel in the same direction and therefore should be delayed by about the same amount.
 //
 // MAX7301 has minimum chip select (CSn) high time of 19 ns. The above timing ensures that CSn is high
-// for at least 80 ns. One reason for the larger high time is that this code was originally developed
+// for at least 60 ns. One reason for the larger high time is that this code was originally developed
 // for MAX7317, which has a minimum high time of 38.4 ns.
 
 always @(posedge clk)
@@ -131,7 +131,7 @@ begin
         // Note that write_data should already be set by caller.
         read_data <= 16'd0;
         doWrite <= 1'b1;
-        seqn <= 6'd0;
+        seqn <= 7'd0;
         mosi <= write_data[15];   // Write first bit
         CSn[chan_wen] <= 1'b0;    // Assert CSn (low)
         chan_spi <= chan_wen;
@@ -142,15 +142,14 @@ begin
         spi_busy <= 1'b1;
     end
     else if (doWrite) begin
-        seqn <= seqn + 6'd1;
-        if ((seqn == 6'h20) || (seqn == 6'h21))  begin
+        seqn <= seqn + 7'd1;
+        if (seqn == 7'h40)  begin       // seqn == 64
             // Falling edge of SCLK after writing last bit; deassert CSn.
-            // Hold CSn high for at least 2 clocks.
             CSn[chan_spi] <= 1'b1;
         end
-        else if (seqn == 6'h22) begin
+        else if (seqn == 7'h41) begin   // seqn == 65
             doWrite <= 1'b0;
-            seqn <= 6'd0;
+            seqn <= 7'd0;
             if (reg_io_read && (read_data[15:8] == reg_io_addr)) begin
                 // Save data for host PC
                 read_data_saved <= read_data;
@@ -159,11 +158,11 @@ begin
         end
         else begin
             // Write data via SPI.
-            if (seqn[0]) mosi <= write_data[~(seqn[4:1]+1)];
+            if (seqn[1:0] == 2'b11) mosi <= write_data[~(seqn[5:2]+1)];
             // Read data from SPI. In this case, it doesn't hurt to latch
             // each value because only the last one (when seqn[0] == 1)
             // will be kept.
-            read_data[~seqn[4:1]] <= miso;
+            read_data[~seqn[5:2]] <= miso;
         end
     end
     else begin
@@ -291,7 +290,6 @@ begin
     if (spi_busy) begin
         step <= next_step;
         chan_wen <= 2'd0;
-        chan_reg <= 2'd0;
     end
     else if (chan_cfg != 2'd0) begin
         // This section initializes the MAX7301. Note that chan_cfg==2'd0 when both channels
@@ -369,31 +367,42 @@ begin
     end
     else if (chan_reg != 2'd0) begin
         // This section handles commands from host PC
-        write_data <= reg_wdata_saved;
-        chan_wen <= chan_reg;
-        // Save read data for host
-        spi_save <= reg_wdata_saved[15];
+        if (step == 4'd0) begin
+            next_step <= 4'd1;
+            write_data <= reg_wdata_saved;
+            chan_wen <= chan_reg;
+            // Save read data for host
+            spi_save <= reg_wdata_saved[15];
+        end
+        else begin
+            step <= 4'd0;
+            chan_reg <= 2'd0;
+        end
     end
     // Following 4 sections output data if any changes are detected
     else if (ioexp_cfg_ok[1] & P16_12_changed[1]) begin
+        next_step <= 4'd0;
         write_data <= { 8'h4c, 3'h0, IOP1_16_12 };
-        Shadow_16_12[1] <= IOP1_16_12;
         chan_wen <= 2'd1;
+        Shadow_16_12[1] <= IOP1_16_12;
     end
     else if (ioexp_cfg_ok[2] & P16_12_changed[2]) begin
+        next_step <= 4'd0;
         write_data <= { 8'h4c, 3'h0, IOP2_16_12 };
-        Shadow_16_12[2] <= IOP2_16_12;
         chan_wen <= 2'd2;
+        Shadow_16_12[2] <= IOP2_16_12;
     end
     else if (ioexp_cfg_ok[1] & P31_28_changed[1]) begin
+        next_step <= 4'd0;
         write_data <= { 8'h5c, 4'h0, IOP1_31_28 };
-        Shadow_31_28[1] <= IOP1_31_28;
         chan_wen <= 2'd1;
+        Shadow_31_28[1] <= IOP1_31_28;
     end
     else if (ioexp_cfg_ok[2] & P31_28_changed[2]) begin
+        next_step <= 4'd0;
         write_data <= { 8'h5c, 4'h0, IOP2_31_28 };
-        Shadow_31_28[2] <= IOP2_31_28;
         chan_wen <= 2'd2;
+        Shadow_31_28[2] <= IOP2_31_28;
     end
     else begin
         // IDLE state (not writing or reading)
@@ -421,6 +430,7 @@ begin
 
     // Always check for register writes from host and set corresponding flag (chan_reg)
     // The flag will not be acted upon until spi_busy is false.
+    last_ioexp_reg_wen <= ioexp_reg_wen;
     if (ioexp_reg_wen&(~last_ioexp_reg_wen)) begin
         // Following handles external writes (e.g., from PC).
         // Note that the write will be ignored if another write is pending,
