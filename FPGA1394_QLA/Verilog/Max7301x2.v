@@ -214,7 +214,7 @@ wire[15:0] ConfigCommands[0:7];
 assign ConfigCommands[0] = 16'h09ff;  // IOP[7:4] is input with pullup
 assign ConfigCommands[1] = 16'h0aff;  // IOP[11:8] is input with pullup
 assign ConfigCommands[2] = 16'h0b55;  // IOP[15:12] is output
-assign ConfigCommands[3] = 16'h0c57;  // IOP[16] is output, IOP[19:17] is input with pullup
+assign ConfigCommands[3] = 16'h0cfd;  // IOP[16] is output, IOP[19:17] is input with pullup
 assign ConfigCommands[4] = 16'h0dff;  // IOP[23:20] is input with pullup
 assign ConfigCommands[5] = 16'h0eff;  // IOP[27:24] is input with pullup
 assign ConfigCommands[6] = 16'h0f55;  // IOP[31:28] is output
