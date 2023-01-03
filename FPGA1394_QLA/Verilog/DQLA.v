@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2011-2022 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2011-2023 ERC CISST, Johns Hopkins University.
  *
  * This module contains code for the DQLA (dual QLA) interface
  *
@@ -107,22 +107,22 @@ module DQLA(
     // Potentiometer ADC
     wire sclk_pot;
     wire conv_pot;
-    wire[1:4] Q1_miso_pot;
-    wire[1:4] Q2_miso_pot;
+    wire[3:0] Q1_miso_pot;
+    wire[3:0] Q2_miso_pot;
     assign IO1[19] = out_en ? sclk_pot : 1'bz;
     assign IO1[21] = out_en ? conv_pot : 1'bz;
-    assign Q1_miso_pot = { IO1[27], IO1[26], IO1[30], IO1[29] };
-    assign Q2_miso_pot = { IO2[10], IO2[9], IO2[12], IO2[11] };
+    assign Q1_miso_pot = { IO1[29], IO1[30], IO1[26], IO1[27] };
+    assign Q2_miso_pot = { IO2[11], IO2[12], IO2[9], IO2[10] };
 
     // Motor current ADC
     wire sclk_cur;
     wire conv_cur;
-    wire[1:4] Q1_miso_cur;
-    wire[1:4] Q2_miso_cur;
+    wire[3:0] Q1_miso_cur;
+    wire[3:0] Q2_miso_cur;
     assign IO1[20] = out_en ? sclk_cur : 1'bz;
     assign IO1[23] = out_en ? conv_cur : 1'bz;
-    assign Q1_miso_cur = { IO2[3], IO2[1], IO2[6], IO2[5] };
-    assign Q2_miso_cur = { IO2[16], IO2[17], IO2[18], IO2[15] };
+    assign Q1_miso_cur = { IO2[5], IO2[6], IO2[1], IO2[3] };
+    assign Q2_miso_cur = { IO2[15], IO2[18], IO2[17], IO2[16] };
 
     // Motor DAC
     wire dac_sclk;      // SCLK in schematic

@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2008-2022 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2008-2023 ERC CISST, Johns Hopkins University.
  *
  * This module contains a register file dedicated to general board parameters
  * for the DQLA (dual QLA)
@@ -171,7 +171,7 @@ for (i = 1; i <= 2; i = i+1) begin : mv_loop
             mv_good_counter <= mv_good_counter + 24'd1;
             mv_amp_disable[i] <= 1'b1;
         end 
-        else if (mv_good == 1'b1) begin
+        else if (mv_good[i] == 1'b1) begin
             mv_amp_disable[i] <= 1'b0;
         end
         else begin
