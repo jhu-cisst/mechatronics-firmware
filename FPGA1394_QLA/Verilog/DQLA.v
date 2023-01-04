@@ -554,7 +554,8 @@ wire Q2_is_quad_dac;      // type of DAC: 0 = 4xLTC2601, 1 = 1xLTC2604
 wire dac_test_reset;      // reset (repeat) detection of DAC type
 
 CtrlDac #(.NUM_CS(2)) dac(
-    .sysclk(sysclk),
+    //.sysclk(sysclk),
+    .sysclk(clkadc),   // TODO
     .sclk(dac_sclk),
     .mosi({Q2_dac_mosi, Q1_dac_mosi}),
     .csel({Q2_dac_CSn, Q1_dac_CSn}),
@@ -722,6 +723,10 @@ Max6576 Q2_T2(
 //    - TEMP version, interface subject to future change
 // --------------------------------------------------------------------------
 
+wire reg_wen_prom_qla1;
+assign reg_wen_prom_qla1 = ((reg_waddr[15:12] == `ADDR_PROM_QLA) && (reg_waddr[7:4] == 4'd1)) ?
+                           reg_wen : 1'b0;
+
 QLA25AA128 Q1_prom_qla(
     .clk(sysclk),
     
@@ -731,9 +736,9 @@ QLA25AA128 Q1_prom_qla(
     .reg_rdata(reg_rdata_prom_qla1),
     .reg_wdata(reg_wdata),
         
-    .reg_wen(reg_wen),
-    .blk_wen(blk_wen),
-    .blk_wstart(blk_wstart),
+    .reg_wen(reg_wen_prom_qla1),
+    .blk_wen(blk_wen),       // not used
+    .blk_wstart(blk_wstart), // not used
 
     // spi interface
     .prom_mosi(Q1_prom_mosi),
@@ -744,6 +749,10 @@ QLA25AA128 Q1_prom_qla(
     .this_busy(Q1_prom_busy)
 );
 
+wire reg_wen_prom_qla2;
+assign reg_wen_prom_qla2 = ((reg_waddr[15:12] == `ADDR_PROM_QLA) && (reg_waddr[7:4] == 4'd2)) ?
+                           reg_wen : 1'b0;
+
 QLA25AA128 Q2_prom_qla(
     .clk(sysclk),
     
@@ -753,9 +762,9 @@ QLA25AA128 Q2_prom_qla(
     .reg_rdata(reg_rdata_prom_qla2),
     .reg_wdata(reg_wdata),
         
-    .reg_wen(reg_wen),
-    .blk_wen(blk_wen),
-    .blk_wstart(blk_wstart),
+    .reg_wen(reg_wen_prom_qla2),
+    .blk_wen(blk_wen),       // not used
+    .blk_wstart(blk_wstart), // not used
 
     // spi interface
     .prom_mosi(Q2_prom_mosi),

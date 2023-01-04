@@ -94,7 +94,8 @@ module BoardRegsDQLA
                 // dout[31] indicates that waveform table is driving at least one DOUT
                 safety_fb, mv_fb, dout[31], 1'b0, ioexp_present };
 
-    assign reg_digin = {dout[7:0], neg_limit, pos_limit, home};
+    assign reg_digin = {dout[7:4], neg_limit[7:4], pos_limit[7:4], home[7:4],
+                        dout[3:0], neg_limit[3:0], pos_limit[3:0], home[3:0]};
 
 //------------------------------------------------------------------------------
 // hardware description

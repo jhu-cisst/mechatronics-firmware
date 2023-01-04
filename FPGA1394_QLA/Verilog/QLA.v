@@ -431,6 +431,10 @@ Max6576 T2(
 //    - TEMP version, interface subject to future change
 // --------------------------------------------------------------------------
 
+wire reg_wen_prom_qla;
+assign reg_wen_prom_qla = ((reg_waddr[15:12] == `ADDR_PROM_QLA) && (reg_waddr[7:4] == 4'd0)) ?
+                           reg_wen : 1'b0;
+
 QLA25AA128 prom_qla(
     .clk(sysclk),
     
@@ -440,9 +444,9 @@ QLA25AA128 prom_qla(
     .reg_rdata(reg_rdata_prom_qla),
     .reg_wdata(reg_wdata),
         
-    .reg_wen(reg_wen),
-    .blk_wen(blk_wen),
-    .blk_wstart(blk_wstart),
+    .reg_wen(reg_wen_prom_qla),
+    .blk_wen(blk_wen),       // not used
+    .blk_wstart(blk_wstart), // not used
 
     // spi interface
     .prom_mosi(qla_prom_mosi),
