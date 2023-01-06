@@ -783,7 +783,7 @@ wire Q1_safety_fb_n;         // 0 -> voltage present on safety line
 wire Q1_mv_fb;               // Feedback from comparator between DAC4 and motor supply
 
 Max7317
-    #(.IOEXP_ID(1))
+    #(.IOEXP_ID(1), .CLKBIT(1))
 Q1_IO_Exp(
     .clk(sysclk),
 
@@ -819,7 +819,7 @@ wire Q2_safety_fb_n;         // 0 -> voltage present on safety line
 wire Q2_mv_fb;               // Feedback from comparator between DAC4 and motor supply
 
 Max7317
-    #(.IOEXP_ID(2))
+    #(.IOEXP_ID(2), .CLKBIT(1))
 Q2_IO_Exp(
     .clk(sysclk),
 

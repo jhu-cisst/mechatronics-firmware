@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2022 Johns Hopkins University.
+ * Copyright(C) 2022-2023 Johns Hopkins University.
  *
  * Module: Max7317
  *
@@ -36,12 +36,17 @@
  *     DIN setup = 9.5 nsec
  *     DIN hold = 2.5 nsec
  *
+ * The CLKBIT parameter determines SCLK period:
+ *     CLKBIT=0   -->   40 ns period
+ *     CLKBIT=1   -->   80 ns period
+ *
  * Revision history
  *     07/27/22    Peter Kazanzides    Initial revision
  */
 
 module Max7317
-    #(parameter[3:0] IOEXP_ID = 4'd0)
+    #(parameter[3:0] IOEXP_ID = 4'd0,
+      parameter CLKBIT = 0)        // CLKBIT determines SCLK timing
 (
     input clk,                     // input clock
 
@@ -77,7 +82,7 @@ module Max7317
    
 initial CSn = 1'bz;
 
-reg[5:0] seqn;                     // 6-bit counter (0-63)
+reg[(5+CLKBIT):0] seqn;            // (6+N)-bit counter
 reg[15:0] write_data;              // Data to write to I/O Expander
 reg[15:0] read_data;               // Data read from I/O Expander
 
@@ -93,9 +98,9 @@ assign ioexp_reg_wen = (reg_waddr == {`ADDR_MAIN, 8'd0, `REG_IO_EXP}) ? reg_wen 
 // Locally-generated write
 reg ioexp_wen;
 
-assign sclk = seqn[0]&(~CSn);
+assign sclk = seqn[CLKBIT]&(~CSn);
 
-//   seqn   0  1   2   3   4   5
+//   seqn   0  1   2   3   4   5      (for CLKBIT==0)
 //   sclk   ___|---|___|---|___|---   (rising edge on odd numbers)
 //   data  15     14      13          (data out on falling edge)
 
@@ -109,30 +114,30 @@ begin
         // Note that write_data should already be set by caller.
         read_data <= 16'd0;
         doWrite <= 1'b1;
-        seqn <= 6'd0;
+        seqn <= {(6+CLKBIT){1'b0}};
         mosi <= write_data[15];  // Write first bit
         CSn <= other_busy;       // Assert CSn (low) if SPI not busy
         this_busy <= ~other_busy;
     end
     else if (doWrite&(~other_busy)) begin
         this_busy <= 1'b1;
-        seqn <= seqn + 6'd1;
-        if ((seqn == 6'h20) || (seqn == 6'h21))  begin
+        seqn <= seqn + 1'b1;
+        if (seqn[(5+CLKBIT):CLKBIT] == 6'h20)  begin       // 64 SCLKs
             // Falling edge of SCLK after writing last bit; deassert CSn.
-            // Hold CSn high for at least 2 clocks.
             CSn <= 1'b1;
         end
-        else if (seqn == 6'h22) begin
+        else if (CSn&this_busy) begin
+            // CSn&this_busy are not both set initially, so they
+            // are only both set at end (after 64 SCLKs)
             doWrite <= 1'b0;
-            CSn <= 1'b1;
-            seqn <= 6'd0;
+            seqn <= {(6+CLKBIT){1'b0}};
         end
         else begin
             CSn <= 1'b0;
             // Write data via SPI.
-            if (seqn[0]) mosi <= write_data[~(seqn[4:1]+1)];
+            if (seqn[CLKBIT:0] == {(CLKBIT+1){1'b1}}) mosi <= write_data[~(seqn[(CLKBIT+4):(CLKBIT+1)]+1)];
             // Read data from SPI.
-            read_data[~seqn[4:1]] <= miso;
+            read_data[~seqn[(CLKBIT+4):(CLKBIT+1)]] <= miso;
         end
     end
     else begin
