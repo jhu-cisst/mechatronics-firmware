@@ -90,8 +90,6 @@ reg[15:0] reg_wdata_saved;         // Copy of data written from host PC
 reg[15:0] read_data_saved;         // Saved copy for host PC to read
 reg thisActive;                    // 1 -> this device most recently addressed
 
-reg doWrite;                       // 1 -> write pending or in process
-
 // Externally-generated write (e.g., from PC)
 assign ioexp_reg_wen = (reg_waddr == {`ADDR_MAIN, 8'd0, `REG_IO_EXP}) ? reg_wen : 1'b0;
 
@@ -108,19 +106,20 @@ always @(posedge clk)
 begin
     if (ioexp_wen) begin
         // There is no check whether a transaction is currently in
-        // process (this_busy) or pending (doWrite&(~this_busy)),
-        // so it is up to the caller to check the status bits by first
-        // reading the register.
+        // process (this_busy) or pending, so it is up to the caller
+        // to check the status bits by first reading the register.
         // Note that write_data should already be set by caller.
+        // This state ends when this_busy is set, which causes the
+        // caller to clear ioexp_wen.
         read_data <= 16'd0;
-        doWrite <= 1'b1;
         seqn <= {(6+CLKBIT){1'b0}};
         mosi <= write_data[15];  // Write first bit
-        CSn <= other_busy;       // Assert CSn (low) if SPI not busy
-        this_busy <= ~other_busy;
+        if (~other_busy) begin
+            CSn <= 1'b0;
+            this_busy <= 1'b1;
+        end
     end
-    else if (doWrite&(~other_busy)) begin
-        this_busy <= 1'b1;
+    else if (this_busy) begin
         seqn <= seqn + 1'b1;
         if (seqn[(5+CLKBIT):CLKBIT] == 6'h20)  begin       // 64 SCLKs
             // Falling edge of SCLK after writing last bit; deassert CSn.
@@ -129,7 +128,7 @@ begin
         else if (CSn&this_busy) begin
             // CSn&this_busy are not both set initially, so they
             // are only both set at end (after 64 SCLKs)
-            doWrite <= 1'b0;
+            this_busy <= 1'b0;
             seqn <= {(6+CLKBIT){1'b0}};
         end
         else begin
@@ -141,7 +140,7 @@ begin
         end
     end
     else begin
-        // Idle state (or other_busy); make sure CSn is high
+        // Idle state: make sure CSn is high
         CSn <= 1'b1;
         this_busy <= 1'b0;
     end
@@ -311,13 +310,13 @@ begin
                     ioexp_wen <= 1'b1;
                     next_step <= step + 4'd1;
                 end
-                else begin
+                else if (~ioexp_wen) begin
                     // Output is correct, skip to next step
                     step <= step + 4'd1;
                 end
             end
         end
-        else begin
+        else if (~ioexp_wen) begin
             // All 4 outputs are correct, skip 4 steps
             step <= step + 4'd4;
         end

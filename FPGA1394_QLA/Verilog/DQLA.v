@@ -717,6 +717,19 @@ Max6576 Q2_T2(
 );
 
 
+//---------------------------------------------------------------------------
+// Simple mechanism to avoid contention of SPI bus between QLA PROMs
+// and Max7317 I/O expanders.
+//---------------------------------------------------------------------------
+
+reg[3:0] spi_token;
+initial spi_token = 4'b0001;
+
+always @(posedge sysclk)
+begin
+    spi_token <= {spi_token[2:0], spi_token[3]};
+end
+
 // --------------------------------------------------------------------------
 // QLA prom 25AA128
 //    - SPI pin connection see QLA schematics
@@ -745,7 +758,7 @@ QLA25AA128 Q1_prom_qla(
     .prom_miso(miso1),
     .prom_sclk(Q1_prom_sclk),
     .prom_cs(Q1_prom_CSn),
-    .other_busy(Q1_ioexp_busy),
+    .other_busy(Q1_ioexp_busy|Q2_prom_busy|Q2_ioexp_busy|(~spi_token[0])),
     .this_busy(Q1_prom_busy)
 );
 
@@ -771,7 +784,7 @@ QLA25AA128 Q2_prom_qla(
     .prom_miso(miso1),
     .prom_sclk(Q2_prom_sclk),
     .prom_cs(Q2_prom_CSn),
-    .other_busy(Q2_ioexp_busy),
+    .other_busy(Q1_prom_busy|Q1_ioexp_busy|Q2_ioexp_busy|(~spi_token[1])),
     .this_busy(Q2_prom_busy)
 );
 
@@ -803,7 +816,7 @@ Q1_IO_Exp(
     .miso(miso1),
     .sclk(Q1_ioexp_sclk),
     .CSn(Q1_ioexp_CSn),
-    .other_busy(Q1_prom_busy),
+    .other_busy(Q1_prom_busy|Q2_prom_busy|Q2_ioexp_busy|(~spi_token[2])),
     .this_busy(Q1_ioexp_busy),
 
     // Signals
@@ -839,7 +852,7 @@ Q2_IO_Exp(
     .miso(miso1),
     .sclk(Q2_ioexp_sclk),
     .CSn(Q2_ioexp_CSn),
-    .other_busy(Q2_prom_busy),
+    .other_busy(Q1_prom_busy|Q2_prom_busy|Q1_ioexp_busy|(~spi_token[3])),
     .this_busy(Q2_ioexp_busy),
 
     // Signals
