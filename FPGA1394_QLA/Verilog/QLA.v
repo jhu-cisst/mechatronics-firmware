@@ -425,6 +425,19 @@ Max6576 T2(
 );
 
 
+//---------------------------------------------------------------------------
+// Simple mechanism to avoid contention of SPI bus between QLA PROM and
+// Max7317 I/O expander. Basically, the spi_token is used as a "tie-breaker"
+// if the SPI bus is idle, and both devices wish to access it at the same time.
+//---------------------------------------------------------------------------
+
+reg spi_token;
+
+always @(posedge sysclk)
+begin
+    spi_token <= ~spi_token;
+end
+
 // --------------------------------------------------------------------------
 // QLA prom 25AA128
 //    - SPI pin connection see QLA schematics
@@ -453,7 +466,7 @@ QLA25AA128 prom_qla(
     .prom_miso(IO1[1]),
     .prom_sclk(qla_prom_sclk),
     .prom_cs(IO1[4]),
-    .other_busy(io_exp_busy),
+    .other_busy(io_exp_busy|spi_token),
     .this_busy(qla_prom_busy)
 );
 
@@ -483,7 +496,7 @@ Max7317 IO_Exp(
     .miso(IO1[1]),
     .sclk(io_exp_sclk),
     .CSn(IO1[8]),
-    .other_busy(qla_prom_busy),
+    .other_busy(qla_prom_busy|(~spi_token)),
     .this_busy(io_exp_busy),
 
     // Signals
