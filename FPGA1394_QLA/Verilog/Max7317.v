@@ -102,6 +102,7 @@ assign sclk = seqn[CLKBIT]&(~CSn);
 //   sclk   ___|---|___|---|___|---   (rising edge on odd numbers)
 //   data  15     14      13          (data out on falling edge)
 
+// SPI interface block
 always @(posedge clk)
 begin
     if (ioexp_wen) begin
@@ -150,7 +151,6 @@ reg ioexp_cfg_valid;
 
 // For stepping through the configuration, polling and output
 reg[3:0] step;
-reg[3:0] next_step;
 
 // For polling the I/O expander
 reg do_poll;
@@ -226,8 +226,15 @@ assign P74_same = ((P_Outputs[7:4] == 4'h0) || (P_Outputs[7:4] == 4'hf)) ? 1'b1 
 always @(posedge clk)
 begin
     if (this_busy) begin
+        // We wait in this state until the SPI always block finishes processing
+        // the request and clears this_busy. At that time, ioexp_wen should be
+        // clear and we would process the next step or return to the idle state.
         ioexp_wen <= 1'b0;
-        step <= next_step;
+    end
+    else if (ioexp_wen) begin
+        // We wait in this state until the SPI always block responds to the
+        // ioexp_wen request and sets this_busy, which then causes a transition
+        // to the state above.
     end
     else if (!ioexp_cfg_valid) begin
         // This code attempts to initialize the MAX7317 by setting all
@@ -242,14 +249,14 @@ begin
         else begin
             write_data <= ConfigCommands[step[0]];
             ioexp_wen <= 1'b1;
-            next_step <= step + 4'd1;
+            step <= step + 4'd1;
             P_Shadow <= 8'hff;
         end
     end
     else if (do_poll) begin
         write_data <= PollCommands[step[1:0]];
         ioexp_wen <= 1'b1;
-        next_step <= step + 4'd1;
+        step <= step + 4'd1;
         if (step == 4'd2) begin
             if (read_data[15:8] == PollCommands[0][15:8]) begin
                 outputs_fb <= read_data[7:0];
@@ -301,22 +308,18 @@ begin
                    P_Shadow[7:4] <= P_Outputs[7:4];
                 end
                 ioexp_wen <= 1'b1;
-                next_step <= step + 4'd4;
+                step <= step + 4'd4;
             end
             else begin
                 if (P_Outputs[step[2:0]] != P_Shadow[step[2:0]]) begin
                     write_data <= { 4'h0, step, 7'h0, P_Outputs[step[2:0]] };
                     P_Shadow[step[2:0]] <= P_Outputs[step[2:0]];
                     ioexp_wen <= 1'b1;
-                    next_step <= step + 4'd1;
                 end
-                else if (~ioexp_wen) begin
-                    // Output is correct, skip to next step
-                    step <= step + 4'd1;
-                end
+                step <= step + 4'd1;
             end
         end
-        else if (~ioexp_wen) begin
+        else begin
             // All 4 outputs are correct, skip 4 steps
             step <= step + 4'd4;
         end
@@ -325,7 +328,7 @@ begin
         if (step == 4'd0) begin
             write_data <= reg_wdata_saved;
             ioexp_wen <= 1'b1;
-            next_step <= 4'd1;
+            step <= 4'd1;
         end
         else begin
             // Indicate that a read was issued, so we can later save the
@@ -340,13 +343,11 @@ begin
         // IDLE state (not writing or reading)
         ioexp_wen <= 1'b0;
         step <= 4'd0;
-        next_step <= 4'd0;
 
         if (ioexp_cfg_reset) begin
             // Restart check for MAX7317
             ioexp_cfg_valid <= 1'b0;
             ioexp_cfg_present <= 1'b0;
-            step <= 4'd0;
         end
         else if (ioexp_cfg_present) begin
             // Poll timer waits for about 1.3 usec before starting next poll
