@@ -135,8 +135,8 @@ endgenerate
 // Motor Status
 //
 //   31:30   00
-//      29   ~reg_disable
-//      28   ~amp_disable
+//      29   amp_fault (active low, 1 -> amplifier on)
+//      28   ~reg_disable
 //   27:24   ctrl_mode
 //   23:21   000
 //      20   cur_ctrl (1-> current control)
@@ -147,7 +147,7 @@ endgenerate
 //    15:0   cur_cmd (last setpoint)
 //
 // NOTE: if bit assignments changed, check if QLA.v needs to be updated
-assign motor_status = { 2'b00, ~reg_disable, ~amp_disable, ctrl_mode, 3'd0, cur_ctrl,
+assign motor_status = { 2'b00, amp_fault, ~reg_disable, ctrl_mode, 3'd0, cur_ctrl,
                         cur_ctrl_error, disable_f_error, safety_amp_disable, amp_fault_fb,
                         cur_cmd};
 

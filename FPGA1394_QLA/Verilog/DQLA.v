@@ -554,8 +554,7 @@ wire Q2_is_quad_dac;      // type of DAC: 0 = 4xLTC2601, 1 = 1xLTC2604
 wire dac_test_reset;      // reset (repeat) detection of DAC type
 
 CtrlDac #(.NUM_CS(2)) dac(
-    //.sysclk(sysclk),
-    .sysclk(clkadc),   // TODO
+    .sysclk(sysclk),
     .sclk(dac_sclk),
     .mosi({Q2_dac_mosi, Q1_dac_mosi}),
     .csel({Q2_dac_CSn, Q1_dac_CSn}),
