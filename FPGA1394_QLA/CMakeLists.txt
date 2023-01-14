@@ -11,11 +11,11 @@
 project(FPGA1394_QLA NONE)
 
 # FPGA part number
-set (FPGA_FAMILY  "spartan6")
-set (FPGA_DEVICE  "xc6slx45")
-set (FPGA_PACKAGE "fgg484")
-set (FPGA_SPEED   "-2")
-set (FPGA_PARTNUM "${FPGA_DEVICE}${FPGA_SPEED}${FPGA_PACKAGE}")
+set (FPGAV1V2_FAMILY  "spartan6")
+set (FPGAV1V2_DEVICE  "xc6slx45")
+set (FPGAV1V2_PACKAGE "fgg484")
+set (FPGAV1V2_SPEED   "-2")
+set (FPGAV1V2_PARTNUM "${FPGAV1V2_DEVICE}${FPGAV1V2_SPEED}${FPGAV1V2_PACKAGE}")
 
 set (FPGAV3_FAMILY  "zynq")
 set (FPGAV3_DEVICE  "xc7z020")
@@ -119,6 +119,29 @@ set (VERILOG_SOURCE_DQLA   ${VERILOG_SOURCE_QLA_DQLA}
                            "${VERILOG_SOURCE_DIR}/BoardRegs-DQLA.v"
                            "${VERILOG_SOURCE_DIR}/DQLA.v")
 
+set (VERILOG_SOURCE_DRAC
+                           "${VERILOG_SOURCE_DIR}/DRAC.v"
+                           "${VERILOG_SOURCE_DIR}/BoardRegs-DRAC.v"
+                           "${VERILOG_SOURCE_DIR}/QLA25AA128.v"
+                           "${VERILOG_SOURCE_DIR}/AD4008.v"
+                           "${VERILOG_SOURCE_DIR}/cdc_pulse.v"
+                           "${VERILOG_SOURCE_DIR}/Crc16.v"
+                           "${VERILOG_SOURCE_DIR}/DvrkRx.v" # to be deprecated
+                           "${VERILOG_SOURCE_DIR}/MotorChannelDRAC.v"
+                           "${VERILOG_SOURCE_DIR}/PowerControl.v"
+                           "${VERILOG_SOURCE_DIR}/PWM.v"
+                           "${VERILOG_SOURCE_DIR}/PwmAdcTiming.v"
+                           "${VERILOG_SOURCE_DIR}/SampleDataAddressTranslation.v"
+                           "${VERILOG_SOURCE_DIR}/WriteRtData.v"
+                           "${VERILOG_SOURCE_DIR}/ws2811.v"
+                           "${VERILOG_SOURCE_DIR}/pi_controller.v"
+                           "${VERILOG_SOURCE_DIR}/pi_controller_mul_18ns_17s_35_4.v"
+                           "${IPCORE_BINARY_DIR}/pwm_clk_gen.v"
+                           )
+
+file(DOWNLOAD
+        https://raw.githubusercontent.com/keshuaixu/ws2812-verilog/ws2813/ws2811.v
+        "${VERILOG_SOURCE_DIR}/ws2811.v")
 ################### Complete Systems (FPGA + Board) #####################
 
 ##### FPGAV1 + QLA
@@ -132,7 +155,7 @@ set (VERILOG_SOURCE_FPGAV1_QLA
 # to the Generated subdirectory in the source directory (if different).
 ise_compile_fpga(PROJ_NAME      "FPGA1394QLA"
                  DEPENDENCIES   "CoreGenCommon"
-                 FPGA_PARTNUM   ${FPGA_PARTNUM}
+                 FPGA_PARTNUM   ${FPGAV1V2_PARTNUM}
                  VERILOG_SOURCE ${VERILOG_SOURCE_FPGAV1_QLA}
                  UCF_FILE       "${VERILOG_SOURCE_DIR}/XC6S45.ucf"
                  IPCORE_DIR     ${IPCORE_BINARY_DIR}
@@ -150,7 +173,7 @@ set (VERILOG_SOURCE_FPGAV2_QLA
 # to the Generated subdirectory in the source directory (if different).
 ise_compile_fpga(PROJ_NAME      "FPGA1394EthQLA"
                  DEPENDENCIES   "CoreGenCommon"
-                 FPGA_PARTNUM   ${FPGA_PARTNUM}
+                 FPGA_PARTNUM   ${FPGAV1V2_PARTNUM}
                  VERILOG_SOURCE ${VERILOG_SOURCE_FPGAV2_QLA}
                  UCF_FILE       "${VERILOG_SOURCE_DIR}/XC6S45-Rev2.ucf"
                  IPCORE_DIR     ${IPCORE_BINARY_DIR}
@@ -196,6 +219,44 @@ ise_compile_fpga(PROJ_NAME      "FPGA1394V3DQLA"
                  TOP_LEVEL      "FPGA1394V3DQLA"
                  PROJ_OUTPUT    "FPGA1394V3-DQLA"
                  IS_V3          ON)
+
+##### FPGAV2 + dRAC
+set (VERILOG_SOURCE_FPGAV2_DRAC
+                         "${VERILOG_SOURCE_DIR}/FPGA1394Eth-DRAC.v"
+                         ${VERILOG_SOURCE_COMMON}
+                         ${VERILOG_SOURCE_FPGAV2}
+                         ${VERILOG_SOURCE_DRAC})
+
+# Compile the firmware -- output is FPGA1394Eth-QLA.mcs, which is copied
+# to the Generated subdirectory in the source directory (if different).
+ise_compile_fpga(PROJ_NAME      "FPGA1394EthDRAC"
+                 DEPENDENCIES   "CoreGenCommon"
+                 FPGA_PARTNUM   ${FPGAV1V2_PARTNUM}
+                 VERILOG_SOURCE ${VERILOG_SOURCE_FPGAV2_DRAC}
+                 UCF_FILE       "${VERILOG_SOURCE_DIR}/XC6S45-Rev2-DRAC.ucf"
+                 IPCORE_DIR     ${IPCORE_BINARY_DIR}
+                 TOP_LEVEL      "FPGA1394EthDRAC"
+                 PROJ_OUTPUT    "FPGA1394Eth-DRAC")
+
+##### FPGAV3 + dRAC
+set (VERILOG_SOURCE_FPGAV3_DRAC
+                         "${VERILOG_SOURCE_DIR}/FPGA1394V3-DRAC.v"
+                         ${VERILOG_SOURCE_COMMON}
+                         ${VERILOG_SOURCE_FPGAV3}
+                         ${VERILOG_SOURCE_DRAC})
+
+# Compile the firmware -- output is FPGA1394V3-QLA.mcs, which is copied
+# to the Generated subdirectory in the source directory (if different).
+# ise_compile_fpga(PROJ_NAME      "FPGA1394V3DRAC"
+#                  DEPENDENCIES   "CoreGenV3" "PlatgenV3"
+#                  FPGA_PARTNUM   ${FPGAV3_PARTNUM}
+#                  VERILOG_SOURCE ${VERILOG_SOURCE_FPGAV3_QLA}
+#                  UCF_FILE       "${VERILOG_SOURCE_DIR}/XC7Z020-DRAC.ucf"
+#                  IPCORE_DIR     ${IPCOREV3_BINARY_DIR}
+#                  XPSCORE_DIR    "${XPSCORE_BINARY_DIR}/implementation"
+#                  TOP_LEVEL      "FPGA1394V3DRAC"
+#                  PROJ_OUTPUT    "FPGA1394V3-dRAC"
+#                  IS_V3          ON)
 
 ######################### Copy Generated Files #################################
 

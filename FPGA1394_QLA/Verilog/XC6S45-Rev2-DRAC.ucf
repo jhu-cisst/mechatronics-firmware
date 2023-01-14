@@ -1,0 +1,175 @@
+CONFIG VCCAUX=3.3;
+
+################################################################################
+# Main I/O Ports
+################################################################################
+NET  "IO1[1]"     LOC = " E20"    | IOSTANDARD = "LVCMOS33" | PULLUP;  # MISO prom_qla
+NET  "IO1[2]"     LOC = " F22"    | IOSTANDARD = "LVCMOS33" | PULLUP;  # MOSI
+NET  "IO1[3]"     LOC = " D22"    | IOSTANDARD = "LVCMOS33" | PULLUP;  # SCLK
+NET  "IO1[4]"     LOC = " E22"    | IOSTANDARD = "LVCMOS33" | PULLUP;  # /EEPROM
+NET  "IO1[5]"     LOC = " D20"    | IOSTANDARD = "LVCMOS33" | PULLUP | OPEN_DRAIN;  # currently SUJ brake. move later.
+NET  "IO1[6]"     LOC = " D21"    | IOSTANDARD = "LVCMOS33";
+NET  "IO1[7]"     LOC = " C22"    | IOSTANDARD = "LVCMOS33";
+NET  "IO1[8]"     LOC = " D19"    | IOSTANDARD = "LVCMOS33";
+NET  "IO1[9]"     LOC = " C20"    | IOSTANDARD = "LVCMOS33";
+NET  "IO1[10]"    LOC = " B22"    | IOSTANDARD = "LVCMOS33";
+NET  "IO1[11]"    LOC = " C19"    | IOSTANDARD = "LVCMOS33";
+NET  "IO1[12]"    LOC = " G7"     | IOSTANDARD = "LVCMOS33";
+NET  "IO1[13]"    LOC = " F7"     | IOSTANDARD = "LVCMOS33";
+NET  "IO1[14]"    LOC = " E6"     | IOSTANDARD = "LVCMOS33" | PULLUP; # FAULTn[4]
+NET  "IO1[15]"    LOC = " H4"     | IOSTANDARD = "LVCMOS33" | PULLUP; # OTWn[4]
+NET  "IO1[16]"    LOC = " F5"     | IOSTANDARD = "LVCMOS33";
+NET  "IO1[17]"    LOC = " E5"     | IOSTANDARD = "LVCMOS33";
+NET  "IO1[18]"    LOC = " D5"     | IOSTANDARD = "LVCMOS33";
+NET  "IO1[19]"    LOC = " E4"     | IOSTANDARD = "LVCMOS33";
+NET  "IO1[20]"    LOC = " B3"     | IOSTANDARD = "LVCMOS33";
+NET  "IO1[21]"    LOC = " B2"     | IOSTANDARD = "LVCMOS33";
+NET  "IO1[22]"    LOC = " A2"     | IOSTANDARD = "LVCMOS33";
+NET  "IO1[23]"    LOC = " C4"     | IOSTANDARD = "LVCMOS33";
+NET  "IO1[24]"    LOC = " B1"     | IOSTANDARD = "LVCMOS33";
+NET  "IO1[25]"    LOC = " D3"     | IOSTANDARD = "LVCMOS33";
+NET  "IO1[26]"    LOC = " C3"     | IOSTANDARD = "LVCMOS33" | PULLUP; # RELAY_GOODn
+NET  "IO1[27]"    LOC = " D2"     | IOSTANDARD = "LVCMOS33" | PULLUP; # FAULTn[5]
+NET  "IO1[28]"    LOC = " E3"     | IOSTANDARD = "LVCMOS33";
+NET  "IO1[29]"    LOC = " G4"     | IOSTANDARD = "LVCMOS33" | PULLUP; # OTWn[5]
+NET  "IO1[30]"    LOC = " F3"     | IOSTANDARD = "LVCMOS33" | PULLUP; # ESPMV_GOODn
+NET  "IO1[31]"    LOC = " G3"     | IOSTANDARD = "LVCMOS33";
+NET  "IO1[32]"    LOC = " F2"     | IOSTANDARD = "LVCMOS33";
+
+NET  "IO2[1]"     LOC = "Y13"     | IOSTANDARD = "LVCMOS33";
+NET  "IO2[2]"     LOC = "AB7"     | IOSTANDARD = "LVCMOS33";
+NET  "IO2[3]"     LOC = "W12"     | IOSTANDARD = "LVCMOS33";
+NET  "IO2[4]"     LOC = "AB6"     | IOSTANDARD = "LVCMOS33" | PULLUP; # OTWn[3]
+NET  "IO2[5]"     LOC = "U10"     | IOSTANDARD = "LVCMOS33" | PULLUP; # FAULTn[3]
+NET  "IO2[6]"     LOC = "Y12"     | IOSTANDARD = "LVCMOS33" | PULLUP; # LVDS_RCLK
+NET  "IO2[7]"     LOC = "Y10"     | IOSTANDARD = "LVCMOS33" | PULLUP; # LVDS_RDAT
+NET  "IO2[8]"     LOC = "Y11"     | IOSTANDARD = "LVCMOS33";
+# NET  "IO2[9]"     LOC = "Y9"      | IOSTANDARD = "LVCMOS33" | OUT_TERM = UNTUNED_50; # CONV_ADC
+NET  "IO2[9]"     LOC = "Y9"      | IOSTANDARD = "LVCMOS33"; # CONV_ADC
+NET  "IO2[10]"    LOC = "V9"      | IOSTANDARD = "LVCMOS33";
+NET  "IO2[11]"    LOC = "V7"      | IOSTANDARD = "LVCMOS33";
+NET  "IO2[12]"    LOC = "Y8"      | IOSTANDARD = "LVCMOS33";
+NET  "IO2[13]"    LOC = "AA6"     | IOSTANDARD = "LVCMOS33";
+# NET  "IO2[14]"    LOC = "Y7"      | IOSTANDARD = "LVCMOS33" | OUT_TERM = UNTUNED_50; # SCLK_ADC
+NET  "IO2[14]"    LOC = "Y7"      | IOSTANDARD = "LVCMOS33"; # SCLK_ADC
+NET  "IO2[15]"    LOC = "AB5"     | IOSTANDARD = "LVCMOS33";
+NET  "IO2[16]"    LOC = "Y6"      | IOSTANDARD = "LVCMOS33"; # SDI_ADC
+NET  "IO2[17]"    LOC = "AB4"     | IOSTANDARD = "LVCMOS33";
+NET  "IO2[18]"    LOC = "Y5"      | IOSTANDARD = "LVCMOS33";
+NET  "IO2[19]"    LOC = "AA4"     | IOSTANDARD = "LVCMOS33";
+NET  "IO2[20]"    LOC = "W6"      | IOSTANDARD = "LVCMOS33";
+NET  "IO2[21]"    LOC = "AB3"     | IOSTANDARD = "LVCMOS33";
+NET  "IO2[22]"    LOC = "Y4"      | IOSTANDARD = "LVCMOS33";
+NET  "IO2[23]"    LOC = "AB2"     | IOSTANDARD = "LVCMOS33" | PULLUP; # OTWn[2]
+NET  "IO2[24]"    LOC = "W4"      | IOSTANDARD = "LVCMOS33";
+NET  "IO2[25]"    LOC = "AA2"     | IOSTANDARD = "LVCMOS33" | PULLUP; # FAULTn[2]
+NET  "IO2[26]"    LOC = "V2"      | IOSTANDARD = "LVCMOS33";
+NET  "IO2[27]"    LOC = "Y3"      | IOSTANDARD = "LVCMOS33";
+NET  "IO2[28]"    LOC = "V1"      | IOSTANDARD = "LVCMOS33";
+NET  "IO2[29]"    LOC = "Y2"      | IOSTANDARD = "LVCMOS33";
+NET  "IO2[30]"    LOC = "W3"      | IOSTANDARD = "LVCMOS33";
+NET  "IO2[31]"    LOC = "Y1"      | IOSTANDARD = "LVCMOS33";
+NET  "IO2[32]"    LOC = "U1"      | IOSTANDARD = "LVCMOS33";
+NET  "IO2[33]"    LOC = "T2"      | IOSTANDARD = "LVCMOS33" | PULLUP; # FAULTn[1]
+NET  "IO2[34]"    LOC = "T1"      | IOSTANDARD = "LVCMOS33";
+NET  "IO2[35]"    LOC = "W1"      | IOSTANDARD = "LVCMOS33" | PULLUP; # OTWn[1]
+NET  "IO2[36]"    LOC = "V3"      | IOSTANDARD = "LVCMOS33";
+NET  "IO2[37]"    LOC = "U3"      | IOSTANDARD = "LVCMOS33";
+NET  "IO2[38]"    LOC = "T3"      | IOSTANDARD = "LVCMOS33";
+
+################################################################################
+# Clock Inputs
+################################################################################
+NET  "clk25m"     LOC = "M3"      | IOSTANDARD = "LVCMOS33" | TNM_NET = "CLK_IN25x";
+TIMESPEC "TS_CLK_IN25x" = PERIOD "CLK_IN25x" 40.0000 ns HIGH 50% INPUT_JITTER 100.0ps;
+
+################################################################################
+# IEEE-1394 Interface
+################################################################################
+NET  "ctl[0]"     LOC = "C13"     | IOSTANDARD = "LVCMOS33" | PULLUP;
+NET  "ctl[1]"     LOC = "A12"     | IOSTANDARD = "LVCMOS33" | PULLUP;
+NET  "data[0]"    LOC = "A15"     | IOSTANDARD = "LVCMOS33" | PULLUP;
+NET  "data[1]"    LOC = "A14"     | IOSTANDARD = "LVCMOS33" | PULLUP;
+NET  "data[2]"    LOC = "C11"     | IOSTANDARD = "LVCMOS33" | PULLUP;
+NET  "data[3]"    LOC = "C10"     | IOSTANDARD = "LVCMOS33" | PULLUP;
+NET  "data[4]"    LOC = "A13"     | IOSTANDARD = "LVCMOS33" | PULLUP;
+NET  "data[5]"    LOC = "C14"     | IOSTANDARD = "LVCMOS33" | PULLUP;
+NET  "data[6]"    LOC = "B10"     | IOSTANDARD = "LVCMOS33" | PULLUP;
+NET  "data[7]"    LOC = "A11"     | IOSTANDARD = "LVCMOS33" | PULLUP;
+NET  "lreq"       LOC = "B14"     | IOSTANDARD = "LVCMOS33";
+NET  "reset_phy"  LOC = "A6"      | IOSTANDARD = "LVCMOS33";
+NET  "clk1394"    LOC = "A10"     | IOSTANDARD = "LVCMOS33" | TNM_NET = "CLK_IN1394x";
+TIMESPEC "TS_CLK_IN1394x" = PERIOD "CLK_IN1394x" 20.345 ns HIGH 50% INPUT_JITTER 100.0ps;
+
+################################################################################
+# Serial Interface (shared with Soft JTAG)
+################################################################################
+# NET  "RxD"        LOC = "B20"     | IOSTANDARD = "LVCMOS33" | PULLUP;
+# NET  "TxD"        LOC = "A21"     | IOSTANDARD = "LVCMOS33";
+# NET  "RTS"        LOC = "A20"     | IOSTANDARD = "LVCMOS33" | PULLUP;
+# NET  "CTS"        LOC = "B21"   | IOSTANDARD = "LVCMOS33";
+
+################################################################################
+# SPI Interface to M25P16 PROM
+################################################################################
+NET  "XCCLK"      LOC = "Y21"     | IOSTANDARD = "LVCMOS33" | PULLUP |  DRIVE=24;
+NET  "XMISO"      LOC = "AA20"    | IOSTANDARD = "LVCMOS33" | PULLUP;
+NET  "XMOSI"      LOC = "AB20"    | IOSTANDARD = "LVCMOS33";
+NET  "XCSn"       LOC = "T5"      | IOSTANDARD = "LVCMOS33";
+
+################################################################################
+# LED Output
+################################################################################
+NET  "LED"        LOC = "N22"     | IOSTANDARD = "LVCMOS33";
+
+################################################################################
+# Board ID
+################################################################################
+NET  "wenid[0]"   LOC = "M4"      | IOSTANDARD = "LVCMOS33" | PULLUP;
+NET  "wenid[1]"   LOC = "N4"      | IOSTANDARD = "LVCMOS33" | PULLUP;
+NET  "wenid[2]"   LOC = "N3"      | IOSTANDARD = "LVCMOS33" | PULLUP;
+NET  "wenid[3]"   LOC = "P5"      | IOSTANDARD = "LVCMOS33" | PULLUP;
+
+################################################################################
+# Soft JTAG (shared with Serial Interface)
+################################################################################
+# NET  "SOFT_TCK"   LOC = "B20"     | IOSTANDARD = "LVCMOS33" | PULLUP;
+# NET  "SOFT_TDI"   LOC = "B21"     | IOSTANDARD = "LVCMOS33" | PULLUP;
+# NET  "SOFT_TDO"   LOC = "A21"     | IOSTANDARD = "LVCMOS33" | PULLUP;
+# NET  "SOFT_TMS"   LOC = "A20"     | IOSTANDARD = "LVCMOS33" | PULLUP;
+
+# NET  "DEBUG[0]"   LOC = "A20"     | IOSTANDARD = "LVCMOS33";
+# NET  "DEBUG[1]"   LOC = "B20"     | IOSTANDARD = "LVCMOS33";
+# NET  "DEBUG[2]"   LOC = "A21"     | IOSTANDARD = "LVCMOS33";
+# NET  "DEBUG[3]"   LOC = "B21"     | IOSTANDARD = "LVCMOS33";
+
+################################################################################
+# Ethernet MAC/PHY
+################################################################################
+
+NET  "ETH_RDn"   LOC = "Y14"       | IOSTANDARD = "LVCMOS33";
+NET  "ETH_WRn"   LOC = "V13"       | IOSTANDARD = "LVCMOS33";
+NET  "ETH_CSn"   LOC = "Y16"       | IOSTANDARD = "LVCMOS33";
+NET  "ETH_CMD"   LOC = "Y15"       | IOSTANDARD = "LVCMOS33";
+NET  "ETH_RSTn"  LOC = "W17"       | IOSTANDARD = "LVCMOS33";
+NET  "ETH_RSTn"  CLOCK_DEDICATED_ROUTE = FALSE;
+NET  "ETH_8n"    LOC = "W8"        | IOSTANDARD = "LVCMOS33";
+NET  "ETH_IRQn"  LOC = "W13"       | IOSTANDARD = "LVCMOS33" | PULLUP;
+NET  "ETH_PME"   LOC = "AA14"      | IOSTANDARD = "LVCMOS33" | PULLUP;
+
+NET  "SD[0]"     LOC = "AA8"       | IOSTANDARD = "LVCMOS33";
+NET  "SD[1]"     LOC = "AB8"       | IOSTANDARD = "LVCMOS33";
+NET  "SD[2]"     LOC = "AB9"       | IOSTANDARD = "LVCMOS33";
+NET  "SD[3]"     LOC = "AA10"      | IOSTANDARD = "LVCMOS33";
+NET  "SD[4]"     LOC = "AB10"      | IOSTANDARD = "LVCMOS33";
+NET  "SD[5]"     LOC = "AB11"      | IOSTANDARD = "LVCMOS33";
+NET  "SD[6]"     LOC = "AA12"      | IOSTANDARD = "LVCMOS33";
+NET  "SD[7]"     LOC = "AB12"      | IOSTANDARD = "LVCMOS33";
+NET  "SD[8]"     LOC = "AB13"      | IOSTANDARD = "LVCMOS33";
+NET  "SD[9]"     LOC = "AB14"      | IOSTANDARD = "LVCMOS33";
+NET  "SD[10]"    LOC = "Y17"       | IOSTANDARD = "LVCMOS33";
+NET  "SD[11]"    LOC = "W18"       | IOSTANDARD = "LVCMOS33";
+NET  "SD[12]"    LOC = "V18"       | IOSTANDARD = "LVCMOS33";
+NET  "SD[13]"    LOC = "Y19"       | IOSTANDARD = "LVCMOS33";
+NET  "SD[14]"    LOC = "V19"       | IOSTANDARD = "LVCMOS33";
+NET  "SD[15]"    LOC = "AB21"      | IOSTANDARD = "LVCMOS33";

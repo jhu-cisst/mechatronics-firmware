@@ -78,6 +78,7 @@ module FPGA1394V2
     input wire[3:0] sample_chan,    // Channel for sampling
     output wire[5:0] sample_raddr,  // Address in sample_data buffer
     input wire[31:0] sample_rdata,  // Output from sample_data buffer
+    output wire sample_read,        // 1 -> either eth or fw sample read
     input wire[31:0] timestamp,     // Timestamp used when sampling
 
     // Watchdog support
@@ -162,6 +163,8 @@ wire eth_sample_start;
 assign sample_start = (eth_sample_start|fw_sample_start) & ~sample_busy;
 
 wire eth_sample_read;      // 1 -> Ethernet module has control of sample_raddr
+wire fw_sample_read;
+assign sample_read = eth_sample_read | fw_sample_read;
 wire[5:0] fw_sample_raddr;
 wire[5:0] eth_sample_raddr;
 assign sample_raddr = eth_sample_read ? eth_sample_raddr : fw_sample_raddr;
@@ -335,7 +338,8 @@ phy(
     .sample_start(fw_sample_start),   // 1 -> start sampling for block read
     .sample_busy(sample_busy),        // Sampling in process
     .sample_raddr(fw_sample_raddr),   // Read address for sampled data
-    .sample_rdata(sample_rdata)       // Sampled data (for block read)
+    .sample_rdata(sample_rdata),      // Sampled data (for block read)
+    .sample_read(fw_sample_read)
 );
 
 

@@ -3,7 +3,9 @@
 # Using XCP files instead of XCO because project settings
 # (e.g., target device) are set in coregen.cgp.
 set (IPCORE_SOURCE_COMMON "${CMAKE_CURRENT_SOURCE_DIR}/hub_mem_gen.xcp"
-                          "${CMAKE_CURRENT_SOURCE_DIR}/Dual_port_RAM_32X1024.xcp")
+                          "${CMAKE_CURRENT_SOURCE_DIR}/Dual_port_RAM_32X1024.xcp"
+                          "${CMAKE_CURRENT_SOURCE_DIR}/pwm_clk_gen.xcp"
+                          )
 
 # Generate the common IP cores (target name is CoreGenCommon)
 ise_ipcoregen(TARGET_NAME       "CoreGenCommon"

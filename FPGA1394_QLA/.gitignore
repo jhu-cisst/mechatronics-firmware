@@ -57,3 +57,4 @@ sdram_*
 *.bak
 */tmp/*
 */_xmsgs/*
+Verilog/ws2811.v
