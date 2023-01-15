@@ -437,32 +437,25 @@ assign reg_digin = rdata_misc[1];
 
 wire lvds_tx_clk = sysclk; // sysclk required
 reg lvds_tx_clk_en = 'b1;
-reg [31:0] lvds_tx_data;
-reg [5:0] lvds_tx_data_count = 'b0;
-reg lvds_tx_state = 'b0;
-reg lvds_tdat_reg;
-assign LVDS_TDAT = lvds_tdat_reg;
+wire [9:0] espm_tx_tdata_sel;
+reg [31:0] espm_tx_tdata;
 
-always @(posedge lvds_tx_clk) begin
-    if (reg_waddr[15:12]==`ADDR_BOARD_SPECIFIC && reg_wen) begin
-    case (reg_waddr[11:0])
-        'h101: begin
-        lvds_tx_state <= 'b1;
-        lvds_tx_data <= reg_wdata;
-        lvds_tx_data_count <= 'b0;
-        end
-    endcase
+ESPMTX espm_tx (
+    .clock(sysclk),
+    .tdata(espm_tx_tdata),
+    .page(16'b0),
+    .length(10'd64),
+    .tdata_sel(espm_tx_tdata_sel),
+    .tdat(LVDS_TDAT)
+);
+
+reg [31:0] espm_tx_ram [0:63];
+
+always @(posedge sysclk) begin
+    if (reg_wen && reg_waddr[15:12] == `ADDR_ESPM) begin
+        espm_tx_ram[reg_waddr[5:0]] <= reg_wdata;
     end
-    if (lvds_tx_state == 'd1) begin
-        lvds_tx_clk_en <= 'b1;
-        lvds_tdat_reg <= lvds_tx_data[lvds_tx_data_count];
-        lvds_tx_data_count <= lvds_tx_data_count + 'b1;
-        if (lvds_tx_data_count == 'd32) begin
-            lvds_tx_state <= 'd0;
-            lvds_tx_clk_en <= 'b0;
-            lvds_tdat_reg <= 'b0;
-        end
-    end
+    espm_tx_tdata <= espm_tx_ram[espm_tx_tdata_sel[5:0]];
 end
 
 ODDR2 #(
@@ -484,15 +477,15 @@ ODDR2 #(
 // RX from ESPM
 // --------------------------------------------------------------------------
 wire [31:0] rdata_espm;
-wire  [5:0] rdata_sel_espm;
+wire  [9:0] rdata_sel_espm;
 wire        load_rdata_espm;
 wire [31:0] framed_espm;
 wire        crc_good_espm;
-wire  [31:0] crc_err_count;
-wire  [31:0] crc_good_count;
+wire        eof_espm;
+reg  [31:0] crc_err_count;
+reg  [31:0] crc_good_count;
 reg  [9:0] crc_good_count_prev = 'b1;
 wire [1:0] dvrk_rx_cfsm;
-reg skip_crc = 0;
 
 
 reg espm_comm_wdt_fault;
@@ -506,21 +499,27 @@ always @(posedge sysclk) begin
     end
 end
 
-DvrkRx rx(
+always @(posedge LVDS_RCLK) begin
+    if (crc_good_espm) begin
+        crc_good_count <= crc_good_count + 'd1;
+    end
+    if (eof_espm && !crc_good_espm) begin
+        crc_err_count <= crc_err_count + 'd1;
+    end
+end
+
+ESPMRX espm_rx(
     // Input
     .clock(LVDS_RCLK),            // received clock from ESPM
     .rdat(LVDS_RDAT),             // serial data in
 
     // Output
-	.rdata(rdata_espm[31:0]),
-   .load_rdata(load_rdata_espm),
-	.rdata_sel(rdata_sel_espm),
-	.framed(framed_espm),
-	.crc_good(crc_good_espm),
-   .crc_err(crc_err_count),
-   .crc_good_count(crc_good_count),
-   .cfsm(dvrk_rx_cfsm),
-   .skip_crc(skip_crc)
+    .rdata(rdata_espm[31:0]),
+    .load_rdata(load_rdata_espm),
+    .rdata_sel(rdata_sel_espm),
+    .framed(framed_espm),
+    .crc_good(crc_good_espm),
+    .eof(eof_espm)
 );
 
 localparam ESPM_BRAM_SIZE = 'd64;
@@ -545,26 +544,26 @@ reg [5:0] espm_bram_waddr;
 wire [31:0] espm_bram_wdata;
 assign espm_bram_wdata = espm_bram_pre_crc[espm_bram_waddr];
 reg espm_bram_we;
-wire crc_good_sysclk;
-cdc_pulse crc_good_espm_cdc (LVDS_RCLK, crc_good_espm, sysclk, crc_good_sysclk);
+wire crc_good_espm_sysclk;
+cdc_pulse crc_good_espm_cdc (LVDS_RCLK, crc_good_espm, sysclk, crc_good_espm_sysclk);
 reg copy_state;
 
-assign espm_bram_rdata = espm_bram[espm_bram_raddr];
-assign reg_rdata_espm_debug = espm_bram[reg_raddr];
+assign espm_bram_rdata = espm_bram[espm_bram_raddr]; // TODO: try synchronous access
+assign reg_rdata_espm_debug = 'd0;
 
 always @(posedge sysclk) begin
     if (espm_bram_we) espm_bram[espm_bram_waddr] <= espm_bram_wdata;
     case (copy_state)
         0: begin
-            if (crc_good_sysclk) begin
+            if (crc_good_espm_sysclk) begin
                 copy_state <= 'b1;
                 espm_bram_waddr <= 'b0;
                 espm_bram_we <= 'b1;
             end
         end
         1: begin
-            espm_bram_waddr <= espm_bram_waddr + 1;
-            if (espm_bram_waddr == ESPM_BRAM_SIZE - 1) begin
+            espm_bram_waddr <= espm_bram_waddr + 'b1;
+            if (espm_bram_waddr == ESPM_BRAM_SIZE - 'b1) begin
                 espm_bram_we <= 'b0;
                 copy_state <= 'b0;
             end

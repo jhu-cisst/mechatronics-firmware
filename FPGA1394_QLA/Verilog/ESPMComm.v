@@ -24,8 +24,8 @@ module ESPMRX (input wire clock,                 // bit clock for ESPM chain
                output reg [1:0] cfsm,
                output wire [31:0] rdata,          // UNREGISTERED receive data - load when load_rdata asserts
                output wire load_rdata,            // time to load rdata
-               output reg [9:0] rdata_sel,       //
-               output reg [31:0] framed,         // we saw a valid framing sequence for the current packet
+               output wire [9:0] rdata_sel,       //
+               output reg framed,         // we saw a valid framing sequence for the current packet
                output reg crc_good,              // received a pkt with good CRC
                output reg eof,                   // end of packet
                output reg [15:0] page,
@@ -121,116 +121,116 @@ module ESPMRX (input wire clock,                 // bit clock for ESPM chain
 endmodule
     
     
-    module ESPMTX (
-        input  wire        clock,      // received clock from ESM
-        input  wire [31:0] tdata,      // parallel transmit data (output of mux selected by tdata_sel)
-        input [15:0] page,
-        input [9:0] length,
-        
-        output reg   [1:0] cfsm,       // current state
-        output wire   [9:0] tdata_sel,  // 6 bit counter that selects tdata multiplexor
-        output reg         pkt_start,  // starting to xmit a new packet
-        output reg         load_tdata, // loading serializer from parallel input
-        output reg         tdat);      // serial data out
-        
-        // internal variables
-        wire  [15:0]  crc_data;
-        
-        reg [14:0] bit_ctr = 'd0;
+module ESPMTX (
+    input  wire        clock,      // received clock from ESM
+    input  wire [31:0] tdata,      // parallel transmit data (output of mux selected by tdata_sel)
+    input [15:0] page,
+    input [9:0] length,
+    
+    output reg   [1:0] cfsm,       // current state
+    output wire   [9:0] tdata_sel,  // 6 bit counter that selects tdata multiplexor
+    output reg         pkt_start,  // starting to xmit a new packet
+    output reg         load_tdata, // loading serializer from parallel input
+    output reg         tdat);      // serial data out
+    
+    // internal variables
+    wire  [15:0]  crc_data;
+    
+    reg [14:0] bit_ctr = 'd0;
 
-        // There are 2 quadlets before the payload, but here we advance the tdata_sel by 1
-        // to give some timing margin for the data source.
-        assign tdata_sel   = bit_ctr[14:5] - 'd1;
-        wire [4:0] bit_sel = bit_ctr[4:0];
+    // There are 2 quadlets before the payload, but here we advance the tdata_sel by 1
+    // to give some timing margin for the data source.
+    assign tdata_sel   = bit_ctr[14:5] - 'd1;
+    wire [4:0] bit_sel = bit_ctr[4:0];
 
-        reg [15:0] page_latched;
-        reg [9:0] length_latched;
-        reg [31:0] current_quadlet;
-        reg [31:0] payload_buffer;
+    reg [15:0] page_latched;
+    reg [9:0] length_latched;
+    reg [31:0] current_quadlet;
+    reg [31:0] payload_buffer;
+    
+    localparam FRAME = 2'h0,  // transmit framing sequence
+    T_HEADER = 2'h1,  // transmit header
+    T_DATA = 2'h2,  // transmit data
+    T_CRC = 2'h3; // transmit CRC
+    
+    initial
+    begin
+        pkt_start  <= 'b0;
+        load_tdata <= 'd0;
+        cfsm       <= FRAME;  // start by framing on the recv data
+    end
+    
+    //----------------------------------------------------------------------------------------------
+    
+    always @(*) begin
+        case (cfsm)
+            FRAME: current_quadlet = `ESPMCOMM_MAGIC;
+            T_HEADER: current_quadlet = {page_latched, 6'b0, length_latched};
+            T_DATA: current_quadlet = payload_buffer;
+            T_CRC: current_quadlet = {16'b0, crc_data};
+            default: current_quadlet = 32'hcccccccc;
+        endcase
+    end
+
+    always @(posedge clock) begin
+        bit_ctr <= bit_ctr + 1'b1;
+        tdat <= current_quadlet[bit_sel];
         
-        localparam FRAME = 2'h0,  // transmit framing sequence
-        T_HEADER = 2'h1,  // transmit header
-        T_DATA = 2'h2,  // transmit data
-        T_CRC = 2'h3; // transmit CRC
-        
-        initial
-        begin
-            pkt_start  <= 'b0;
-            load_tdata <= 'd0;
-            cfsm       <= FRAME;  // start by framing on the recv data
+        if (bit_ctr == 'd31) begin
+            page_latched <= page;
+            length_latched <= length;
         end
+        if (load_tdata) begin
+            payload_buffer <= tdata;
+        end            
+        pkt_start <= bit_ctr == 'd0;
+        load_tdata <= bit_sel == 'd30; // assert at 30 to load at 31 because of pipelining
         
-        //----------------------------------------------------------------------------------------------
         
-        always @(*) begin
-            case (cfsm)
-                FRAME: current_quadlet = `ESPMCOMM_MAGIC;
-                T_HEADER: current_quadlet = {page_latched, 6'b0, length_latched};
-                T_DATA: current_quadlet = payload_buffer;
-                T_CRC: current_quadlet = {16'b0, crc_data};
-                default: current_quadlet = 32'hcccccccc;
-            endcase
-        end
-
-        always @(posedge clock) begin
-            bit_ctr <= bit_ctr + 1'b1;
-            tdat <= current_quadlet[bit_sel];
-            
-            if (bit_ctr == 'd31) begin
-                page_latched <= page;
-                length_latched <= length;
+        case (cfsm)
+            FRAME: begin
+                if (bit_sel == 'd31) cfsm <= T_HEADER;
             end
-            if (load_tdata) begin
-                payload_buffer <= tdata;
-            end            
-            pkt_start <= bit_ctr == 'd0;
-            load_tdata <= bit_sel == 'd30; // assert at 30 to load at 31 because of pipelining
             
+            T_HEADER: begin
+                if (bit_sel == 'd31) cfsm <= T_DATA;
+            end
             
-            case (cfsm)
-                FRAME: begin
-                    if (bit_sel == 'd31) cfsm <= T_HEADER;
+            T_DATA: begin                  
+                if ((bit_sel == 'd31) & (tdata_sel == length_latched)) begin
+                    cfsm    <= T_CRC;
                 end
+            end
                 
-                T_HEADER: begin
-                    if (bit_sel == 'd31) cfsm <= T_DATA;
+            T_CRC: begin
+                if (bit_sel == 'd31) begin
+                    cfsm    <= FRAME;
+                    bit_ctr <= 'd0;
                 end
-                
-                T_DATA: begin                  
-                    if ((bit_sel == 'd31) & (tdata_sel == length_latched)) begin
-                        cfsm    <= T_CRC;
-                    end
-                end
-                    
-                T_CRC: begin
-                    if (bit_sel == 'd31) begin
-                        cfsm    <= FRAME;
-                        bit_ctr <= 'd0;
-                    end
-                end
-            endcase
-        end
-        
-        reg crc_en = 'b0;
-        reg [7:0] crc_input = 'b0;
-        always @(posedge clock) begin
-            case (bit_sel[1:0]) 
-                'b00: crc_input <= current_quadlet[7:0];
-                'b01: crc_input <= current_quadlet[15:8];
-                'b10: crc_input <= current_quadlet[23:16];
-                'b11: crc_input <= current_quadlet[31:24];
-                default: crc_input <= 'b0;
-            endcase
-            crc_en <= bit_sel[4:2] == 'b0 && cfsm != T_CRC;
-        end
-        
-        
-        crc16 CRC (
-        .clock   (clock),
-        .init    (cfsm == FRAME),
-        .ena     (crc_en), 
-        .data    (crc_input),
-        .q       (crc_data)
-        );
-        
-    endmodule
+            end
+        endcase
+    end
+    
+    reg crc_en = 'b0;
+    reg [7:0] crc_input = 'b0;
+    always @(posedge clock) begin
+        case (bit_sel[1:0]) 
+            'b00: crc_input <= current_quadlet[7:0];
+            'b01: crc_input <= current_quadlet[15:8];
+            'b10: crc_input <= current_quadlet[23:16];
+            'b11: crc_input <= current_quadlet[31:24];
+            default: crc_input <= 'b0;
+        endcase
+        crc_en <= bit_sel[4:2] == 'b0 && cfsm != T_CRC;
+    end
+    
+    
+    crc16 CRC (
+    .clock   (clock),
+    .init    (cfsm == FRAME),
+    .ena     (crc_en), 
+    .data    (crc_input),
+    .q       (crc_data)
+    );
+    
+endmodule
