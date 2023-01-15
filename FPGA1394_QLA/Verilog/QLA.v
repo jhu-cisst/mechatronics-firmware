@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2011-2022 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2011-2023 ERC CISST, Johns Hopkins University.
  *
  * This module contains common code for the QLA and used with all FPGA versions
  *
@@ -261,20 +261,24 @@ wire reg_waddr_dac;
 assign reg_waddr_dac = ((reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[7:4] != 4'd0) &&
                         (reg_waddr[3:0]==`OFF_DAC_CTRL)) ? 1'd1 : 1'd0;
 
+wire dac_update;
 wire dac_busy;
-reg cur_cmd_updated;
-
-reg cur_cmd_req;
+reg  cur_cmd_req;
+reg  cur_cmd_updated;
 
 always @(posedge(sysclk))
 begin
-    if (reg_waddr_dac) begin
-        cur_cmd_req <= blk_wen;
+    if (reg_waddr_dac&blk_wen&dac_update) begin
+        cur_cmd_req <= dac_busy;
+        cur_cmd_updated <= ~dac_busy;
     end
     else if (cur_cmd_req&(~dac_busy)) begin
         cur_cmd_req <= 0;
+        cur_cmd_updated <= 1;
     end
-    cur_cmd_updated <= cur_cmd_req&(~dac_busy);
+    else if (cur_cmd_updated&dac_busy) begin
+        cur_cmd_updated <= 1'b0;
+    end
 end
 
 assign reg_rd[`OFF_DAC_CTRL] = cur_cmd[reg_raddr[7:4]];
@@ -621,7 +625,8 @@ WriteRtData rt_write(
     .bw_block_wen(bw_blk_wen),
     .bw_block_wstart(bw_blk_wstart),
     .bw_reg_waddr(bw_reg_waddr),
-    .bw_reg_wdata(bw_reg_wdata)
+    .bw_reg_wdata(bw_reg_wdata),
+    .dac_update(dac_update)
 );
 
 // --------------------------------------------------------------------------

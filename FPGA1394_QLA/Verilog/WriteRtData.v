@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2020-2022 Johns Hopkins University.
+ * Copyright(C) 2020-2023 Johns Hopkins University.
  *
  * This module writes the real-time block data to the DAC and power control
  * register. It is shared between the Ethernet and Firewire modules.
@@ -30,7 +30,8 @@ module WriteRtData
     output reg       bw_block_wen,
     output reg       bw_block_wstart,
     output reg[7:0]  bw_reg_waddr,
-    output reg[31:0] bw_reg_wdata
+    output reg[31:0] bw_reg_wdata,
+    output reg       dac_update       // 1 -> at least one DAC value was updated
     );
 
 parameter[2:0]
@@ -55,17 +56,21 @@ reg[3:0] dac_addr;
 reg[31:0] RtDAC[0:(NUM_MOTORS-1)];
 
 wire anyDacValid;
+wire anyAmpEnMask;
 wire rt_write_end;    // indicates that last rt write is in process
 
 // Warning: following generate code only supports 4 or 8 NUM_MOTORS
 generate
 if (NUM_MOTORS == 4) begin
-    assign anyDacValid = RtDAC[0][31]|RtDAC[1][31]|RtDAC[2][31]|RtDAC[3][31];
+    assign anyDacValid  = RtDAC[0][31]|RtDAC[1][31]|RtDAC[2][31]|RtDAC[3][31];
+    assign anyAmpEnMask = RtDAC[0][29]|RtDAC[1][29]|RtDAC[2][29]|RtDAC[3][29];
     assign rt_write_end = rt_write_addr[2];
 end
 else if (NUM_MOTORS == 8) begin
-    assign anyDacValid = RtDAC[0][31]|RtDAC[1][31]|RtDAC[2][31]|RtDAC[3][31]|
-                         RtDAC[4][31]|RtDAC[5][31]|RtDAC[6][31]|RtDAC[7][31];
+    assign anyDacValid  = RtDAC[0][31]|RtDAC[1][31]|RtDAC[2][31]|RtDAC[3][31]|
+                          RtDAC[4][31]|RtDAC[5][31]|RtDAC[6][31]|RtDAC[7][31];
+    assign anyAmpEnMask = RtDAC[0][29]|RtDAC[1][29]|RtDAC[2][29]|RtDAC[3][29]|
+                          RtDAC[4][29]|RtDAC[5][29]|RtDAC[6][29]|RtDAC[7][29];
     assign rt_write_end = rt_write_addr[3];
 end
 endgenerate
@@ -87,17 +92,19 @@ begin
       bw_reg_wen <= 0;
       bw_block_wen <= 0;
       bw_block_wstart <= 0;
+      dac_update <= 0;
       // Could check if rt_write_en is asserted when we are not in the idle state
       // and flag an error in that case
       if (rt_write_en) begin
          if (rt_write_end) begin
             RtCtrl <= rt_write_data[19:0];
             // Now, start writing to the DAC and/or control register
-            if (anyDacValid) begin
+            if (anyDacValid|anyAmpEnMask) begin
                // Assert bw_block_wstart for 80 ns before starting local block write
                // (same timing as in Firewire module).
                bw_write_en <= 1;
                bw_block_wstart <= 1;
+               dac_update <= anyDacValid;
                rtState <= RT_WSTART;
                dac_addr <= 4'd0;
             end
@@ -152,7 +159,7 @@ begin
       if (rtCnt == 2'd3) begin
          bw_block_wen <= 1'b1;
          // Write quadlet if non-zero (here, we know that at
-         // least one DAC was valid)
+         // least one DAC or Amp Enable was valid)
          if (RtCtrl == 20'd0)
             rtState <= RT_IDLE;
          else
