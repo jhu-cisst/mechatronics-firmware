@@ -385,7 +385,7 @@ BoardRegsDRAC chan0(
 // --------------------------------------------------------------------------
 
 reg [5:0] espm_bram_raddr;
-wire [31:0] espm_bram_rdata;
+reg [31:0] espm_bram_rdata;
 
 SampleDataAddressTranslation sampler
 (
@@ -541,31 +541,33 @@ end
 
 reg [31:0] espm_bram [0:ESPM_BRAM_SIZE - 1];
 reg [5:0] espm_bram_waddr;
-wire [31:0] espm_bram_wdata;
-assign espm_bram_wdata = espm_bram_pre_crc[espm_bram_waddr];
+reg [31:0] espm_bram_wdata;
+reg [5:0] espm_bram_pre_crc_raddr;
 reg espm_bram_we;
 wire crc_good_espm_sysclk;
 cdc_pulse crc_good_espm_cdc (LVDS_RCLK, crc_good_espm, sysclk, crc_good_espm_sysclk);
 reg copy_state;
 
-assign espm_bram_rdata = espm_bram[espm_bram_raddr]; // TODO: try synchronous access
 assign reg_rdata_espm_debug = 'd0;
 
 always @(posedge sysclk) begin
     if (espm_bram_we) espm_bram[espm_bram_waddr] <= espm_bram_wdata;
+    espm_bram_wdata <= espm_bram_pre_crc[espm_bram_pre_crc_raddr]; // TODO: late by one
+    espm_bram_rdata <= espm_bram[espm_bram_raddr];
+    espm_bram_waddr <= espm_bram_pre_crc_raddr;
     case (copy_state)
         0: begin
             if (crc_good_espm_sysclk) begin
                 copy_state <= 'b1;
-                espm_bram_waddr <= 'b0;
                 espm_bram_we <= 'b1;
             end
         end
         1: begin
-            espm_bram_waddr <= espm_bram_waddr + 'b1;
+            espm_bram_pre_crc_raddr <= espm_bram_pre_crc_raddr + 'b1;
             if (espm_bram_waddr == ESPM_BRAM_SIZE - 'b1) begin
                 espm_bram_we <= 'b0;
                 copy_state <= 'b0;
+                espm_bram_pre_crc_raddr <= 'b0;
             end
 
             if (espm_bram_waddr[2:0] != 'b0) begin
