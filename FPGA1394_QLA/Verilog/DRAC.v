@@ -31,7 +31,7 @@ module DRAC(
     // Read/Write bus
     input wire[15:0]  reg_raddr_non_sample,
     input wire[15:0]  reg_waddr,
-    output wire[31:0] reg_rdata,
+    output reg[31:0] reg_rdata,
     input wire[31:0]  reg_wdata,
     input wire reg_wen,
     input wire blk_wen,
@@ -174,34 +174,25 @@ assign ADC_CUR_SDO[10] = IO2[38];
 wire[15:0]  reg_raddr_sample;
 wire[15:0]  reg_raddr = sample_read ? reg_raddr_sample : reg_raddr_non_sample;
 
-wire[31:0] reg_rdata_hub;      // reg_rdata_hub is for hub memory
-wire[31:0] reg_rdata_prom;     // reg_rdata_prom is for block reads from PROM
 wire[31:0] reg_rdata_prom_qla; // reads from QLA prom
-wire[31:0] reg_rdata_eth;      // for eth memory access
-wire[31:0] reg_rdata_fw;       // for fw memory access
-wire[31:0] reg_rdata_ds;       // for DS2505 memory access
 wire[31:0] reg_rdata_chan0;    // 'channel 0' is a special axis that contains various board I/Os
 wire[31:0] reg_rdata_motor_control;
-wire[31:0] reg_rdata_debug;
 reg[31:0] reg_rdata_main;
 reg[31:0] reg_rdata_board_specific;
 wire[31:0] reg_rdata_espm_debug;
 wire[31:0] reg_rdata_databuf;
-wire[31:0] reg_rtable = 'b0;
 
-
-assign reg_rdata = (reg_raddr[15:12]==`ADDR_HUB) ? (reg_rdata_hub) :
-                  ((reg_raddr[15:12]==`ADDR_PROM) ? (reg_rdata_prom) :
-                  ((reg_raddr[15:12]==`ADDR_PROM_QLA) ? (reg_rdata_prom_qla) :
-                  ((reg_raddr[15:12]==`ADDR_ETH) ? (reg_rdata_eth) :
-                  ((reg_raddr[15:12]==`ADDR_FW) ? (reg_rdata_fw) :
-                  ((reg_raddr[15:12]==`ADDR_DS) ? (reg_rdata_ds) :
-                  ((reg_raddr[15:12]==`ADDR_DATA_BUF) ? (reg_rdata_databuf) :
-                  ((reg_raddr[15:12]==`ADDR_WAVEFORM) ? (reg_rtable) :
-                  ((reg_raddr[15:12]==`ADDR_MOTOR_CONTROL) ? (reg_rdata_motor_control) :
-                  ((reg_raddr[15:12]==`ADDR_ESPM) ? (reg_rdata_espm_debug) :
-                  ((reg_raddr[15:12]==`ADDR_BOARD_SPECIFIC) ? (reg_rdata_board_specific) :
-                  ((reg_raddr[7:4]==4'd0) ? reg_rdata_chan0 : reg_rdata_main)))))))))));
+always @(*) begin
+    case (reg_raddr[15:12])
+        `ADDR_PROM_QLA: reg_rdata = reg_rdata_prom_qla;
+        `ADDR_DATA_BUF: reg_rdata = reg_rdata_databuf;
+        `ADDR_MOTOR_CONTROL: reg_rdata = reg_rdata_motor_control;
+        `ADDR_ESPM: reg_rdata = reg_rdata_espm_debug;
+        `ADDR_BOARD_SPECIFIC: reg_rdata = reg_rdata_board_specific;
+        `ADDR_MAIN: reg_rdata = (reg_raddr[7:4]==4'd0) ? reg_rdata_chan0 : reg_rdata_main;
+        default: reg_rdata = 'b0;
+    endcase
+end
 
 // --------------------------------------------------------------------------
 // ADC clock output

@@ -93,7 +93,7 @@ assign cur_fb = measured_motor_current;
 reg pid_input_ready = 0;
 
 wire signed [16:0] error_out;
-wire [17:0] i_term_out;
+wire [35:0] i_term_out;
 wire [10:0] ap_return;
 wire ap_done;
 reg [3:0] control_mode = 3'h0;

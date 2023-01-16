@@ -25,6 +25,7 @@ set (FPGAV3_PARTNUM "${FPGAV3_DEVICE}${FPGAV3_SPEED}${FPGAV3_PACKAGE}")
 
 # Path to Verilog source code
 set (VERILOG_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/Verilog")
+set (HLS_GENERATED_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/hls_generated_src")
 
 # Paths to IP core files (source and build)
 # By default, use files in build tree (IPCORE_BINARY_DIR and IPCOREV3_BINARY_DIR)
@@ -133,15 +134,14 @@ set (VERILOG_SOURCE_DRAC
                            "${VERILOG_SOURCE_DIR}/PwmAdcTiming.v"
                            "${VERILOG_SOURCE_DIR}/SampleDataAddressTranslation.v"
                            "${VERILOG_SOURCE_DIR}/WriteRtData.v"
-                           "${VERILOG_SOURCE_DIR}/ws2811.v"
-                           "${VERILOG_SOURCE_DIR}/pi_controller.v"
-                           "${VERILOG_SOURCE_DIR}/pi_controller_mul_18ns_17s_35_4.v"
-                           "${IPCORE_BINARY_DIR}/pwm_clk_gen.v"
-                           )
+                           "${VERILOG_SOURCE_DIR}/ws2811.v")
 
 file(DOWNLOAD
         https://raw.githubusercontent.com/keshuaixu/ws2812-verilog/ws2813/ws2811.v
         "${VERILOG_SOURCE_DIR}/ws2811.v")
+
+file(GLOB HLS_GENERATED_SOURCES_DRAC_FPGAV1V2 CONFIGURE_DEPENDS "${HLS_GENERATED_SOURCE_DIR}/v1v2/*.v")
+file(GLOB HLS_GENERATED_SOURCES_DRAC_FPGAV3 CONFIGURE_DEPENDS "${HLS_GENERATED_SOURCE_DIR}/3/*.v")
 ################### Complete Systems (FPGA + Board) #####################
 
 ##### FPGAV1 + QLA
@@ -223,6 +223,8 @@ ise_compile_fpga(PROJ_NAME      "FPGA1394V3DQLA"
 ##### FPGAV2 + dRAC
 set (VERILOG_SOURCE_FPGAV2_DRAC
                          "${VERILOG_SOURCE_DIR}/FPGA1394Eth-DRAC.v"
+                         "${IPCORE_BINARY_DIR}/pwm_clk_gen.v"
+                         ${HLS_GENERATED_SOURCES_DRAC_FPGAV1V2}
                          ${VERILOG_SOURCE_COMMON}
                          ${VERILOG_SOURCE_FPGAV2}
                          ${VERILOG_SOURCE_DRAC})
