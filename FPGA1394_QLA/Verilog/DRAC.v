@@ -179,15 +179,15 @@ wire[31:0] reg_rdata_chan0;    // 'channel 0' is a special axis that contains va
 wire[31:0] reg_rdata_motor_control;
 reg[31:0] reg_rdata_main;
 reg[31:0] reg_rdata_board_specific;
-wire[31:0] reg_rdata_espm_debug;
 wire[31:0] reg_rdata_databuf;
+reg [31:0] reg_espm_bram;
 
 always @(*) begin
     case (reg_raddr[15:12])
         `ADDR_PROM_QLA: reg_rdata = reg_rdata_prom_qla;
         `ADDR_DATA_BUF: reg_rdata = reg_rdata_databuf;
         `ADDR_MOTOR_CONTROL: reg_rdata = reg_rdata_motor_control;
-        `ADDR_ESPM: reg_rdata = reg_rdata_espm_debug;
+        `ADDR_ESPM: reg_rdata = reg_espm_bram;
         `ADDR_BOARD_SPECIFIC: reg_rdata = reg_rdata_board_specific;
         `ADDR_MAIN: reg_rdata = (reg_raddr[7:4]==4'd0) ? reg_rdata_chan0 : reg_rdata_main;
         default: reg_rdata = 'b0;
@@ -426,13 +426,18 @@ assign reg_digin = rdata_misc[1];
 // TX to ESPM
 // --------------------------------------------------------------------------
 
-wire lvds_tx_clk = sysclk; // sysclk required
+reg sysclk_div2;
+wire lvds_tx_clk = sysclk_div2;
 reg lvds_tx_clk_en = 'b1;
 wire [9:0] espm_tx_tdata_sel;
 reg [31:0] espm_tx_tdata;
 
+always @(posedge sysclk) begin
+    sysclk_div2 <= ~sysclk_div2;
+end
+
 ESPMTX espm_tx (
-    .clock(sysclk),
+    .clock(lvds_tx_clk),
     .tdata(espm_tx_tdata),
     .page(16'b0),
     .length(10'd64),
@@ -442,10 +447,15 @@ ESPMTX espm_tx (
 
 reg [31:0] espm_tx_ram [0:63];
 
+initial espm_tx_ram[1] = 'h3c0b3c0b; // arm LED color
+
 always @(posedge sysclk) begin
     if (reg_wen && reg_waddr[15:12] == `ADDR_ESPM) begin
         espm_tx_ram[reg_waddr[5:0]] <= reg_wdata;
     end
+end
+
+always @(posedge lvds_tx_clk) begin
     espm_tx_tdata <= espm_tx_ram[espm_tx_tdata_sel[5:0]];
 end
 
@@ -505,7 +515,7 @@ ESPMRX espm_rx(
     .rdat(LVDS_RDAT),             // serial data in
 
     // Output
-    .rdata(rdata_espm[31:0]),
+    .rdata(rdata_espm),
     .load_rdata(load_rdata_espm),
     .rdata_sel(rdata_sel_espm),
     .framed(framed_espm),
@@ -531,6 +541,7 @@ always @(posedge LVDS_RCLK) begin
 end
 
 reg [31:0] espm_bram [0:ESPM_BRAM_SIZE - 1];
+reg [31:0] espm_bram2 [0:ESPM_BRAM_SIZE - 1];
 reg [5:0] espm_bram_waddr;
 reg [31:0] espm_bram_wdata;
 reg [5:0] espm_bram_pre_crc_raddr;
@@ -542,9 +553,13 @@ reg copy_state;
 assign reg_rdata_espm_debug = 'd0;
 
 always @(posedge sysclk) begin
-    if (espm_bram_we) espm_bram[espm_bram_waddr] <= espm_bram_wdata;
-    espm_bram_wdata <= espm_bram_pre_crc[espm_bram_pre_crc_raddr]; // TODO: late by one
+    if (espm_bram_we) begin
+        espm_bram[espm_bram_waddr] <= espm_bram_wdata;
+        espm_bram2[espm_bram_waddr] <= espm_bram_wdata;
+    end
+    espm_bram_wdata <= espm_bram_pre_crc[espm_bram_pre_crc_raddr];
     espm_bram_rdata <= espm_bram[espm_bram_raddr];
+    reg_espm_bram <= espm_bram2[reg_raddr[5:0]];
     espm_bram_waddr <= espm_bram_pre_crc_raddr;
     case (copy_state)
         0: begin
