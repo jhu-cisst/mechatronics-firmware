@@ -50,8 +50,6 @@ reg[1:0] rtCnt;
 // (could instead use: clog2b(NUM_MOTORS)-1)
 localparam DACBIT = 2;
 
-reg[3:0] dac_addr;
-
 // For storing DAC values
 reg[31:0] RtDAC[0:(NUM_MOTORS-1)];
 
@@ -106,7 +104,6 @@ begin
                bw_block_wstart <= 1;
                dac_update <= anyDacValid;
                rtState <= RT_WSTART;
-               dac_addr <= 4'd0;
             end
             else begin
                // No DAC valid, only write RtCtrl quadlet
@@ -131,9 +128,8 @@ begin
 
    RT_WRITE:
    begin
-      dac_addr <= dac_addr + 4'd1;
       bw_reg_waddr[7:4] <= bw_reg_waddr[7:4] + 4'd1;
-      bw_reg_wdata <= RtDAC[dac_addr];
+      bw_reg_wdata <= RtDAC[bw_reg_waddr[7:4]];
       bw_reg_wen <= 1'b1;
       rtState <= RT_WRITE_GAP;
    end
@@ -143,10 +139,10 @@ begin
       // hold reg_wen low for 60 nsec (3 cycles)
       bw_reg_wen <= 1'b0;
       // clear valid bit and amp enable mask
-      RtDAC[dac_addr-1][31] <= 1'b0;
-      RtDAC[dac_addr-1][29] <= 1'b0;
+      RtDAC[bw_reg_waddr[7:4]-4'd1][31] <= 1'b0;
+      RtDAC[bw_reg_waddr[7:4]-4'd1][29] <= 1'b0;
       if (rtCnt == 2'd3) begin
-         if (dac_addr == NUM_MOTORS)  // end of DAC block
+         if (bw_reg_waddr[7:4] == NUM_MOTORS)  // end of DAC block
             rtState <= RT_BLK_WEN;
          else
             rtState <= RT_WRITE;

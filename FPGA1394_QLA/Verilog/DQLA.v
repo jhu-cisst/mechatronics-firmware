@@ -199,6 +199,7 @@ module DQLA(
     wire Q2_DQLA_exp_ok;     // 1 -> I/O expander (MAX7301) detected
 
     wire[31:4] Q1_IOP;
+    wire[16:12] Q1_IOP_Error;
 
     wire Q1_led1_grn;
     wire Q1_led1_red;
@@ -209,8 +210,9 @@ module DQLA(
     wire[1:4] Q1_neglim;
     // Q1_poslim defined above (direct connect)
     wire Q1_pwr_en;
+    wire Q1_pwr_en_error;        // Error detected in I/O expander output
     wire[1:4] Q1_disable;
-    wire[1:4] Q1_amp_fault; // Fault signal from op amp, active low (1 -> amplifier on, 0 -> fault)
+    wire[1:4] Q1_amp_fault;      // Fault signal from op amp, active low (1 -> amplifier on, 0 -> fault)
     wire[1:4] Q1_enc_i;
 
     assign Q1_IOP[31:28] = { Q1_led1_grn, Q1_led1_red, Q1_led2_grn, Q1_led2_red };
@@ -219,11 +221,13 @@ module DQLA(
     assign Q1_neglim[1:4] = Q1_IOP[22:19];
     assign Q1_poslim[1:2] = Q1_IOP[18:17];
     assign Q1_IOP[16] = Q1_pwr_en;
+    assign Q1_pwr_en_error = Q1_IOP_Error[16];
     assign Q1_IOP[15:12] = Q1_disable[1:4];
     assign Q1_amp_fault[1:4] = Q1_IOP[11:8];
     assign Q1_enc_i[1:4] = Q1_IOP[7:4];
 
     wire[31:4] Q2_IOP;
+    wire[16:12] Q2_IOP_Error;
 
     wire Q2_led1_grn;
     wire Q2_led1_red;
@@ -234,8 +238,9 @@ module DQLA(
     wire[1:4] Q2_neglim;
     // Q2_poslim defined above (direct connect)
     wire Q2_pwr_en;
+    wire Q2_pwr_en_error;        // Error detected in I/O expander output
     wire[1:4] Q2_disable;
-    wire[1:4] Q2_amp_fault; // Fault signal from op amp, active low (1 -> amplifier on, 0 -> fault)
+    wire[1:4] Q2_amp_fault;      // Fault signal from op amp, active low (1 -> amplifier on, 0 -> fault)
     wire[1:4] Q2_enc_i;
 
     assign Q2_IOP[31:28] = { Q2_led1_grn, Q2_led1_red, Q2_led2_grn, Q2_led2_red };
@@ -244,6 +249,7 @@ module DQLA(
     assign Q2_neglim[1:4] = Q2_IOP[22:19];
     assign Q2_poslim[1:2] = Q2_IOP[18:17];
     assign Q2_IOP[16] = Q2_pwr_en;
+    assign Q2_pwr_en_error = Q2_IOP_Error[16];
     assign Q2_IOP[15:12] = Q2_disable[1:4];
     assign Q2_amp_fault[1:4] = Q2_IOP[11:8];
     assign Q2_enc_i[1:4] = Q2_IOP[7:4];
@@ -438,8 +444,11 @@ wire[1:8] amp_disable_f;
 wire[1:8] amp_fault;
 assign amp_fault = { Q1_amp_fault, Q2_amp_fault };
 
-wire[1:8] cur_ctrl_error;
-wire[1:8] disable_f_error;
+wire[1:8] cur_ctrl_error;    // 1 -> output error in Max7317 I/O expander
+wire[1:8] disable_f_error;   // 1 -> output error in Max7317 I/O expander
+
+wire[1:8] amp_disable_error; // 1 -> output error in Max7301 I/O expander
+assign amp_disable_error = { Q1_IOP_Error[15:12], Q2_IOP_Error[15:12] };
 
 wire[15:0] cur_cmd[1:8];     // Commanded current per channel
 wire[3:0] ctrl_mode[1:8];    // Control mode per channel
@@ -489,6 +498,7 @@ generate
             .mv_amp_disable((k <= 4) ? Q1_mv_amp_disable : Q2_mv_amp_disable),
             .wdog_timeout(wdog_timeout),
             .amp_fault(amp_fault[k]),
+            .amp_disable_error(amp_disable_error[k]),
             .cur_ctrl_error(cur_ctrl_error[k]),
             .disable_f_error(disable_f_error[k]),
             .amp_disable_pin(amp_disable_pin[k]),
@@ -895,7 +905,11 @@ Max7301x2 #(.IOEXP_ID1(3), .IOEXP_ID2(4)) DQLA_IOExp(
     .IOP1_read({Q1_IOP[27:17],Q1_IOP[11:4]}),
     .IOP2_31_28(Q2_IOP[31:28]),
     .IOP2_16_12(Q2_IOP[16:12]),
-    .IOP2_read({Q2_IOP[27:17],Q2_IOP[11:4]})
+    .IOP2_read({Q2_IOP[27:17],Q2_IOP[11:4]}),
+
+    // Errors
+    .IOP1_16_12_error(Q1_IOP_Error[16:12]),
+    .IOP2_16_12_error(Q2_IOP_Error[16:12])
 );
 
 // --------------------------------------------------------------------------
@@ -951,6 +965,7 @@ BoardRegsDQLA chan0(
     .dout_cfg_bidir({Q2_dout_config_bidir, Q1_dout_config_bidir}),
     .dout_cfg_reset(dout_config_reset),
     .pwr_enable({Q2_pwr_en, Q1_pwr_en}),
+    .pwr_enable_error({Q2_pwr_en_error, Q1_pwr_en_error}),
     .relay_on(relay_on),
     .isQuadDac({Q2_is_quad_dac, Q1_is_quad_dac}),
     .dac_test_reset(dac_test_reset),

@@ -32,6 +32,7 @@ module MotorChannelQLA
     input wire mv_amp_disable,       // disable amp for short time after mv_good
     input wire wdog_timeout,         // 1 -> watchdog timeout
     input wire amp_fault,            // amplifier fault feedback
+    input wire amp_disable_error,    // 1 -> error in amp_disable output (DQLA only)
     input wire cur_ctrl_error,       // 1 -> error in cur_ctrl output
     input wire disable_f_error,      // 1 -> error in disable_f output
     output wire amp_disable_pin,     // signal to drive FPGA pin
@@ -134,7 +135,8 @@ endgenerate
 
 // Motor Status
 //
-//   31:30   00
+//      31   0
+//      30   amp_disable_error (1 -> error with amp_disable output, DQLA only)
 //      29   amp_fault (active low, 1 -> amplifier on)
 //      28   ~reg_disable
 //   27:24   ctrl_mode
@@ -147,7 +149,7 @@ endgenerate
 //    15:0   cur_cmd (last setpoint)
 //
 // NOTE: if bit assignments changed, check if QLA.v needs to be updated
-assign motor_status = { 2'b00, amp_fault, ~reg_disable, ctrl_mode, 3'd0, cur_ctrl,
+assign motor_status = { 1'b0, amp_disable_error, amp_fault, ~reg_disable, ctrl_mode, 3'd0, cur_ctrl,
                         cur_ctrl_error, disable_f_error, safety_amp_disable, amp_fault_fb,
                         cur_cmd};
 

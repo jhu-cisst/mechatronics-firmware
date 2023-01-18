@@ -222,6 +222,7 @@ generate
             .mv_amp_disable(mv_amp_disable),
             .wdog_timeout(wdog_timeout),
             .amp_fault(amp_fault[k]),
+            .amp_disable_error(1'b0),   // DQLA only
             .cur_ctrl_error(cur_ctrl_error[k]),
             .disable_f_error(disable_f_error[k]),
             .amp_disable_pin(amp_disable_pin[k]),

@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2022 Johns Hopkins University.
+ * Copyright(C) 2022-2023 Johns Hopkins University.
  *
  * Module: Max7301x2
  *
@@ -192,7 +192,6 @@ reg[2:1] ioexp_cfg_reset;
 
 // For stepping through the configuration, polling and output
 reg[3:0] step;
-reg[3:0] next_step;
 
 // For polling the I/O expander
 reg[5:0] poll_timer;
@@ -207,6 +206,8 @@ assign output_error[1] = (IOP1_16_12_error == 5'd0) ? 1'b0 : 1'b1;
 assign output_error[2] = (IOP2_16_12_error == 5'd0) ? 1'b0 : 1'b1;
 // Number of output errors
 reg[7:0] num_output_error[1:2];
+// Whether to retry output (due to an error)
+reg retry_output[1:2];
 
 // Commands used to configure the Max7301
 // Could also set initial values of output ports
@@ -288,8 +289,15 @@ assign P31_28_changed[2] = (IOP2_31_28 != Shadow_31_28[2]) ? 1'b1 : 1'b0;
 always @(posedge clk)
 begin
     if (spi_busy) begin
-        step <= next_step;
+        // We wait in this state until the SPI always block finishes processing
+        // the request and clears spi_busy. At that time, chan_wen should be
+        // clear and we would process the next step or return to the idle state.
         chan_wen <= 2'd0;
+    end
+    else if (chan_wen != 2'd0) begin
+        // We wait in this state until the SPI always block responds to the
+        // chan_wen request and sets spi_busy, which then causes a transition
+        // to the state above.
     end
     else if (chan_cfg != 2'd0) begin
         // This section initializes the MAX7301. Note that chan_cfg==2'd0 when both channels
@@ -307,7 +315,7 @@ begin
             end
             write_data <= ConfigCommands[step[2:0]];
             chan_wen <= chan_cfg;
-            next_step <= step + 4'd1;
+            step <= step + 4'd1;
         end
     end
     else if (chan_poll != 2'd0) begin
@@ -338,7 +346,7 @@ begin
             // two steps later.
             write_data <= PollCommands[step[1:0]];
             chan_wen <= chan_poll;
-            next_step <= step + 4'd1;
+            step <= step + 4'd1;
             if (step == 4'd2) begin
                 if (read_data[15:8] == PollCommands[0][15:8]) begin
                     IOP_read[chan_poll][7:0] <= read_data[7:0];   // Ports[11:4] (8)
@@ -357,6 +365,7 @@ begin
                         IOP2_16_12_error <= read_data[4:0]^Shadow_16_12[2];
                     if ((read_data[4:0]^Shadow_16_12[chan_poll]) != 5'd0) begin
                         num_output_error[chan_poll] <= num_output_error[chan_poll] + 8'd1;
+                        retry_output[chan_poll] <= 1'b1;
                     end
                 end
                 else begin
@@ -368,7 +377,7 @@ begin
     else if (chan_reg != 2'd0) begin
         // This section handles commands from host PC
         if (step == 4'd0) begin
-            next_step <= 4'd1;
+            step <= 4'd1;
             write_data <= reg_wdata_saved;
             chan_wen <= chan_reg;
             // Save read data for host
@@ -380,26 +389,25 @@ begin
         end
     end
     // Following 4 sections output data if any changes are detected
-    else if (ioexp_cfg_ok[1] & P16_12_changed[1]) begin
-        next_step <= 4'd0;
+    // Also, for P16_12, we output again if an error was detected.
+    else if (ioexp_cfg_ok[1] & (P16_12_changed[1] | retry_output[1])) begin
         write_data <= { 8'h4c, 3'h0, IOP1_16_12 };
         chan_wen <= 2'd1;
         Shadow_16_12[1] <= IOP1_16_12;
+        retry_output[1] <= 1'b0;
     end
-    else if (ioexp_cfg_ok[2] & P16_12_changed[2]) begin
-        next_step <= 4'd0;
+    else if (ioexp_cfg_ok[2] & (P16_12_changed[2] | retry_output[2])) begin
         write_data <= { 8'h4c, 3'h0, IOP2_16_12 };
         chan_wen <= 2'd2;
         Shadow_16_12[2] <= IOP2_16_12;
+        retry_output[2] <= 1'b0;
     end
     else if (ioexp_cfg_ok[1] & P31_28_changed[1]) begin
-        next_step <= 4'd0;
         write_data <= { 8'h5c, 4'h0, IOP1_31_28 };
         chan_wen <= 2'd1;
         Shadow_31_28[1] <= IOP1_31_28;
     end
     else if (ioexp_cfg_ok[2] & P31_28_changed[2]) begin
-        next_step <= 4'd0;
         write_data <= { 8'h5c, 4'h0, IOP2_31_28 };
         chan_wen <= 2'd2;
         Shadow_31_28[2] <= IOP2_31_28;
@@ -409,7 +417,6 @@ begin
         chan_wen <= 2'd0;
         spi_save <= 1'b0;
         step <= 4'd0;
-        next_step <= 4'd0;
 
         if (ioexp_cfg_reset[1]) begin
             ioexp_cfg_done[1] <= 1'b0;
