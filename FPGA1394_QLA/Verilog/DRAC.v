@@ -166,6 +166,33 @@ assign IO2[36] = PWM_P[10];
 assign ADC_CUR_SDO[9] = IO2[37];
 assign ADC_CUR_SDO[10] = IO2[38];
 
+assign IO1[7] = 'bz;
+assign IO1[14] = 'bz;
+assign IO1[15] = 'bz;
+assign IO1[16] = 'bz;
+assign IO1[17] = 'bz;
+assign IO1[24] = 'bz;
+assign IO1[26] = 'bz;
+assign IO1[27] = 'bz;
+assign IO1[29] = 'bz;
+assign IO1[30] = 'bz;
+assign IO1[31] = 'bz;
+assign IO2[2] = 'bz;
+assign IO2[4] = 'bz;
+assign IO2[5] = 'bz;
+assign IO2[6] = 'bz;
+assign IO2[7] = 'bz;
+assign IO2[11] = 'bz;
+assign IO2[18] = 'bz;
+assign IO2[19] = 'bz;
+assign IO2[21] = 'bz;
+assign IO2[23] = 'bz;
+assign IO2[25] = 'bz;
+assign IO2[33] = 'bz;
+assign IO2[35] = 'bz;
+assign IO2[37] = 'bz;
+assign IO2[38] = 'bz;
+
 
 // --------------------------------------------------------------------------
 // rdata mux
@@ -843,7 +870,6 @@ begin
         endcase
     end
 end
-
 
 
 endmodule
