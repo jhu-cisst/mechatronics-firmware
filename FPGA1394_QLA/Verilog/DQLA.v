@@ -218,7 +218,7 @@ module DQLA(
     assign Q1_IOP[31:28] = { Q1_led1_grn, Q1_led1_red, Q1_led2_grn, Q1_led2_red };
     assign Q1_mv_good = Q1_IOP[27];
     assign Q1_home[1:4] = Q1_IOP[26:23];
-    assign Q1_neglim[1:4] = Q1_IOP[22:19];
+    assign Q1_neglim[1:4] = { Q1_IOP[22], Q1_IOP[20], Q1_IOP[21], Q1_IOP[19] };
     assign Q1_poslim[1:2] = Q1_IOP[18:17];
     assign Q1_IOP[16] = Q1_pwr_en;
     assign Q1_pwr_en_error = Q1_IOP_Error[16];
@@ -246,7 +246,7 @@ module DQLA(
     assign Q2_IOP[31:28] = { Q2_led1_grn, Q2_led1_red, Q2_led2_grn, Q2_led2_red };
     assign Q2_mv_good = Q2_IOP[27];
     assign Q2_home[1:4] = Q2_IOP[26:23];
-    assign Q2_neglim[1:4] = Q2_IOP[22:19];
+    assign Q2_neglim[1:4] = { Q2_IOP[22], Q2_IOP[20], Q2_IOP[21], Q2_IOP[19] };
     assign Q2_poslim[1:2] = Q2_IOP[18:17];
     assign Q2_IOP[16] = Q2_pwr_en;
     assign Q2_pwr_en_error = Q2_IOP_Error[16];
