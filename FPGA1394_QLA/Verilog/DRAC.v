@@ -63,7 +63,10 @@ module DRAC(
     input wire wdog_period_led,     // 1 -> external LED displays wdog_period_status
     input wire[2:0] wdog_period_status,
     input wire wdog_timeout,        // watchdog timeout status flag
-    output wire wdog_clear          // clear watchdog timeout (e.g., on powerup)
+    output wire wdog_clear,          // clear watchdog timeout (e.g., on powerup)
+
+    output wire lvds_tx_clk,        // TX clk to ESPM, to be output by ODDR
+    output wire adc_sck             // SCK to ADC, to be output by ODDR
 );
 
 // outputs
@@ -72,9 +75,8 @@ wire EXTRA_IO;
 wire FRONT_PANEL_LED;
 wire ESPMV_EN;
 wire RELAY_EN;
-wire LVDS_TCLK;
 wire LVDS_TDAT;
-wire SCLK_ADC;
+// wire SCLK_ADC;
 wire SDI_ADC;
 wire CONV_ADC;
 wire[1:10] PWM_P;
@@ -127,7 +129,7 @@ assign IO1[32] = RELAY_EN;
 
 
 
-assign IO2[1] = LVDS_TCLK;
+// assign IO2[1] = LVDS_TCLK;
 assign ADC_CUR_SDO[2] = IO2[2];
 assign IO2[3] = LVDS_TDAT;
 assign OTWn[3] = IO2[4];
@@ -140,7 +142,7 @@ assign IO2[10] = RESETn[2];
 assign ADC_MV_SDO = IO2[11];
 assign IO2[12] = PWM_P[2];
 assign IO2[13] = PWM_N[5];
-assign IO2[14] = SCLK_ADC;
+// assign IO2[14] = SCLK_ADC;
 assign IO2[15] = RESETn[5];
 assign IO2[16] = SDI_ADC;
 assign IO2[17] = PWM_P[5];
@@ -221,27 +223,6 @@ always @(*) begin
     endcase
 end
 
-// --------------------------------------------------------------------------
-// ADC clock output
-// --------------------------------------------------------------------------
-
-wire sclk_adc_internal;
-wire adc_sck_ce;
-
-ODDR2 #(
-    .DDR_ALIGNMENT("NONE"), // Sets output alignment to "NONE", "C0" or "C1"
-    .INIT(1'b0),    // Sets initial state of the Q output to 1'b0 or 1'b1
-    .SRTYPE("SYNC") // Specifies "SYNC" or "ASYNC" set/reset
-) clock_forward_adc (
-    .Q(SCLK_ADC),     // 1-bit DDR output data
-    .C0(sclk_adc_internal),  // 1-bit clock input
-    .C1(~sclk_adc_internal), // 1-bit clock input
-    .CE(1'b1),      // 1-bit clock enable input
-    .D0(1'b1), // 1-bit data input (associated with C0)
-    .D1(1'b0), // 1-bit data input (associated with C1)
-    .R(1'b0),   // 1-bit reset input
-    .S(1'b0)   // 1-bit set input
-);
 
 // --------------------------------------------------------------------------
 // PWM timing
@@ -256,7 +237,7 @@ PwmAdcTiming PwmAdcTiming_instance
 (
     .clk(pwmclk),
     .sysclk(sysclk),
-    .adc_sck(sclk_adc_internal),
+    .adc_sck(adc_sck),
     .adc_cnv(CONV_ADC),
     .adc_data_ready(adc_data_ready),
     .pwm_cycle_start(pwm_cycle_start),
@@ -316,7 +297,7 @@ generate
             .cur_fb(cur_fb[k]),
             .cur_fb_filtered(cur_fb_filtered[k]),
             .cur_cmd_fb(cur_cmd_fb[k]),
-            .adc_sck(sclk_adc_internal),
+            .adc_sck(adc_sck),
             .adc_sdo(ADC_CUR_SDO[k]),
             .adc_cnv(CONV_ADC),
             .adc_data_ready(adc_data_ready),
@@ -454,7 +435,7 @@ assign reg_digin = rdata_misc[1];
 // --------------------------------------------------------------------------
 
 reg sysclk_div2;
-wire lvds_tx_clk = sysclk_div2;
+assign lvds_tx_clk = sysclk_div2;
 reg lvds_tx_clk_en = 'b1;
 wire [9:0] espm_tx_tdata_sel;
 reg [31:0] espm_tx_tdata;
@@ -485,21 +466,6 @@ end
 always @(posedge lvds_tx_clk) begin
     espm_tx_tdata <= espm_tx_ram[espm_tx_tdata_sel[5:0]];
 end
-
-ODDR2 #(
-    .DDR_ALIGNMENT("NONE"), // Sets output alignment to "NONE", "C0" or "C1"
-    .INIT(1'b1), // Sets initial state of the Q output to 1'b0 or 1'b1
-    .SRTYPE("SYNC") // Specifies "SYNC" or "ASYNC" set/reset
-) ODDR2_inst (
-    .Q(LVDS_TCLK), // 1-bit DDR output data
-    .C0(lvds_tx_clk), // 1-bit clock input
-    .C1(~lvds_tx_clk), // 1-bit clock input
-    .CE(lvds_tx_clk_en), // 1-bit clock enable input
-    .D0(1'b1), // 1-bit data input (associated with C0)
-    .D1(1'b0), // 1-bit data input (associated with C1)
-    .R(1'b0), // 1-bit reset input
-    .S(1'b0) // 1-bit set input
-);
 
 // --------------------------------------------------------------------------
 // RX from ESPM
@@ -656,7 +622,7 @@ integer mv_min = 36570 - 3657; // 48V - 4.8V
 assign mv_good = (mv < mv_max) && (mv > mv_min);
 AD4008 mv_adc
 (
-    .sck(sclk_adc_internal),
+    .sck(adc_sck),
     .sdo(ADC_MV_SDO),
     .data_ready(adc_data_ready),
     .out(mv_adc_out)

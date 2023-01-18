@@ -202,6 +202,17 @@ fpga(
 
 //******************************* dRAC Module **************************************
 wire pwmclk;
+wire lvds_tx_clk;
+wire adc_sck;
+
+wire LVDS_TCLK;
+assign IO2[1] = LVDS_TCLK;
+
+wire SCLK_ADC;
+assign IO2[14] = SCLK_ADC;
+
+
+
 pwm_clk_gen pwm_clk_gen_instance
     (// Clock in ports
     .CLK_IN1            (sysclk),
@@ -253,7 +264,41 @@ DRAC drac(
     .wdog_period_led(wdog_period_led),
     .wdog_period_status(wdog_period_status),
     .wdog_timeout(wdog_timeout),
-    .wdog_clear(wdog_clear)
+    .wdog_clear(wdog_clear),
+
+    .lvds_tx_clk(lvds_tx_clk),
+    .adc_sck(adc_sck)
 );
+
+ODDR2 #(
+    .DDR_ALIGNMENT("NONE"), // Sets output alignment to "NONE", "C0" or "C1"
+    .INIT(1'b0),    // Sets initial state of the Q output to 1'b0 or 1'b1
+    .SRTYPE("SYNC") // Specifies "SYNC" or "ASYNC" set/reset
+) adc_sck_oddr (
+    .Q(SCLK_ADC),     // 1-bit DDR output data
+    .C0(adc_sck),  // 1-bit clock input
+    .C1(~adc_sck), // 1-bit clock input
+    .CE(1'b1),      // 1-bit clock enable input
+    .D0(1'b1), // 1-bit data input (associated with C0)
+    .D1(1'b0), // 1-bit data input (associated with C1)
+    .R(1'b0),   // 1-bit reset input
+    .S(1'b0)   // 1-bit set input
+);
+
+ODDR2 #(
+    .DDR_ALIGNMENT("NONE"), // Sets output alignment to "NONE", "C0" or "C1"
+    .INIT(1'b1), // Sets initial state of the Q output to 1'b0 or 1'b1
+    .SRTYPE("SYNC") // Specifies "SYNC" or "ASYNC" set/reset
+) lvds_tx_clk_oddr (
+    .Q(LVDS_TCLK), // 1-bit DDR output data
+    .C0(lvds_tx_clk), // 1-bit clock input
+    .C1(~lvds_tx_clk), // 1-bit clock input
+    .CE(1'b1), // 1-bit clock enable input
+    .D0(1'b1), // 1-bit data input (associated with C0)
+    .D1(1'b0), // 1-bit data input (associated with C1)
+    .R(1'b0), // 1-bit reset input
+    .S(1'b0) // 1-bit set input
+);
+
 
 endmodule
