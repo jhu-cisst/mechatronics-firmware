@@ -29,8 +29,8 @@
   <set param="PCW::FPGA1::PERIPHERAL::FREQMHZ" value="25.000000" />
   <set param="PCW::FPGA2::PERIPHERAL::FREQMHZ" value="2.500000" />
   <set param="PCW::CAN::PERIPHERAL::FREQMHZ" value="100" />
-  <set param="PCW::PRESET::FPGA::PARTNUMBER" value="xc7z020clg400-3" />
-  <set param="PCW::PRESET::FPGA::SPEED" value="-3" />
+  <set param="PCW::PRESET::FPGA::PARTNUMBER" value="xc7z020clg400-2" />
+  <set param="PCW::PRESET::FPGA::SPEED" value="-2" />
   <set param="PCW::GPIO::PERIPHERAL::ENABLE" value="1" />
   <set param="PCW::GPIO::MIO_GPIO::ENABLE" value="1" />
   <set param="PCW::GPIO::EMIO_GPIO::ENABLE" value="1" />

@@ -20,7 +20,7 @@ set (FPGA_PARTNUM "${FPGA_DEVICE}${FPGA_SPEED}${FPGA_PACKAGE}")
 set (FPGAV3_FAMILY  "zynq")
 set (FPGAV3_DEVICE  "xc7z020")
 set (FPGAV3_PACKAGE "clg400")
-set (FPGAV3_SPEED   "-3")
+set (FPGAV3_SPEED   "-2")
 set (FPGAV3_PARTNUM "${FPGAV3_DEVICE}${FPGAV3_SPEED}${FPGAV3_PACKAGE}")
 
 # Path to Verilog source code
