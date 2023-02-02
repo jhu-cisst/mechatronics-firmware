@@ -7,7 +7,7 @@ MHS File: fpgav3.mhs
 Architecture: zynq
 Device: xc7z020
 Package: clg400
-SpeedGrade: -3
+SpeedGrade: -2
 UserCmd1: 
 UserCmd1Type: 0
 UserCmd2: 
