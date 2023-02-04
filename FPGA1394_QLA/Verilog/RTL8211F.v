@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2022 Johns Hopkins University.
+ * Copyright(C) 2022-2023 Johns Hopkins University.
  *
  * Module: RTL8211F
  *
@@ -52,6 +52,7 @@ module RTL8211F
     input wire MDIO_I,             // Input from PHY
     output reg MDIO_O,             // Output to PHY
     output reg MDIO_T,             // Tristate control
+    output wire mdioBusy,          // 1 -> MDIO busy processing request
 
     // GMII Interface
     input wire RxClk,              // Rx Clk
@@ -62,6 +63,7 @@ module RTL8211F
     input wire TxClk,              // Tx Clk
     output reg TxEn,               // Tx Enable
     output reg[7:0] TxD,           // Tx Data
+    output wire TxErr,             // Tx Error
 
     input wire[1:0] clock_speed,   // Detected clock speed (Rx)
     input wire[1:0] speed_mode,    // Speed mode (Tx)
@@ -94,6 +96,8 @@ module RTL8211F
 initial RSTn = 1'b1;
 
 initial MDIO_T = 1'b1;
+
+assign TxErr = 1'b0;
 
 // ----------------------------------------------------------------------------
 // MDIO (management) interface
@@ -133,7 +137,6 @@ assign MDC = cnt[3];     // MDC toggles every 8 clocks (160 ns)
 `define READ_READY   6   // Wrap-around from 7 to 6 (15 counts)
 
 reg mdioRequest;         // 1 -> Request MDIO transaction (write_data was set)
-wire mdioBusy;           // 1 -> MDIO busy processing request
 assign mdioBusy = (mdioState == ST_MDIO_IDLE) ? 1'b0 : 1'b1;
 
 // For MDIO requests from PC
