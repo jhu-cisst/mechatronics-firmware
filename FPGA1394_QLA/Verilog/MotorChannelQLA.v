@@ -196,11 +196,33 @@ end
 // Only delay the enable (i.e., amp_disable == 0)
 assign amp_disable_pin = ((amp_enable_cnt == delay_cnt) || !ioexp_present) ? amp_disable : 1'b1;
 
+// write motor current limit
+reg [31:0] motor_safety_reg;
+initial 
+begin
+    motor_safety_reg = 32'h00008418;  // 200mA
+end
+
+wire motor_safety_reg_wen;
+assign motor_safety_reg_wen = (reg_waddr[15:0] == {`ADDR_MAIN, 4'd0, CHANNEL, `OFF_MOTOR_SAFETY}) ? reg_wen : 1'd0;
+
+always @(posedge clk)
+begin
+    if (motor_safety_reg_wen) begin
+        motor_safety_reg <= reg_wdata[31:0];
+    end
+end
+
+wire [15:0] cur_lim;
+assign cur_lim = motor_safety_reg[15:0];
+
 SafetyCheck safe(
     .clk(clk),
     .cur_in(cur_fb),
     .dac_in(cur_cmd),
-    .enable_check((~disable_safety) & cur_ctrl),
+    .cur_lim(cur_lim),
+    .ctrl_mode(ctrl_mode),
+    .enable_check(~disable_safety),
     .clear_disable(clr_safety_disable),
     .amp_disable(safety_amp_disable)
 );

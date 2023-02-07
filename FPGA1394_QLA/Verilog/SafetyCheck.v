@@ -35,6 +35,8 @@ module SafetyCheck(
     input  wire clk,            // system clock
     input  wire[15:0] cur_in,   // feedback current
     input  wire[15:0] dac_in,   // command current
+    input  wire[15:0] cur_lim,  // maximum allowed current (voltage mode)
+    input  wire[3:0]  ctrl_mode,// motor control mode
     input  wire enable_check,   // 1 -> enable safety check
     input  wire clear_disable,  // signal to clear amplifier disable
     output reg  amp_disable     // amplifier disable
@@ -57,7 +59,7 @@ module SafetyCheck(
 
     always @ (posedge clk)
     begin
-        if (enable_check) begin
+        if (enable_check && (ctrl_mode == 4'd0)) begin
             // If measured current is small (150 mA), clear error counter
             if ((cur_in < 16'h8300) && (cur_in > 16'h7d00)) begin
                error_counter <= 24'd0;
@@ -77,6 +79,16 @@ module SafetyCheck(
                else begin
                    error_counter <= 24'd0;
                end
+            end
+        end
+        else if (enable_check && (ctrl_mode == 4'd1)) begin
+            // if motor is in voltage mode, activate current value check
+            // i.e., current feedback needs to be lower than configured current limit
+            if ((cur_in > cur_lim) || (cur_in < -cur_lim)) begin
+                error_counter <= error_counter + 1'b1;
+            end
+            else begin
+                error_counter <= 24'd0;
             end
         end
         else begin
