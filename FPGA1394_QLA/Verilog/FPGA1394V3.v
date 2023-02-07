@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2011-2022 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2011-2023 ERC CISST, Johns Hopkins University.
  *
  * This module contains common code for FPGA V3 and does not make any assumptions
  * about which board is connected.
@@ -436,6 +436,16 @@ wire       E1_gmii_rx_er;
 wire       E1_gmii_rx_clk;
 wire[1:0]  E1_clock_speed;
 wire[1:0]  E1_speed_mode;
+wire       E1_tx_reg_rt;
+wire       E1_tx_grant_rt;
+
+// Simple arbitration between PL (rt) and PS for Tx bus.
+// Current implementation prevents PL side from interrupting PS, but does not
+// prevent PS from trying to transmit while PL is active. In the latter case,
+// the PS transmission will be ignored until the PL side finishes, so a partial
+// packet may be transmitted. In the future, the PS transmission can be stored
+// in a FIFO until the PL side finishes.
+assign E1_tx_grant_rt = E1_tx_req_rt & (~E1_gmii_tx_en_ps);
 
 assign E1_gmii_txd = E1_gmii_tx_en_rt ? E1_gmii_txd_rt : E1_gmii_txd_ps;
 assign E1_gmii_tx_en = E1_gmii_tx_en_rt | E1_gmii_tx_en_ps;
@@ -548,6 +558,10 @@ RTL8211F #(.CHANNEL(4'd1)) EthPhy1(
 
     .clock_speed(E1_clock_speed),
     .speed_mode(E1_speed_mode),
+
+    // Arbitration for Tx bus (PS may be using it)
+    .tx_bus_req(E1_tx_req_rt),      // Bus request
+    .tx_bus_grant(E1_tx_grant_rt),  // Bus grant
 
     // Interface from Firewire (for sending packets via Ethernet)
     .sendReq(eth_send_req),

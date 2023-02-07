@@ -68,6 +68,10 @@ module RTL8211F
     input wire[1:0] clock_speed,   // Detected clock speed (Rx)
     input wire[1:0] speed_mode,    // Speed mode (Tx)
 
+    // Arbitration for Tx bus (PS may be using it)
+    output reg tx_bus_req,         // Bus request
+    input wire tx_bus_grant,       // Bus grant
+
     // Interface from Firewire (for sending packets via Ethernet)
     input wire sendReq,              // Send request from FireWire
 
@@ -663,18 +667,25 @@ begin
         send_cnt <= 16'd0;
         tx_cnt <= 3'd0;
         send_rd_en <= 1'b0;
+        tx_bus_req <= 1'b0;
         TxEn <= 1'b0;
         if (resetActive) begin
             txStateError <= 1'b0;
         end
         else if (~send_info_fifo_empty) begin
-            send_info_rd_en <= 1'b1;
+            // If the MSB is set, we flush the packet, so we don't
+            // need to request the bus
+            tx_bus_req <= ~send_info_dout[31];
             tx_underflow <= 1'b0;
             send_nbytes <= send_info_dout[15:0];
             send_first_byte_out <= send_info_dout[23:16];
-            txState <= ST_TX_PREAMBLE;
-            // If the MSB is set, we flush the packet (TxEn=0)
-            TxEn <= ~send_info_dout[31];
+            if (tx_bus_grant|send_info_dout[31]) begin
+                // Could clear tx_bus_req if desired
+                send_info_rd_en <= 1'b1;
+                txState <= ST_TX_PREAMBLE;
+                // If the MSB is set, we flush the packet (TxEn=0)
+                TxEn <= ~send_info_dout[31];
+            end
         end
     end
 
