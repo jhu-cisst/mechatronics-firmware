@@ -141,7 +141,7 @@ file(DOWNLOAD
         "${VERILOG_SOURCE_DIR}/ws2811.v")
 
 file(GLOB HLS_GENERATED_SOURCES_DRAC_FPGAV1V2 CONFIGURE_DEPENDS "${HLS_GENERATED_SOURCE_DIR}/v1v2/*.v")
-file(GLOB HLS_GENERATED_SOURCES_DRAC_FPGAV3 CONFIGURE_DEPENDS "${HLS_GENERATED_SOURCE_DIR}/3/*.v")
+file(GLOB HLS_GENERATED_SOURCES_DRAC_FPGAV3 CONFIGURE_DEPENDS "${HLS_GENERATED_SOURCE_DIR}/v3/*.v")
 ################### Complete Systems (FPGA + Board) #####################
 
 ##### FPGAV1 + QLA
@@ -229,7 +229,7 @@ set (VERILOG_SOURCE_FPGAV2_DRAC
                          ${VERILOG_SOURCE_FPGAV2}
                          ${VERILOG_SOURCE_DRAC})
 
-# Compile the firmware -- output is FPGA1394Eth-QLA.mcs, which is copied
+# Compile the firmware -- output is FPGA1394Eth-DRAC.mcs, which is copied
 # to the Generated subdirectory in the source directory (if different).
 ise_compile_fpga(PROJ_NAME      "FPGA1394EthDRAC"
                  DEPENDENCIES   "CoreGenCommon"
@@ -243,22 +243,24 @@ ise_compile_fpga(PROJ_NAME      "FPGA1394EthDRAC"
 ##### FPGAV3 + dRAC
 set (VERILOG_SOURCE_FPGAV3_DRAC
                          "${VERILOG_SOURCE_DIR}/FPGA1394V3-DRAC.v"
+                         "${IPCOREV3_BINARY_DIR}/pwm_clk_gen_zynq.v"
+                         ${HLS_GENERATED_SOURCES_DRAC_FPGAV3}                         
                          ${VERILOG_SOURCE_COMMON}
                          ${VERILOG_SOURCE_FPGAV3}
                          ${VERILOG_SOURCE_DRAC})
 
-# Compile the firmware -- output is FPGA1394V3-QLA.mcs, which is copied
+# Compile the firmware -- output is FPGA1394V3-DRAC.mcs, which is copied
 # to the Generated subdirectory in the source directory (if different).
-# ise_compile_fpga(PROJ_NAME      "FPGA1394V3DRAC"
-#                  DEPENDENCIES   "CoreGenV3" "PlatgenV3"
-#                  FPGA_PARTNUM   ${FPGAV3_PARTNUM}
-#                  VERILOG_SOURCE ${VERILOG_SOURCE_FPGAV3_QLA}
-#                  UCF_FILE       "${VERILOG_SOURCE_DIR}/XC7Z020-DRAC.ucf"
-#                  IPCORE_DIR     ${IPCOREV3_BINARY_DIR}
-#                  XPSCORE_DIR    "${XPSCORE_BINARY_DIR}/implementation"
-#                  TOP_LEVEL      "FPGA1394V3DRAC"
-#                  PROJ_OUTPUT    "FPGA1394V3-dRAC"
-#                  IS_V3          ON)
+ise_compile_fpga(PROJ_NAME      "FPGA1394V3DRAC"
+                 DEPENDENCIES   "CoreGenV3" "PlatgenV3"
+                 FPGA_PARTNUM   ${FPGAV3_PARTNUM}
+                 VERILOG_SOURCE ${VERILOG_SOURCE_FPGAV3_DRAC}
+                 UCF_FILE       "${VERILOG_SOURCE_DIR}/XC7Z020-DRAC.ucf"
+                 IPCORE_DIR     ${IPCOREV3_BINARY_DIR}
+                 XPSCORE_DIR    "${XPSCORE_BINARY_DIR}/implementation"
+                 TOP_LEVEL      "FPGA1394V3DRAC"
+                 PROJ_OUTPUT    "FPGA1394V3-DRAC"
+                 IS_V3          ON)
 
 ######################### Copy Generated Files #################################
 
