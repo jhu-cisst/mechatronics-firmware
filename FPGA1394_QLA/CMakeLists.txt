@@ -11,11 +11,11 @@
 project(FPGA1394_QLA NONE)
 
 # FPGA part number
-set (FPGAV1V2_FAMILY  "spartan6")
-set (FPGAV1V2_DEVICE  "xc6slx45")
-set (FPGAV1V2_PACKAGE "fgg484")
-set (FPGAV1V2_SPEED   "-2")
-set (FPGAV1V2_PARTNUM "${FPGAV1V2_DEVICE}${FPGAV1V2_SPEED}${FPGAV1V2_PACKAGE}")
+set (FPGA_FAMILY  "spartan6")
+set (FPGA_DEVICE  "xc6slx45")
+set (FPGA_PACKAGE "fgg484")
+set (FPGA_SPEED   "-2")
+set (FPGA_PARTNUM "${FPGA_DEVICE}${FPGA_SPEED}${FPGA_PACKAGE}")
 
 set (FPGAV3_FAMILY  "zynq")
 set (FPGAV3_DEVICE  "xc7z020")
@@ -155,7 +155,7 @@ set (VERILOG_SOURCE_FPGAV1_QLA
 # to the Generated subdirectory in the source directory (if different).
 ise_compile_fpga(PROJ_NAME      "FPGA1394QLA"
                  DEPENDENCIES   "CoreGenCommon"
-                 FPGA_PARTNUM   ${FPGAV1V2_PARTNUM}
+                 FPGA_PARTNUM   ${FPGA_PARTNUM}
                  VERILOG_SOURCE ${VERILOG_SOURCE_FPGAV1_QLA}
                  UCF_FILE       "${VERILOG_SOURCE_DIR}/XC6S45.ucf"
                  IPCORE_DIR     ${IPCORE_BINARY_DIR}
@@ -173,7 +173,7 @@ set (VERILOG_SOURCE_FPGAV2_QLA
 # to the Generated subdirectory in the source directory (if different).
 ise_compile_fpga(PROJ_NAME      "FPGA1394EthQLA"
                  DEPENDENCIES   "CoreGenCommon"
-                 FPGA_PARTNUM   ${FPGAV1V2_PARTNUM}
+                 FPGA_PARTNUM   ${FPGA_PARTNUM}
                  VERILOG_SOURCE ${VERILOG_SOURCE_FPGAV2_QLA}
                  UCF_FILE       "${VERILOG_SOURCE_DIR}/XC6S45-Rev2.ucf"
                  IPCORE_DIR     ${IPCORE_BINARY_DIR}
@@ -233,7 +233,7 @@ set (VERILOG_SOURCE_FPGAV2_DRAC
 # to the Generated subdirectory in the source directory (if different).
 ise_compile_fpga(PROJ_NAME      "FPGA1394EthDRAC"
                  DEPENDENCIES   "CoreGenCommon"
-                 FPGA_PARTNUM   ${FPGAV1V2_PARTNUM}
+                 FPGA_PARTNUM   ${FPGA_PARTNUM}
                  VERILOG_SOURCE ${VERILOG_SOURCE_FPGAV2_DRAC}
                  UCF_FILE       "${VERILOG_SOURCE_DIR}/XC6S45-Rev2-DRAC.ucf"
                  IPCORE_DIR     ${IPCORE_BINARY_DIR}
