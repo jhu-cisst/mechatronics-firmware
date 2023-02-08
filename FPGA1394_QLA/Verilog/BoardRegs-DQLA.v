@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2008-2022 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2008-2023 ERC CISST, Johns Hopkins University.
  *
  * This module contains a register file dedicated to general board parameters
  * for the DQLA (dual QLA)
@@ -38,6 +38,7 @@ module BoardRegsDQLA
     input  wire[2:1] dout_cfg_bidir,    // whether digital outputs are bidirectional (also need to be inverted)
     output reg dout_cfg_reset,          // reset dout_cfg_valid
     output reg[2:1] pwr_enable,         // enable motor power
+    input  wire[2:1] pwr_enable_error,  // error outputting pwr_enable via Max7301 I/O expander
     output reg relay_on,                // enable relay for safety loop-through
     input  wire[2:1] isQuadDac,         // type of DAC: 0 = 4xLTC2601, 1 = 1xLTC2604
     output reg dac_test_reset,          // repeat DAC test
@@ -86,15 +87,18 @@ module BoardRegsDQLA
     assign reg_status = {
                 // Byte 3: num channels, board id
                 NUM_CHAN, board_id,
-                // Byte 2: wdog timeout, isQuadDac[2:1], 0, mv_good, pwr_enable, 0, safety relay control
-                wdog_timeout, isQuadDac, 1'b0, (mv_good[1]&mv_good[2]), (pwr_enable[1]&pwr_enable[2]), 1'b0, relay_on,
+                // Byte 2: wdog timeout, isQuadDac[2:1], pwr_enable_error,
+                //         mv_good, pwr_enable, 0, safety relay control
+                wdog_timeout, isQuadDac, (pwr_enable_error[1]|pwr_enable_error[2]),
+                (mv_good[1]&mv_good[2]), (pwr_enable[1]&pwr_enable[2]), 1'b0, relay_on,
                 // Byte 1: mv_good[2:1], dqla_exp_ok[2:1], dout_cfg_valid[2:1], dout_cfg_bidir[2:1],
                 mv_good, dqla_exp_ok, dout_cfg_valid, dout_cfg_bidir,
                 // Byte 0: safety_fb[2:1], mv_fb[2:1], dout[31], 0, ioexp_present[2:1]
                 // dout[31] indicates that waveform table is driving at least one DOUT
                 safety_fb, mv_fb, dout[31], 1'b0, ioexp_present };
 
-    assign reg_digin = {dout[7:0], neg_limit, pos_limit, home};
+    assign reg_digin = {dout[7:4], neg_limit[7:4], pos_limit[7:4], home[7:4],
+                        dout[3:0], neg_limit[3:0], pos_limit[3:0], home[3:0]};
 
 //------------------------------------------------------------------------------
 // hardware description
@@ -171,7 +175,7 @@ for (i = 1; i <= 2; i = i+1) begin : mv_loop
             mv_good_counter <= mv_good_counter + 24'd1;
             mv_amp_disable[i] <= 1'b1;
         end 
-        else if (mv_good == 1'b1) begin
+        else if (mv_good[i] == 1'b1) begin
             mv_amp_disable[i] <= 1'b0;
         end
         else begin

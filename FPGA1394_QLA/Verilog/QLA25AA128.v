@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2012-2022 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2012-2023 ERC CISST, Johns Hopkins University.
  *
  * Module: QLA25AA128
  *
@@ -21,6 +21,14 @@
  *     - bit 11:8 == 1: block read/write 
  *         - since 1 page is 64 bytes, we only support 64 bytes read/write (16 quadlets)
  *         - 0x3100 to 0x310F  
+ *     - bit 7:4 == channel
+ *         - 0 for QLA
+ *         - 1 for QLA #1 on DQLA
+ *         - 2 for QLA #2 on DQLA
+ *     - bit 3:0 == register number
+ *         - 0 for Command (write only)
+ *         - 1 for Status (read only)
+ *         - 2 for Result (read only)
  *   - Clock
  *     - 25AA128 Max 10 Mhz
  *     - sysclk 49.125 Mhz / 8 
@@ -50,9 +58,9 @@
 `define CMD_WBLK_25AA128   8'hFF    // Write Block 
 `define CMD_IDLE_25AA128   8'h00    // IDLE N/A cmd 
 
-`define REG_PROM_CMD       12'h000  // prom command (write)
-`define REG_PROM_STATUS    12'h001  // prom status (read)  
-`define REG_PROM_RESULT    12'h002  // prom result (read)
+`define REG_PROM_CMD       4'h0     // prom command (write)
+`define REG_PROM_STATUS    4'h1     // prom status (read)
+`define REG_PROM_RESULT    4'h2     // prom result (read)
 
 
 module QLA25AA128(
@@ -107,8 +115,9 @@ reg[4:0]  rd_index;    // current read index 4-bit
 
 // local wires
 wire prom_reg_wen;       // main quadlet reg interface
-assign prom_reg_wen = (reg_waddr == {`ADDR_PROM_QLA, `REG_PROM_CMD}) ? reg_wen : 1'b0;
-assign prom_blk_wen = (reg_waddr[15:8] == {`ADDR_PROM_QLA, 4'd1}) ? reg_wen : 1'b0;
+wire prom_blk_wen;       // prom block write interface
+assign prom_reg_wen = ((reg_waddr[11:8] == 4'd0) && (reg_waddr[3:0] == `REG_PROM_CMD)) ? reg_wen : 1'b0;
+assign prom_blk_wen = (reg_waddr[11:8] == 4'd1) ? reg_wen : 1'b0;
 
 
 // prom_status
@@ -130,11 +139,12 @@ assign this_busy = ~io_disabled;
 
 // -----------------------------------------
 // read/write request
+// Not necessary for this to be clocked
 // ------------------------------------------
 always @(posedge(clk))
 begin
     if (reg_raddr[11:8] == 4'h0) begin
-        case (reg_raddr[11:0])
+        case (reg_raddr[3:0])
         `REG_PROM_RESULT: reg_rdata <= prom_result;
         `REG_PROM_STATUS: reg_rdata <= {16'd0, prom_status};
         // return 32'd0 by default

@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2011-2022 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2011-2023 ERC CISST, Johns Hopkins University.
  *
  * This module contains common code for the QLA and used with all FPGA versions
  *
@@ -107,7 +107,6 @@ assign reg_rdata = (reg_raddr[15:12]==`ADDR_PROM_QLA) ? (reg_rdata_prom_qla) :
 // Unused channel offsets
 assign reg_rd[`OFF_UNUSED_02] = 32'd0;
 assign reg_rd[`OFF_UNUSED_03] = 32'd0;
-assign reg_rd[`OFF_UNUSED_13] = 32'd0;
 assign reg_rd[`OFF_UNUSED_14] = 32'd0;
 assign reg_rd[`OFF_UNUSED_15] = 32'd0;
 
@@ -222,6 +221,7 @@ generate
             .mv_amp_disable(mv_amp_disable),
             .wdog_timeout(wdog_timeout),
             .amp_fault(amp_fault[k]),
+            .amp_disable_error(1'b0),   // DQLA only
             .cur_ctrl_error(cur_ctrl_error[k]),
             .disable_f_error(disable_f_error[k]),
             .amp_disable_pin(amp_disable_pin[k]),
@@ -261,20 +261,24 @@ wire reg_waddr_dac;
 assign reg_waddr_dac = ((reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[7:4] != 4'd0) &&
                         (reg_waddr[3:0]==`OFF_DAC_CTRL)) ? 1'd1 : 1'd0;
 
+wire dac_update;
 wire dac_busy;
-reg cur_cmd_updated;
-
-reg cur_cmd_req;
+reg  cur_cmd_req;
+reg  cur_cmd_updated;
 
 always @(posedge(sysclk))
 begin
-    if (reg_waddr_dac) begin
-        cur_cmd_req <= blk_wen;
+    if (reg_waddr_dac&blk_wen&dac_update) begin
+        cur_cmd_req <= dac_busy;
+        cur_cmd_updated <= ~dac_busy;
     end
     else if (cur_cmd_req&(~dac_busy)) begin
         cur_cmd_req <= 0;
+        cur_cmd_updated <= 1;
     end
-    cur_cmd_updated <= cur_cmd_req&(~dac_busy);
+    else if (cur_cmd_updated&dac_busy) begin
+        cur_cmd_updated <= 1'b0;
+    end
 end
 
 assign reg_rd[`OFF_DAC_CTRL] = cur_cmd[reg_raddr[7:4]];
@@ -425,11 +429,28 @@ Max6576 T2(
 );
 
 
+//---------------------------------------------------------------------------
+// Simple mechanism to avoid contention of SPI bus between QLA PROM and
+// Max7317 I/O expander. Basically, the spi_token is used as a "tie-breaker"
+// if the SPI bus is idle, and both devices wish to access it at the same time.
+//---------------------------------------------------------------------------
+
+reg spi_token;
+
+always @(posedge sysclk)
+begin
+    spi_token <= ~spi_token;
+end
+
 // --------------------------------------------------------------------------
 // QLA prom 25AA128
 //    - SPI pin connection see QLA schematics
 //    - TEMP version, interface subject to future change
 // --------------------------------------------------------------------------
+
+wire reg_wen_prom_qla;
+assign reg_wen_prom_qla = ((reg_waddr[15:12] == `ADDR_PROM_QLA) && (reg_waddr[7:4] == 4'd0)) ?
+                           reg_wen : 1'b0;
 
 QLA25AA128 prom_qla(
     .clk(sysclk),
@@ -440,16 +461,16 @@ QLA25AA128 prom_qla(
     .reg_rdata(reg_rdata_prom_qla),
     .reg_wdata(reg_wdata),
         
-    .reg_wen(reg_wen),
-    .blk_wen(blk_wen),
-    .blk_wstart(blk_wstart),
+    .reg_wen(reg_wen_prom_qla),
+    .blk_wen(blk_wen),       // not used
+    .blk_wstart(blk_wstart), // not used
 
     // spi interface
     .prom_mosi(qla_prom_mosi),
     .prom_miso(IO1[1]),
     .prom_sclk(qla_prom_sclk),
     .prom_cs(IO1[4]),
-    .other_busy(io_exp_busy),
+    .other_busy(io_exp_busy|spi_token),
     .this_busy(qla_prom_busy)
 );
 
@@ -479,7 +500,7 @@ Max7317 IO_Exp(
     .miso(IO1[1]),
     .sclk(io_exp_sclk),
     .CSn(IO1[8]),
-    .other_busy(qla_prom_busy),
+    .other_busy(qla_prom_busy|(~spi_token)),
     .this_busy(io_exp_busy),
 
     // Signals
@@ -604,7 +625,8 @@ WriteRtData rt_write(
     .bw_block_wen(bw_blk_wen),
     .bw_block_wstart(bw_blk_wstart),
     .bw_reg_waddr(bw_reg_waddr),
-    .bw_reg_wdata(bw_reg_wdata)
+    .bw_reg_wdata(bw_reg_wdata),
+    .dac_update(dac_update)
 );
 
 // --------------------------------------------------------------------------

@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2022 Johns Hopkins University.
+ * Copyright(C) 2022-2023 Johns Hopkins University.
  *
  * Module: Max7317
  *
@@ -36,12 +36,17 @@
  *     DIN setup = 9.5 nsec
  *     DIN hold = 2.5 nsec
  *
+ * The CLKBIT parameter determines SCLK period:
+ *     CLKBIT=0   -->   40 ns period
+ *     CLKBIT=1   -->   80 ns period
+ *
  * Revision history
  *     07/27/22    Peter Kazanzides    Initial revision
  */
 
 module Max7317
-    #(parameter[3:0] IOEXP_ID = 4'd0)
+    #(parameter[3:0] IOEXP_ID = 4'd0,
+      parameter CLKBIT = 0)        // CLKBIT determines SCLK timing
 (
     input clk,                     // input clock
 
@@ -77,7 +82,7 @@ module Max7317
    
 initial CSn = 1'bz;
 
-reg[5:0] seqn;                     // 6-bit counter (0-63)
+reg[(5+CLKBIT):0] seqn;            // (6+N)-bit counter
 reg[15:0] write_data;              // Data to write to I/O Expander
 reg[15:0] read_data;               // Data read from I/O Expander
 
@@ -85,58 +90,58 @@ reg[15:0] reg_wdata_saved;         // Copy of data written from host PC
 reg[15:0] read_data_saved;         // Saved copy for host PC to read
 reg thisActive;                    // 1 -> this device most recently addressed
 
-reg doWrite;                       // 1 -> write pending or in process
-
 // Externally-generated write (e.g., from PC)
 assign ioexp_reg_wen = (reg_waddr == {`ADDR_MAIN, 8'd0, `REG_IO_EXP}) ? reg_wen : 1'b0;
 
 // Locally-generated write
 reg ioexp_wen;
 
-assign sclk = seqn[0]&(~CSn);
+assign sclk = seqn[CLKBIT]&(~CSn);
 
-//   seqn   0  1   2   3   4   5
+//   seqn   0  1   2   3   4   5      (for CLKBIT==0)
 //   sclk   ___|---|___|---|___|---   (rising edge on odd numbers)
 //   data  15     14      13          (data out on falling edge)
 
+// SPI interface block
 always @(posedge clk)
 begin
     if (ioexp_wen) begin
         // There is no check whether a transaction is currently in
-        // process (this_busy) or pending (doWrite&(~this_busy)),
-        // so it is up to the caller to check the status bits by first
-        // reading the register.
+        // process (this_busy) or pending, so it is up to the caller
+        // to check the status bits by first reading the register.
         // Note that write_data should already be set by caller.
+        // This state ends when this_busy is set, which causes the
+        // caller to clear ioexp_wen.
         read_data <= 16'd0;
-        doWrite <= 1'b1;
-        seqn <= 6'd0;
+        seqn <= {(6+CLKBIT){1'b0}};
         mosi <= write_data[15];  // Write first bit
-        CSn <= other_busy;       // Assert CSn (low) if SPI not busy
-        this_busy <= ~other_busy;
+        if (~other_busy) begin
+            CSn <= 1'b0;
+            this_busy <= 1'b1;
+        end
     end
-    else if (doWrite&(~other_busy)) begin
-        this_busy <= 1'b1;
-        seqn <= seqn + 6'd1;
-        if ((seqn == 6'h20) || (seqn == 6'h21))  begin
+    else if (this_busy) begin
+        seqn <= seqn + 1'b1;
+        if (seqn[(5+CLKBIT):CLKBIT] == 6'h20)  begin       // 64 SCLKs
             // Falling edge of SCLK after writing last bit; deassert CSn.
-            // Hold CSn high for at least 2 clocks.
             CSn <= 1'b1;
         end
-        else if (seqn == 6'h22) begin
-            doWrite <= 1'b0;
-            CSn <= 1'b1;
-            seqn <= 6'd0;
+        else if (CSn&this_busy) begin
+            // CSn&this_busy are not both set initially, so they
+            // are only both set at end (after 64 SCLKs)
+            this_busy <= 1'b0;
+            seqn <= {(6+CLKBIT){1'b0}};
         end
         else begin
             CSn <= 1'b0;
             // Write data via SPI.
-            if (seqn[0]) mosi <= write_data[~(seqn[4:1]+1)];
+            if (seqn[CLKBIT:0] == {(CLKBIT+1){1'b1}}) mosi <= write_data[~(seqn[(CLKBIT+4):(CLKBIT+1)]+1)];
             // Read data from SPI.
-            read_data[~seqn[4:1]] <= miso;
+            read_data[~seqn[(CLKBIT+4):(CLKBIT+1)]] <= miso;
         end
     end
     else begin
-        // Idle state (or other_busy); make sure CSn is high
+        // Idle state: make sure CSn is high
         CSn <= 1'b1;
         this_busy <= 1'b0;
     end
@@ -146,7 +151,6 @@ reg ioexp_cfg_valid;
 
 // For stepping through the configuration, polling and output
 reg[3:0] step;
-reg[3:0] next_step;
 
 // For polling the I/O expander
 reg do_poll;
@@ -222,8 +226,15 @@ assign P74_same = ((P_Outputs[7:4] == 4'h0) || (P_Outputs[7:4] == 4'hf)) ? 1'b1 
 always @(posedge clk)
 begin
     if (this_busy) begin
+        // We wait in this state until the SPI always block finishes processing
+        // the request and clears this_busy. At that time, ioexp_wen should be
+        // clear and we would process the next step or return to the idle state.
         ioexp_wen <= 1'b0;
-        step <= next_step;
+    end
+    else if (ioexp_wen) begin
+        // We wait in this state until the SPI always block responds to the
+        // ioexp_wen request and sets this_busy, which then causes a transition
+        // to the state above.
     end
     else if (!ioexp_cfg_valid) begin
         // This code attempts to initialize the MAX7317 by setting all
@@ -238,14 +249,14 @@ begin
         else begin
             write_data <= ConfigCommands[step[0]];
             ioexp_wen <= 1'b1;
-            next_step <= step + 4'd1;
+            step <= step + 4'd1;
             P_Shadow <= 8'hff;
         end
     end
     else if (do_poll) begin
         write_data <= PollCommands[step[1:0]];
         ioexp_wen <= 1'b1;
-        next_step <= step + 4'd1;
+        step <= step + 4'd1;
         if (step == 4'd2) begin
             if (read_data[15:8] == PollCommands[0][15:8]) begin
                 outputs_fb <= read_data[7:0];
@@ -297,19 +308,15 @@ begin
                    P_Shadow[7:4] <= P_Outputs[7:4];
                 end
                 ioexp_wen <= 1'b1;
-                next_step <= step + 4'd4;
+                step <= step + 4'd4;
             end
             else begin
                 if (P_Outputs[step[2:0]] != P_Shadow[step[2:0]]) begin
                     write_data <= { 4'h0, step, 7'h0, P_Outputs[step[2:0]] };
                     P_Shadow[step[2:0]] <= P_Outputs[step[2:0]];
                     ioexp_wen <= 1'b1;
-                    next_step <= step + 4'd1;
                 end
-                else begin
-                    // Output is correct, skip to next step
-                    step <= step + 4'd1;
-                end
+                step <= step + 4'd1;
             end
         end
         else begin
@@ -321,7 +328,7 @@ begin
         if (step == 4'd0) begin
             write_data <= reg_wdata_saved;
             ioexp_wen <= 1'b1;
-            next_step <= 4'd1;
+            step <= 4'd1;
         end
         else begin
             // Indicate that a read was issued, so we can later save the
@@ -336,13 +343,11 @@ begin
         // IDLE state (not writing or reading)
         ioexp_wen <= 1'b0;
         step <= 4'd0;
-        next_step <= 4'd0;
 
         if (ioexp_cfg_reset) begin
             // Restart check for MAX7317
             ioexp_cfg_valid <= 1'b0;
             ioexp_cfg_present <= 1'b0;
-            step <= 4'd0;
         end
         else if (ioexp_cfg_present) begin
             // Poll timer waits for about 1.3 usec before starting next poll

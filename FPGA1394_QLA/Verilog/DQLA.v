@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2011-2022 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2011-2023 ERC CISST, Johns Hopkins University.
  *
  * This module contains code for the DQLA (dual QLA) interface
  *
@@ -107,22 +107,22 @@ module DQLA(
     // Potentiometer ADC
     wire sclk_pot;
     wire conv_pot;
-    wire[1:4] Q1_miso_pot;
-    wire[1:4] Q2_miso_pot;
+    wire[3:0] Q1_miso_pot;
+    wire[3:0] Q2_miso_pot;
     assign IO1[19] = out_en ? sclk_pot : 1'bz;
     assign IO1[21] = out_en ? conv_pot : 1'bz;
-    assign Q1_miso_pot = { IO1[27], IO1[26], IO1[30], IO1[29] };
-    assign Q2_miso_pot = { IO2[10], IO2[9], IO2[12], IO2[11] };
+    assign Q1_miso_pot = { IO1[29], IO1[30], IO1[26], IO1[27] };
+    assign Q2_miso_pot = { IO2[11], IO2[12], IO2[9], IO2[10] };
 
     // Motor current ADC
     wire sclk_cur;
     wire conv_cur;
-    wire[1:4] Q1_miso_cur;
-    wire[1:4] Q2_miso_cur;
+    wire[3:0] Q1_miso_cur;
+    wire[3:0] Q2_miso_cur;
     assign IO1[20] = out_en ? sclk_cur : 1'bz;
     assign IO1[23] = out_en ? conv_cur : 1'bz;
-    assign Q1_miso_cur = { IO2[3], IO2[1], IO2[6], IO2[5] };
-    assign Q2_miso_cur = { IO2[16], IO2[17], IO2[18], IO2[15] };
+    assign Q1_miso_cur = { IO2[5], IO2[6], IO2[1], IO2[3] };
+    assign Q2_miso_cur = { IO2[15], IO2[18], IO2[17], IO2[16] };
 
     // Motor DAC
     wire dac_sclk;      // SCLK in schematic
@@ -199,6 +199,7 @@ module DQLA(
     wire Q2_DQLA_exp_ok;     // 1 -> I/O expander (MAX7301) detected
 
     wire[31:4] Q1_IOP;
+    wire[16:12] Q1_IOP_Error;
 
     wire Q1_led1_grn;
     wire Q1_led1_red;
@@ -209,21 +210,24 @@ module DQLA(
     wire[1:4] Q1_neglim;
     // Q1_poslim defined above (direct connect)
     wire Q1_pwr_en;
+    wire Q1_pwr_en_error;        // Error detected in I/O expander output
     wire[1:4] Q1_disable;
-    wire[1:4] Q1_amp_fault; // Fault signal from op amp, active low (1 -> amplifier on, 0 -> fault)
+    wire[1:4] Q1_amp_fault;      // Fault signal from op amp, active low (1 -> amplifier on, 0 -> fault)
     wire[1:4] Q1_enc_i;
 
     assign Q1_IOP[31:28] = { Q1_led1_grn, Q1_led1_red, Q1_led2_grn, Q1_led2_red };
     assign Q1_mv_good = Q1_IOP[27];
     assign Q1_home[1:4] = Q1_IOP[26:23];
-    assign Q1_neglim[1:4] = Q1_IOP[22:19];
+    assign Q1_neglim[1:4] = { Q1_IOP[22], Q1_IOP[20], Q1_IOP[21], Q1_IOP[19] };
     assign Q1_poslim[1:2] = Q1_IOP[18:17];
     assign Q1_IOP[16] = Q1_pwr_en;
+    assign Q1_pwr_en_error = Q1_IOP_Error[16];
     assign Q1_IOP[15:12] = Q1_disable[1:4];
     assign Q1_amp_fault[1:4] = Q1_IOP[11:8];
     assign Q1_enc_i[1:4] = Q1_IOP[7:4];
 
     wire[31:4] Q2_IOP;
+    wire[16:12] Q2_IOP_Error;
 
     wire Q2_led1_grn;
     wire Q2_led1_red;
@@ -234,16 +238,18 @@ module DQLA(
     wire[1:4] Q2_neglim;
     // Q2_poslim defined above (direct connect)
     wire Q2_pwr_en;
+    wire Q2_pwr_en_error;        // Error detected in I/O expander output
     wire[1:4] Q2_disable;
-    wire[1:4] Q2_amp_fault; // Fault signal from op amp, active low (1 -> amplifier on, 0 -> fault)
+    wire[1:4] Q2_amp_fault;      // Fault signal from op amp, active low (1 -> amplifier on, 0 -> fault)
     wire[1:4] Q2_enc_i;
 
     assign Q2_IOP[31:28] = { Q2_led1_grn, Q2_led1_red, Q2_led2_grn, Q2_led2_red };
     assign Q2_mv_good = Q2_IOP[27];
     assign Q2_home[1:4] = Q2_IOP[26:23];
-    assign Q2_neglim[1:4] = Q2_IOP[22:19];
+    assign Q2_neglim[1:4] = { Q2_IOP[22], Q2_IOP[20], Q2_IOP[21], Q2_IOP[19] };
     assign Q2_poslim[1:2] = Q2_IOP[18:17];
     assign Q2_IOP[16] = Q2_pwr_en;
+    assign Q2_pwr_en_error = Q2_IOP_Error[16];
     assign Q2_IOP[15:12] = Q2_disable[1:4];
     assign Q2_amp_fault[1:4] = Q2_IOP[11:8];
     assign Q2_enc_i[1:4] = Q2_IOP[7:4];
@@ -438,8 +444,11 @@ wire[1:8] amp_disable_f;
 wire[1:8] amp_fault;
 assign amp_fault = { Q1_amp_fault, Q2_amp_fault };
 
-wire[1:8] cur_ctrl_error;
-wire[1:8] disable_f_error;
+wire[1:8] cur_ctrl_error;    // 1 -> output error in Max7317 I/O expander
+wire[1:8] disable_f_error;   // 1 -> output error in Max7317 I/O expander
+
+wire[1:8] amp_disable_error; // 1 -> output error in Max7301 I/O expander
+assign amp_disable_error = { Q1_IOP_Error[15:12], Q2_IOP_Error[15:12] };
 
 wire[15:0] cur_cmd[1:8];     // Commanded current per channel
 wire[3:0] ctrl_mode[1:8];    // Control mode per channel
@@ -489,6 +498,7 @@ generate
             .mv_amp_disable((k <= 4) ? Q1_mv_amp_disable : Q2_mv_amp_disable),
             .wdog_timeout(wdog_timeout),
             .amp_fault(amp_fault[k]),
+            .amp_disable_error(amp_disable_error[k]),
             .cur_ctrl_error(cur_ctrl_error[k]),
             .disable_f_error(disable_f_error[k]),
             .amp_disable_pin(amp_disable_pin[k]),
@@ -519,21 +529,24 @@ wire reg_waddr_dac;
 assign reg_waddr_dac = ((reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[7:4] != 4'd0) &&
                         (reg_waddr[3:0]==`OFF_DAC_CTRL)) ? 1'd1 : 1'd0;
 
+wire dac_update;
 wire dac_busy;
-
-reg cur_cmd_updated;
-
-reg cur_cmd_req;
+reg  cur_cmd_req;
+reg  cur_cmd_updated;
 
 always @(posedge(sysclk))
 begin
-    if (reg_waddr_dac) begin
-        cur_cmd_req <= blk_wen;
+    if (reg_waddr_dac&blk_wen&dac_update) begin
+        cur_cmd_req <= dac_busy;
+        cur_cmd_updated <= ~dac_busy;
     end
     else if (cur_cmd_req&(~dac_busy)) begin
         cur_cmd_req <= 0;
+        cur_cmd_updated <= 1;
     end
-    cur_cmd_updated <= cur_cmd_req&(~dac_busy);
+    else if (cur_cmd_updated&dac_busy) begin
+        cur_cmd_updated <= 1'b0;
+    end
 end
 
 assign reg_rd[`OFF_DAC_CTRL] = cur_cmd[reg_raddr[7:4]];
@@ -716,11 +729,28 @@ Max6576 Q2_T2(
 );
 
 
+//---------------------------------------------------------------------------
+// Simple mechanism to avoid contention of SPI bus between QLA PROMs
+// and Max7317 I/O expanders.
+//---------------------------------------------------------------------------
+
+reg[3:0] spi_token;
+initial spi_token = 4'b0001;
+
+always @(posedge sysclk)
+begin
+    spi_token <= {spi_token[2:0], spi_token[3]};
+end
+
 // --------------------------------------------------------------------------
 // QLA prom 25AA128
 //    - SPI pin connection see QLA schematics
 //    - TEMP version, interface subject to future change
 // --------------------------------------------------------------------------
+
+wire reg_wen_prom_qla1;
+assign reg_wen_prom_qla1 = ((reg_waddr[15:12] == `ADDR_PROM_QLA) && (reg_waddr[7:4] == 4'd1)) ?
+                           reg_wen : 1'b0;
 
 QLA25AA128 Q1_prom_qla(
     .clk(sysclk),
@@ -731,18 +761,22 @@ QLA25AA128 Q1_prom_qla(
     .reg_rdata(reg_rdata_prom_qla1),
     .reg_wdata(reg_wdata),
         
-    .reg_wen(reg_wen),
-    .blk_wen(blk_wen),
-    .blk_wstart(blk_wstart),
+    .reg_wen(reg_wen_prom_qla1),
+    .blk_wen(blk_wen),       // not used
+    .blk_wstart(blk_wstart), // not used
 
     // spi interface
     .prom_mosi(Q1_prom_mosi),
     .prom_miso(miso1),
     .prom_sclk(Q1_prom_sclk),
     .prom_cs(Q1_prom_CSn),
-    .other_busy(Q1_ioexp_busy),
+    .other_busy(Q1_ioexp_busy|Q2_prom_busy|Q2_ioexp_busy|(~spi_token[0])),
     .this_busy(Q1_prom_busy)
 );
+
+wire reg_wen_prom_qla2;
+assign reg_wen_prom_qla2 = ((reg_waddr[15:12] == `ADDR_PROM_QLA) && (reg_waddr[7:4] == 4'd2)) ?
+                           reg_wen : 1'b0;
 
 QLA25AA128 Q2_prom_qla(
     .clk(sysclk),
@@ -753,16 +787,16 @@ QLA25AA128 Q2_prom_qla(
     .reg_rdata(reg_rdata_prom_qla2),
     .reg_wdata(reg_wdata),
         
-    .reg_wen(reg_wen),
-    .blk_wen(blk_wen),
-    .blk_wstart(blk_wstart),
+    .reg_wen(reg_wen_prom_qla2),
+    .blk_wen(blk_wen),       // not used
+    .blk_wstart(blk_wstart), // not used
 
     // spi interface
     .prom_mosi(Q2_prom_mosi),
     .prom_miso(miso1),
     .prom_sclk(Q2_prom_sclk),
     .prom_cs(Q2_prom_CSn),
-    .other_busy(Q2_ioexp_busy),
+    .other_busy(Q1_prom_busy|Q1_ioexp_busy|Q2_ioexp_busy|(~spi_token[1])),
     .this_busy(Q2_prom_busy)
 );
 
@@ -774,7 +808,7 @@ wire Q1_safety_fb_n;         // 0 -> voltage present on safety line
 wire Q1_mv_fb;               // Feedback from comparator between DAC4 and motor supply
 
 Max7317
-    #(.IOEXP_ID(1))
+    #(.IOEXP_ID(1), .CLKBIT(1))
 Q1_IO_Exp(
     .clk(sysclk),
 
@@ -794,7 +828,7 @@ Q1_IO_Exp(
     .miso(miso1),
     .sclk(Q1_ioexp_sclk),
     .CSn(Q1_ioexp_CSn),
-    .other_busy(Q1_prom_busy),
+    .other_busy(Q1_prom_busy|Q2_prom_busy|Q2_ioexp_busy|(~spi_token[2])),
     .this_busy(Q1_ioexp_busy),
 
     // Signals
@@ -810,7 +844,7 @@ wire Q2_safety_fb_n;         // 0 -> voltage present on safety line
 wire Q2_mv_fb;               // Feedback from comparator between DAC4 and motor supply
 
 Max7317
-    #(.IOEXP_ID(2))
+    #(.IOEXP_ID(2), .CLKBIT(1))
 Q2_IO_Exp(
     .clk(sysclk),
 
@@ -830,7 +864,7 @@ Q2_IO_Exp(
     .miso(miso1),
     .sclk(Q2_ioexp_sclk),
     .CSn(Q2_ioexp_CSn),
-    .other_busy(Q2_prom_busy),
+    .other_busy(Q1_prom_busy|Q2_prom_busy|Q1_ioexp_busy|(~spi_token[3])),
     .this_busy(Q2_ioexp_busy),
 
     // Signals
@@ -871,7 +905,11 @@ Max7301x2 #(.IOEXP_ID1(3), .IOEXP_ID2(4)) DQLA_IOExp(
     .IOP1_read({Q1_IOP[27:17],Q1_IOP[11:4]}),
     .IOP2_31_28(Q2_IOP[31:28]),
     .IOP2_16_12(Q2_IOP[16:12]),
-    .IOP2_read({Q2_IOP[27:17],Q2_IOP[11:4]})
+    .IOP2_read({Q2_IOP[27:17],Q2_IOP[11:4]}),
+
+    // Errors
+    .IOP1_16_12_error(Q1_IOP_Error[16:12]),
+    .IOP2_16_12_error(Q2_IOP_Error[16:12])
 );
 
 // --------------------------------------------------------------------------
@@ -927,6 +965,7 @@ BoardRegsDQLA chan0(
     .dout_cfg_bidir({Q2_dout_config_bidir, Q1_dout_config_bidir}),
     .dout_cfg_reset(dout_config_reset),
     .pwr_enable({Q2_pwr_en, Q1_pwr_en}),
+    .pwr_enable_error({Q2_pwr_en_error, Q1_pwr_en_error}),
     .relay_on(relay_on),
     .isQuadDac({Q2_is_quad_dac, Q1_is_quad_dac}),
     .dac_test_reset(dac_test_reset),
@@ -992,7 +1031,8 @@ WriteRtData #(.NUM_MOTORS(8)) rt_write(
     .bw_block_wen(bw_blk_wen),
     .bw_block_wstart(bw_blk_wstart),
     .bw_reg_waddr(bw_reg_waddr),
-    .bw_reg_wdata(bw_reg_wdata)
+    .bw_reg_wdata(bw_reg_wdata),
+    .dac_update(dac_update)
 );
 
 //------------------------------------------------------------------------------

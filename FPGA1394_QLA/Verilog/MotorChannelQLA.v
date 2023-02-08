@@ -3,7 +3,7 @@
 
 /*******************************************************************************    
  *
- * Copyright(C) 2022 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2022-2023 Johns Hopkins University.
  *
  * This module handles a motor channel for the QLA
  *
@@ -22,7 +22,7 @@ module MotorChannelQLA
     input  wire[31:0] reg_wdata,     // register write data
     input  wire reg_wen,             // reg write enable
     output wire[31:0] motor_status,  // motor status feedback
-    output reg[31:0] motor_config,   // motor configuration register
+    output wire[31:0] motor_config,  // motor configuration register
 
     input wire ioexp_present,        // whether I/O expander present
 
@@ -32,6 +32,7 @@ module MotorChannelQLA
     input wire mv_amp_disable,       // disable amp for short time after mv_good
     input wire wdog_timeout,         // 1 -> watchdog timeout
     input wire amp_fault,            // amplifier fault feedback
+    input wire amp_disable_error,    // 1 -> error in amp_disable output (DQLA only)
     input wire cur_ctrl_error,       // 1 -> error in cur_ctrl output
     input wire disable_f_error,      // 1 -> error in disable_f output
     output wire amp_disable_pin,     // signal to drive FPGA pin
@@ -44,7 +45,11 @@ module MotorChannelQLA
     input wire[15:0] cur_fb          // Measured current
 );
 
-// Motor configuration register
+initial cur_cmd = 16'h8000;
+
+// Motor configuration register (upper 8 bits are read-only)
+//    25:   1 -> voltage control available (R/O)
+//    24:   1 -> (analog) current control available (R/O)
 //    17:   disable_safety
 //    16:   force_disable_f
 //   7-0:   delay (20.83 us resolution)
@@ -53,7 +58,10 @@ module MotorChannelQLA
 // for the follower op amp to reach Vm/2 after it is enabled. However, testing on a
 // dVRK MTM indicates that the delay must be greater than 1 ms to avoid jerks when
 // powering up the motors.
-initial motor_config = 32'd120;   // 120 --> 2.5 ms delay
+reg[23:0] motor_config_reg;
+initial motor_config_reg = 24'd120;   // 120 --> 2.5 ms delay
+
+assign motor_config = { 6'd0, ioexp_present, 1'b1, motor_config_reg };
 
 assign force_disable_f = motor_config[16];
 
@@ -127,9 +135,10 @@ endgenerate
 
 // Motor Status
 //
-//   31:30   00
-//      29   ~reg_disable
-//      28   ~amp_disable
+//      31   0
+//      30   amp_disable_error (1 -> error with amp_disable output, DQLA only)
+//      29   amp_fault (active low, 1 -> amplifier on)
+//      28   ~reg_disable
 //   27:24   ctrl_mode
 //   23:21   000
 //      20   cur_ctrl (1-> current control)
@@ -140,35 +149,31 @@ endgenerate
 //    15:0   cur_cmd (last setpoint)
 //
 // NOTE: if bit assignments changed, check if QLA.v needs to be updated
-assign motor_status = { 2'b00, ~reg_disable, ~amp_disable, ctrl_mode, 3'd0, cur_ctrl,
+assign motor_status = { 1'b0, amp_disable_error, amp_fault, ~reg_disable, ctrl_mode, 3'd0, cur_ctrl,
                         cur_ctrl_error, disable_f_error, safety_amp_disable, amp_fault_fb,
                         cur_cmd};
 
-// Flag to indicate whether I/O expander needs a one-time fix
-reg[11:0] ioexp_cfg_hack;
+// Valid control modes:
+//    0: current control (always)
+//    1: voltage control (if ioexp_present)
+wire valid_ctrl_mode;
+assign valid_ctrl_mode = (reg_wdata[27:24] == 4'd0) ||
+                         (ioexp_present && (reg_wdata[27:24] == 4'd1));
 
 always @(posedge clk)
 begin
     if (dac_reg_wen) begin
-        if (reg_wdata[31]) cur_cmd <= reg_wdata[15:0];
+        // If the valid bit (reg_wdata[31]) is set AND the specified control mode
+        // (reg_wdata[27:24]) is valid, save the commanded value (reg_wdata[15:0])
+        // and control mode.
+        if (reg_wdata[31] && valid_ctrl_mode) begin
+            cur_cmd <= reg_wdata[15:0];
+            ctrl_mode <= reg_wdata[27:24];
+        end
         reg_disable <= (~pwr_enable) | safety_disable | (reg_wdata[29] ? ~reg_wdata[28] : reg_disable);
-        // Save the current control mode; note that the I/O expander must be
-        // present to select anything other than current control (0).
-        // This restriction could be removed if other control modes are created
-        // that do not require QLA 1.5+.
-        if ((ioexp_cfg_hack != 12'hfff) && (cur_ctrl_error || (ioexp_cfg_hack != 12'd0))
-            && (reg_wdata[27:24] == 4'd0)) begin
-            // Temporary fix for startup problem. If cur_ctrl_error, temporarily
-            // switch to voltage control.
-            ioexp_cfg_hack <= ioexp_cfg_hack + 12'd1;
-            ctrl_mode <= 4'd1;
-        end
-        else begin
-            if (reg_wdata[31]) ctrl_mode <= ioexp_present ? reg_wdata[27:24] : 4'd0;
-        end
     end
     else if (motor_reg_wen) begin
-        motor_config <= reg_wdata;
+        motor_config_reg <= reg_wdata[23:0];
     end
     else if (status_reg_wen) begin
         reg_disable <= (~pwr_enable) | safety_disable | (reg_wdata[CHANNEL+7] ? ~reg_wdata[CHANNEL-1] : reg_disable);
@@ -191,11 +196,33 @@ end
 // Only delay the enable (i.e., amp_disable == 0)
 assign amp_disable_pin = ((amp_enable_cnt == delay_cnt) || !ioexp_present) ? amp_disable : 1'b1;
 
+// write motor current limit
+reg [31:0] motor_safety_reg;
+initial 
+begin
+    motor_safety_reg = 32'h00008418;  // 200mA
+end
+
+wire motor_safety_reg_wen;
+assign motor_safety_reg_wen = (reg_waddr[15:0] == {`ADDR_MAIN, 4'd0, CHANNEL, `OFF_MOTOR_SAFETY}) ? reg_wen : 1'd0;
+
+always @(posedge clk)
+begin
+    if (motor_safety_reg_wen) begin
+        motor_safety_reg <= reg_wdata[31:0];
+    end
+end
+
+wire [15:0] cur_lim;
+assign cur_lim = motor_safety_reg[15:0];
+
 SafetyCheck safe(
     .clk(clk),
     .cur_in(cur_fb),
     .dac_in(cur_cmd),
-    .enable_check((~disable_safety) & cur_ctrl),
+    .cur_lim(cur_lim),
+    .ctrl_mode(ctrl_mode),
+    .enable_check(~disable_safety),
     .clear_disable(clr_safety_disable),
     .amp_disable(safety_amp_disable)
 );
