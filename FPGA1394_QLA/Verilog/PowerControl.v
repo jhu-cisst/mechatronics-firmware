@@ -48,7 +48,7 @@ wire pwr_enable_cmd;
 assign pwr_enable_cmd = write_status ? (reg_wdata[19]&reg_wdata[18]) : 1'd0;
 wire [3:0] wchannel = reg_waddr[7:4];
 
-reg bypass_interlocks;
+reg [NUM_INTERLOCKS - 1:0] bypass_interlocks;
 
 reg [1:NUM_MOTORS] reg_enable;
 reg [1:NUM_MOTORS] amp_enable_cmd;
@@ -64,10 +64,7 @@ integer i;
 always @(posedge sysclk) begin
     motor_channel_enable_pin <= (motor_channel_enable_pin | amp_enable_pending) &
         reg_enable & ~motor_channel_fault &
-        ((&interlocks || bypass_interlocks) ? 'hFFFF : 'h0000); 
-    // motor_channel_enable_pin <= (motor_channel_enable_pin | amp_enable_cmd) &
-    //     reg_enable & ~motor_channel_fault &
-    //     ((&interlocks || bypass_interlocks) ? 'hFFFF : 'h0000); 
+        ((&(interlocks | bypass_interlocks)) ? 'hFFFF : 'h0000); 
     for (i=1; i<=NUM_MOTORS; i=i+1) begin
         if (amp_enable_cmd[i]) amp_enable_pending[i] <= 'b1;
         if (motor_channel_enable_pin[i]) amp_enable_pending[i] <= 'b0;
@@ -86,7 +83,7 @@ always @(posedge sysclk) begin
 
     if (reg_waddr[15:12]==`ADDR_BOARD_SPECIFIC && reg_wen) begin
         case (reg_waddr[11:0])
-            'h100: bypass_interlocks <= reg_wdata[0];
+            'h100: bypass_interlocks <= reg_wdata;
         endcase
     end
 end

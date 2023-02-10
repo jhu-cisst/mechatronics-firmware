@@ -356,7 +356,7 @@ wire[31:0] reg_digin;     // Digital I/O register
 wire[15:0] tempsense;     // Temperature sensor
 wire[15:0] reg_databuf;   // Data collection status
 wire is_ecm;
-wire[11:0] reg_status12 = {10'b0, interlocks[3:2]};
+wire[11:0] reg_status12 = {9'b0, ESPMV_GOODn, esii_escc_comm_good, espm_comm_good};
 BoardRegsDRAC chan0(
     .sysclk(sysclk),
     .pwr_enable(MV_EN),
@@ -644,7 +644,8 @@ begin
         'h000: reg_rdata_board_specific = crc_err_count;
         'h001: reg_rdata_board_specific = crc_good_count;
         'h002: reg_rdata_board_specific = mv;
-        'h003: reg_rdata_board_specific = {is_ecm, esii_escc_comm_good, espm_comm_good, SAFETY_CHAIN_GOOD, ESPMV_GOODn};
+        // 'h003: reg_rdata_board_specific = {is_ecm, esii_escc_comm_good, espm_comm_good, SAFETY_CHAIN_GOOD, ESPMV_GOODn};
+        'h004: reg_rdata_board_specific = {22'b0, OTWn, FAULTn};
         'h010: reg_rdata_board_specific = rdata_misc[2]; // esii status
         'h011: reg_rdata_board_specific = rdata_misc[3]; // adc current {cannula_vmon,P5V_lcl_vmon}
         'h012: reg_rdata_board_specific = rdata_misc[4]; // instrument model
@@ -652,7 +653,7 @@ begin
         'h020: reg_rdata_board_specific = {reg_databuf, tempsense};
         'h021: reg_rdata_board_specific = reg_digin;
         // 'h021: reg_rdata_board_specific = 'hffffffff;
-        'hfff: reg_rdata_board_specific = 'h04400000; // development build number
+        'hfff: reg_rdata_board_specific = 'h2; // development build number
         default: reg_rdata_board_specific = 'hcccc;
     endcase
 end
