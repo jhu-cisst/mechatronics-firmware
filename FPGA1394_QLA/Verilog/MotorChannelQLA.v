@@ -47,26 +47,37 @@ module MotorChannelQLA
 
 initial cur_cmd = 16'h8000;
 
-// Motor configuration register (upper 8 bits are read-only)
-//    25:   1 -> voltage control available (R/O)
-//    24:   1 -> (analog) current control available (R/O)
-//    17:   disable_safety
-//    16:   force_disable_f
-//   7-0:   delay (20.83 us resolution)
-//
+// Specified delay, resolution is 20.83 us
+// With 8 bits, maximum possible delay is 5.3 ms
 // Based on oscilloscope measurements, using a resistive load, it takes about 45 us
 // for the follower op amp to reach Vm/2 after it is enabled. However, testing on a
 // dVRK MTM indicates that the delay must be greater than 1 ms to avoid jerks when
 // powering up the motors.
-reg[23:0] motor_config_reg;
-initial motor_config_reg = 24'd120;   // 120 --> 2.5 ms delay
+reg[7:0] delay_cnt;
+initial delay_cnt = 8'd120;  // 120 --> 2.5 ms delay
 
-assign motor_config = { 6'd0, ioexp_present, 1'b1, motor_config_reg };
+// Motor current limit
+reg[15:0] cur_lim;
+initial cur_lim = 16'h8418;  // 200mA
 
-assign force_disable_f = motor_config[16];
+reg force_disable_f;
 
-wire disable_safety;             // 1 -> disable motor current safety check
-assign disable_safety = motor_config[17];
+// Following disables motor safety check, which checks that measured current is
+// consistent with commanded current. It does not disable the motor current limit,
+// which (at present) is only active when the QLA is in voltage control mode (QLA 1.5+).
+reg disable_safety;
+
+// Motor configuration register (some bits are read-only)
+//    31:   disable_safety
+//    30:   force_disable_f
+// 29-26:   0 (R/O)
+//    25:   1 -> voltage control available (R/O)
+//    24:   1 -> (analog) current control available (R/O)
+// 23-16:   delay (20.83 us resolution)
+//  15-0:   motor current limit
+
+assign motor_config = { disable_safety, force_disable_f, 4'd0, ioexp_present, 1'b1,
+                        delay_cnt, cur_lim };
 
 // Current or voltage control
 //   (ctrl_mode == 0) --> current control, set cur_ctrl = 1
@@ -82,11 +93,6 @@ assign amp_fault_fb = ~(amp_disable|amp_fault);
 
 // Delay counter
 reg[7:0] amp_enable_cnt;
-
-// Specified delay, resolution is 20.83 us
-// With 8 bits, maximum possible delay is 5.3 ms
-wire[7:0] delay_cnt;
-assign delay_cnt = motor_config[7:0];
 
 // Amp enable from bits [29:28] written to DAC.
 // For the QLA, this can also be written via the status register (USE_STATUS_REG parameter);
@@ -173,7 +179,10 @@ begin
         reg_disable <= (~pwr_enable) | safety_disable | (reg_wdata[29] ? ~reg_wdata[28] : reg_disable);
     end
     else if (motor_reg_wen) begin
-        motor_config_reg <= reg_wdata[23:0];
+        disable_safety <= reg_wdata[31];
+        force_disable_f <= reg_wdata[30];
+        delay_cnt <= reg_wdata[23:16];
+        cur_lim <= reg_wdata[15:0];
     end
     else if (status_reg_wen) begin
         reg_disable <= (~pwr_enable) | safety_disable | (reg_wdata[CHANNEL+7] ? ~reg_wdata[CHANNEL-1] : reg_disable);
@@ -196,33 +205,13 @@ end
 // Only delay the enable (i.e., amp_disable == 0)
 assign amp_disable_pin = ((amp_enable_cnt == delay_cnt) || !ioexp_present) ? amp_disable : 1'b1;
 
-// write motor current limit
-reg [31:0] motor_safety_reg;
-initial 
-begin
-    motor_safety_reg = 32'h00008418;  // 200mA
-end
-
-wire motor_safety_reg_wen;
-assign motor_safety_reg_wen = (reg_waddr[15:0] == {`ADDR_MAIN, 4'd0, CHANNEL, `OFF_MOTOR_SAFETY}) ? reg_wen : 1'd0;
-
-always @(posedge clk)
-begin
-    if (motor_safety_reg_wen) begin
-        motor_safety_reg <= reg_wdata[31:0];
-    end
-end
-
-wire [15:0] cur_lim;
-assign cur_lim = motor_safety_reg[15:0];
-
 SafetyCheck safe(
     .clk(clk),
     .cur_in(cur_fb),
     .dac_in(cur_cmd),
     .cur_lim(cur_lim),
-    .ctrl_mode(ctrl_mode),
-    .enable_check(~disable_safety),
+    .enable_check((~disable_safety) & cur_ctrl),
+    .enable_limit(~cur_ctrl),             // Check current limit in voltage mode
     .clear_disable(clr_safety_disable),
     .amp_disable(safety_amp_disable)
 );

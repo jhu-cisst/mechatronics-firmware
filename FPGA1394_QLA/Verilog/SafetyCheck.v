@@ -2,7 +2,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2013-2022 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2013-2023 ERC CISST, Johns Hopkins University.
  *
  * This module performs a safety check by comparing the measured motor current
  * (cur_in) to the commanded motor current (dac_in). If the difference is too
@@ -36,8 +36,8 @@ module SafetyCheck(
     input  wire[15:0] cur_in,   // feedback current
     input  wire[15:0] dac_in,   // command current
     input  wire[15:0] cur_lim,  // maximum allowed current (voltage mode)
-    input  wire[3:0]  ctrl_mode,// motor control mode
-    input  wire enable_check,   // 1 -> enable safety check
+    input  wire enable_check,   // 1 -> enable safety check (measured vs. commanded current)
+    input  wire enable_limit,   // 1 -> enable current limit check
     input  wire clear_disable,  // signal to clear amplifier disable
     output reg  amp_disable     // amplifier disable
     );
@@ -59,7 +59,7 @@ module SafetyCheck(
 
     always @ (posedge clk)
     begin
-        if (enable_check && (ctrl_mode == 4'd0)) begin
+        if (enable_check) begin
             // If measured current is small (150 mA), clear error counter
             if ((cur_in < 16'h8300) && (cur_in > 16'h7d00)) begin
                error_counter <= 24'd0;
@@ -81,9 +81,9 @@ module SafetyCheck(
                end
             end
         end
-        else if (enable_check && (ctrl_mode == 4'd1)) begin
-            // if motor is in voltage mode, activate current value check
-            // i.e., current feedback needs to be lower than configured current limit
+        else if (enable_limit) begin
+            // Current limit check (measured current must be lower than current limit).
+            // Note that both safety checks cannot be active at the same time.
             if ((cur_in > cur_lim) || (cur_in < -cur_lim)) begin
                 error_counter <= error_counter + 1'b1;
             end
