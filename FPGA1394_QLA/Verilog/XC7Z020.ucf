@@ -2,82 +2,83 @@
 
 ################################################################################
 # Main I/O Ports
+# PULLUP / PULLDOWN specified in board constraint file (e.g., QLA.ucf)
 ################################################################################
-NET  "IO1[0]"     LOC = " N18"    | IOSTANDARD = "LVCMOS33" | PULLUP;  # FPGA V3.1 (LED in V3.0)
-NET  "IO1[1]"     LOC = " M20"    | IOSTANDARD = "LVCMOS33" | PULLUP;  # MISO prom_qla
-NET  "IO1[2]"     LOC = " M19"    | IOSTANDARD = "LVCMOS33" | PULLUP;  # MOSI
-NET  "IO1[3]"     LOC = " L20"    | IOSTANDARD = "LVCMOS33" | PULLUP;  # SCLK
-NET  "IO1[4]"     LOC = " L19"    | IOSTANDARD = "LVCMOS33" | PULLUP;  # /EEPROM
-NET  "IO1[5]"     LOC = " K19"    | IOSTANDARD = "LVCMOS33" | PULLUP;  # Dir34
-NET  "IO1[6]"     LOC = " K18"    | IOSTANDARD = "LVCMOS33" | PULLUP;  # Dir12
-NET  "IO1[7]"     LOC = " J19"    | IOSTANDARD = "LVCMOS33" | PULLUP;  # /MV-FLT (QLA 1.4+)
-NET  "IO1[8]"     LOC = " J20"    | IOSTANDARD = "LVCMOS33" | PULLUP;  # /IOEXP (QLA 1.5+)
-NET  "IO1[9]"     LOC = " G20"    | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO1[10]"    LOC = " H20"    | IOSTANDARD = "LVCMOS33";           # Ltc1864 sclk
-NET  "IO1[11]"    LOC = " E19"    | IOSTANDARD = "LVCMOS33";           # Ltc1864 conv
-NET  "IO1[12]"    LOC = " N15"    | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO1[13]"    LOC = " M15"    | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO1[14]"    LOC = " M17"    | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO1[15]"    LOC = " L16"    | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO1[16]"    LOC = " L15"    | IOSTANDARD = "LVCMOS33";           # dout 4
-NET  "IO1[17]"    LOC = " K14"    | IOSTANDARD = "LVCMOS33";           # dout 3
-NET  "IO1[18]"    LOC = " K16"    | IOSTANDARD = "LVCMOS33";           # dout 2
-NET  "IO1[19]"    LOC = " K17"    | IOSTANDARD = "LVCMOS33";           # dout 1
-NET  "IO1[20]"    LOC = " J18"    | IOSTANDARD = "LVCMOS33";           # Ltc2601 mosi
-NET  "IO1[21]"    LOC = " J15"    | IOSTANDARD = "LVCMOS33";           # Ltc2601 sclk
-NET  "IO1[22]"    LOC = " H18"    | IOSTANDARD = "LVCMOS33";           # Ltc2601 csel
-NET  "IO1[23]"    LOC = " G18"    | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO1[24]"    LOC = " H15"    | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO1[25]"    LOC = " G17"    | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO1[26]"    LOC = " F17"    | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO1[27]"    LOC = " G15"    | IOSTANDARD = "LVCMOS33";           # Ltc1864 conv
-NET  "IO1[28]"    LOC = " F16"    | IOSTANDARD = "LVCMOS33";           # Ltc1864 sclk
-NET  "IO1[29]"    LOC = " J14"    | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO1[30]"    LOC = " G14"    | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO1[31]"    LOC = " M14"    | IOSTANDARD = "LVCMOS33";           # pwr_enable
-NET  "IO1[32]"    LOC = " L14"    | IOSTANDARD = "LVCMOS33";           # relay_on
-NET  "IO1[33]"    LOC = " N17"    | IOSTANDARD = "LVCMOS33";           # FPGA V3.1
+NET  "IO1[0]"     LOC = " N18"    | IOSTANDARD = "LVCMOS33";   # FPGA V3.1 (LED in V3.0)
+NET  "IO1[1]"     LOC = " M20"    | IOSTANDARD = "LVCMOS33";
+NET  "IO1[2]"     LOC = " M19"    | IOSTANDARD = "LVCMOS33";
+NET  "IO1[3]"     LOC = " L20"    | IOSTANDARD = "LVCMOS33";
+NET  "IO1[4]"     LOC = " L19"    | IOSTANDARD = "LVCMOS33";
+NET  "IO1[5]"     LOC = " K19"    | IOSTANDARD = "LVCMOS33";
+NET  "IO1[6]"     LOC = " K18"    | IOSTANDARD = "LVCMOS33";
+NET  "IO1[7]"     LOC = " J19"    | IOSTANDARD = "LVCMOS33";
+NET  "IO1[8]"     LOC = " J20"    | IOSTANDARD = "LVCMOS33";
+NET  "IO1[9]"     LOC = " G20"    | IOSTANDARD = "LVCMOS33";
+NET  "IO1[10]"    LOC = " H20"    | IOSTANDARD = "LVCMOS33";
+NET  "IO1[11]"    LOC = " E19"    | IOSTANDARD = "LVCMOS33";
+NET  "IO1[12]"    LOC = " N15"    | IOSTANDARD = "LVCMOS33";
+NET  "IO1[13]"    LOC = " M15"    | IOSTANDARD = "LVCMOS33";
+NET  "IO1[14]"    LOC = " M17"    | IOSTANDARD = "LVCMOS33";
+NET  "IO1[15]"    LOC = " L16"    | IOSTANDARD = "LVCMOS33";
+NET  "IO1[16]"    LOC = " L15"    | IOSTANDARD = "LVCMOS33";
+NET  "IO1[17]"    LOC = " K14"    | IOSTANDARD = "LVCMOS33";
+NET  "IO1[18]"    LOC = " K16"    | IOSTANDARD = "LVCMOS33";
+NET  "IO1[19]"    LOC = " K17"    | IOSTANDARD = "LVCMOS33";
+NET  "IO1[20]"    LOC = " J18"    | IOSTANDARD = "LVCMOS33";
+NET  "IO1[21]"    LOC = " J15"    | IOSTANDARD = "LVCMOS33";
+NET  "IO1[22]"    LOC = " H18"    | IOSTANDARD = "LVCMOS33";
+NET  "IO1[23]"    LOC = " G18"    | IOSTANDARD = "LVCMOS33";
+NET  "IO1[24]"    LOC = " H15"    | IOSTANDARD = "LVCMOS33";
+NET  "IO1[25]"    LOC = " G17"    | IOSTANDARD = "LVCMOS33";
+NET  "IO1[26]"    LOC = " F17"    | IOSTANDARD = "LVCMOS33";
+NET  "IO1[27]"    LOC = " G15"    | IOSTANDARD = "LVCMOS33";
+NET  "IO1[28]"    LOC = " F16"    | IOSTANDARD = "LVCMOS33";
+NET  "IO1[29]"    LOC = " J14"    | IOSTANDARD = "LVCMOS33";
+NET  "IO1[30]"    LOC = " G14"    | IOSTANDARD = "LVCMOS33";
+NET  "IO1[31]"    LOC = " M14"    | IOSTANDARD = "LVCMOS33";
+NET  "IO1[32]"    LOC = " L14"    | IOSTANDARD = "LVCMOS33";
+NET  "IO1[33]"    LOC = " N17"    | IOSTANDARD = "LVCMOS33";   # FPGA V3.1
 
-NET  "IO2[0]"     LOC = "T16"     | IOSTANDARD = "LVCMOS33";           # FPGA V3.1
-NET  "IO2[1]"     LOC = "P16"     | IOSTANDARD = "LVCMOS33";           # LED 1 green
-NET  "IO2[2]"     LOC = "P18"     | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO2[3]"     LOC = "R17"     | IOSTANDARD = "LVCMOS33";           # LED 1 red
-NET  "IO2[4]"     LOC = "R18"     | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO2[5]"     LOC = "T19"     | IOSTANDARD = "LVCMOS33";           # LED 2 green
-NET  "IO2[6]"     LOC = "U18"     | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO2[7]"     LOC = "U19"     | IOSTANDARD = "LVCMOS33";           # LED 2 red
-NET  "IO2[8]"     LOC = "U20"     | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO2[9]"     LOC = "W20"     | IOSTANDARD = "LVCMOS33" | PULLUP;  # Relay status
-NET  "IO2[10]"    LOC = "V20"     | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO2[11]"    LOC = "V18"     | IOSTANDARD = "LVCMOS33" | PULLDOWN;  # MV-GOOD
-NET  "IO2[12]"    LOC = "W19"     | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO2[13]"    LOC = "T17"     | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO2[14]"    LOC = "W16"     | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO2[15]"    LOC = "V17"     | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO2[16]"    LOC = "W15"     | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO2[17]"    LOC = "V16"     | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO2[18]"    LOC = "T15"     | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO2[19]"    LOC = "V15"     | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO2[20]"    LOC = "P14"     | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO2[21]"    LOC = "R14"     | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO2[22]"    LOC = "W18"     | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO2[23]"    LOC = "Y19"     | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO2[24]"    LOC = "Y18"     | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO2[25]"    LOC = "Y16"     | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO2[26]"    LOC = "Y17"     | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO2[27]"    LOC = "U15"     | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO2[28]"    LOC = "Y14"     | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO2[29]"    LOC = "T14"     | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO2[30]"    LOC = "W14"     | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO2[31]"    LOC = "P15"     | IOSTANDARD = "LVCMOS33" | PULLDOWN;  # /fault (1=amp_on)
-NET  "IO2[32]"    LOC = "W13"     | IOSTANDARD = "LVCMOS33";             # amp_disable
-NET  "IO2[33]"    LOC = "V13"     | IOSTANDARD = "LVCMOS33" | PULLDOWN;  # /fault (1=amp_on)
-NET  "IO2[34]"    LOC = "V12"     | IOSTANDARD = "LVCMOS33";             # amp_disable
-NET  "IO2[35]"    LOC = "U12"     | IOSTANDARD = "LVCMOS33" | PULLDOWN;  # /fault (1=amp_on)
-NET  "IO2[36]"    LOC = "T11"     | IOSTANDARD = "LVCMOS33";             # amp_disable
-NET  "IO2[37]"    LOC = "T10"     | IOSTANDARD = "LVCMOS33" | PULLDOWN;  # /fault (1=amp_on)
-NET  "IO2[38]"    LOC = "T12"     | IOSTANDARD = "LVCMOS33";             # amp_disable
-NET  "IO2[39]"    LOC = "U17"     | IOSTANDARD = "LVCMOS33";             # FPGA V3.1
+NET  "IO2[0]"     LOC = "T16"     | IOSTANDARD = "LVCMOS33";   # FPGA V3.1
+NET  "IO2[1]"     LOC = "P16"     | IOSTANDARD = "LVCMOS33";
+NET  "IO2[2]"     LOC = "P18"     | IOSTANDARD = "LVCMOS33";
+NET  "IO2[3]"     LOC = "R17"     | IOSTANDARD = "LVCMOS33";
+NET  "IO2[4]"     LOC = "R18"     | IOSTANDARD = "LVCMOS33";
+NET  "IO2[5]"     LOC = "T19"     | IOSTANDARD = "LVCMOS33";
+NET  "IO2[6]"     LOC = "U18"     | IOSTANDARD = "LVCMOS33";
+NET  "IO2[7]"     LOC = "U19"     | IOSTANDARD = "LVCMOS33";
+NET  "IO2[8]"     LOC = "U20"     | IOSTANDARD = "LVCMOS33";
+NET  "IO2[9]"     LOC = "W20"     | IOSTANDARD = "LVCMOS33";
+NET  "IO2[10]"    LOC = "V20"     | IOSTANDARD = "LVCMOS33";
+NET  "IO2[11]"    LOC = "V18"     | IOSTANDARD = "LVCMOS33";
+NET  "IO2[12]"    LOC = "W19"     | IOSTANDARD = "LVCMOS33";
+NET  "IO2[13]"    LOC = "T17"     | IOSTANDARD = "LVCMOS33";
+NET  "IO2[14]"    LOC = "W16"     | IOSTANDARD = "LVCMOS33";
+NET  "IO2[15]"    LOC = "V17"     | IOSTANDARD = "LVCMOS33";
+NET  "IO2[16]"    LOC = "W15"     | IOSTANDARD = "LVCMOS33";
+NET  "IO2[17]"    LOC = "V16"     | IOSTANDARD = "LVCMOS33";
+NET  "IO2[18]"    LOC = "T15"     | IOSTANDARD = "LVCMOS33";
+NET  "IO2[19]"    LOC = "V15"     | IOSTANDARD = "LVCMOS33";
+NET  "IO2[20]"    LOC = "P14"     | IOSTANDARD = "LVCMOS33";
+NET  "IO2[21]"    LOC = "R14"     | IOSTANDARD = "LVCMOS33";
+NET  "IO2[22]"    LOC = "W18"     | IOSTANDARD = "LVCMOS33";
+NET  "IO2[23]"    LOC = "Y19"     | IOSTANDARD = "LVCMOS33";
+NET  "IO2[24]"    LOC = "Y18"     | IOSTANDARD = "LVCMOS33";
+NET  "IO2[25]"    LOC = "Y16"     | IOSTANDARD = "LVCMOS33";
+NET  "IO2[26]"    LOC = "Y17"     | IOSTANDARD = "LVCMOS33";
+NET  "IO2[27]"    LOC = "U15"     | IOSTANDARD = "LVCMOS33";
+NET  "IO2[28]"    LOC = "Y14"     | IOSTANDARD = "LVCMOS33";
+NET  "IO2[29]"    LOC = "T14"     | IOSTANDARD = "LVCMOS33";
+NET  "IO2[30]"    LOC = "W14"     | IOSTANDARD = "LVCMOS33";
+NET  "IO2[31]"    LOC = "P15"     | IOSTANDARD = "LVCMOS33";
+NET  "IO2[32]"    LOC = "W13"     | IOSTANDARD = "LVCMOS33";
+NET  "IO2[33]"    LOC = "V13"     | IOSTANDARD = "LVCMOS33";
+NET  "IO2[34]"    LOC = "V12"     | IOSTANDARD = "LVCMOS33";
+NET  "IO2[35]"    LOC = "U12"     | IOSTANDARD = "LVCMOS33";
+NET  "IO2[36]"    LOC = "T11"     | IOSTANDARD = "LVCMOS33";
+NET  "IO2[37]"    LOC = "T10"     | IOSTANDARD = "LVCMOS33";
+NET  "IO2[38]"    LOC = "T12"     | IOSTANDARD = "LVCMOS33";
+NET  "IO2[39]"    LOC = "U17"     | IOSTANDARD = "LVCMOS33";   # FPGA V3.1
 
 ################################################################################
 # Clock Inputs

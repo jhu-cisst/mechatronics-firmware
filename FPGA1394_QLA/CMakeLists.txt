@@ -135,6 +135,7 @@ ise_compile_fpga(PROJ_NAME      "FPGA1394QLA"
                  FPGA_PARTNUM   ${FPGA_PARTNUM}
                  VERILOG_SOURCE ${VERILOG_SOURCE_FPGAV1_QLA}
                  UCF_FILE       "${VERILOG_SOURCE_DIR}/XC6S45.ucf"
+                 BOARD_UCF_FILE "${VERILOG_SOURCE_DIR}/QLA.ucf"
                  IPCORE_DIR     ${IPCORE_BINARY_DIR}
                  TOP_LEVEL      "FPGA1394QLA"
                  PROJ_OUTPUT    "FPGA1394-QLA")
@@ -153,6 +154,7 @@ ise_compile_fpga(PROJ_NAME      "FPGA1394EthQLA"
                  FPGA_PARTNUM   ${FPGA_PARTNUM}
                  VERILOG_SOURCE ${VERILOG_SOURCE_FPGAV2_QLA}
                  UCF_FILE       "${VERILOG_SOURCE_DIR}/XC6S45-Rev2.ucf"
+                 BOARD_UCF_FILE "${VERILOG_SOURCE_DIR}/QLA.ucf"
                  IPCORE_DIR     ${IPCORE_BINARY_DIR}
                  TOP_LEVEL      "FPGA1394EthQLA"
                  PROJ_OUTPUT    "FPGA1394Eth-QLA")
@@ -171,6 +173,7 @@ ise_compile_fpga(PROJ_NAME      "FPGA1394V3QLA"
                  FPGA_PARTNUM   ${FPGAV3_PARTNUM}
                  VERILOG_SOURCE ${VERILOG_SOURCE_FPGAV3_QLA}
                  UCF_FILE       "${VERILOG_SOURCE_DIR}/XC7Z020.ucf"
+                 BOARD_UCF_FILE "${VERILOG_SOURCE_DIR}/QLA.ucf"
                  IPCORE_DIR     ${IPCOREV3_BINARY_DIR}
                  XPSCORE_DIR    "${XPSCORE_BINARY_DIR}/implementation"
                  TOP_LEVEL      "FPGA1394V3QLA"
@@ -191,6 +194,7 @@ ise_compile_fpga(PROJ_NAME      "FPGA1394V3DQLA"
                  FPGA_PARTNUM   ${FPGAV3_PARTNUM}
                  VERILOG_SOURCE ${VERILOG_SOURCE_FPGAV3_DQLA}
                  UCF_FILE       "${VERILOG_SOURCE_DIR}/XC7Z020.ucf"
+                 BOARD_UCF_FILE "${VERILOG_SOURCE_DIR}/DQLA.ucf"
                  IPCORE_DIR     ${IPCOREV3_BINARY_DIR}
                  XPSCORE_DIR    "${XPSCORE_BINARY_DIR}/implementation"
                  TOP_LEVEL      "FPGA1394V3DQLA"
