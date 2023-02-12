@@ -325,12 +325,13 @@ wire reg_rdata_power_control;
 
 wire espm_comm_good;
 wire esii_escc_comm_good;
+reg preload_good;
 wire mv_good;
-wire [3:0] interlocks =
-    {esii_escc_comm_good, espm_comm_good, mv_good, ~wdog_timeout};
+wire [4:0] interlocks =
+    {preload_good, esii_escc_comm_good, espm_comm_good, mv_good, ~wdog_timeout};
 wire any_amp_enable_pending;
 
-PowerControl #(.NUM_INTERLOCKS(4)) PowerControl_instance
+PowerControl #(.NUM_INTERLOCKS(5)) PowerControl_instance
 (
     .sysclk(sysclk),
     .reg_raddr(reg_raddr),
@@ -356,7 +357,9 @@ wire[31:0] reg_digin;     // Digital I/O register
 wire[15:0] tempsense;     // Temperature sensor
 wire[15:0] reg_databuf;   // Data collection status
 wire is_ecm;
-wire[11:0] reg_status12 = {9'b0, ESPMV_GOODn, esii_escc_comm_good, espm_comm_good};
+wire preload_set_sysclk_toggle;
+
+wire[11:0] reg_status12 = {8'b0, preload_good, ESPMV_GOODn, esii_escc_comm_good, espm_comm_good};
 BoardRegsDRAC chan0(
     .sysclk(sysclk),
     .pwr_enable(MV_EN),
@@ -439,6 +442,9 @@ assign lvds_tx_clk = sysclk_div2;
 reg lvds_tx_clk_en = 'b1;
 wire [9:0] espm_tx_tdata_sel;
 reg [31:0] espm_tx_tdata;
+wire espm_tx_pkt_start;
+reg [1:0] preload_set_espm_tx;
+wire preload_set_espm_tx_pulse = preload_set_espm_tx[1] ^ preload_set_espm_tx[0]; // should be 1 for 1 packet after preload changes, otherwise 0.
 
 always @(posedge sysclk) begin
     sysclk_div2 <= ~sysclk_div2;
@@ -450,6 +456,7 @@ ESPMTX espm_tx (
     .page(16'b0),
     .length(10'd64),
     .tdata_sel(espm_tx_tdata_sel),
+    .pkt_start(espm_tx_pkt_start),
     .tdat(LVDS_TDAT)
 );
 
@@ -464,7 +471,14 @@ always @(posedge sysclk) begin
 end
 
 always @(posedge lvds_tx_clk) begin
-    espm_tx_tdata <= espm_tx_ram[espm_tx_tdata_sel[5:0]];
+    if (espm_tx_pkt_start) begin
+        preload_set_espm_tx <= {preload_set_espm_tx[0], preload_set_sysclk_toggle};
+    end
+
+    case (espm_tx_tdata_sel[5:0])
+    'h10: espm_tx_tdata <= {31'b0, preload_set_espm_tx_pulse};
+    default: espm_tx_tdata <= espm_tx_ram[espm_tx_tdata_sel[5:0]];
+    endcase
 end
 
 // --------------------------------------------------------------------------
@@ -574,15 +588,15 @@ always @(posedge sysclk) begin
                     `ESPM_POS_DATA: rdata_pos[espm_bram_waddr[2:0]] <= espm_bram_wdata;
                     `ESPM_POT_DATA: rdata_pot[espm_bram_waddr[2:0]] <= espm_bram_wdata;
                 endcase
-            end else begin
-                case (espm_bram_waddr)
-                    `ADDR_SWITCH: rdata_misc[1] <= espm_bram_wdata;  // switch
-                    `ADDR_ESII: rdata_misc[2] <= espm_bram_wdata;  // esii status
-                    `ADDR_MISC: rdata_misc[3] <= espm_bram_wdata;  // adc current {cannula_vmon,P5V_lcl_vmon}
-                    `ADDR_INST_MODEL: rdata_misc[4] <= espm_bram_wdata;  // instrument ID
-					`ADDR_INST_ID:    rdata_misc[5] <= espm_bram_wdata;  // instrument ID
-                endcase
             end
+            case (espm_bram_waddr)
+                `ADDR_SWITCH: rdata_misc[1] <= espm_bram_wdata;  // switch
+                `ADDR_ESII: rdata_misc[2] <= espm_bram_wdata;  // esii status
+                // `ADDR_MISC: rdata_misc[3] <= espm_bram_wdata;  // adc current {cannula_vmon,P5V_lcl_vmon}
+                `ADDR_INST_MODEL: rdata_misc[4] <= espm_bram_wdata;  // instrument ID
+                `ADDR_INST_ID:    rdata_misc[5] <= espm_bram_wdata;  // instrument ID
+                `ADDR_ESPM_PRELOAD_VALID: preload_good <= espm_bram_wdata[0];
+            endcase
         end
     endcase
 end
@@ -599,15 +613,18 @@ integer encoder_preload_i;
 initial begin
     for (encoder_preload_i = 1; encoder_preload_i < 8; encoder_preload_i = encoder_preload_i + 1) begin
         encoder_preload[encoder_preload_i] = `ENC_MIDRANGE;
-        encoder_preload_offset[encoder_preload_i] = `ENC_MIDRANGE;
+        encoder_preload_offset[encoder_preload_i] = 'b0;
     end
 end
 
+reg [1:0] preload_set_div2;
+assign preload_set_sysclk_toggle = preload_set_div2[1];
 always @(posedge sysclk)
 begin
     if (reg_wen && (reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[3:0]==`OFF_ENC_LOAD)) begin
         encoder_preload[reg_waddr[7:4]] <= reg_wdata[23:0];
         encoder_preload_offset[reg_waddr[7:4]] <= reg_wdata[23:0] - rdata_pos[reg_waddr[7:4]];
+        preload_set_div2 <= preload_set_div2 + 'b1;
     end
 end
 
@@ -636,7 +653,6 @@ end
 // --------------------------------------------------------------------------
 // ADDR_BOARD_SPECIFIC registers
 // --------------------------------------------------------------------------
-
 always @(*)
 begin
     case (reg_raddr[11:0])
@@ -647,7 +663,7 @@ begin
         // 'h003: reg_rdata_board_specific = {is_ecm, esii_escc_comm_good, espm_comm_good, SAFETY_CHAIN_GOOD, ESPMV_GOODn};
         'h004: reg_rdata_board_specific = {22'b0, OTWn, FAULTn};
         'h010: reg_rdata_board_specific = rdata_misc[2]; // esii status
-        'h011: reg_rdata_board_specific = rdata_misc[3]; // adc current {cannula_vmon,P5V_lcl_vmon}
+        // 'h011: reg_rdata_board_specific = rdata_misc[3]; // adc current {cannula_vmon,P5V_lcl_vmon}
         'h012: reg_rdata_board_specific = rdata_misc[4]; // instrument model
         'h013: reg_rdata_board_specific = rdata_misc[5]; // instrument version
         'h020: reg_rdata_board_specific = {reg_databuf, tempsense};

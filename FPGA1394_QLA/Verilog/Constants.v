@@ -116,7 +116,7 @@
 // espm packet
 `define ADDR_SWITCH  6'h00
 `define ADDR_ESII    6'h08
-`define ADDR_MISC    6'h10
+`define ADDR_ESPM_PRELOAD_VALID    6'h10
 `define ADDR_INST_MODEL    6'h18
 `define ADDR_INST_ID       6'h20
 
