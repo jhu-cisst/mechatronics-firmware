@@ -128,10 +128,10 @@ NET  "E1_RSTn"    LOC = "P20"     | IOSTANDARD = "LVCMOS33" | PULLUP;
 # Directly connect bidirectional MDIO from GMII to RGMII core to pin T20
 # Uncomment second line for ETH1, first line for ETH2
 #NET  "E1_MDIO_D"  LOC = "T20"     | IOSTANDARD = "LVCMOS33";
-NET  "E2_MDIO_D"  LOC = "W6"      | IOSTANDARD = "LVCMOS18";
+#NET  "E2_MDIO_D"  LOC = "W6"      | IOSTANDARD = "LVCMOS18";
 # Uncomment first line for ETH1, second line for ETH2
 NET  "*/gmii_to_rgmii_1/MDIO"     LOC = "T20" | IOSTANDARD = "LVCMOS33";
-#NET  "*/gmii_to_rgmii_1/MDIO"     LOC = "W6" | IOSTANDARD = "LVCMOS18";
+NET  "*/gmii_to_rgmii_2/MDIO"     LOC = "W6" | IOSTANDARD = "LVCMOS18";
 
 NET  "E1_IRQn"    LOC = "R16"     | IOSTANDARD = "LVCMOS33" | PULLUP;   # FPGA V3.1
 NET  "E2_IRQn"    LOC = "U14"     | IOSTANDARD = "LVCMOS33" | PULLUP;   # FPGA V3.1

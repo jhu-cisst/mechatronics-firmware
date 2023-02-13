@@ -12,8 +12,6 @@
  *     12/10/22    Peter Kazanzides    Created from FPGA1394V3-QLA.v
  */
 
-`define ETH1    // Also need to update XC7Z020.ucf
-
 `include "Constants.v"
 
 module FPGA1394V3
@@ -419,7 +417,6 @@ assign E2_RxD[3:0] = e2_resetActive ? 4'b1011 : 4'bzzzz;
 //    rt -> signals between gmii_to_rgmii core and RTL8211F (i.e., FPGA)
 //    ps -> signals between gmii_to_rgmii core and Zynq PS
 
-`ifdef ETH1
 wire[7:0]  E1_gmii_txd_rt;
 wire[7:0]  E1_gmii_txd_ps;
 wire[7:0]  E1_gmii_txd;
@@ -436,7 +433,7 @@ wire       E1_gmii_rx_er;
 wire       E1_gmii_rx_clk;
 wire[1:0]  E1_clock_speed;
 wire[1:0]  E1_speed_mode;
-wire       E1_tx_reg_rt;
+wire       E1_tx_req_rt;
 wire       E1_tx_grant_rt;
 
 // Simple arbitration between PL (rt) and PS for Tx bus.
@@ -451,10 +448,15 @@ assign E1_gmii_txd = E1_gmii_tx_en_rt ? E1_gmii_txd_rt : E1_gmii_txd_ps;
 assign E1_gmii_tx_en = E1_gmii_tx_en_rt | E1_gmii_tx_en_ps;
 assign E1_gmii_tx_err = E1_gmii_tx_en_rt ? E1_gmii_tx_err_rt : E1_gmii_tx_err_ps;
 
-`else
+wire[7:0]  E2_gmii_txd_rt;
+wire[7:0]  E2_gmii_txd_ps;
 wire[7:0]  E2_gmii_txd;
+wire       E2_gmii_tx_en_rt;
+wire       E2_gmii_tx_en_ps;
 wire       E2_gmii_tx_en;
 wire       E2_gmii_tx_clk;
+wire       E2_gmii_tx_err_rt;
+wire       E2_gmii_tx_err_ps;
 wire       E2_gmii_tx_err;
 wire[7:0]  E2_gmii_rxd;
 wire       E2_gmii_rx_dv;
@@ -462,7 +464,20 @@ wire       E2_gmii_rx_er;
 wire       E2_gmii_rx_clk;
 wire[1:0]  E2_clock_speed;
 wire[1:0]  E2_speed_mode;
-`endif
+wire       E2_tx_req_rt;
+wire       E2_tx_grant_rt;
+
+// Simple arbitration between PL (rt) and PS for Tx bus.
+// Current implementation prevents PL side from interrupting PS, but does not
+// prevent PS from trying to transmit while PL is active. In the latter case,
+// the PS transmission will be ignored until the PL side finishes, so a partial
+// packet may be transmitted. In the future, the PS transmission can be stored
+// in a FIFO until the PL side finishes.
+assign E2_tx_grant_rt = E2_tx_req_rt & (~E2_gmii_tx_en_ps);
+
+assign E2_gmii_txd = E2_gmii_tx_en_rt ? E2_gmii_txd_rt : E2_gmii_txd_ps;
+assign E2_gmii_tx_en = E2_gmii_tx_en_rt | E2_gmii_tx_en_ps;
+assign E2_gmii_tx_err = E2_gmii_tx_en_rt ? E2_gmii_tx_err_rt : E2_gmii_tx_err_ps;
 
 wire       E1_mdio_o_rt;      // OUT from RTL8211F module
 wire       E1_mdio_o_ps;      // OUT from Zynq PS
@@ -476,10 +491,17 @@ wire       E1_mdio_clk_rt;    // OUT from RTL8211F module, IN to GMII core (or P
 wire       E1_mdio_clk_ps;    // OUT from Zynq PS
 wire       E1_mdio_clk;       // IN to GMII core (or PHY)
 
+wire       E2_mdio_o_rt;      // OUT from RTL8211F module
+wire       E2_mdio_o_ps;      // OUT from Zynq PS
 wire       E2_mdio_o;         // OUT from RTL8211F module, IN to GMII core (or PHY)
 wire       E2_mdio_i;         // IN to RTL8211F module, OUT from GMII core (or PHY)
+wire       E2_mdio_t_rt;      // OUT from RTL8211F module (tristate control)
+wire       E2_mdio_t_ps;      // OUT from Zynq PS (tristate control)
 wire       E2_mdio_t;         // OUT from RTL8211F module (tristate control)
-wire       E2_mdio_clk;       // OUT from RTL8211F module, IN to GMII core (or PHY)
+wire       E2_mdio_busy_rt;   // OUT from RTL8211F module (MDIO busy)
+wire       E2_mdio_clk_rt;    // OUT from RTL8211F module, IN to GMII core (or PHY)
+wire       E2_mdio_clk_ps;    // OUT from Zynq PS
+wire       E2_mdio_clk;       // IN to GMII core (or PHY)
 
 wire[31:0] reg_rdata_e1;
 wire[31:0] reg_rdata_e2;
@@ -545,7 +567,6 @@ RTL8211F #(.CHANNEL(4'd1)) EthPhy1(
     .MDIO_T(E1_mdio_t_rt),    // Tristate signal from RTL8211F module
     .mdioBusy(E1_mdio_busy_rt), // OUT from RTL8211F module
 
-`ifdef ETH1
     .RxClk(E1_gmii_rx_clk),   // Rx Clk
     .RxValid(E1_gmii_rx_dv),  // Rx Valid
     .RxD(E1_gmii_rxd),        // Rx Data
@@ -583,14 +604,6 @@ RTL8211F #(.CHANNEL(4'd1)) EthPhy1(
     .useUDP(useUDP),                  // Whether EthernetIO is using UDP
     .eth_status(e1_status),           // Ethernet status bits
     .hasIRQ(e1_hasIRQ)                // Whether IRQ is connected (FPGA V3.1+)
-`else
-    .RxClk(1'b0),
-    .RxValid(1'b0),
-    .RxD(8'd0),
-    .RxErr(1'b0),
-    .TxClk(1'b0),
-    .sendReq(1'b0)
-`endif
 );
 
 RTL8211F #(.CHANNEL(4'd2)) EthPhy2(
@@ -607,25 +620,30 @@ RTL8211F #(.CHANNEL(4'd2)) EthPhy2(
     .IRQn(E2_IRQn),           // Interrupt from RTL8211F (FPGA V3.1+)
     .resetActive(e2_resetActive),     // Indicates that reset is active
 
-    .MDC(E2_mdio_clk),        // Clock to GMII core (and RTL8211F PHY)
+    .MDC(E2_mdio_clk_rt),     // Clock to GMII core (and RTL8211F PHY)
     .MDIO_I(E2_mdio_i),       // IN to RTL8211F module, OUT from GMII core
-    .MDIO_O(E2_mdio_o),       // OUT from RTL8211F module, IN to GMII core
-    .MDIO_T(E2_mdio_t),       // Tristate signal from RTL8211F module
+    .MDIO_O(E2_mdio_o_rt),    // OUT from RTL8211F module, IN to GMII core
+    .MDIO_T(E2_mdio_t_rt),    // Tristate signal from RTL8211F module
+    .mdioBusy(E2_mdio_busy_rt), // OUT from RTL8211F module
 
-`ifndef ETH1
     .RxClk(E2_gmii_rx_clk),   // Rx Clk
     .RxValid(E2_gmii_rx_dv),  // Rx Valid
     .RxD(E2_gmii_rxd),        // Rx Data
     .RxErr(E2_gmii_rx_er),    // Rx Error
 
     .TxClk(E2_gmii_tx_clk),   // Tx Clk
-    .TxEn(E2_gmii_tx_en),     // Tx Enable
-    .TxD(E2_gmii_txd),        // Tx Data
-    .TxErr(E2_gmii_tx_err),   // Tx Error
+    .TxEn(E2_gmii_tx_en_rt),  // Tx Enable
+    .TxD(E2_gmii_txd_rt),     // Tx Data
+    .TxErr(E2_gmii_tx_err_rt), // Tx Error
 
     .clock_speed(E2_clock_speed),
     .speed_mode(E2_speed_mode),
 
+    // Arbitration for Tx bus (PS may be using it)
+    .tx_bus_req(E2_tx_req_rt),      // Bus request
+    .tx_bus_grant(E2_tx_grant_rt),  // Bus grant
+
+`ifdef ETH2
     // Interface from Firewire (for sending packets via Ethernet)
     .sendReq(eth_send_req),
 
@@ -644,16 +662,9 @@ RTL8211F #(.CHANNEL(4'd2)) EthPhy2(
     .bw_active(eth_bw_active),        // Indicates that block write module is active
     .ethInternalError(eth_InternalError),   // Error summary bit to EthernetIO
     .useUDP(useUDP),                  // Whether EthernetIO is using UDP
+`endif
     .eth_status(e2_status),           // Ethernet status bits
     .hasIRQ(e2_hasIRQ)                // Whether IRQ is connected (FPGA V3.1+)
-`else
-    .RxClk(1'b0),
-    .RxValid(1'b0),
-    .RxD(8'd0),
-    .RxErr(1'b0),
-    .TxClk(1'b0),
-    .sendReq(1'b0)
-`endif
 );
 
 // address decode for IP address access
@@ -671,11 +682,9 @@ EthernetTransfers(
 
     // Register interface to Ethernet memory space (ADDR_ETH=0x4000)
     // and IP address register (REG_IPADDR=11).
-`ifdef ETH1
     .reg_rdata(reg_rdata_e1),          // Data from Ethernet memory space
-`else
-    .reg_rdata(reg_rdata_e2),          // Data from Ethernet memory space
-`endif
+    // PK TODO
+    //.reg_rdata(reg_rdata_e2),          // Data from Ethernet memory space
     .reg_raddr(reg_raddr),             // Read address for Ethernet memory
     .reg_wdata(reg_wdata),             // Data to write to IP address register
     .ip_reg_wen(ip_reg_wen),           // Enable write to IP address register
@@ -783,7 +792,6 @@ fpgav3 zynq_ps7(
     .processing_system7_0_GPIO_I_pin({60'd0, board_id}),
     .processing_system7_0_FCLK_CLK0_pin(clk_200MHz),
 
-`ifdef ETH1
     .gmii_to_rgmii_1_rgmii_txd_pin(E1_TxD),
     .gmii_to_rgmii_1_rgmii_tx_ctl_pin(E1_TxEN),
     .gmii_to_rgmii_1_rgmii_txc_pin(E1_TxCLK),
@@ -817,30 +825,42 @@ fpgav3 zynq_ps7(
     .processing_system7_0_ENET0_MDIO_MDC_pin(E1_mdio_clk_ps),
     .processing_system7_0_ENET0_MDIO_I_pin(E1_mdio_i),
     .processing_system7_0_ENET0_MDIO_O_pin(E1_mdio_o_ps),
-    .processing_system7_0_ENET0_MDIO_T_pin(E1_mdio_t_ps)
- `else
-    // Temporarily use rgmii_1 (instead of rgmii_2) below
-    .gmii_to_rgmii_1_rgmii_txd_pin(E2_TxD),
-    .gmii_to_rgmii_1_rgmii_tx_ctl_pin(E2_TxEN),
-    .gmii_to_rgmii_1_rgmii_txc_pin(E2_TxCLK),
-    .gmii_to_rgmii_1_rgmii_rxd_pin(E2_RxD),
-    .gmii_to_rgmii_1_rgmii_rx_ctl_pin(E2_RxVAL),
-    .gmii_to_rgmii_1_rgmii_rxc_pin(E2_RxCLK),
-    .gmii_to_rgmii_1_gmii_txd_pin(E2_gmii_txd),
-    .gmii_to_rgmii_1_gmii_tx_en_pin(E2_gmii_tx_en),
-    .gmii_to_rgmii_1_gmii_tx_clk_pin(E2_gmii_tx_clk),
-    .gmii_to_rgmii_1_gmii_rxd_pin(E2_gmii_rxd),
-    .gmii_to_rgmii_1_gmii_rx_dv_pin(E2_gmii_rx_dv),
-    .gmii_to_rgmii_1_gmii_rx_er_pin(E2_gmii_rx_er),
-    .gmii_to_rgmii_1_gmii_rx_clk_pin(E2_gmii_rx_clk),
-    .gmii_to_rgmii_1_MDIO_MDC_pin(E2_mdio_clk),       // MDIO clock from RTL8211F module
-    .gmii_to_rgmii_1_MDIO_I_pin(E2_mdio_i),           // OUT from GMII core, IN to RTL8211F module
-    .gmii_to_rgmii_1_MDIO_O_pin(E2_mdio_o),           // IN to GMII core, OUT from RTL8211F module
-    .gmii_to_rgmii_1_MDIO_T_pin(E2_mdio_t),           // Tristate control from RTL8211F module
-    .gmii_to_rgmii_1_MDC_pin(E2_MDIO_C),              // MDIO clock from GMII core (derived from E2_mdio_clk)
-    .gmii_to_rgmii_1_clock_speed_pin(E2_clock_speed), // Clock speed (Rx)
-    .gmii_to_rgmii_1_speed_mode_pin(E2_speed_mode)    // Speed mode (Tx)
-`endif
+    .processing_system7_0_ENET0_MDIO_T_pin(E1_mdio_t_ps),
+
+    .gmii_to_rgmii_2_rgmii_txd_pin(E2_TxD),
+    .gmii_to_rgmii_2_rgmii_tx_ctl_pin(E2_TxEN),
+    .gmii_to_rgmii_2_rgmii_txc_pin(E2_TxCLK),
+    .gmii_to_rgmii_2_rgmii_rxd_pin(E2_RxD),
+    .gmii_to_rgmii_2_rgmii_rx_ctl_pin(E2_RxVAL),
+    .gmii_to_rgmii_2_rgmii_rxc_pin(E2_RxCLK),
+    .gmii_to_rgmii_2_gmii_rxd_pin(E2_gmii_rxd),
+    .gmii_to_rgmii_2_gmii_rx_dv_pin(E2_gmii_rx_dv),
+    .gmii_to_rgmii_2_gmii_rx_er_pin(E2_gmii_rx_er),
+    .gmii_to_rgmii_2_gmii_rx_clk_pin(E2_gmii_rx_clk),
+    .gmii_to_rgmii_2_MDIO_MDC_pin(E2_mdio_clk),       // MDIO clock from RTL8211F module
+    .gmii_to_rgmii_2_MDIO_I_pin(E2_mdio_i),           // OUT from GMII core, IN to RTL8211F module
+    .gmii_to_rgmii_2_MDIO_O_pin(E2_mdio_o),           // IN to GMII core, OUT from RTL8211F module
+    .gmii_to_rgmii_2_MDIO_T_pin(E2_mdio_t),           // Tristate control from RTL8211F module
+    .gmii_to_rgmii_2_gmii_txd_pin(E2_gmii_txd),
+    .gmii_to_rgmii_2_gmii_tx_en_pin(E2_gmii_tx_en),
+    .gmii_to_rgmii_2_gmii_tx_clk_pin(E2_gmii_tx_clk),
+    .gmii_to_rgmii_2_gmii_tx_er_pin(E2_gmii_tx_err),
+    .gmii_to_rgmii_2_MDC_pin(E2_MDIO_C),              // MDIO clock from GMII core (derived from E2_mdio_clk)
+    .gmii_to_rgmii_2_clock_speed_pin(E2_clock_speed), // Clock speed (Rx)
+    .gmii_to_rgmii_2_speed_mode_pin(E2_speed_mode),   // Speed mode (Tx)
+
+    .processing_system7_0_ENET1_GMII_RX_CLK_pin(E2_gmii_rx_clk),
+    .processing_system7_0_ENET1_GMII_RX_DV_pin(E2_gmii_rx_dv),
+    .processing_system7_0_ENET1_GMII_RX_ER_pin(E2_gmii_rx_er),
+    .processing_system7_0_ENET1_GMII_RXD_pin(E2_gmii_rxd),
+    .processing_system7_0_ENET1_GMII_TX_EN_pin(E2_gmii_tx_en_ps),
+    .processing_system7_0_ENET1_GMII_TX_ER_pin(E2_gmii_tx_err_ps),
+    .processing_system7_0_ENET1_GMII_TX_CLK_pin(E2_gmii_tx_clk),
+    .processing_system7_0_ENET1_GMII_TXD_pin(E2_gmii_txd_ps),
+    .processing_system7_0_ENET1_MDIO_MDC_pin(E2_mdio_clk_ps),
+    .processing_system7_0_ENET1_MDIO_I_pin(E2_mdio_i),
+    .processing_system7_0_ENET1_MDIO_O_pin(E2_mdio_o_ps),
+    .processing_system7_0_ENET1_MDIO_T_pin(E2_mdio_t_ps)
 );
 
 // MDIO Signal routing
@@ -869,6 +889,10 @@ assign E1_mdio_clk = E1_mdio_busy_rt ? E1_mdio_clk_rt : E1_mdio_clk_ps;
 assign E1_mdio_o = E1_mdio_busy_rt ? E1_mdio_o_rt : E1_mdio_o_ps;
 assign E1_mdio_t = E1_mdio_busy_rt ? E1_mdio_t_rt : E1_mdio_t_ps;
 
+assign E2_mdio_clk = E2_mdio_busy_rt ? E2_mdio_clk_rt : E2_mdio_clk_ps;
+assign E2_mdio_o = E2_mdio_busy_rt ? E2_mdio_o_rt : E2_mdio_o_ps;
+assign E2_mdio_t = E2_mdio_busy_rt ? E2_mdio_t_rt : E2_mdio_t_ps;
+
 // Ethernet Rx/Tx Routing
 //
 // Rx (receive) -- all GMII signals output from gmii_to_rgmii core, input to both PS and PL ethernet
@@ -878,22 +902,6 @@ assign E1_mdio_t = E1_mdio_busy_rt ? E1_mdio_t_rt : E1_mdio_t_ps;
 //    txd:    output from PS and PL ethernet, mux input to gmii_to_rgmii core
 //    tx_en:  output from PS and PL ethernet, mux input to gmii_to_rgmii core
 //    tx_err: output from PS and PL ethernet, mux input to gmii_to_rgmii core
-
-`ifndef ETH1
-assign E1_MDIO_C = E1_mdio_clk;
-assign E1_MDIO_D = E1_mdio_t ? 1'bz : E1_mdio_o;
-assign E1_mdio_i = E1_MDIO_D;
-assign E1_TxCLK = 1'b0;
-assign E1_TxEN = 1'b0;
-assign E1_TxD = 4'd0;
-`else
-assign E2_MDIO_C = E2_mdio_clk;
-assign E2_MDIO_D = E2_mdio_t ? 1'bz : E2_mdio_o;
-assign E2_mdio_i = E2_MDIO_D;
-assign E2_TxCLK = 1'b0;
-assign E2_TxEN = 1'b0;
-assign E2_TxD = 4'd0;
-`endif
 
 // *** BEGIN: TEST code for PS clocks
 
