@@ -76,6 +76,7 @@ set (VERILOG_SOURCE_FPGAV3
                          "${VERILOG_SOURCE_DIR}/FPGA1394V3.v"
                          "${VERILOG_SOURCE_DIR}/RTL8211F.v"
                          "${VERILOG_SOURCE_DIR}/EthernetIO.v"
+                         "${VERILOG_SOURCE_DIR}/EthSwitchRt.v"
                          "${IPCOREV3_BINARY_DIR}/hub_mem_gen.v"
                          "${IPCOREV3_BINARY_DIR}/Dual_port_RAM_32X1024.v"
                          "${IPCOREV3_BINARY_DIR}/fifo_8x8192_16.v"

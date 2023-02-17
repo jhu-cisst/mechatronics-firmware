@@ -100,6 +100,29 @@
 `define LREQ_ACCEL 3'd6           // async arbitration acceleration
 `define LREQ_RES 3'd7             // reserved, presumably do nothing
 
+// Byte offsets into Ethernet frame (Begin is offset to first byte, End is offset to byte
+// after last byte)
+parameter[5:0]
+   ETH_Frame_Begin       = 0,                   // ********* FrameHeader [length=14] *********
+   ETH_Dest_MAC          = ETH_Frame_Begin,     // Destination MAC address
+   ETH_Src_MAC           = ETH_Frame_Begin+6,   // Source MAC address
+   ETH_Frame_Length      = ETH_Frame_Begin+12,  // EtherType/Length
+   ETH_Frame_End         = ETH_Frame_Begin+14,  // ******** End of Frame Header *************
+   ETH_IPv4_Begin        = ETH_Frame_End,       // ******* IPv4 Header (14) [length=20]  *****
+   ETH_IPv4_Protocol     = ETH_IPv4_Begin+9,    // Protocol (UDP=17, ICMP=1)
+   ETH_IPv4_Checksum     = ETH_IPv4_Begin+10,   // Header checksum
+   ETH_IPv4_End          = ETH_IPv4_Begin+20,   // ******** End of IPv4 Header **************
+   ETH_UDP_Begin         = ETH_IPv4_End,        // ******* UDP Header (34) [Length=8] *******
+   ETH_UDP_hostPort      = ETH_UDP_Begin,      // Source (host) port
+   ETH_UDP_destPort      = ETH_UDP_Begin+2,    // Destination (fpga) port
+   ETH_UDP_Length        = ETH_UDP_Begin+4,    // UDP Length
+   ETH_UDP_Checksum      = ETH_UDP_Begin+6,    // UDP Checksum
+   ETH_UDP_End           = ETH_UDP_Begin+8;    // ******** End of UDP Header **************
+
+// Bit indices in Ethernet recv_info_din and recv_info_dout (FPGA V3)
+`define ETH_RECV_CRC_ERROR_BIT 26
+`define ETH_RECV_FLUSH_BIT 31
+
 // Watchdog period status 
 `define WDOG_DISABLE     3'b0     // watchdog period = 0ms (disabled)
 `define WDOG_TIMEOUT     3'b110   // watchdog timeout has occurred

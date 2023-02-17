@@ -3,7 +3,7 @@
 
 /*******************************************************************************    
  *
- * Copyright(C) 2011-2022 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2011-2023 ERC CISST, Johns Hopkins University.
  *
  * This is the top level module for the FPGA1394-QLA motor controller interface.
  *
@@ -20,8 +20,6 @@
 `timescale 1ns / 1ps
 
 `define HAS_ETHERNET
-
-`define ETH1    // Also need to update XC7Z020.ucf
 
 // clock information
 // clk1394: 49.152 MHz 
@@ -47,14 +45,9 @@ module FPGA1394V3QLA
     // Ethernet PHYs (RTL8211F)
     output wire      E1_MDIO_C,   // eth1 MDIO clock
     output wire      E2_MDIO_C,   // eth2 MDIO clock
-    //Following are directly connected via constraint file
-`ifdef ETH1
-    //inout wire     E1_MDIO_D,   // eth1 MDIO data
-    inout wire       E2_MDIO_D,   // eth2 MDIO data
-`else
-    inout wire       E1_MDIO_D,   // eth1 MDIO data
-    //inout wire     E2_MDIO_D,   // eth2 MDIO data
-`endif
+    // Following are directly connected via constraint file
+    // inout wire    E1_MDIO_D,   // eth1 MDIO data
+    // inout wire    E2_MDIO_D,   // eth2 MDIO data
     output wire      E1_RSTn,     // eth1 PHY reset
     output wire      E2_RSTn,     // eth2 PHY reset
     input wire       E1_IRQn,     // eth1 IRQ (FPGA V3.1+)
@@ -169,7 +162,7 @@ fpga(
     .E1_RSTn(E1_RSTn),
     .E1_IRQn(E1_IRQn),
     .E1_MDIO_C(E1_MDIO_C),
-    .E1_MDIO_D(E1_MDIO_D),
+    // .E1_MDIO_D(E1_MDIO_D),
     .E1_RxCLK(E1_RxCLK),
     .E1_RxVAL(E1_RxVAL),
     .E1_RxD(E1_RxD),
@@ -181,7 +174,7 @@ fpga(
     .E2_RSTn(E2_RSTn),
     .E2_IRQn(E2_IRQn),
     .E2_MDIO_C(E2_MDIO_C),
-    .E2_MDIO_D(E2_MDIO_D),
+    // .E2_MDIO_D(E2_MDIO_D),
     .E2_RxCLK(E2_RxCLK),
     .E2_RxVAL(E2_RxVAL),
     .E2_RxD(E2_RxD),
