@@ -3,7 +3,7 @@
 
 /*******************************************************************************    
  *
- * Copyright(C) 2014-2022 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2014-2023 ERC CISST, Johns Hopkins University.
  *
  * This module implements the higher-level Ethernet I/O, which interfaces
  * to the KSZ8851 MAC/PHY chip.
@@ -125,6 +125,9 @@ module KSZ8851(
     input wire sendBusy,              // From EthernetIO
     output wire sendReady,            // Request EthernetIO to provide next send_word
     input wire[15:0] send_word,       // Word to send via Ethernet (SDRegDWR for KSZ8851)
+    // Timing measurements (do not include times for KSZ8851 to receive/transmit packet)
+    output reg[15:0] timeReceive,     // Time when receive portion finished
+    output reg[15:0] timeSinceIRQ,    // Running time counter since last IRQ
     // Feedback bits
     input wire bw_active,             // Indicates that block write module is active
     output wire ethInternalError,     // Error summary bit to EthernetIO
@@ -376,13 +379,8 @@ reg[15:0] RegISROther; // Unexpected ISR value (for debugging)
 reg[7:0] FrameCount;   // Number of received frames
 reg[11:0] rxPktWords;  // Num of words in receive queue
 
-reg[15:0] timeSinceIRQ;      // Time counter since last IRQ
-reg[15:0] timeReceive;       // Time when receive portion finished
 `ifdef HAS_DEBUG_DATA
 reg[15:0] timeSend;          // Time when send portion finished
-`endif
-
-`ifdef HAS_DEBUG_DATA
 reg[15:0] numPacketValid;    // Number of valid Ethernet frames received
 reg[7:0]  numPacketInvalid;  // Number of invalid Ethernet frames received
 reg[7:0] numPacketSent;      // Number of packets sent to host PC

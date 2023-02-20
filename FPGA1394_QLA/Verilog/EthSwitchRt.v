@@ -15,10 +15,16 @@
 
 `include "Constants.v"
 
+// Define following for debug data (DBG2)
+`define HAS_DEBUG_DATA
+
 module EthSwitchRt
     #(parameter NUM = 2)              // Number of Ethernet ports (PHYs)
 (
     input  wire clk,                  // input clock
+
+    input  wire[15:0] reg_raddr,      // read address
+    output wire[31:0] reg_rdata,      // register read data
 
     // Interface to RTL8211F
     input wire[(NUM-1):0] initOK,
@@ -56,6 +62,9 @@ module EthSwitchRt
     input wire sendBusy,              // From EthernetIO
     output wire sendReady,            // Request EthernetIO to provide next send_word
     input wire[15:0] send_word,       // Word to send via Ethernet (SDRegDWR for KSZ8851)
+    // Timing measurements (do not include times for Rx/Tx loops, which is consistent with KSZ8851)
+    output reg[15:0] timeReceive,     // Time for receiving packet (not including Rx loop in RTL8211F)
+    output reg[15:0] timeNow,         // Running time counting since receive started
     // Feedback bits
     input wire bw_active,             // Indicates that block write module is active
     input wire useUDP,                // Whether EthernetIO is using UDP
@@ -114,15 +123,8 @@ assign send_info_din = { send_fifo_flush, 7'd0, send_first_byte_in, responseByte
 // Internal error (from RTL8211F) is sent back to host via ExtraData in EthernetIO.v
 assign eth_InternalError = eth_InternalError_rt[curPortSend];
 
-// Following times do not include the Rx or Tx loops, which is consistent with the KSZ8851.
-// However, in this implementation, timeSend only measures the time to send the packet,
-// whereas in KSZ8851 it measures the total time (receive+send).
-reg[15:0] timeReceive;       // Time for receiving packet
 `ifdef HAS_DEBUG_DATA
-reg[15:0] timeSend;          // Time for sending packet
-`endif
-
-`ifdef HAS_DEBUG_DATA
+reg[15:0] timeSend;          // Time when send portion finished
 reg[15:0] numPacketValid;    // Number of valid Ethernet frames received
 reg[7:0]  numPacketFlushed;  // Number of received Ethernet frames flushed
 reg[7:0]  numPacketSent;     // Number of packets sent to host PC
@@ -167,6 +169,8 @@ reg[2:0] state = ST_IDLE;
 always @(posedge(clk))
 begin
 
+    timeNow <= timeNow + 16'd1;
+
     case (state)
 
     ST_IDLE:
@@ -194,7 +198,7 @@ begin
             // If flushing packet, just stay in recvTransition state
             recvTransition <= recv_info_dout[curPortRecv][`ETH_RECV_FLUSH_BIT];
             recvWait <= 1'b0;
-            timeReceive <= 16'd0;
+            timeNow <= 16'd0;
             state <= recv_info_dout[curPortRecv][`ETH_RECV_FLUSH_BIT] ? ST_RECEIVE : ST_RECEIVE_WAIT;
 `ifdef HAS_DEBUG_DATA
             if (recv_info_dout[curPortRecv][`ETH_RECV_FLUSH_BIT])
@@ -216,7 +220,6 @@ begin
     ST_RECEIVE_WAIT:
     begin
         // Wait for recvRequest to be acknowledged
-        timeReceive <= timeReceive + 16'd1;
         if (recvBusy) begin
             recvRequest <= 1'b0;
             recvReady <= 1'b1;
@@ -226,7 +229,6 @@ begin
 
     ST_RECEIVE:
     begin
-        timeReceive <= timeReceive + 16'd1;
         recv_info_rd_en <= 2'b00;
         if (curPacketValid) begin
             recvReady <= recvWait;
@@ -242,7 +244,7 @@ begin
         if (recvTransition) begin
             if (recvCnt == rxPktWords) begin
                 sendRequest <= curPacketValid&responseRequired;
-                timeSend <= 16'd0;
+                timeReceive <= timeNow;
                 state <= (curPacketValid&responseRequired) ? ST_SEND_WAIT : ST_IDLE;
             end
             else begin
@@ -256,7 +258,6 @@ begin
     ST_SEND_WAIT:
     begin
         // Wait for sendRequest to be acknowledged
-        timeSend <= timeSend + 16'd1;
         // curPortSend <= curPortRecv;   // TODO: restore this?
         if (sendBusy) begin
             sendRequest <= 1'b0;
@@ -268,7 +269,6 @@ begin
 
     ST_SEND:
     begin
-        timeSend <= timeSend + 16'd1;
         if (sendBusy) begin
             sendCtrl <= {sendCtrl[1:0], sendCtrl[2] };
             if (sendValid) begin
@@ -296,6 +296,7 @@ begin
             send_info_wr_en[curPortSend] <= 1'b1;
 `ifdef HAS_DEBUG_DATA
             numPacketSent <= numPacketSent + 8'd1;
+            timeSend <= timeNow;
 `endif
             state <= ST_IDLE;
         end
@@ -309,5 +310,38 @@ begin
 
     endcase
 end
+
+`ifdef HAS_DEBUG_DATA
+wire[31:0] DebugData[0:7];
+assign DebugData[0] = "2GBD";  // DBG2 byte-swapped
+assign DebugData[1] = { curPortRecv, curPortSend, curPacketValid, sendRequest,    // 31:28
+                        send_ipv4, send_fifo_overflow, recv_fifo_error, 1'd0,     // 27:24
+                        24'd0 };
+assign DebugData[2] = { 8'd0, recv_first_byte_out, 4'd0, rxPktWords };      // 8, 12
+assign DebugData[3] = { numPacketSent, numPacketFlushed, numPacketValid };  // 8, 8, 16
+assign DebugData[4] = { 4'd0, last_sendCnt, 4'd0, last_responseBC };
+assign DebugData[5] = { timeSend, timeReceive };
+assign DebugData[6] = 32'd0;
+assign DebugData[7] = 32'd0;
+`endif
+
+// Following data is accessible via block read from address `ADDR_ETH (0x4000),
+// where x is the Ethernet channel (1 or 2).
+// Note that some data is provided by this module (EthSwitchRt) whereas most is provided
+// by other modules (EthernetIO and RTL8211F).
+//    4x00 - 4x7f (128 quadlets) FireWire packet (first 128 quadlets only)
+//    4080 - 408f (16 quadlets)  EthernetIO Debug data
+//    4090 - 4097 (8 quadlets)   Low-level (e.g., RTL8211F) Debug data
+//    4098 - 409f (8 quadlets)   Low-level (e.g., EthSwitchRt) Debug data
+//    4xa0        (1 quadlet)    MDIO feedback (data read from management interface)
+//    4xa1 - 4xbf (31 quadlets)  Unused
+//    4xc0 - 4xdf (32 quadlets)  PacketBuffer/ReplyBuffer (64 words)
+//    4xe0 - 4xff (32 quadlets)  ReplyIndex (64 words)
+
+`ifdef HAS_DEBUG_DATA
+assign reg_rdata = (reg_raddr[7:3] == {4'h9, 1'b1}) ? DebugData[reg_raddr[2:0]] : 32'd0;
+`else
+assign reg_rdata = 32'd0;
+`endif
 
 endmodule

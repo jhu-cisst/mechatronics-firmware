@@ -186,6 +186,7 @@ wire[31:0] reg_rdata_hub;      // reg_rdata_hub is for hub memory
 wire[31:0] reg_rdata_prom;     // reg_rdata_prom is for block reads from PROM
 wire[31:0] reg_rdata_eth;      // for eth memory access (EthernetIO)
 wire[31:0] reg_rdata_rtl;      // for eth memory access (RTL8211F)
+wire[31:0] reg_rdata_eswrt;    // for eth memory access (EthSwitchRt)
 wire[31:0] reg_rdata_fw;       // for fw memory access
 wire[31:0] reg_rdata_chan0;    // for reads from board registers
 
@@ -200,7 +201,7 @@ assign isAddrMain = ((reg_raddr[15:12]==`ADDR_MAIN) && (reg_raddr[7:4]==4'd0)) ?
 //     addr[15:12]  main | hub | prom | prom_qla | eth | firewire | dallas | databuf | waveform
 assign reg_rdata = (reg_raddr[15:12]==`ADDR_HUB) ? (reg_rdata_hub) :
                    (reg_raddr[15:12]==`ADDR_PROM) ? (reg_rdata_prom) :
-                   (reg_raddr[15:12]==`ADDR_ETH) ? (reg_rdata_eth|reg_rdata_rtl) :
+                   (reg_raddr[15:12]==`ADDR_ETH) ? (reg_rdata_eth|reg_rdata_rtl|reg_rdata_eswrt) :
                    (reg_raddr[15:12]==`ADDR_FW) ? (reg_rdata_fw) :
                    isAddrMain ? reg_rdata_chan0 : reg_rdata_ext;
 
@@ -478,6 +479,8 @@ wire eth_sendRequest;           // Request EthernetIO to get ready to start send
 wire eth_sendBusy;              // EthernetIO send state machine busy
 wire eth_sendReady;             // Request EthernetIO to provide next send_word
 wire[15:0] eth_send_word;       // Word to send via Ethernet (SDRegDWR for KSZ8851)
+wire[15:0] eth_time_recv;       // Time when receive portion finished
+wire[15:0] eth_time_now;        // Running time counter since start of packet receive
 wire eth_bw_active;             // Indicates that block write module is active
 wire eth_InternalError_rt[1:2]; // Error summary bit to EthernetIO
 wire[5:0] eth_ioErrors;         // Error bits from EthernetIO
@@ -555,7 +558,7 @@ for (k = 1; k <= 2; k = k + 1) begin : eth_loop
         .eth_status(status_e[k]),           // Ethernet status bits
         .hasIRQ(hasIRQ_e[k]),               // Whether IRQ is connected (FPGA V3.1+)
 
-        // Interface to EthSwitch
+        // Interface to EthSwitchRt
         .initOK(initOK[k]),
 
         .recv_fifo_empty(rt_recv_fifo_empty[k]),
@@ -605,6 +608,9 @@ endgenerate
 EthSwitchRt eth_switch_rt(
     .clk(sysclk),
 
+    .reg_raddr(reg_raddr),
+    .reg_rdata(reg_rdata_eswrt),
+
     // Interface to RTL8211F (x2)
     .initOK({initOK[2], initOK[1]}),
 
@@ -639,6 +645,8 @@ EthSwitchRt eth_switch_rt(
     .sendBusy(eth_sendBusy),          // To KSZ8851
     .sendReady(eth_sendReady),        // Request EthernetIO to provide next send_word
     .send_word(eth_send_word),        // Word to send via Ethernet (SDRegDWR for KSZ8851)
+    .timeReceive(eth_time_recv),      // Time when receive portion finished
+    .timeNow(eth_time_now),           // Running time counter since start of packet receive
     .bw_active(eth_bw_active),        // Indicates that block write module is active
     .useUDP(useUDP),                  // Whether EthernetIO is using UDP
     .eth_InternalError(eth_InternalError)
@@ -726,6 +734,8 @@ EthernetTransfers(
     .sendBusy(eth_sendBusy),          // To KSZ8851
     .sendReady(eth_sendReady),        // Request EthernetIO to provide next send_word
     .send_word(eth_send_word),        // Word to send via Ethernet (SDRegDWR for KSZ8851)
+    .timeReceive(eth_time_recv),      // Time when receive portion finished
+    .timeNow(eth_time_now),           // Running time counter since start of packet receive
     .bw_active(eth_bw_active),        // Indicates that block write module is active
     .ethLLError(eth_InternalError),   // Error summary bit to EthernetIO
     .ethioErrors(eth_ioErrors),       // Error bits from EthernetIO

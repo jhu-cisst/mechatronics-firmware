@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2011-2022 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2011-2023 ERC CISST, Johns Hopkins University.
  *
  * This module contains common code for FPGA V2 and does not make any assumptions
  * about which board is connected.
@@ -365,6 +365,8 @@ wire eth_sendRequest;           // Request EthernetIO to get ready to start send
 wire eth_sendBusy;              // EthernetIO send state machine busy
 wire eth_sendReady;             // Request EthernetIO to provide next send_word
 wire[15:0] eth_send_word;       // Word to send via Ethernet (SDRegDWR for KSZ8851)
+wire[15:0] eth_time_recv;       // Time when receive portion finished
+wire[15:0] eth_time_now;        // Running time counter since start of packet receive
 wire eth_bw_active;             // Indicates that block write module is active
 wire eth_InternalError;         // Error summary bit to EthernetIO
 wire[5:0] eth_ioErrors;         // Error bits from EthernetIO
@@ -412,6 +414,8 @@ KSZ8851  EthernetMacPhy(
     .sendBusy(eth_sendBusy),          // To KSZ8851
     .sendReady(eth_sendReady),        // Request EthernetIO to provide next send_word
     .send_word(eth_send_word),        // Word to send via Ethernet (SDRegDWR for KSZ8851)
+    .timeReceive(eth_time_recv),      // Time when receive portion finished
+    .timeSinceIRQ(eth_time_now),      // Running time counter since start of packet receive
     .bw_active(eth_bw_active),        // Indicates that block write module is active
     .ethInternalError(eth_InternalError),   // Error summary bit to EthernetIO
     .ethioErrors(eth_ioErrors),       // Error bits from EthernetIO
@@ -499,6 +503,8 @@ EthernetTransfers(
     .sendBusy(eth_sendBusy),          // To KSZ8851
     .sendReady(eth_sendReady),        // Request EthernetIO to provide next send_word
     .send_word(eth_send_word),        // Word to send via Ethernet (SDRegDWR for KSZ8851)
+    .timeReceive(eth_time_recv),      // Time when receive portion finished
+    .timeNow(eth_time_now),           // Running time counter since start of packet receive
     .bw_active(eth_bw_active),        // Indicates that block write module is active
     .ethLLError(eth_InternalError),   // Error summary bit to EthernetIO
     .ethioErrors(eth_ioErrors),       // Error bits from EthernetIO

@@ -3,10 +3,10 @@
 
 /*******************************************************************************    
  *
- * Copyright(C) 2014-2022 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2014-2023 ERC CISST, Johns Hopkins University.
  *
  * This module implements the higher-level Ethernet I/O, which interfaces
- * to the KSZ8851 MAC/PHY chip.
+ * to the KSZ8851 MAC/PHY chip (FPGA V2) or the RTL8211F PHY chip (FPGA V3)
  *
  * Revision history
  *     12/21/15    Peter Kazanzides    Initial Revision
@@ -118,6 +118,9 @@ module EthernetIO
     output reg sendBusy,             // To KSZ8851
     input wire sendReady,            // Request EthernetIO to provide next send_word
     output reg[15:0] send_word,      // Word to send via Ethernet (SDRegDWR for KSZ8851)
+    // Timing measurements
+    input wire[15:0] timeReceive,    // Time when receive portion finished
+    input wire[15:0] timeNow,        // Running time counter since start of packet receive
     // Feedback bits
     output wire bw_active,           // Indicates that block write module is active
     input wire ethLLError,           // Error summary bit to EthernetIO (from low-level)
@@ -616,11 +619,8 @@ assign ExtraData[1] = {numStateGlitch, numPacketError};
 `else
 assign ExtraData[1] = {8'd0, numPacketError};
 `endif
-// PK TODO
-//assign ExtraData[2] = timeReceive;
-//assign ExtraData[3] = timeSinceIRQ;
-assign ExtraData[2] = 32'd0;
-assign ExtraData[3] = 32'd0;
+assign ExtraData[2] = timeReceive;
+assign ExtraData[3] = timeNow;
 
 assign ethioErrors[5] = ethFrameError;   // 1 -> Ethernet frame unsupported
 assign ethioErrors[4] = ethIPv4Error;    // 1 -> IPv4 header error

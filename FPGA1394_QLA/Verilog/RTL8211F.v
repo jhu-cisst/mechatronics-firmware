@@ -26,7 +26,7 @@
 `include "Constants.v"
 
 // Define following for debug data (DBG2)
-//`define HAS_DEBUG_DATA
+`define HAS_DEBUG_DATA
 
 module RTL8211F
     #(parameter[3:0] CHANNEL = 4'd1)
@@ -1004,44 +1004,42 @@ assign eth_status = { initOK, hasIRQ, 10'd0 };
 // -----------------------------------------------
 
 `ifdef HAS_DEBUG_DATA
-wire[31:0] DebugData[0:11];
-assign DebugData[0]  = "2GBD";  // DBG2 byte-swapped
-assign DebugData[1]  = { RxErr, recv_preamble_error, recv_fifo_reset, recv_fifo_full,      // 31:28
-                         recv_fifo_empty, recv_info_fifo_empty, curPacketValid, 1'd0,      // 27:24
-                         sendRequest, tx_underflow, send_fifo_full, send_fifo_empty,       // 23:20
-                         ~IRQn_latched, recv_fifo_error, send_fifo_error, recv_ipv4,       // 19:16
-                         recv_ipv4_err, recv_udp, send_ipv4, hasIRQ,                       // 15:12
-                         isUnicast, isMulticast, isBroadcast, initOK,                      // 11:8
-                         txStateError, send_fifo_overflow, 6'd0 };
-assign DebugData[2]  = { 4'd0, speed_mode, clock_speed, 1'b0, state, txState, rxState, 4'd0, rxPktWords };
-                       //          2,          2,         4,      3,       1,             12
-assign DebugData[3]  = { numPacketSent, numPacketFlushed, numPacketValid };  // 8, 8, 16
-assign DebugData[4]  = recv_crc_in;
-assign DebugData[5]  = { 4'd0, last_sendCnt, 4'd0, last_responseBC };
-assign DebugData[6]  = { numRxDropped, recv_first_byte_out, send_first_byte_out, numTxSent };
-assign DebugData[7]  = send_crc_in;
-assign DebugData[8]  = { 8'd0, numIRQ, 8'd0, numReset };
-assign DebugData[9]  = { debug_PhyId2, debug_PhyId1 };
-assign DebugData[10]  = { 8'd0, debug_initCount };
-assign DebugData[11]  = { timeSend, timeReceive };
+wire[31:0] DebugData[0:7];
+assign DebugData[0] = "2GBD";  // DBG2 byte-swapped
+assign DebugData[1] = { RxErr, recv_preamble_error, recv_fifo_reset, recv_fifo_full,      // 31:28
+                        recv_fifo_empty, recv_info_fifo_empty, 2'd0,                      // 27:24
+                        1'd0, tx_underflow, send_fifo_full, send_fifo_empty,              // 23:20
+                        ~IRQn_latched, 1'd0, send_fifo_error, recv_ipv4,                  // 19:16
+                        recv_ipv4_err, recv_udp, 1'd0, hasIRQ,                            // 15:12
+                        isUnicast, isMulticast, isBroadcast, initOK,                      // 11:8
+                        txStateError, 7'd0 };
+assign DebugData[2] = { 4'd0, speed_mode, clock_speed, 1'b0, state, txState, rxState, numIRQ, numReset };
+                      //          2,          2,               3       3,       1
+assign DebugData[3] = recv_crc_in;
+assign DebugData[4] = { numRxDropped, 8'd0, send_first_byte_out, numTxSent };
+assign DebugData[5] = send_crc_in;
+assign DebugData[6] = { debug_PhyId2, debug_PhyId1 };
+assign DebugData[7] = { 8'd0, debug_initCount };
 `endif
 
 // Following data is accessible via block read from address `ADDR_ETH (0x4000),
 // where x is the Ethernet channel (1 or 2).
 // Note that some data is provided by this module (RTL8211F) whereas most is provided
-// by the high-level interface (EthernetIO).
+// by other modules (EthernetIO and EthSwitchRt).
 //    4x00 - 4x7f (128 quadlets) FireWire packet (first 128 quadlets only)
 //    4080 - 408f (16 quadlets)  EthernetIO Debug data
-//    4090 - 409f (16 quadlets)  Low-level (e.g., RTL8211F) Debug data
+//    4090 - 4097 (8 quadlets)   Low-level (e.g., RTL8211F) Debug data
+//    4098 - 409f (8 quadlets)   Low-level (e.g., EthSwitchRt) Debug data
 //    4xa0        (1 quadlet)    MDIO feedback (data read from management interface)
 //    4xa1 - 4xbf (31 quadlets)  Unused
 //    4xc0 - 4xdf (32 quadlets)  PacketBuffer/ReplyBuffer (64 words)
 //    4xe0 - 4xff (32 quadlets)  ReplyIndex (64 words)
 
+assign reg_rdata = (reg_raddr[7:3] == {4'h9, 1'b0}) ?
 `ifdef HAS_DEBUG_DATA
-assign reg_rdata = (reg_raddr[7:4] == 4'h9) ? DebugData[reg_raddr[3:0]] :   // Note [2:0] instead of [3:0]
+                                               DebugData[reg_raddr[2:0]] :
 `else
-assign reg_rdata = (reg_raddr[7:4] == 4'h9) ? "0GBD" :
+                                               "0GBD" :
 `endif
                    (reg_raddr[7:0] == 8'ha0) ? mdio_result : 32'd0;
 
