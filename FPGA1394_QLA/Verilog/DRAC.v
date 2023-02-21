@@ -26,7 +26,7 @@ module DRAC(
     // I/O between FPGA and QLA (connectors J1 and J2)
     inout[1:32]      IO1,
     inout[1:38]      IO2,
-    input wire[3:0]  io_extra,
+    inout wire[3:0]  io_extra,
 
     // Read/Write bus
     input wire[15:0]  reg_raddr_non_sample,
@@ -194,7 +194,10 @@ assign IO2[33] = 'bz;
 assign IO2[35] = 'bz;
 assign IO2[37] = 'bz;
 assign IO2[38] = 'bz;
-
+assign io_extra[0] = 'bz; // safety chain S sense
+assign io_extra[1] = EXTRA_IO; // dSIB RX
+assign io_extra[2] = 'bz; // dSIB TX
+assign io_extra[3] = 'bz; // dSIB INT
 
 // --------------------------------------------------------------------------
 // rdata mux
@@ -608,6 +611,7 @@ end
 
 reg [23:0] encoder_preload [1:7];
 reg [23:0] encoder_preload_offset [1:7];
+reg [1:7] encoder_overflow;
 
 integer encoder_preload_i;
 initial begin
@@ -619,12 +623,21 @@ end
 
 reg [1:0] preload_set_div2;
 assign preload_set_sysclk_toggle = preload_set_div2[1];
+integer encoder_overflow_i;
 always @(posedge sysclk)
 begin
     if (reg_wen && (reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[3:0]==`OFF_ENC_LOAD)) begin
         encoder_preload[reg_waddr[7:4]] <= reg_wdata[23:0];
         encoder_preload_offset[reg_waddr[7:4]] <= reg_wdata[23:0] - rdata_pos[reg_waddr[7:4]];
         preload_set_div2 <= preload_set_div2 + 'b1;
+        encoder_overflow[reg_waddr[7:4]] <= 'b0;
+    end else begin
+        for (encoder_overflow_i = 1; encoder_overflow_i < 8; encoder_overflow_i = encoder_overflow_i + 1) begin
+            if ({rdata_pos[encoder_overflow_i][23:0] + encoder_preload_offset[encoder_overflow_i]}[23:12] == 'h0 ||
+             {rdata_pos[encoder_overflow_i][23:0] + encoder_preload_offset[encoder_overflow_i]}[23:12] == 'hfff) begin
+                encoder_overflow[encoder_overflow_i] <= 'b1;
+            end
+        end
     end
 end
 
@@ -683,7 +696,7 @@ always @(*) begin
         `OFF_ADC_DATA: reg_rdata_main = {pot_data, cur_fb_filtered[reg_raddr[7:4]]};
         `OFF_DAC_CTRL: reg_rdata_main = {16'h0000, cur_cmd_fb[reg_raddr[7:4]]};
         `OFF_ENC_LOAD: reg_rdata_main = encoder_preload[reg_raddr[7:4]];
-        `OFF_ENC_DATA: reg_rdata_main = rdata_pos[reg_raddr[7:4]][23:0] + encoder_preload_offset[reg_raddr[7:4]];
+        `OFF_ENC_DATA: reg_rdata_main = {7'b0, encoder_overflow[reg_raddr[7:4]], rdata_pos[reg_raddr[7:4]][23:0] + encoder_preload_offset[reg_raddr[7:4]]};
         `OFF_PER_DATA: reg_rdata_main = espm_bram_rdata;
         `OFF_QTR1_DATA: reg_rdata_main = espm_bram_rdata;
         `OFF_QTR5_DATA: reg_rdata_main = espm_bram_rdata;
@@ -699,11 +712,11 @@ always @(*) begin
     endcase
 end
 
-reg extra_io_reg = 'b1;
+reg extra_io_reg = 'bz;
 assign EXTRA_IO = extra_io_reg;
 always @(posedge sysclk) begin
     if (reg_wen && (reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[7:4] == 4'd0) & (reg_waddr[3:0] == `REG_DIGIOUT)) begin
-        if (reg_wdata[8]) extra_io_reg <= reg_wdata[0];
+        if (reg_wdata[8]) extra_io_reg <= reg_wdata[0] ? 'b0 : 'bz;
     end
 end
 
@@ -732,7 +745,28 @@ wire [3:0] led_address;
 
 always @(posedge sysclk) begin
     case (led_address)
-        'd1: begin // 48v
+        'd1: begin // fpga prog ok
+            led_red <= 'd0;
+            led_green <= blink_0_5hz ? 'd50 : 'd8;
+            led_blue <= 'd0;
+        end
+        'd3: begin // ESPM comm
+            if (espm_comm_good) begin
+                led_red <= esii_escc_comm_good ? 'd40 : 'd0;
+                led_green <= 'd50;
+                led_blue <= 'd0;
+            end else begin
+                led_red <= 'd0;
+                led_green <= 'd0;
+                led_blue <= 'd0;
+            end
+        end
+        'd4: begin // eth/fw
+            led_red <= 'd0;
+            led_green <= 'd0;
+            led_blue <= 'd0;
+        end
+        'd5: begin // 48v
             if (MV_EN && !SAFETY_CHAIN_GOOD) begin
                 led_red <= 'd60;
                 led_green <= 'd0;
@@ -749,23 +783,7 @@ always @(posedge sysclk) begin
                 led_blue <= 'd0;
             end
         end
-        'd3: begin // ESPM comm
-            if (espm_comm_good) begin
-                led_red <= 'd40;
-                led_green <= 'd0;
-                led_blue <= esii_escc_comm_good ? 'd40 : 'd0;
-            end else begin
-                led_red <= 'd0;
-                led_green <= 'd0;
-                led_blue <= 'd0;
-            end
-        end
-        'd4: begin // eth/fw
-            led_red <= 'd0;
-            led_green <= 'd0;
-            led_blue <= 'd0;
-        end
-        'd2: begin // motor driver
+        'd6: begin // motor driver
             if (|motor_channel_fault) begin
                 led_red <= 'd60;
                 led_green <= 'd0;
@@ -777,27 +795,22 @@ always @(posedge sysclk) begin
             end else if (|RESETn) begin
                 led_red <= 'd0;
                 led_green <= 'd50;
-                led_blue <= 'd0;
+                led_blue <= 'd20;
             end else begin
                 led_red <= 'd0;
                 led_green <= 'd0;
                 led_blue <= 'd0;
             end
         end
-        'd0: begin // fpga prog ok
-            led_red <= 'd0;
-            led_green <= blink_0_5hz ? 'd15 : 'd8;
-            led_blue <= 'd0;
-        end
-        default: begin // unused
+        default: begin // 0, 2, unused
             led_red <= 'd0;
             led_green <= 'd0;
-            led_blue <= is_ecm ? 'd60 : 'd0;
+            led_blue <= 'd0;
         end
     endcase
 end
 
-ws2811 #(.NUM_LEDS(6),.SYSTEM_CLOCK(49_152_000)) ws2811_instance (
+ws2811 #(.NUM_LEDS(7),.SYSTEM_CLOCK(49_152_000)) ws2811_instance (
     .clk(sysclk),
     .address(led_address),
     .red_in(led_red),

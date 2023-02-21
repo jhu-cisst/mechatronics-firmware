@@ -227,7 +227,7 @@ DRAC drac(
     // I/O between FPGA and QLA (connectors J1 and J2)
     .IO1(IO1[1:32]),
     .IO2(IO2[1:38]),
-    .io_extra(4'd0),
+    // .io_extra(4'd0),
 
     // Read/write bus
     .reg_raddr_non_sample(reg_raddr),
