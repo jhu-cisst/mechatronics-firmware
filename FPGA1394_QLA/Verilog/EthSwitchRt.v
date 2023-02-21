@@ -275,9 +275,9 @@ begin
                 send_wr_en[curPortSend] <= ~(send_fifo_full[curPortSend]|send_fifo_overflow);
                 if (send_fifo_full[curPortSend])
                     send_fifo_overflow <= 1'b1;
-                if (sendCnt == ETH_Frame_Begin)
+                if (sendCnt == `ETH_Frame_Begin)
                     send_first_byte_in <= send_word[7:0];
-                else if (sendCnt == ETH_Frame_Length)
+                else if (sendCnt == `ETH_Frame_Length)
                     send_ipv4 <= (send_word == 16'h0008) ? 1'b1 : 1'b0;
             end
             else begin

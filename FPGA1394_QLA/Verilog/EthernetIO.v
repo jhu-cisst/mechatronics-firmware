@@ -38,8 +38,7 @@
 `define FW_BWRITE_HDR_SIZE 16'd20  // Firewire block write header size
 
 module EthernetIO
-    #(parameter NUM_BC_READ_QUADS = 33,
-      parameter IPv4_CSUM = 0)     // Set to 1 to generate IPv4 header checksum
+    #(parameter IPv4_CSUM = 0)     // Set to 1 to generate IPv4 header checksum
 (
     // global clock
     input wire sysclk,
@@ -155,9 +154,6 @@ begin
 end
 
 localparam[31:0] IP_UNASSIGNED = 32'hffffffff;
-
-// maximum quadlet index for real-time feedback broadcast packet
-localparam[5:0] MAX_BBC_QUAD = (NUM_BC_READ_QUADS-1);
 
 `ifdef HAS_DEBUG_DATA
 wire eth_send_isIdle;

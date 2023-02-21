@@ -426,9 +426,7 @@ KSZ8851  EthernetMacPhy(
 wire   ip_reg_wen;
 assign ip_reg_wen = (reg_waddr == {`ADDR_MAIN, 8'h0, `REG_IPADDR}) ? reg_wen : 1'b0;
 
-EthernetIO
-    #(.NUM_BC_READ_QUADS(NUM_BC_READ_QUADS))
-EthernetTransfers(
+EthernetIO EthernetTransfers(
     .sysclk(sysclk),          // in: global clock
 
     .board_id(board_id),      // in: board id (rotary switch)

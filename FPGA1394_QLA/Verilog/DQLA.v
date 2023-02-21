@@ -70,15 +70,8 @@ module DQLA(
 
     //******************* I/O pin mappings **************************
 
-    // I/O output enable (to be used in future)
-    wire out_en;
-    // In the future, out_en will be set once we can be sure that
-    // the correct board is attached.
-    assign out_en = 1'b1;
-
     // QLA EEPROM / IO-EXP
-    // Assume that all boards define IO1[1]-IO1[4] the same (EEPROM
-    // interface) and therefore we do not need to check out_en.
+    // Assume that all boards define IO1[1]-IO1[4] the same (EEPROM interface)
     wire sclk1;
     wire miso1;
     wire mosi1;
@@ -89,10 +82,10 @@ module DQLA(
     assign IO1[3] = sclk1;
     assign IO1[2] = mosi1;
     assign miso1 = IO1[1];
-    assign IO1[28] = out_en ? Q1_prom_CSn : 1'bz;
+    assign IO1[28] = Q1_prom_CSn;
     assign IO1[4] = Q2_prom_CSn;
-    assign IO1[31] = out_en ? Q1_ioexp_CSn : 1'bz;
-    assign IO1[15] = out_en ? Q2_ioexp_CSn : 1'bz;
+    assign IO1[31] = Q1_ioexp_CSn;
+    assign IO1[15] = Q2_ioexp_CSn;
 
     // Incremental encoders
     wire[1:4] Q1_enc_a;
@@ -109,8 +102,8 @@ module DQLA(
     wire conv_pot;
     wire[3:0] Q1_miso_pot;
     wire[3:0] Q2_miso_pot;
-    assign IO1[19] = out_en ? sclk_pot : 1'bz;
-    assign IO1[21] = out_en ? conv_pot : 1'bz;
+    assign IO1[19] = sclk_pot;
+    assign IO1[21] = conv_pot;
     assign Q1_miso_pot = { IO1[29], IO1[30], IO1[26], IO1[27] };
     assign Q2_miso_pot = { IO2[11], IO2[12], IO2[9], IO2[10] };
 
@@ -119,8 +112,8 @@ module DQLA(
     wire conv_cur;
     wire[3:0] Q1_miso_cur;
     wire[3:0] Q2_miso_cur;
-    assign IO1[20] = out_en ? sclk_cur : 1'bz;
-    assign IO1[23] = out_en ? conv_cur : 1'bz;
+    assign IO1[20] = sclk_cur;
+    assign IO1[23] = conv_cur;
     assign Q1_miso_cur = { IO2[5], IO2[6], IO2[1], IO2[3] };
     assign Q2_miso_cur = { IO2[15], IO2[18], IO2[17], IO2[16] };
 
@@ -132,13 +125,13 @@ module DQLA(
     wire Q2_dac_mosi_fb;
     wire Q1_dac_CSn;
     wire Q2_dac_CSn;
-    assign IO1[22] = out_en ? dac_sclk : 1'bz;
-    assign IO1[25] = out_en ? Q1_dac_mosi : 1'bz;
-    assign IO1[13] = out_en ? Q2_dac_mosi : 1'bz;
+    assign IO1[22] = dac_sclk;
+    assign IO1[25] = Q1_dac_mosi;
+    assign IO1[13] = Q2_dac_mosi;
     assign Q1_dac_mosi_fb = IO1[25];
     assign Q2_dac_mosi_fb = IO1[13];
-    assign IO1[24] = out_en ? Q1_dac_CSn : 1'bz;
-    assign IO1[9]  = out_en ? Q2_dac_CSn : 1'bz;
+    assign IO1[24] = Q1_dac_CSn;
+    assign IO1[9]  = Q2_dac_CSn;
    
     // DQLA I/O expander
     wire exp_sclk;      // labeled Q1_exp_sclk on schematic
@@ -146,15 +139,15 @@ module DQLA(
     wire exp_miso;
     wire Q1_exp_CSn;
     wire Q2_exp_CSn;
-    assign IO1[18] = out_en ? exp_sclk : 1'bz;
-    assign IO1[16] = out_en ? exp_mosi : 1'bz;
+    assign IO1[18] = exp_sclk;
+    assign IO1[16] = exp_mosi;
     assign exp_miso = IO1[14];
-    assign IO1[10] = out_en ? Q1_exp_CSn : 1'bz;
-    assign IO1[12] = out_en ? Q2_exp_CSn : 1'bz;
+    assign IO1[10] = Q1_exp_CSn;
+    assign IO1[12] = Q2_exp_CSn;
     
     // Safety relay
     wire relay_on;
-    assign IO1[0] = out_en ? relay_on : 1'bz;
+    assign IO1[0] = relay_on;
    
     // Digital outputs and direction control
     wire[1:4] Q1_out;
@@ -167,12 +160,12 @@ module DQLA(
     wire Q2_dir12_fb;
     wire Q1_dir34_fb;
     wire Q2_dir34_fb;
-    assign { IO1[6], IO1[5], IO1[8], IO1[7] } = out_en ? Q1_out : 4'bz;
-    assign { IO2[2], IO2[0], IO2[39], IO2[4] } = out_en ? Q2_out : 4'bz;
-    assign IO1[33] = out_en ? Q1_dir12 : 1'bz;
-    assign IO1[17] = out_en ? Q2_dir12 : 1'bz;
-    assign IO1[32] = out_en ? Q1_dir34 : 1'bz;
-    assign IO1[11] = out_en ? Q2_dir34 : 1'bz;
+    assign { IO1[6], IO1[5], IO1[8], IO1[7] } = Q1_out;
+    assign { IO2[2], IO2[0], IO2[39], IO2[4] } = Q2_out;
+    assign IO1[33] = Q1_dir12;
+    assign IO1[17] = Q2_dir12;
+    assign IO1[32] = Q1_dir34;
+    assign IO1[11] = Q2_dir34;
     assign Q1_dir12_fb = IO1[33];
     assign Q2_dir12_fb = IO1[17];
     assign Q1_dir34_fb = IO1[32];

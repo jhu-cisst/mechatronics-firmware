@@ -324,7 +324,7 @@ reg[11:0] recv_fifo_nb;   // Number of bytes in receive FIFO
 // First 16 bytes of Ethernet frame
 reg[7:0] frame_header[0:15];
 
-assign recv_first_byte_in = frame_header[ETH_Frame_Begin];
+assign recv_first_byte_in = frame_header[`ETH_Frame_Begin];
 
 // First 44 bits of FPGA MAC address (last 4 bits is board_id)
 localparam[43:0] fpgaMAC44 = 44'hFA610E13940;
@@ -337,9 +337,9 @@ localparam[47:0] fpgaBroadcastMAC = 48'hFFFFFFFFFFFF;
 
 // Destination MAC address
 wire[47:0] destMac;
-assign destMac = { frame_header[ETH_Dest_MAC],   frame_header[ETH_Dest_MAC+1],
-                   frame_header[ETH_Dest_MAC+2], frame_header[ETH_Dest_MAC+3],
-                   frame_header[ETH_Dest_MAC+4], frame_header[ETH_Dest_MAC+5] };
+assign destMac = { frame_header[`ETH_Dest_MAC],   frame_header[`ETH_Dest_MAC+1],
+                   frame_header[`ETH_Dest_MAC+2], frame_header[`ETH_Dest_MAC+3],
+                   frame_header[`ETH_Dest_MAC+4], frame_header[`ETH_Dest_MAC+5] };
 
 wire isUnicast;
 assign isUnicast = (destMac == {fpgaMAC44, board_id}) ? 1'b1 : 1'b0;
@@ -365,7 +365,7 @@ assign writeToRecvFifo = ((recv_nbytes[11:4] == 8'd0) || isForThis) ?
 // This duplicates some code from EthernetIO.v, but the advantage is that we
 // can detect checksum errors before the packet is processed in EthernetIO.v.
 wire[15:0] recv_length;   // Ethernet frame length/type (0x0800 is IPv4)
-assign recv_length = {frame_header[ETH_Frame_Length], frame_header[ETH_Frame_Length+1]};
+assign recv_length = {frame_header[`ETH_Frame_Length], frame_header[`ETH_Frame_Length+1]};
 wire recv_ipv4;
 assign recv_ipv4 = (recv_length == 16'h0800) ? 1'b1 : 1'b0;
 reg  recv_udp;           // Indicates UDP protocol
@@ -456,13 +456,13 @@ begin
                 recv_fifo_overflow <= 1'b1;
             end
 
-            if (recv_nbytes == ETH_IPv4_Protocol)
+            if (recv_nbytes == `ETH_IPv4_Protocol)
                 recv_udp <= (recv_ipv4 && (RxD == 8'd17)) ? 1'd1 : 1'd0;
 
             // IPv4 header checksum. Note that the carry bit is added to the sum.
-            if (recv_nbytes == ETH_IPv4_Begin)
+            if (recv_nbytes == `ETH_IPv4_Begin)
                 recv_ipv4_cksum <= {1'b0, RxD, 8'd0};
-            else if (recv_nbytes == ETH_IPv4_End)
+            else if (recv_nbytes == `ETH_IPv4_End)
                 recv_ipv4_err <= ((recv_ipv4_cksum == 17'h0ffff) || (recv_ipv4_cksum == 17'h1fffe)) ? 1'b0 : recv_ipv4;
             else if (~recv_nbytes[0])
                 recv_ipv4_cksum <= {1'b0, recv_ipv4_cksum[15:0]} + {RxD, 7'd0, recv_ipv4_cksum[16]};

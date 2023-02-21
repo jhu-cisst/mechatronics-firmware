@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2013-2022 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2013-2023 ERC CISST, Johns Hopkins University.
  *
  * Purpose: Global constants e.g. device address
  * 
@@ -102,22 +102,21 @@
 
 // Byte offsets into Ethernet frame (Begin is offset to first byte, End is offset to byte
 // after last byte)
-parameter[5:0]
-   ETH_Frame_Begin       = 0,                   // ********* FrameHeader [length=14] *********
-   ETH_Dest_MAC          = ETH_Frame_Begin,     // Destination MAC address
-   ETH_Src_MAC           = ETH_Frame_Begin+6,   // Source MAC address
-   ETH_Frame_Length      = ETH_Frame_Begin+12,  // EtherType/Length
-   ETH_Frame_End         = ETH_Frame_Begin+14,  // ******** End of Frame Header *************
-   ETH_IPv4_Begin        = ETH_Frame_End,       // ******* IPv4 Header (14) [length=20]  *****
-   ETH_IPv4_Protocol     = ETH_IPv4_Begin+9,    // Protocol (UDP=17, ICMP=1)
-   ETH_IPv4_Checksum     = ETH_IPv4_Begin+10,   // Header checksum
-   ETH_IPv4_End          = ETH_IPv4_Begin+20,   // ******** End of IPv4 Header **************
-   ETH_UDP_Begin         = ETH_IPv4_End,        // ******* UDP Header (34) [Length=8] *******
-   ETH_UDP_hostPort      = ETH_UDP_Begin,      // Source (host) port
-   ETH_UDP_destPort      = ETH_UDP_Begin+2,    // Destination (fpga) port
-   ETH_UDP_Length        = ETH_UDP_Begin+4,    // UDP Length
-   ETH_UDP_Checksum      = ETH_UDP_Begin+6,    // UDP Checksum
-   ETH_UDP_End           = ETH_UDP_Begin+8;    // ******** End of UDP Header **************
+`define ETH_Frame_Begin      6'd0                     // ********* FrameHeader [length=14] *********
+`define ETH_Dest_MAC         `ETH_Frame_Begin         // Destination MAC address
+`define ETH_Src_MAC          `ETH_Frame_Begin+6       // Source MAC address
+`define ETH_Frame_Length     `ETH_Frame_Begin+12      // EtherType/Length
+`define ETH_Frame_End        `ETH_Frame_Begin+14      // ******** End of Frame Header *************
+`define ETH_IPv4_Begin       `ETH_Frame_End           // ******* IPv4 Header (14) [length=20]  *****
+`define ETH_IPv4_Protocol    `ETH_IPv4_Begin+9        // Protocol (UDP=17, ICMP=1)
+`define ETH_IPv4_Checksum    `ETH_IPv4_Begin+10       // Header checksum
+`define ETH_IPv4_End         `ETH_IPv4_Begin+20       // ******** End of IPv4 Header **************
+`define ETH_UDP_Begin        `ETH_IPv4_End            // ******* UDP Header (34) [Length=8] *******
+`define ETH_UDP_hostPort     `ETH_UDP_Begin           // Source (host) port
+`define ETH_UDP_destPort     `ETH_UDP_Begin+2         // Destination (fpga) port
+`define ETH_UDP_Length       `ETH_UDP_Begin+4         // UDP Length
+`define ETH_UDP_Checksum     `ETH_UDP_Begin+6         // UDP Checksum
+`define ETH_UDP_End          `ETH_UDP_Begin+8         // ******** End of UDP Header **************
 
 // Bit indices in Ethernet recv_info_din and recv_info_dout (FPGA V3)
 `define ETH_RECV_CRC_ERROR_BIT 26
