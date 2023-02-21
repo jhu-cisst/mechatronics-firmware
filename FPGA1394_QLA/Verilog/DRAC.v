@@ -716,7 +716,7 @@ reg extra_io_reg = 'bz;
 assign EXTRA_IO = extra_io_reg;
 always @(posedge sysclk) begin
     if (reg_wen && (reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[7:4] == 4'd0) & (reg_waddr[3:0] == `REG_DIGIOUT)) begin
-        if (reg_wdata[8]) extra_io_reg <= reg_wdata[0] ? 'b0 : 'bz;
+        if (reg_wdata[8]) extra_io_reg <= reg_wdata[0] ? 'bz : 'b0;
     end
 end
 
