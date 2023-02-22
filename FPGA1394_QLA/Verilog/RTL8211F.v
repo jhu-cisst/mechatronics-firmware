@@ -74,7 +74,7 @@ module RTL8211F
 
     // Feedback bits
     output wire ethInternalError,     // Error summary bit to EthernetIO
-    output wire[11:0] eth_status,     // Ethernet status bits
+    output wire[7:0] eth_status,      // Ethernet status bits
     output reg hasIRQ,                // 1 -> PHY IRQn available (FPGA V3.1+)
 
     // Interface to EthSwitch
@@ -86,13 +86,15 @@ module RTL8211F
     output wire recv_info_fifo_empty,
     input wire recv_info_rd_en,
     output wire[31:0] recv_info_dout,
+    input wire recv_fifo_error,       // Feedback from EthSwitchRt
 
     output wire send_fifo_full,
     input wire send_wr_en,
     input wire[15:0] send_fifo_din,
     output wire send_info_fifo_full,
     input wire send_info_wr_en,
-    input wire[31:0] send_info_din
+    input wire[31:0] send_info_din,
+    input wire send_fifo_overflow     // Feedback from EthSwitchRt
 );
 
 initial RSTn = 1'b1;
@@ -723,17 +725,18 @@ end
 // MDIO state machine
 // ----------------------------------------------------------------------------
 
-localparam[2:0]
-    ST_IDLE = 3'd0,
-    ST_RESET_ASSERT = 3'd1,         // assert reset (low) -- 10 msec
-    ST_RESET_WAIT = 3'd2,           // wait after bringing reset high -- at least 50 msec
-    ST_RUN_PROGRAM_EXECUTE = 3'd3,
-    ST_WAIT_MDIO_RESULT = 3'd4,
-    ST_INIT_CHECK_CHIPID1 = 3'd5,
-    ST_INIT_CHECK_CHIPID2 = 3'd6,
-    ST_SET_GMII_SPEED = 3'd7;
+localparam[3:0]
+    ST_IDLE = 4'd0,
+    ST_RESET_ASSERT = 4'd1,         // assert reset (low) -- 10 msec
+    ST_RESET_WAIT = 4'd2,           // wait after bringing reset high -- at least 50 msec
+    ST_RUN_PROGRAM_EXECUTE = 4'd3,
+    ST_WAIT_MDIO_RESULT = 4'd4,
+    ST_INIT_CHECK_CHIPID1 = 4'd5,
+    ST_INIT_CHECK_CHIPID2 = 4'd6,
+    ST_GET_PHYSR_DATA = 4'd7,
+    ST_SET_GMII_SPEED = 4'd8;
 
-reg[2:0] state = ST_RESET_ASSERT;
+reg[3:0] state = ST_RESET_ASSERT;
 
 localparam[4:0]
         ADDR_BMCR = 5'd0,       // Basic Mode Control Register, page 0
@@ -768,7 +771,7 @@ localparam[4:0]
 `define REG_BITS 20:16
 `define PHY_REG_BITS 25:16
 `define DATA_BITS 15:0
-`define NEXT_BITS 2:0
+`define NEXT_BITS 3:0
 
 localparam CMD_WRITE = 1'b0,        // Write to register
            CMD_READ  = 1'b1;        // Read from register
@@ -776,19 +779,19 @@ localparam CMD_WRITE = 1'b0,        // Write to register
 localparam[4:0] PHY_RTL  = 5'd1,    // PHY address for RTL8211F
                 PHY_GMII = 5'd8;    // PHY address for GMII core
 
-// Program for initialization (0-9) and IRQ handler (4-9)
-reg[26:0] RunProgram[0:9];
+// Program for initialization (0-10) and IRQ handler (4-10)
+reg[26:0] RunProgram[0:10];
 reg[3:0] runPC;    // Program counter for RunProgram
 
 localparam[3:0] PC_RESET_BEGIN = 4'd0,   // Program counter for starting reset handler
                 PC_IRQ_BEGIN = 4'd4,     // Program counter for starting IRQ handler
-                PC_END = 4'd9;           // End (also used for MDIO requests from PC)
+                PC_END = 4'd10;          // End (also used for MDIO requests from PC)
 
 initial begin
     // Read Chip ID1 (should be 001c)
-    RunProgram[0] = {CMD_READ,  PHY_RTL, ADDR_PHYID1, 13'd0, ST_INIT_CHECK_CHIPID1};
+    RunProgram[0] = {CMD_READ,  PHY_RTL, ADDR_PHYID1, 12'd0, ST_INIT_CHECK_CHIPID1};
     // Read Chip ID2 (should be c916)
-    RunProgram[1] = {CMD_READ,  PHY_RTL, ADDR_PHYID2, 13'd0, ST_INIT_CHECK_CHIPID2};
+    RunProgram[1] = {CMD_READ,  PHY_RTL, ADDR_PHYID2, 12'd0, ST_INIT_CHECK_CHIPID2};
     // Change page to 0xa42 to access INER
     RunProgram[2] = {CMD_WRITE, PHY_RTL, ADDR_PAGSR, 16'h0a42};
     // Enable link change interrupt
@@ -796,15 +799,18 @@ initial begin
     // Change page to 0xa43 to access INSR
     RunProgram[4] = {CMD_WRITE, PHY_RTL, ADDR_PAGSR, 16'h0a43};
     // Read interrupt status register (clears interrupt)
-    RunProgram[5] = {CMD_READ,  PHY_RTL, ADDR_INSR, 13'd0, ST_RUN_PROGRAM_EXECUTE};
+    RunProgram[5] = {CMD_READ,  PHY_RTL, ADDR_INSR, 12'd0, ST_RUN_PROGRAM_EXECUTE};
+    // Read PHYSR to get link status
+    RunProgram[6] = {CMD_READ,  PHY_RTL, ADDR_PHYSR, 12'd0, ST_GET_PHYSR_DATA};
     // Change page to 0 to access BMCR (might not be necessary)
-    RunProgram[6] = {CMD_WRITE, PHY_RTL, ADDR_PAGSR, 16'd0};
-    // Read BMCR to get speed bits, which are used to update RunProgram[8]
-    RunProgram[7] = {CMD_READ,  PHY_RTL, ADDR_BMCR, 13'd0, ST_SET_GMII_SPEED};
+    RunProgram[7] = {CMD_WRITE, PHY_RTL, ADDR_PAGSR, 16'd0};
+    // Read BMCR to get speed bits, which are used to update RunProgram[9]
+    // Note that speed bits are also available in PHYSR.
+    RunProgram[8] = {CMD_READ,  PHY_RTL, ADDR_BMCR, 12'd0, ST_SET_GMII_SPEED};
     // Write speed bits to GMII core register 16 (ST_SET_GMII_SPEED updates the data field)
-    RunProgram[8] = {CMD_WRITE, PHY_GMII, 5'd16, 16'd0};
+    RunProgram[9] = {CMD_WRITE, PHY_GMII, 5'd16, 16'd0};
     // Change page to 0xa42 since that is the default page (probably not necessary)
-    RunProgram[9] = {CMD_WRITE, PHY_RTL, ADDR_PAGSR, 16'h0a42};
+    RunProgram[10] = {CMD_WRITE, PHY_RTL, ADDR_PAGSR, 16'h0a42};
 end
 
 `ifdef HAS_DEBUG_DATA
@@ -828,6 +834,9 @@ reg IRQ_cs;                  // 1 -> IRQ generated by change in Rx clock_speed
 // which does not have the hardware IRQn.
 reg[1:0] clock_speed_latch1;
 reg[1:0] clock_speed_latch2;
+
+reg linkOK;                  // 1 -> link on
+reg[1:0] linkSpeed;          // 00 -> 10Mbps, 01 -> 100 Mbps, 10 -> 1000 Mbps
 
 always @(posedge(clk))
 begin
@@ -983,11 +992,24 @@ begin
 `endif
     end
 
+    ST_GET_PHYSR_DATA:
+    begin
+        linkOK <= read_data[2];
+        linkSpeed <= read_data[5:4];
+        state <= ST_RUN_PROGRAM_EXECUTE;
+    end
+
     ST_SET_GMII_SPEED:
     begin
         RunProgram[runPC][`SPEED_LSB] <= read_data[`SPEED_LSB];
         RunProgram[runPC][`SPEED_MSB] <= read_data[`SPEED_MSB];
         state <= ST_RUN_PROGRAM_EXECUTE;
+    end
+
+    default:
+    begin
+        // Could note this as an error
+        state <= ST_IDLE;
     end
 
     endcase
@@ -997,7 +1019,7 @@ end
 assign ethInternalError = RxErr|recv_preamble_error;
 
 // Ethernet status bits for this port
-assign eth_status = { initOK, hasIRQ, 10'd0 };
+assign eth_status = { initOK, hasIRQ, linkOK, linkSpeed, recv_fifo_error, send_fifo_overflow, 1'd0 };
 
 // -----------------------------------------------
 // Debug data
@@ -1013,8 +1035,8 @@ assign DebugData[1] = { RxErr, recv_preamble_error, recv_fifo_reset, recv_fifo_f
                         recv_ipv4_err, recv_udp, 1'd0, hasIRQ,                            // 15:12
                         isUnicast, isMulticast, isBroadcast, initOK,                      // 11:8
                         txStateError, 7'd0 };
-assign DebugData[2] = { 4'd0, speed_mode, clock_speed, 1'b0, state, txState, rxState, numIRQ, numReset };
-                      //          2,          2,               3       3,       1
+assign DebugData[2] = { 4'd0, speed_mode, clock_speed, state, txState, rxState, numIRQ, numReset };
+                      //          2,          2,         4       3,       1
 assign DebugData[3] = recv_crc_in;
 assign DebugData[4] = { numRxDropped, 8'd0, send_first_byte_out, numTxSent };
 assign DebugData[5] = send_crc_in;

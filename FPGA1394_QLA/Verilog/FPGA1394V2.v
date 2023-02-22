@@ -352,6 +352,20 @@ PhyRequest phyreq(
 // Ethernet module
 // --------------------------------------------------------------------------
 
+// The Ethernet result is used to distinguish between FPGA versions
+//    Rev 1:  Eth_Result == 32'd0
+//    Rev 2:  Eth_Result[31] == 1, other bits variable
+//    Rev 3:  Eth_Result[31:30] == 01, other bits variable
+// For Rev 2 (this file), Eth_Result is allocated as follows:
+//    31:24  (8 bits) Ethernet PHY status (sets MSB to 1, as noted above)
+//    23:16  (8 bits) EthernetIO (higher level) status
+//    15:0   (16 bits)  Ethernet register data
+// For convenience, eth_status_io occupies same bits in V2 and V3
+wire[7:0] eth_status_phy;
+wire[7:0] eth_status_io;
+wire[15:0] eth_data;
+assign  Eth_Result = { eth_status_phy, eth_status_io, eth_data };
+
 // Wires between KSZ8851/RTL8211F and EthernetIO
 wire eth_resetActive;           // Indicates that reset is active
 wire eth_isForward;             // Indicates that FireWire receiver is forwarding to Ethernet
@@ -391,8 +405,8 @@ KSZ8851  EthernetMacPhy(
     .fw_reg_wen(fw_reg_wen),           // in: write enable from FireWire
     .fw_reg_waddr(fw_reg_waddr),       // in: write address from FireWire
     .fw_reg_wdata(fw_reg_wdata),       // in: data from FireWire
-    .eth_data(Eth_Result[15:0]),       // out: Last register read
-    .eth_status(Eth_Result[31:16]),    // out: Ethernet status register
+    .eth_data(eth_data),               // out: Last register read
+    .eth_status(eth_status_phy),       // out: Ethernet status register
 
     // Register interface to Ethernet memory space (ADDR_ETH=0x4000)
     .reg_rdata(reg_rdata_ksz),         // Data from Ethernet memory space
@@ -417,9 +431,7 @@ KSZ8851  EthernetMacPhy(
     .timeReceive(eth_time_recv),      // Time when receive portion finished
     .timeSinceIRQ(eth_time_now),      // Running time counter since start of packet receive
     .bw_active(eth_bw_active),        // Indicates that block write module is active
-    .ethInternalError(eth_InternalError),   // Error summary bit to EthernetIO
-    .ethioErrors(eth_ioErrors),       // Error bits from EthernetIO
-    .useUDP(useUDP)                   // Whether EthernetIO is using UDP
+    .ethInternalError(eth_InternalError)   // Error summary bit to EthernetIO
 );
 
 // address decode for IP address access
@@ -488,7 +500,7 @@ EthernetIO EthernetTransfers(
     .sample_rdata(sample_rdata),       // Sampled data (for block read)
     .timestamp(timestamp),             // timestamp
 
-    // Interface to EthernetIO
+    // Interface to KSZ8851
     .resetActive(eth_resetActive),    // Indicates that reset is active
     .isForward(eth_isForward),        // Indicates that FireWire receiver is forwarding to Ethernet
     .responseRequired(eth_responseRequired),   // Indicates that the received packet requires a response
@@ -505,8 +517,7 @@ EthernetIO EthernetTransfers(
     .timeNow(eth_time_now),           // Running time counter since start of packet receive
     .bw_active(eth_bw_active),        // Indicates that block write module is active
     .ethLLError(eth_InternalError),   // Error summary bit to EthernetIO
-    .ethioErrors(eth_ioErrors),       // Error bits from EthernetIO
-    .useUDP(useUDP)                   // Whether EthernetIO is using UDP
+    .eth_status(eth_status_io)        // EthernetIO status register
 );
 
 // --------------------------------------------------------------------------

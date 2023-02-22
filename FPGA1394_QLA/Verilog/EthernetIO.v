@@ -102,7 +102,7 @@ module EthernetIO
     input wire[31:0] sample_rdata,   // Sampled data (for block read)
     input wire[31:0] timestamp,      // Timestamp (for debugging)
 
-    // Interface to KSZ8851 or RTL8211F
+    // Interface to KSZ8851 or EthSwitchRt (2 x RTL8211F)
     input wire resetActive,          // Indicates that reset is active
     input wire isForward,            // Indicates that FireWire receiver is forwarding to Ethernet
     output wire responseRequired,    // Indicates that the received packet requires a response
@@ -123,8 +123,7 @@ module EthernetIO
     // Feedback bits
     output wire bw_active,           // Indicates that block write module is active
     input wire ethLLError,           // Error summary bit to EthernetIO (from low-level)
-    output wire[5:0] ethioErrors,    // Error bits from EthernetIO
-    output reg useUDP                // Whether EthernetIO is using UDP
+    output wire[7:0] eth_status      // Status feedback
 );
 
 `define send_word_swapped {send_word[7:0], send_word[15:8]}
@@ -180,7 +179,16 @@ wire isRebootCmd;   // 1 -> Reboot FPGA command received
 // This mode is set each time a valid packet is received
 // (i.e., set if a valid UDP packet received, cleared if
 // a valid raw Ethernet frame is received).
-// reg useUDP;
+reg useUDP;
+
+assign eth_status[7] = ethFrameError;      // 1 -> Ethernet frame unsupported
+assign eth_status[6] = ethIPv4Error;       // 1 -> IPv4 header error
+assign eth_status[5] = ethUDPError;        // 1 -> Wrong UDP port (not 1394)
+assign eth_status[4] = ethDestError;       // 1 -> Ethernet destination error
+assign eth_status[3] = ethAccessError;     // 1 -> Unable to access internal bus
+assign eth_status[2] = ethSendStateError;  // 1 -> Invalid send state
+assign eth_status[1] = 1'b0;
+assign eth_status[0] = useUDP;             // 1 -> Using UDP, 0 -> Raw Ethernet
 
 // Whether Firewire packet was dropped, rather than being processed,
 // due to Firewire bus reset or mismatch on bus generation number.
@@ -617,13 +625,6 @@ assign ExtraData[1] = {8'd0, numPacketError};
 `endif
 assign ExtraData[2] = timeReceive;
 assign ExtraData[3] = timeNow;
-
-assign ethioErrors[5] = ethFrameError;   // 1 -> Ethernet frame unsupported
-assign ethioErrors[4] = ethIPv4Error;    // 1 -> IPv4 header error
-assign ethioErrors[3] = ethUDPError;     // 1 -> Wrong UDP port (not 1394)
-assign ethioErrors[2] = ethDestError;    // 1 -> Ethernet destination error
-assign ethioErrors[1] = ethAccessError;  // 1 -> Unable to access internal bus
-assign ethioErrors[0] = ethSendStateError;  // 1 -> Unable to access internal bus
 
 // -----------------------------------------------
 // Debug data

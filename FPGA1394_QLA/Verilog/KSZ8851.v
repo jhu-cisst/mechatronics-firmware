@@ -101,7 +101,7 @@ module KSZ8851(
     input  wire[15:0] fw_reg_waddr,  // write address
     input  wire[31:0] fw_reg_wdata,  // write data
     output reg[15:0]  eth_data,      // Data to/from KSZ8851
-    output wire[31:16] eth_status,
+    output wire[7:0] eth_status,     // Status feeedback
 
     // Register interface to Ethernet memory space (for debugging)
     input  wire[15:0] reg_raddr,
@@ -130,9 +130,7 @@ module KSZ8851(
     output reg[15:0] timeSinceIRQ,    // Running time counter since last IRQ
     // Feedback bits
     input wire bw_active,             // Indicates that block write module is active
-    output wire ethInternalError,     // Error summary bit to EthernetIO
-    input wire[5:0] ethioErrors,      // Error bits from EthernetIO
-    input wire useUDP                 // Whether EthernetIO is using UDP
+    output wire ethInternalError      // Error summary bit to EthernetIO
 );
 
 reg initOK;            // 1 -> Initialization successful
@@ -349,27 +347,18 @@ initial begin
    isWord = 1'd1;
 end
 
-// Ethernet status:
-//   Bit 31: 1 to indicate that Ethernet is present -- must be kept for backward compatibility
-//   Bit 30: 1 to indicate that an error occurred in KSZ8851 -- must be kept for backward compatibility
-//   Other fields can be assigned as needed
-assign eth_status[31] = 1'b1;            // 31: 1 -> Ethernet is present
-assign eth_status[30] = ethFwReqError;   // 30: 1 -> Could not access KSZ registers via FireWire
-assign eth_status[29] = initOK;          // 29: 1 -> Initialization OK
-assign eth_status[28:24] = ethioErrors[5:1];
-//assign eth_status[28] = ethFrameError;   // 28: 1 -> Ethernet frame unsupported
-//assign eth_status[27] = ethIPv4Error;    // 27: 1 -> IPv4 header error
-//assign eth_status[26] = ethUDPError;     // 26: 1 -> Wrong UDP port (not 1394)
-//assign eth_status[25] = ethDestError;    // 25: 1 -> Ethernet destination error
-//assign eth_status[24] = ethAccessError;  // 24: 1 -> Unable to access internal bus
-assign eth_status[23] = ethStateError;   // 23: 1 -> Invalid state detected
-assign eth_status[22] = ethioErrors[0];  // 22: 1 -> Invalid send state detected
-assign eth_status[21] = 0;               // 21: Unused
-assign eth_status[20] = useUDP;          // 20: UDP mode
-assign eth_status[19] = linkStatus;      // 19: Link status
-assign eth_status[18] = eth_io_isIdle;   // 18: Ethernet I/O state machine is idle
-assign eth_status[17:16] = waitInfo;     // 17-16: Wait points in KSZ8851.v
-
+// Ethernet status. Note that these bits supply the upper bits of the Ethernet status register,
+// so bit 7 actually corresponds to bit 31.
+//   Bit 7: 1 to indicate that Ethernet is present -- must be kept for backward compatibility
+//   Bit 6: 1 to indicate that an error occurred in KSZ8851 -- must be kept for backward compatibility
+//   Other bits can be assigned as needed
+assign eth_status[7] = 1'b1;             // 1 -> Ethernet is present
+assign eth_status[6] = ethFwReqError;    // 1 -> Could not access KSZ registers via FireWire
+assign eth_status[5] = initOK;           // 1 -> Initialization OK
+assign eth_status[4] = ethStateError;    // 1 -> Invalid state detected
+assign eth_status[3] = linkStatus;       // Link status
+assign eth_status[2] = eth_io_isIdle;    // Ethernet I/O state machine is idle
+assign eth_status[1:0] = waitInfo;       // Wait points in KSZ8851.v
 
 reg isInIRQ;           // True if IRQ handle routing
 reg[15:0] RegISR;      // 16-bit ISR register
@@ -397,7 +386,7 @@ assign DebugData[0]  = "2GBD";  // DBG2 byte-swapped
 assign DebugData[1]  = { isDMAWrite, sendRequest, ~ETH_IRQn, isInIRQ,     // 31:28
                          linkStatus, 3'd0,                                // 27:24
                          8'd0,
-                         eth_status };                                    // 16
+                         eth_status, 8'd0};                               // 16
 assign DebugData[2]  = { 3'd0, state, 3'd0, retState, 3'd0, nextState, 3'd0, runPC }; // 5, 5, 5, 5
 assign DebugData[3]  = { 16'd0, RegISROther};                             // 16
 assign DebugData[4]  = { 6'd0, bw_wait, FrameCount, numPacketSent};       // 10, 8, 8

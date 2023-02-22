@@ -389,10 +389,16 @@ assign Eth_IRQn[2] = E2_IRQn;
 //    Rev 3:  Eth_Result[31:30] == 01, other bits variable
 // For Rev 3 (this file), Eth_Result is allocated as follows:
 //    31:24  (8 bits)  Global (board) status
-//    23:12 (12 bits)  Port 2 status
-//    11:0  (12 bits)  Port 1 status
-wire[11:0] status_e[1:2];   // Status bits for Ethernet port 1
-assign  Eth_Result = { 2'b01, 1'b0, clk200_ok, 4'h0, status_e[2], status_e[1] };
+//    23:16  (8 bits)  EthernetIO (higher-level) status
+//    15:8   (8 bits)  Port 2 status
+//    7:0    (8 bits)  Port 1 status
+// For convenience, eth_status_io occupies same bits in V2 and V3
+wire eth_port;                   // Current ethernet port (from EthSwitchRt)
+wire[7:0] eth_status_phy[1:2];   // Status bits for Ethernet ports 1 and 2
+wire[7:0] eth_status_io;         // Status bits from EthernetIO
+assign  Eth_Result = { 2'b01, eth_port, clk200_ok, 4'h0,
+                       eth_status_io,
+                       eth_status_phy[2], eth_status_phy[1] };
 
 // We detect FPGA V3.0 by checking whether the IRQ line is connected to the
 // RTL8211F PHY (it is not connected in V3.0). There should only be two
@@ -458,12 +464,14 @@ wire[15:0] rt_recv_fifo_dout[1:2];
 wire       rt_recv_info_empty[1:2];
 wire       rt_recv_info_rd_en[1:2];
 wire[31:0] rt_recv_info_dout[1:2];
+wire       rt_recv_fifo_error[1:2];
 wire       rt_send_fifo_full[1:2];
 wire       rt_send_wr_en[1:2];
 wire[15:0] rt_send_fifo_din;
 wire       rt_send_info_full[1:2];
 wire       rt_send_info_wr_en[1:2];
 wire[31:0] rt_send_info_din;
+wire       rt_send_fifo_overflow[1:2];
 
 // Wires between EthSwitchRt and EthernetIO
 wire resetActive_e[1:2];        // Ethernet port reset active
@@ -484,10 +492,6 @@ wire[15:0] eth_time_now;        // Running time counter since start of packet re
 wire eth_bw_active;             // Indicates that block write module is active
 wire eth_InternalError_rt[1:2]; // Error summary bit to EthernetIO
 wire[5:0] eth_ioErrors;         // Error bits from EthernetIO
-wire useUDP;                    // Whether EthernetIO is using UDP
-
-// For now, eth_resetActive is OR of e1 and e2
-assign eth_resetActive = resetActive_e[1] | resetActive_e[2];
 
 wire[31:0] reg_rdata_rtl_e[1:2];
 assign reg_rdata_rtl = (reg_raddr[11:8] == 4'd1) ? reg_rdata_rtl_e[1] :
@@ -555,8 +559,8 @@ for (k = 1; k <= 2; k = k + 1) begin : eth_loop
 
         // Feedback bits
         .ethInternalError(eth_InternalError_rt[k]),  // Error summary bit to EthSwitchRt
-        .eth_status(status_e[k]),           // Ethernet status bits
-        .hasIRQ(hasIRQ_e[k]),               // Whether IRQ is connected (FPGA V3.1+)
+        .eth_status(eth_status_phy[k]),        // Ethernet status bits
+        .hasIRQ(hasIRQ_e[k]),                  // Whether IRQ is connected (FPGA V3.1+)
 
         // Interface to EthSwitchRt
         .initOK(initOK[k]),
@@ -567,13 +571,15 @@ for (k = 1; k <= 2; k = k + 1) begin : eth_loop
         .recv_info_fifo_empty(rt_recv_info_empty[k]),
         .recv_info_rd_en(rt_recv_info_rd_en[k]),
         .recv_info_dout(rt_recv_info_dout[k]),
+        .recv_fifo_error(rt_recv_fifo_error[k]),         // First byte in recv_fifo not as expected
 
         .send_fifo_full(rt_send_fifo_full[k]),
         .send_wr_en(rt_send_wr_en[k]),
         .send_fifo_din(rt_send_fifo_din),
         .send_info_fifo_full(rt_send_info_full[k]),
         .send_info_wr_en(rt_send_info_wr_en[k]),
-        .send_info_din(rt_send_info_din)
+        .send_info_din(rt_send_info_din),
+        .send_fifo_overflow(rt_send_fifo_overflow[k])    // Overflow (send_fifo was full)
     );
 
     // MDIO Signal routing
@@ -613,6 +619,7 @@ EthSwitchRt eth_switch_rt(
 
     // Interface to RTL8211F (x2)
     .initOK({initOK[2], initOK[1]}),
+    .resetActiveIn({resetActive_e[2], resetActive_e[1]}),
 
     .recv_fifo_empty({rt_recv_fifo_empty[2], rt_recv_fifo_empty[1]}),
     .recv_rd_en({rt_recv_rd_en[2], rt_recv_rd_en[1]}),
@@ -620,6 +627,7 @@ EthSwitchRt eth_switch_rt(
     .recv_info_fifo_empty({rt_recv_info_empty[2], rt_recv_info_empty[1]}),
     .recv_info_rd_en({rt_recv_info_rd_en[2], rt_recv_info_rd_en[1]}),
     .recv_info_dout_vec({rt_recv_info_dout[2], rt_recv_info_dout[1]}),
+    .recv_fifo_error({rt_recv_fifo_error[2], rt_recv_fifo_error[1]}),
 
     .send_fifo_full({rt_send_fifo_full[2], rt_send_fifo_full[1]}),
     .send_wr_en({rt_send_wr_en[2], rt_send_wr_en[1]}),
@@ -627,6 +635,7 @@ EthSwitchRt eth_switch_rt(
     .send_info_fifo_full({rt_send_info_full[2], rt_send_info_full[1]}),
     .send_info_wr_en({rt_send_info_wr_en[2], rt_send_info_wr_en[1]}),
     .send_info_din(rt_send_info_din),
+    .send_fifo_overflow({rt_send_fifo_overflow[2], rt_send_fifo_overflow[1]}),
 
     .eth_InternalError_rt({eth_InternalError_rt[2], eth_InternalError_rt[1]}),
 
@@ -634,6 +643,7 @@ EthSwitchRt eth_switch_rt(
     .sendReq(eth_send_req),
 
     // Interface to EthernetIO
+    .resetActiveOut(eth_resetActive), // Indicates that reset is active
     .isForward(eth_isForward),        // Indicates that FireWire receiver is forwarding to Ethernet
     .responseRequired(eth_responseRequired),   // Indicates that the received packet requires a response
     .responseByteCount(eth_responseByteCount), // Number of bytes in required response
@@ -648,7 +658,7 @@ EthSwitchRt eth_switch_rt(
     .timeReceive(eth_time_recv),      // Time when receive portion finished
     .timeNow(eth_time_now),           // Running time counter since start of packet receive
     .bw_active(eth_bw_active),        // Indicates that block write module is active
-    .useUDP(useUDP),                  // Whether EthernetIO is using UDP
+    .curPort(eth_port),               // Current Ethernet port
     .eth_InternalError(eth_InternalError)
 );
 
@@ -737,8 +747,7 @@ EthernetTransfers(
     .timeNow(eth_time_now),           // Running time counter since start of packet receive
     .bw_active(eth_bw_active),        // Indicates that block write module is active
     .ethLLError(eth_InternalError),   // Error summary bit to EthernetIO
-    .ethioErrors(eth_ioErrors),       // Error bits from EthernetIO
-    .useUDP(useUDP)                   // Whether EthernetIO is using UDP
+    .eth_status(eth_status_io)        // EthernetIO status register
 );
 
 

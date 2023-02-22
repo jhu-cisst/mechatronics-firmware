@@ -18,6 +18,9 @@
 // Define following for debug data (DBG2)
 `define HAS_DEBUG_DATA
 
+// This module is parameterized by the number of ports primarily for documentation
+// clarity. Note that some parts of the code are only valid for NUM=2 (for example,
+// the use of the single-bit register curPort).
 module EthSwitchRt
     #(parameter NUM = 2)              // Number of Ethernet ports (PHYs)
 (
@@ -28,6 +31,7 @@ module EthSwitchRt
 
     // Interface to RTL8211F
     input wire[(NUM-1):0] initOK,
+    input wire[(NUM-1):0] resetActiveIn,
 
     input wire[(NUM-1):0] recv_fifo_empty,
     output reg[(NUM-1):0] recv_rd_en,
@@ -44,11 +48,14 @@ module EthSwitchRt
     output wire[31:0] send_info_din,
 
     input wire[(NUM-1):0] eth_InternalError_rt,
+    output reg[(NUM-1):0] recv_fifo_error,       // First byte in recv_fifo not as expected
+    output reg[(NUM-1):0] send_fifo_overflow,    // Overflow (send_fifo was full)
 
     // Interface from Firewire (for sending packets via Ethernet)
     input wire sendReq,               // Send request from FireWire
 
     // Interface to EthernetIO
+    output wire resetActiveOut,       // Reset to higher-level
     output reg isForward,             // Indicates that FireWire receiver is forwarding to Ethernet
     input wire responseRequired,      // Indicates that the received packet requires a response
     input wire[15:0] responseByteCount,   // Number of bytes in required response
@@ -67,9 +74,12 @@ module EthSwitchRt
     output reg[15:0] timeNow,         // Running time counting since receive started
     // Feedback bits
     input wire bw_active,             // Indicates that block write module is active
-    input wire useUDP,                // Whether EthernetIO is using UDP
-    output wire eth_InternalError     // Internal error (from RTL8211F)
+    output reg curPort,               // Currently active port (0->Eth1, 1->Eth2)
+    output wire eth_InternalError     // Internal error (to EthernetIO)
 );
+
+// For now, resetActiveOut is OR of resetActiveIn[]
+assign resetActiveOut = (resetActiveIn == {NUM{1'b0}}) ? 1'b0 : 1'b1;
 
 wire[15:0] recv_fifo_dout[0:(NUM-1)];
 wire[31:0] recv_info_dout[0:(NUM-1)];
@@ -82,15 +92,6 @@ for (i = 1; i <= NUM; i = i + 1) begin : gen_loop
 end 
 endgenerate
 
-// The following registers maintain the currently active recv and send ports.
-// Note that this implementation only handles NUM==2 (i.e., ports 0 and 1).
-// It is not yet clear whether it is necessary to have separate send and recv
-// registers.
-reg curPortRecv;
-initial curPortRecv = 1'd0;
-reg curPortSend;
-initial curPortSend = 1'd0;
-
 reg[11:0] last_sendCnt;
 reg[11:0] last_responseBC;
 
@@ -102,26 +103,24 @@ reg recvTransition;
 reg recvWait;
 
 reg curPacketValid;    // Whether current packet is valid (passed CRC check)
-reg recv_fifo_error;   // First byte in recv_fifo not as expected
 
-assign recv_word = recv_fifo_dout[curPortRecv];
+assign recv_word = recv_fifo_dout[curPort];
 
 reg[11:0] sendCnt;     // Counts number of sent bytes
 reg send_ipv4;         // 1 -> IPv4 packet being sent
 
-reg send_fifo_overflow;  // Overflow (send_fifo was full)
-
 reg[7:0] send_first_byte_in;   // for error checking
 
-wire send_fifo_flush;
-assign send_fifo_flush = send_fifo_overflow;
+reg send_fifo_flush;   // 1 -> flush packet due to fifo overflow
 
 assign send_fifo_din = {send_word[7:0], send_word[15:8]};
 
 assign send_info_din = { send_fifo_flush, 7'd0, send_first_byte_in, responseByteCount };
 
 // Internal error (from RTL8211F) is sent back to host via ExtraData in EthernetIO.v
-assign eth_InternalError = eth_InternalError_rt[curPortSend];
+// Note that this includes recv_fifo_error and send_fifo_overflow because this module
+// provides them to RTL8211F.
+assign eth_InternalError = eth_InternalError_rt[curPort];
 
 `ifdef HAS_DEBUG_DATA
 reg[15:0] timeSend;          // Time when send portion finished
@@ -139,6 +138,9 @@ wire sendIncr;
 assign sendIncr = sendCtrl[2];
 
 reg[7:0] recv_first_byte_out;
+`ifdef HAS_DEBUG_DATA
+reg [7:0] recv_first_byte;
+`endif
 
 // ----------------------------------------------------------------------------
 // Ethernet state machine
@@ -169,49 +171,54 @@ reg[2:0] state = ST_IDLE;
 always @(posedge(clk))
 begin
 
-    timeNow <= timeNow + 16'd1;
+    // Clear recv_fifo_error and send_fifo_overflow for any ports that are in reset
+    recv_fifo_error <= recv_fifo_error&(~resetActiveIn);
+    send_fifo_overflow <= send_fifo_overflow&(~resetActiveIn);
 
     case (state)
 
     ST_IDLE:
     begin
+        timeNow <= 16'd0;
         recvCnt <= 12'd0;
         sendCnt <= 12'd0;
         isForward <= 0;
         send_info_wr_en <= 2'b00;
-        if (initOK[curPortSend] & sendReq & (~send_fifo_full[curPortSend])) begin
+        if (initOK[curPort] & sendReq & (~send_fifo_full[curPort])) begin
             // forward packet from FireWire
+            // Note: This will forward it via the currently active port.
+            // To support simultaneous use of ports 0 and 1, it would be best
+            // to encode the port number in the outgoing Firewire packet, as
+            // long as it is reflected in the incoming response packet.
+            // For example, one bit in the Firewire TL field could be used.
             isForward <= 1;
             sendRequest <= 1;
-            timeSend <= 16'd0;
             state <= ST_SEND_WAIT;
         end
-        else if (initOK[curPortRecv] & (~recv_info_fifo_empty[curPortRecv])) begin
-            rxPktWords <= ((recv_info_dout[curPortRecv][11:0]+12'd3)>>1)&12'hffe;
-            recv_first_byte_out <= recv_info_dout[curPortRecv][23:16];
-            recv_info_rd_en[curPortRecv] <= 1'b1;
-            curPacketValid <= ~recv_info_dout[curPortRecv][`ETH_RECV_FLUSH_BIT];
+        else if (initOK[curPort] & (~bw_active) & (~recv_info_fifo_empty[curPort])) begin
+            rxPktWords <= ((recv_info_dout[curPort][11:0]+12'd3)>>1)&12'hffe;
+            recv_first_byte_out <= recv_info_dout[curPort][23:16];
+            recv_info_rd_en[curPort] <= 1'b1;
+            curPacketValid <= ~recv_info_dout[curPort][`ETH_RECV_FLUSH_BIT];
             // Request EthernetIO to receive if packet valid (flush if not valid).
-            recvRequest <= ~recv_info_dout[curPortRecv][`ETH_RECV_FLUSH_BIT];
+            recvRequest <= ~recv_info_dout[curPort][`ETH_RECV_FLUSH_BIT];
             recvReady <= 1'b0;
             dataValid <= 1'b0;
             // If flushing packet, just stay in recvTransition state
-            recvTransition <= recv_info_dout[curPortRecv][`ETH_RECV_FLUSH_BIT];
+            recvTransition <= recv_info_dout[curPort][`ETH_RECV_FLUSH_BIT];
             recvWait <= 1'b0;
-            timeNow <= 16'd0;
-            state <= recv_info_dout[curPortRecv][`ETH_RECV_FLUSH_BIT] ? ST_RECEIVE : ST_RECEIVE_WAIT;
+            state <= recv_info_dout[curPort][`ETH_RECV_FLUSH_BIT] ? ST_RECEIVE : ST_RECEIVE_WAIT;
 `ifdef HAS_DEBUG_DATA
-            if (recv_info_dout[curPortRecv][`ETH_RECV_FLUSH_BIT])
+            if (recv_info_dout[curPort][`ETH_RECV_FLUSH_BIT])
                 numPacketFlushed <= numPacketFlushed + 8'd1;
             else
                 numPacketValid <= numPacketValid + 16'd1;
 `endif
         end
-        else if (initOK[~curPortRecv] & (~recv_info_fifo_empty[~curPortRecv])) begin
-            // If the other port has data, we switch curPortRecv.
+        else if (initOK[~curPort] & (~bw_active) & (~recv_info_fifo_empty[~curPort])) begin
+            // If the other port has data, we switch curPort.
             // Note that this implementation only works for NUM==2.
-            curPortRecv <= ~curPortRecv;
-            curPortSend <= ~curPortRecv;   // TODO: remove this?
+            curPort <= ~curPort;
         end
 	end
 
@@ -220,6 +227,7 @@ begin
     ST_RECEIVE_WAIT:
     begin
         // Wait for recvRequest to be acknowledged
+        timeNow <= timeNow + 16'd1;
         if (recvBusy) begin
             recvRequest <= 1'b0;
             recvReady <= 1'b1;
@@ -229,6 +237,7 @@ begin
 
     ST_RECEIVE:
     begin
+        timeNow <= timeNow + 16'd1;
         recv_info_rd_en <= 2'b00;
         if (curPacketValid) begin
             recvReady <= recvWait;
@@ -236,10 +245,13 @@ begin
             recvTransition <= dataValid;      // 1 clock after dataValid
             recvWait <= recvTransition;
         end
-        recv_rd_en[curPortRecv] <= (dataValid|(~curPacketValid));
+        recv_rd_en[curPort] <= (dataValid|(~curPacketValid));
         if (dataValid && (recvCnt == 12'd0)) begin
-            recv_fifo_error <= (recv_fifo_dout[curPortRecv][15:8] == recv_first_byte_out) ? 1'b0 : 1'b1;
+            recv_fifo_error[curPort] <= (recv_fifo_dout[curPort][15:8] == recv_first_byte_out) ? 1'b0 : 1'b1;
             // May not be easy to handle an error if it occurs
+`ifdef HAS_DEBUG_DATA
+            recv_first_byte <= recv_fifo_dout[curPort][15:8];
+`endif
         end
         if (recvTransition) begin
             if (recvCnt == rxPktWords) begin
@@ -258,10 +270,10 @@ begin
     ST_SEND_WAIT:
     begin
         // Wait for sendRequest to be acknowledged
-        // curPortSend <= curPortRecv;   // TODO: restore this?
+        timeNow <= timeNow + 16'd1;
         if (sendBusy) begin
             sendRequest <= 1'b0;
-            send_fifo_overflow <= 1'b0;
+            send_fifo_flush <= 1'b0;
             sendCtrl <= 3'b001;
             state <= ST_SEND;
         end
@@ -269,12 +281,15 @@ begin
 
     ST_SEND:
     begin
+        timeNow <= timeNow + 16'd1;
         if (sendBusy) begin
             sendCtrl <= {sendCtrl[1:0], sendCtrl[2] };
             if (sendValid) begin
-                send_wr_en[curPortSend] <= ~(send_fifo_full[curPortSend]|send_fifo_overflow);
-                if (send_fifo_full[curPortSend])
-                    send_fifo_overflow <= 1'b1;
+                send_wr_en[curPort] <= ~(send_fifo_full[curPort]|send_fifo_flush);
+                if (send_fifo_full[curPort]) begin
+                    send_fifo_flush <= 1'b1;
+                    send_fifo_overflow[curPort] <= 1'b1;
+                end
                 if (sendCnt == `ETH_Frame_Begin)
                     send_first_byte_in <= send_word[7:0];
                 else if (sendCnt == `ETH_Frame_Length)
@@ -293,7 +308,7 @@ begin
             send_wr_en <= 2'b00;
             last_sendCnt <= sendCnt;    // for debugging
             last_responseBC <= responseByteCount;  // for debugging
-            send_info_wr_en[curPortSend] <= 1'b1;
+            send_info_wr_en[curPort] <= 1'b1;
 `ifdef HAS_DEBUG_DATA
             numPacketSent <= numPacketSent + 8'd1;
             timeSend <= timeNow;
@@ -314,10 +329,10 @@ end
 `ifdef HAS_DEBUG_DATA
 wire[31:0] DebugData[0:7];
 assign DebugData[0] = "2GBD";  // DBG2 byte-swapped
-assign DebugData[1] = { curPortRecv, curPortSend, curPacketValid, sendRequest,    // 31:28
-                        send_ipv4, send_fifo_overflow, recv_fifo_error, 1'd0,     // 27:24
+assign DebugData[1] = { curPort, curPacketValid, sendRequest, send_ipv4,    // 31:28
+                        send_fifo_overflow, recv_fifo_error,                // 27:24
                         24'd0 };
-assign DebugData[2] = { 8'd0, recv_first_byte_out, 4'd0, rxPktWords };      // 8, 12
+assign DebugData[2] = { recv_first_byte, recv_first_byte_out, 4'd0, rxPktWords };   // 8, 8, 12
 assign DebugData[3] = { numPacketSent, numPacketFlushed, numPacketValid };  // 8, 8, 16
 assign DebugData[4] = { 4'd0, last_sendCnt, 4'd0, last_responseBC };
 assign DebugData[5] = { timeSend, timeReceive };
