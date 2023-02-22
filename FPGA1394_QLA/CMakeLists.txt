@@ -120,6 +120,10 @@ set (VERILOG_SOURCE_DQLA   ${VERILOG_SOURCE_QLA_DQLA}
                            "${VERILOG_SOURCE_DIR}/BoardRegs-DQLA.v"
                            "${VERILOG_SOURCE_DIR}/DQLA.v")
 
+# Source files used by BCFG (boot config)
+set (VERILOG_SOURCE_BCFG  "${VERILOG_SOURCE_DIR}/BootConfig.v"
+                          "${VERILOG_SOURCE_DIR}/QLA25AA128.v")
+
 ################### Complete Systems (FPGA + Board) #####################
 
 ##### FPGAV1 + QLA
@@ -167,7 +171,7 @@ set (VERILOG_SOURCE_FPGAV3_QLA
                          ${VERILOG_SOURCE_FPGAV3}
                          ${VERILOG_SOURCE_QLA})
 
-# Compile the firmware -- output is FPGA1394V3-QLA.mcs, which is copied
+# Compile the firmware -- output is FPGA1394V3-QLA.bit, which is copied
 # to the Generated subdirectory in the source directory (if different).
 ise_compile_fpga(PROJ_NAME      "FPGA1394V3QLA"
                  DEPENDENCIES   "CoreGenV3" "PlatgenV3"
@@ -188,7 +192,7 @@ set (VERILOG_SOURCE_FPGAV3_DQLA
                          ${VERILOG_SOURCE_FPGAV3}
                          ${VERILOG_SOURCE_DQLA})
 
-# Compile the firmware -- output is FPGA1394V3-DQLA.mcs, which is copied
+# Compile the firmware -- output is FPGA1394V3-DQLA.bit, which is copied
 # to the Generated subdirectory in the source directory (if different).
 ise_compile_fpga(PROJ_NAME      "FPGA1394V3DQLA"
                  DEPENDENCIES   "CoreGenV3" "PlatgenV3"
@@ -200,6 +204,27 @@ ise_compile_fpga(PROJ_NAME      "FPGA1394V3DQLA"
                  XPSCORE_DIR    "${XPSCORE_BINARY_DIR}/implementation"
                  TOP_LEVEL      "FPGA1394V3DQLA"
                  PROJ_OUTPUT    "FPGA1394V3-DQLA"
+                 IS_V3          ON)
+
+##### FPGAV3 + BCFG
+set (VERILOG_SOURCE_FPGAV3_BCFG
+                         "${VERILOG_SOURCE_DIR}/FPGA1394V3-BCFG.v"
+                         ${VERILOG_SOURCE_COMMON}
+                         ${VERILOG_SOURCE_FPGAV3}
+                         ${VERILOG_SOURCE_BCFG})
+
+# Compile the firmware -- output is FPGA1394V3-BCFG.bit, which is copied
+# to the Generated subdirectory in the source directory (if different).
+ise_compile_fpga(PROJ_NAME      "FPGA1394V3BCFG"
+                 DEPENDENCIES   "CoreGenV3" "PlatgenV3"
+                 FPGA_PARTNUM   ${FPGAV3_PARTNUM}
+                 VERILOG_SOURCE ${VERILOG_SOURCE_FPGAV3_BCFG}
+                 UCF_FILE       "${VERILOG_SOURCE_DIR}/XC7Z020.ucf"
+                 BOARD_UCF_FILE "${VERILOG_SOURCE_DIR}/BootConfig.ucf"
+                 IPCORE_DIR     ${IPCOREV3_BINARY_DIR}
+                 XPSCORE_DIR    "${XPSCORE_BINARY_DIR}/implementation"
+                 TOP_LEVEL      "FPGA1394V3BCFG"
+                 PROJ_OUTPUT    "FPGA1394V3-BCFG"
                  IS_V3          ON)
 
 ######################### Copy Generated Files #################################
@@ -236,4 +261,7 @@ add_custom_command(TARGET generated POST_BUILD
                    ARGS -E copy_if_different
                            ${CMAKE_CURRENT_BINARY_DIR}/FPGA1394V3DQLA.bit
                            ${CMAKE_CURRENT_SOURCE_DIR}/../Generated/FPGA1394V3-DQLA.bit
+                   ARGS -E copy_if_different
+                           ${CMAKE_CURRENT_BINARY_DIR}/FPGA1394V3BCFG.bit
+                           ${CMAKE_CURRENT_SOURCE_DIR}/../Generated/FPGA1394V3-BCFG.bit
                    COMMENT "Copying MCS and BIT files to source \"Generated\" directory (if different)")
