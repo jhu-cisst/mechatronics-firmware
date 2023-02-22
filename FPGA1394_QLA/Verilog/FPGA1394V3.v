@@ -392,13 +392,12 @@ assign Eth_IRQn[2] = E2_IRQn;
 //    23:16  (8 bits)  EthernetIO (higher-level) status
 //    15:8   (8 bits)  Port 2 status
 //    7:0    (8 bits)  Port 1 status
-// For convenience, eth_status_io occupies same bits in V2 and V3
 wire eth_port;                   // Current ethernet port (from EthSwitchRt)
 wire[7:0] eth_status_phy[1:2];   // Status bits for Ethernet ports 1 and 2
 wire[7:0] eth_status_io;         // Status bits from EthernetIO
-assign  Eth_Result = { 2'b01, eth_port, clk200_ok, 4'h0,
-                       eth_status_io,
-                       eth_status_phy[2], eth_status_phy[1] };
+assign Eth_Result = { 2'b01, eth_port, clk200_ok, 4'h0,
+                      eth_status_io,
+                      eth_status_phy[2], eth_status_phy[1] };
 
 // We detect FPGA V3.0 by checking whether the IRQ line is connected to the
 // RTL8211F PHY (it is not connected in V3.0). There should only be two

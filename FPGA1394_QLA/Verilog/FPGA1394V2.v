@@ -360,11 +360,13 @@ PhyRequest phyreq(
 //    31:24  (8 bits) Ethernet PHY status (sets MSB to 1, as noted above)
 //    23:16  (8 bits) EthernetIO (higher level) status
 //    15:0   (16 bits)  Ethernet register data
-// For convenience, eth_status_io occupies same bits in V2 and V3
+// Note that the eth_status_phy and eth_status_io bits are intermingled for backward
+// compatible bit assignments.
 wire[7:0] eth_status_phy;
 wire[7:0] eth_status_io;
 wire[15:0] eth_data;
-assign  Eth_Result = { eth_status_phy, eth_status_io, eth_data };
+assign Eth_Result = { eth_status_phy[7:5], eth_status_io[7:3], eth_status_phy[4],
+                      eth_status_io[2:0], eth_status_phy[3:0], eth_data };
 
 // Wires between KSZ8851/RTL8211F and EthernetIO
 wire eth_resetActive;           // Indicates that reset is active

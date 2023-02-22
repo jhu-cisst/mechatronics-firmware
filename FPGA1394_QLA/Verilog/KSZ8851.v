@@ -385,8 +385,7 @@ wire[31:0] DebugData[0:15];
 assign DebugData[0]  = "2GBD";  // DBG2 byte-swapped
 assign DebugData[1]  = { isDMAWrite, sendRequest, ~ETH_IRQn, isInIRQ,     // 31:28
                          linkStatus, 3'd0,                                // 27:24
-                         8'd0,
-                         eth_status, 8'd0};                               // 16
+                         24'd0 };
 assign DebugData[2]  = { 3'd0, state, 3'd0, retState, 3'd0, nextState, 3'd0, runPC }; // 5, 5, 5, 5
 assign DebugData[3]  = { 16'd0, RegISROther};                             // 16
 assign DebugData[4]  = { 6'd0, bw_wait, FrameCount, numPacketSent};       // 10, 8, 8
