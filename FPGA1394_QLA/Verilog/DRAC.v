@@ -752,7 +752,7 @@ always @(posedge sysclk) begin
         end
         'd3: begin // ESPM comm
             if (espm_comm_good) begin
-                led_red <= esii_escc_comm_good ? 'd40 : 'd0;
+                led_red <= esii_escc_comm_good ? 'd0 : 'd90;
                 led_green <= 'd50;
                 led_blue <= 'd0;
             end else begin
@@ -794,7 +794,7 @@ always @(posedge sysclk) begin
                 led_blue <= 'd0;
             end else if (|RESETn) begin
                 led_red <= 'd0;
-                led_green <= 'd50;
+                led_green <= 'd100;
                 led_blue <= 'd20;
             end else begin
                 led_red <= 'd0;
