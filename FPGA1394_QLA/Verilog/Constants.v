@@ -55,7 +55,7 @@
 `define REG_PROMRES  4'd9          // PROM result (from M25P16)
 `define REG_DIGIN    4'd10         // Digital inputs (home, neg lim, pos lim)
 `define REG_IPADDR   4'd11         // IP address
-`define REG_ETHRES   4'd12         // Ethernet register I/O result (from KSZ8851)
+`define REG_ETHSTAT  4'd12         // Ethernet status/control register
 `define REG_DSSTAT   4'd13         // Dallas chip status
 `define REG_IO_EXP   4'd14         // I/O Expander (MAX7317)
 

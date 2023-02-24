@@ -50,6 +50,7 @@ module EthSwitchRt
     input wire[(NUM-1):0] eth_InternalError_rt,
     output reg[(NUM-1):0] recv_fifo_error,       // First byte in recv_fifo not as expected
     output reg[(NUM-1):0] send_fifo_overflow,    // Overflow (send_fifo was full)
+    input wire[(NUM-1):0] clearErrors,           // Clear error flags
 
     // Interface from Firewire (for sending packets via Ethernet)
     input wire sendReq,               // Send request from FireWire
@@ -171,9 +172,10 @@ reg[2:0] state = ST_IDLE;
 always @(posedge(clk))
 begin
 
-    // Clear recv_fifo_error and send_fifo_overflow for any ports that are in reset
-    recv_fifo_error <= recv_fifo_error&(~resetActiveIn);
-    send_fifo_overflow <= send_fifo_overflow&(~resetActiveIn);
+    // Clear recv_fifo_error and send_fifo_overflow for any ports that are in reset or for
+    // which clearErrors is set.
+    recv_fifo_error <= recv_fifo_error&(~(resetActiveIn|clearErrors));
+    send_fifo_overflow <= send_fifo_overflow&(~(resetActiveIn|clearErrors));
 
     case (state)
 

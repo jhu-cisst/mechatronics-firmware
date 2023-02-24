@@ -5,8 +5,9 @@
  *
  * Copyright(C) 2014-2023 ERC CISST, Johns Hopkins University.
  *
- * This module implements the higher-level Ethernet I/O, which interfaces
- * to the KSZ8851 MAC/PHY chip (FPGA V2) or the RTL8211F PHY chip (FPGA V3)
+ * This module implements the higher-level (network layer) Ethernet I/O, which
+ * interfaces to the link layer for the KSZ8851 MAC/PHY chip (FPGA V2) or the
+ * link layer for the RTL8211F PHY chip (FPGA V3).
  *
  * Revision history
  *     12/21/15    Peter Kazanzides    Initial Revision
@@ -52,6 +53,7 @@ module EthernetIO
     output reg[31:0] reg_rdata,
     input  wire[31:0] reg_wdata,
     input  wire ip_reg_wen,
+    input  wire ctrl_reg_wen,
     output wire[31:0] ip_address,
 
     // Interface to/from board registers. These enable the Ethernet module to drive
@@ -198,6 +200,9 @@ reg fwPacketDropped;
 // This is done when a packet is dropped.
 wire sendExtra;
 assign sendExtra = fwPacketDropped;
+
+// Flag set by host to clear error bits and counters
+reg clearErrors;
 
 reg[11:0] txPktWords;  // Num of words sent
 
@@ -786,6 +791,21 @@ assign addrMain = (fw_dest_offset[15:12] == `ADDR_MAIN) ? 1'd1 : 1'd0;
 assign isRebootCmd = (addrMain && (fw_dest_offset[11:0] == 12'd0) && quadWrite
                       && (fw_quadlet_data[21:20] == 2'b11)) ? 1'd1 : 1'd0;
 
+
+//*****************************************************************
+//  Write to Ethernet control register
+//*****************************************************************
+
+always @(posedge sysclk)
+begin
+   if (ctrl_reg_wen) begin
+      clearErrors <= reg_wdata[29];
+   end
+   else begin
+      clearErrors <= 0;
+   end
+end
+
 //*****************************************************************
 //  ETHERNET Receive state machine
 //*****************************************************************
@@ -830,6 +850,14 @@ begin
       sample_start <= 1'd0;
    end
 
+   if (resetActive|clearErrors) begin
+      numPacketError <= 8'd0;
+      ethFrameError <= 0;
+      ethIPv4Error <= 0;
+      ethUDPError <= 0;
+      ethDestError <= 0;
+   end
+
    // Write to IP address register
    if (ip_reg_wen) begin
       // Following is equivalent to: ip_address <= reg_wdata;
@@ -864,13 +892,8 @@ begin
       if (resetActive) begin
          // Always process reset
          FireWirePacketFresh <= 0;
-         fwPacketDropped <= 0;
-         numPacketError <= 8'd0;
          eth_send_fw_req <= 0;
-         ethFrameError <= 0;
-         ethIPv4Error <= 0;
-         ethUDPError <= 0;
-         ethDestError <= 0;
+         fwPacketDropped <= 0;
       end
       if (eth_send_fw_req) begin
          // This could have been a separate state, but would need an extra
@@ -1178,6 +1201,11 @@ begin
       txPktWords <= txPktWords + 12'd1;
    end
 
+   if (resetActive|clearErrors) begin
+      ethAccessError <= 0;
+      ethSendStateError <= 0;
+   end
+
    case (sendState)
 
    ST_SEND_DMA_IDLE:
@@ -1189,10 +1217,6 @@ begin
       txPktWords <= 12'd0;
       sfw_count <= 10'd0;
       xcnt <= 2'd0;
-      if (resetActive) begin
-         ethAccessError <= 0;
-         ethSendStateError <= 0;
-      end
       if (sendRequest) begin
          sendBusy <= 1;
          ReplyBuffer[ID_Rep_fpgaMac2][3:0] <= board_id;

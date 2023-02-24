@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2008-2022 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2008-2023 ERC CISST, Johns Hopkins University.
  *
  * This module contains a register file dedicated to general board parameters.
  * Separate register files are maintained for each I/O channel (SpiCtrl).
@@ -70,7 +70,7 @@ wire write_main;
 assign write_main = ((reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[7:4]==4'd0) && reg_wen) ? 1'b1 : 1'b0;
 
 // return register data for reads
-//    REG_PROMSTAT, REG_PROMRES, REG_IPADDR and REG_ETHRES handled elsewhere in FPGA module
+//    REG_PROMSTAT, REG_PROMRES, REG_IPADDR and REG_ETHSTAT handled elsewhere in FPGA module
 //    reg_rdata_ext is data from external board (e.g., QLA)
 always @(*) begin
     case (reg_raddr[3:0])

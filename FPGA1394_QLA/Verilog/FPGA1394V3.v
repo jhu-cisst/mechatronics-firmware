@@ -215,7 +215,7 @@ assign reg_rdata_chan0_ext =
                    (reg_raddr[3:0]==`REG_PROMSTAT) ? prom_status :
                    (reg_raddr[3:0]==`REG_PROMRES) ? prom_result :
                    (reg_raddr[3:0]==`REG_IPADDR) ? ip_address :
-                   (reg_raddr[3:0]==`REG_ETHRES) ? Eth_Result :
+                   (reg_raddr[3:0]==`REG_ETHSTAT) ? Eth_Result :
                    reg_rdata_ext;
 
 // Multiplexing of write bus between WriteRtData (bw = real-time block write module),
@@ -388,16 +388,18 @@ assign Eth_IRQn[2] = E2_IRQn;
 //    Rev 2:  Eth_Result[31] == 1, other bits variable
 //    Rev 3:  Eth_Result[31:30] == 01, other bits variable
 // For Rev 3 (this file), Eth_Result is allocated as follows:
-//    31:24  (8 bits)  Global (board) status
-//    23:16  (8 bits)  EthernetIO (higher-level) status
+//    31:16  (16 bits) Global (board) status and EthernetIO status
 //    15:8   (8 bits)  Port 2 status
 //    7:0    (8 bits)  Port 1 status
+// Note that the eth_status_io bits are intermingled for backward
+// compatible bit assignments.
 wire eth_port;                   // Current ethernet port (from EthSwitchRt)
 wire[7:0] eth_status_phy[1:2];   // Status bits for Ethernet ports 1 and 2
 wire[7:0] eth_status_io;         // Status bits from EthernetIO
-assign Eth_Result = { 2'b01, eth_port, clk200_ok, 4'h0,
-                      eth_status_io,
-                      eth_status_phy[2], eth_status_phy[1] };
+assign Eth_Result = { 2'b01, eth_port, eth_status_io[7:3],                   // 31:24
+                      1'b0, eth_status_io[2], clk200_ok, eth_status_io[0],   // 23:20
+                      4'h0,                                                  // 19:16
+                      eth_status_phy[2], eth_status_phy[1] };                // 15:0
 
 // We detect FPGA V3.0 by checking whether the IRQ line is connected to the
 // RTL8211F PHY (it is not connected in V3.0). There should only be two
@@ -471,6 +473,7 @@ wire       rt_send_info_full[1:2];
 wire       rt_send_info_wr_en[1:2];
 wire[31:0] rt_send_info_din;
 wire       rt_send_fifo_overflow[1:2];
+wire       rt_clear_errors[1:2];
 
 // Wires between EthSwitchRt and EthernetIO
 wire resetActive_e[1:2];        // Ethernet port reset active
@@ -496,6 +499,10 @@ wire[31:0] reg_rdata_rtl_e[1:2];
 assign reg_rdata_rtl = (reg_raddr[11:8] == 4'd1) ? reg_rdata_rtl_e[1] :
                        (reg_raddr[11:8] == 4'd2) ? reg_rdata_rtl_e[2] :
                        32'd0;
+
+// Write to Ethernet control register
+wire eth_ctrl_wen;
+assign eth_ctrl_wen = (reg_waddr == {`ADDR_MAIN, 8'h0, `REG_ETHSTAT}) ? reg_wen : 1'b0;
 
 genvar k;
 generate
@@ -528,6 +535,7 @@ for (k = 1; k <= 2; k = k + 1) begin : eth_loop
         .reg_rdata(reg_rdata_rtl_e[k]), // out: read data
         .reg_wdata(reg_wdata),    // in:  write data
         .reg_wen(reg_wen_eth),    // in:  write enable
+        .reg_wen_ctrl(eth_ctrl_wen),  // in: write enable to Ethernet control register
 
         .RSTn(Eth_RSTn[k]),       // Reset to RTL8211F
         .IRQn(Eth_IRQn[k]),       // Interrupt from RTL8211F (FPGA V3.1+)
@@ -578,7 +586,9 @@ for (k = 1; k <= 2; k = k + 1) begin : eth_loop
         .send_info_fifo_full(rt_send_info_full[k]),
         .send_info_wr_en(rt_send_info_wr_en[k]),
         .send_info_din(rt_send_info_din),
-        .send_fifo_overflow(rt_send_fifo_overflow[k])    // Overflow (send_fifo was full)
+        .send_fifo_overflow(rt_send_fifo_overflow[k]),   // Overflow (send_fifo was full)
+
+        .clearErrors(rt_clear_errors[k])                 // request to clear errors
     );
 
     // MDIO Signal routing
@@ -636,6 +646,7 @@ EthSwitchRt eth_switch_rt(
     .send_info_din(rt_send_info_din),
     .send_fifo_overflow({rt_send_fifo_overflow[2], rt_send_fifo_overflow[1]}),
 
+    .clearErrors({rt_clear_errors[2], rt_clear_errors[1]}),
     .eth_InternalError_rt({eth_InternalError_rt[2], eth_InternalError_rt[1]}),
 
     // Interface from Firewire (for sending packets via Ethernet)
@@ -679,6 +690,7 @@ EthernetTransfers(
     .reg_raddr(reg_raddr),             // Read address for Ethernet memory
     .reg_wdata(reg_wdata),             // Data to write to IP address register
     .ip_reg_wen(ip_reg_wen),           // Enable write to IP address register
+    .ctrl_reg_wen(eth_ctrl_wen),       // Enable write to Ethernet control register
     .ip_address(ip_address),           // IP address of this board
 
     // Interface to/from board registers. These enable the Ethernet module to drive

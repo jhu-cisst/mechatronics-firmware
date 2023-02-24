@@ -5,8 +5,7 @@
  *
  * Copyright(C) 2014-2023 ERC CISST, Johns Hopkins University.
  *
- * This module implements the higher-level Ethernet I/O, which interfaces
- * to the KSZ8851 MAC/PHY chip.
+ * This module implements the link layer interface to the KSZ8851 MAC/PHY chip.
  *
  * Revision history
  *     12/21/15    Peter Kazanzides    Initial Revision
@@ -167,7 +166,7 @@ assign recv_word = `SDSwapped;
 
 // address decode for KSZ8851 I/O access
 wire   ksz_reg_wen;
-assign ksz_reg_wen = (fw_reg_waddr == {`ADDR_MAIN, 8'h0, `REG_ETHRES}) ? fw_reg_wen : 1'b0;
+assign ksz_reg_wen = (fw_reg_waddr == {`ADDR_MAIN, 8'h0, `REG_ETHSTAT}) ? fw_reg_wen : 1'b0;
 
 reg       ksz_req;    // External request pending for KSZ I/O
 reg[31:0] ksz_wdata;  // Cached register for KSZ I/O request
@@ -849,10 +848,11 @@ always @(posedge sysclk) begin
       if (ksz_req) begin
          //****** Access to KSZ8851 registers via Firewire interface ******
          // Format of 32-bit register:
-         // 0(4) DMA(1) Reset(1) R/W(1) W/B(1) Addr(8) Data(16)
-         // bit 28: reset error flag
+         // 0(2) clearErrors(2) DMA(1) Reset(1) R/W(1) W/B(1) Addr(8) Data(16)
+         // bit 29: clear network layer error flags and counters (EthernetIO)
+         // bit 28: clear link layer error flags and counters (this file)
          // bit 27: DMA
-         // bit 26: reset
+         // bit 26: reset PHY
          // bit 25: R/W Read (0) or Write (1)
          // bit 24: W/B Word or Byte
          // bit 23-16: 8-bit address
@@ -860,8 +860,16 @@ always @(posedge sysclk) begin
          // Previously, this was implemented to accept the reset command at any time,
          // but now it will only work in the IDLE state.
          ksz_req <= 0;
-         ethFwReqError <= ksz_wdata[28] ? 1'd0 : ethFwReqError;
-         if (!ksz_wdata[26]) begin   // if not reset
+         if (ksz_wdata[28]) begin
+            ethFwReqError <= 0;
+            ethStateError <= 0;
+`ifdef HAS_DEBUG_DATA
+            numPacketValid <= 16'd0;
+            numPacketInvalid <= 8'd0;
+`endif
+         end
+         if (!ksz_wdata[26] && (ksz_wdata[31:28] == 4'd0)) begin
+            // if not reset or upper bits set
             isWrite <= ksz_wdata[25];
             isWord <= ksz_wdata[24];
             RegAddr <= ksz_wdata[23:16];

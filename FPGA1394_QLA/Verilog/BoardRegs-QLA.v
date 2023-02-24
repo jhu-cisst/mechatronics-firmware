@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2008-2022 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2008-2023 ERC CISST, Johns Hopkins University.
  *
  * This module contains a register file dedicated to general board parameters
  * for the QLA.
@@ -142,7 +142,7 @@ always @(posedge(sysclk))
     end
 
     // return register data for reads
-    //    REG_PROMSTAT, REG_PROMRES, REG_IPADDR and REG_ETHRES handled by FPGA module
+    //    REG_PROMSTAT, REG_PROMRES, REG_IPADDR and REG_ETSTAT handled by FPGA module
     else begin
         case (reg_raddr[3:0])
         `REG_STATUS: reg_rdata <= reg_status;

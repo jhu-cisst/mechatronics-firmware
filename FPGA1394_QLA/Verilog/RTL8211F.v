@@ -7,7 +7,7 @@
  *
  * Module: RTL8211F
  *
- * Purpose: Interface to RTL8211F Ethernet PHY
+ * Purpose: Link layer interface to RTL8211F Ethernet PHY
  *
  * MDC: Clock from FPGA to RTL8211F
  *      Low/high time must be at least 32 ns
@@ -39,6 +39,7 @@ module RTL8211F
     output wire[31:0] reg_rdata,   // register read data
     input  wire[31:0] reg_wdata,   // register write data 
     input  wire reg_wen,           // reg write enable
+    input  wire reg_wen_ctrl,      // write enable to Ethernet control register
 
     output reg RSTn,               // Reset to RTL8211F (active low)
     input wire IRQn,               // Interrupt from RTL8211F (active low), FPGA V3.1+
@@ -94,7 +95,9 @@ module RTL8211F
     output wire send_info_fifo_full,
     input wire send_info_wr_en,
     input wire[31:0] send_info_din,
-    input wire send_fifo_overflow     // Feedback from EthSwitchRt
+    input wire send_fifo_overflow,    // Feedback from EthSwitchRt
+
+    output reg clearErrors            // Clear error flags
 );
 
 initial RSTn = 1'b1;
@@ -311,6 +314,7 @@ crc32 recv_crc(recv_crc_data, recv_crc_in, recv_crc_2b, recv_crc_4b, recv_crc_8b
 reg[16:0] recv_ipv4_cksum;   // Used to verify IPv4 header checksum
 reg recv_ipv4_err;           // 1 -> IPv4 checksum error
 
+reg  recv_fifo_reset_req;    // Recv FIFO reset request via Ethernet control register
 reg  recv_fifo_reset;
 reg  recv_wr_en;
 wire recv_fifo_full;
@@ -481,7 +485,8 @@ begin
             recv_fifo_nb <= 12'd0;
             recv_preamble_cnt <= 3'd0;
             recv_wr_en <= 1'b0;
-            recv_fifo_reset <= 1'b0;
+            // Note that recv_fifo_reset_req will only be acted upon in the IDLE state
+            recv_fifo_reset <= recv_fifo_reset_req;
             recv_info_wr_en <= 1'b0;
             recv_preamble_error <= 1'b0;
         end
@@ -838,6 +843,13 @@ reg[1:0] clock_speed_latch2;
 reg linkOK;                  // 1 -> link on
 reg[1:0] linkSpeed;          // 00 -> 10Mbps, 01 -> 100 Mbps, 10 -> 1000 Mbps
 
+// validChannel is used when the implementation only supports 2 channels
+wire validChannel;
+assign validChannel = ((CHANNEL == 4'd1) || (CHANNEL == 4'd2)) ? 1'b1 : 1'b0;
+
+// Bit offset within status register (0 for Eth1, 8 for Eth2)
+localparam BIT_OFFSET = 8*(CHANNEL-1);
+
 always @(posedge(clk))
 begin
 
@@ -851,32 +863,28 @@ begin
         IRQ_cs <= initOK&(~hasIRQ);
     end
 
+    // Write to Ethernet status register
+    if (reg_wen_ctrl) begin
+        // Ignore reset request if already in reset
+        resetRequest <= validChannel&reg_wdata[26]&reg_wdata[BIT_OFFSET+7]&RSTn;
+        IRQn_disable <= validChannel&reg_wdata[28]&reg_wdata[BIT_OFFSET+6];
+        IRQ_sw <= validChannel&reg_wdata[28]&reg_wdata[BIT_OFFSET+5];
+        clearErrors <= validChannel&reg_wdata[28]&reg_wdata[BIT_OFFSET+4];
+        recv_fifo_reset_req <= validChannel&reg_wdata[28]&reg_wdata[BIT_OFFSET+2];
+        send_fifo_reset <= validChannel&reg_wdata[28]&reg_wdata[BIT_OFFSET+1];
+    end
+    else begin
+        clearErrors <= 0;
+        recv_fifo_reset_req <= 0;
+        send_fifo_reset <= 0;
+    end
+
     // Request write to RTL8211F register via MDIO, address = 4xa0,
     // where x is channel number.
     // Store it as pending and handle it when in IDLE state.
     if (reg_wen && (reg_waddr[3:0] == 4'd0)) begin
         write_data_pending <= reg_wdata;
         mdioRequest_pending <= 1;
-    end
-
-    // RTL8211F Control Register, address = 4xa1, where x is channel number
-    // All bits are active high
-    //    Bit 0 --> PHY reset request (ignored if already in reset)
-    //    Bit 1 --> Disable PHY IRQn
-    //    Bit 2 --> Generate software IRQ
-    //    Bit 3 --> recv_fifo_reset
-    //    Bit 4 --> send_fifo_reset
-    if (reg_wen && (reg_waddr[3:0] == 4'd1)) begin
-        resetRequest <= reg_wdata[0]&RSTn;
-        IRQn_disable <= reg_wdata[1];
-        IRQ_sw <= reg_wdata[2];
-        //recv_fifo_reset <= reg_wdata[3];
-        send_fifo_reset <= reg_wdata[4];
-    end
-    else begin
-        // Automatically clear FIFO resets (may remove this in future)
-        //recv_fifo_reset <= 1'b0;
-        send_fifo_reset <= 1'b0;
     end
 
     case (state)

@@ -200,7 +200,7 @@ assign reg_rdata_chan0_ext =
                    (reg_raddr[3:0]==`REG_PROMSTAT) ? prom_status :
                    (reg_raddr[3:0]==`REG_PROMRES) ? prom_result :
                    (reg_raddr[3:0]==`REG_IPADDR) ? ip_address :
-                   (reg_raddr[3:0]==`REG_ETHRES) ? Eth_Result :
+                   (reg_raddr[3:0]==`REG_ETHSTAT) ? Eth_Result :
                    reg_rdata_ext;
 
 // Multiplexing of write bus between WriteRtData (bw = real-time block write module),
@@ -403,7 +403,7 @@ KSZ8851  EthernetMacPhy(
 
     // Firewire interface to KSZ8851 (for testing). Results are provided
     // via eth_data and eth_status, which are combined in the 32-bit register
-    // Eth_Result, which is available via board register REG_ETHRES (12).
+    // Eth_Result, which is available via board register REG_ETHSTAT (12).
     .fw_reg_wen(fw_reg_wen),           // in: write enable from FireWire
     .fw_reg_waddr(fw_reg_waddr),       // in: write address from FireWire
     .fw_reg_wdata(fw_reg_wdata),       // in: data from FireWire
@@ -440,6 +440,10 @@ KSZ8851  EthernetMacPhy(
 wire   ip_reg_wen;
 assign ip_reg_wen = (reg_waddr == {`ADDR_MAIN, 8'h0, `REG_IPADDR}) ? reg_wen : 1'b0;
 
+// address decode for Ethernet status/control register access
+wire   eth_ctrl_wen;
+assign eth_ctrl_wen = (reg_waddr == {`ADDR_MAIN, 8'h0, `REG_ETHSTAT}) ? reg_wen : 1'b0;
+
 EthernetIO EthernetTransfers(
     .sysclk(sysclk),          // in: global clock
 
@@ -452,6 +456,7 @@ EthernetIO EthernetTransfers(
     .reg_raddr(reg_raddr),             // Read address for Ethernet memory
     .reg_wdata(reg_wdata),             // Data to write to IP address register
     .ip_reg_wen(ip_reg_wen),           // Enable write to IP address register
+    .ctrl_reg_wen(eth_ctrl_wen),       // Enable write to Ethernet control register
     .ip_address(ip_address),           // IP address of this board
 
     // Interface to/from board registers. These enable the Ethernet module to drive
