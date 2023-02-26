@@ -32,7 +32,15 @@ module BootConfig(
     input wire[31:0]  reg_wdata,
     input wire reg_wen,
     input wire blk_wen,
-    input wire blk_wstart
+    input wire blk_wstart,
+
+    // Sampling support
+    input wire sample_start,        // Start sampling read data
+    output reg sample_busy,         // 1 -> data sampler has control of bus
+    output wire[3:0] sample_chan,   // Channel for sampling
+    input wire[5:0] sample_raddr,   // Address in sample_data buffer
+    output wire[31:0] sample_rdata, // Output from sample_data buffer
+    output reg[31:0] timestamp      // Timestamp used when sampling
 );
 
     //******************* I/O pin mappings **************************
@@ -109,5 +117,36 @@ assign reg_version = 32'h42434647;   // "BCFG"
 assign reg_rdata_chan0 = (reg_raddr[3:0] == `REG_STATUS) ? reg_status :
                          (reg_raddr[3:0] == `REG_VERSION) ? reg_version :
                          32'd0;
+
+// --------------------------------------------------------------------------
+// Sample data for block read
+// This is a simplified version of SampleData.v
+// --------------------------------------------------------------------------
+
+reg[31:0] RT_Feedback[0:3];
+
+integer ii;
+initial begin
+    for (ii = 0; ii <= 3; ii = ii + 1)
+        RT_Feedback[ii] = 32'd0;
+end
+
+assign sample_rdata = RT_Feedback[sample_raddr[1:0]];
+assign sample_chan = 4'd0;
+
+always @(posedge sysclk)
+begin
+    timestamp <= sample_start&(~sample_busy) ? 32'd0 : timestamp + 1'b1;
+    if (sample_start) begin
+        sample_busy <= 1;
+        if (~sample_busy) begin
+            RT_Feedback[0] <= timestamp;
+            RT_Feedback[1] <= reg_status;
+        end
+    end
+    else if (sample_busy) begin
+        sample_busy <= 0;
+    end
+end
 
 endmodule

@@ -93,6 +93,14 @@ module FPGA1394V3BCFG
     wire blk_wen;               // block write enable
     wire blk_wstart;            // block write start
 
+    // Wires for sampling block read data
+    wire sample_start;        // Start sampling read data
+    wire sample_busy;         // 1 -> data sampler has control of bus
+    wire[3:0] sample_chan;    // Channel for sampling
+    wire[5:0] sample_raddr;   // Address in sample_data buffer
+    wire[31:0] sample_rdata;  // Output from sample_data buffer
+    wire[31:0] timestamp;     // Timestamp used when sampling
+
 // LED on FPGA
 // Lights when PS clock is correctly initialized (clk200_ok)
 // and when firmware (this code) is running.
@@ -154,7 +162,26 @@ fpga(
     .reg_wdata(reg_wdata),
     .reg_wen(reg_wen),
     .blk_wen(blk_wen),
-    .blk_wstart(blk_wstart)
+    .blk_wstart(blk_wstart),
+
+    // Block write support (not used)
+    .bw_reg_waddr(8'd0),
+    .bw_reg_wdata(32'd0),
+    .bw_reg_wen(1'd0),
+    .bw_blk_wen(1'd0),
+    .bw_blk_wstart(1'd0),
+    .bw_write_en(1'd0),
+
+    // Sampling support
+    .sample_start(sample_start),
+    .sample_busy(sample_busy),
+    .sample_chan(sample_chan),
+    .sample_raddr(sample_raddr),
+    .sample_rdata(sample_rdata),
+    .timestamp(timestamp),
+
+    // Watchdog support (not used)
+    .wdog_clear(1'd0)
 );
 
 //***************************** BootConfig Module ************************************
@@ -175,7 +202,15 @@ BootConfig bcfg(
     .reg_wdata(reg_wdata),
     .reg_wen(reg_wen),
     .blk_wen(blk_wen),
-    .blk_wstart(blk_wstart)
+    .blk_wstart(blk_wstart),
+
+    // Sampling support
+    .sample_start(sample_start),
+    .sample_busy(sample_busy),
+    .sample_chan(sample_chan),
+    .sample_raddr(sample_raddr),
+    .sample_rdata(sample_rdata),
+    .timestamp(timestamp)
 );
 
 endmodule
