@@ -69,7 +69,7 @@ module FPGA1394V3BCFG
 );
 
     // Number of quadlets in real-time block read (not including Firewire header and CRC)
-    localparam NUM_RT_READ_QUADS = 2;
+    localparam NUM_RT_READ_QUADS = 4;
     // Number of quadlets in broadcast real-time block; includes sequence number
     localparam NUM_BC_READ_QUADS = (1+NUM_RT_READ_QUADS);
 

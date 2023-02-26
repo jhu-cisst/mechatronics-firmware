@@ -141,7 +141,9 @@ begin
         sample_busy <= 1;
         if (~sample_busy) begin
             RT_Feedback[0] <= timestamp;
-            RT_Feedback[1] <= reg_status;
+            RT_Feedback[1] <= { reg_status[31:10], IO1[0:9] };
+            RT_Feedback[2] <= { IO1[10:33], IO2[0:7] };
+            RT_Feedback[3] <= IO2[8:39];
         end
     end
     else if (sample_busy) begin
