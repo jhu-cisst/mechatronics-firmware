@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2013-2022 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2013-2023 ERC CISST, Johns Hopkins University.
  *
  * Purpose: Global constants e.g. device address
  * 
@@ -59,7 +59,7 @@
 `define REG_PROMRES  4'd9          // PROM result (from M25P16)
 `define REG_DIGIN    4'd10         // Digital inputs (home, neg lim, pos lim)
 `define REG_IPADDR   4'd11         // IP address
-`define REG_ETHRES   4'd12         // Ethernet register I/O result (from KSZ8851)
+`define REG_ETHSTAT  4'd12         // Ethernet status/control register
 `define REG_DSSTAT   4'd13         // Dallas chip status
 `define REG_IO_EXP   4'd14         // I/O Expander (MAX7317)
 
@@ -78,7 +78,7 @@
 `define OFF_RUN_DATA  4'hA         // enc running counter offset
 `define OFF_MOTOR_CONFIG 4'hB      // motor configuration
 `define OFF_MOTOR_STATUS 4'hC      // motor status
-`define OFF_MOTOR_SAFETY 4'hD      // motor saftey (current limit)
+`define OFF_UNUSED_13 4'hD
 `define OFF_UNUSED_14 4'hE
 `define OFF_UNUSED_15 4'hF
 
@@ -103,6 +103,28 @@
 `define LREQ_REG_WR 3'd5          // register write header
 `define LREQ_ACCEL 3'd6           // async arbitration acceleration
 `define LREQ_RES 3'd7             // reserved, presumably do nothing
+
+// Byte offsets into Ethernet frame (Begin is offset to first byte, End is offset to byte
+// after last byte)
+`define ETH_Frame_Begin      6'd0                     // ********* FrameHeader [length=14] *********
+`define ETH_Dest_MAC         `ETH_Frame_Begin         // Destination MAC address
+`define ETH_Src_MAC          `ETH_Frame_Begin+6       // Source MAC address
+`define ETH_Frame_Length     `ETH_Frame_Begin+12      // EtherType/Length
+`define ETH_Frame_End        `ETH_Frame_Begin+14      // ******** End of Frame Header *************
+`define ETH_IPv4_Begin       `ETH_Frame_End           // ******* IPv4 Header (14) [length=20]  *****
+`define ETH_IPv4_Protocol    `ETH_IPv4_Begin+9        // Protocol (UDP=17, ICMP=1)
+`define ETH_IPv4_Checksum    `ETH_IPv4_Begin+10       // Header checksum
+`define ETH_IPv4_End         `ETH_IPv4_Begin+20       // ******** End of IPv4 Header **************
+`define ETH_UDP_Begin        `ETH_IPv4_End            // ******* UDP Header (34) [Length=8] *******
+`define ETH_UDP_hostPort     `ETH_UDP_Begin           // Source (host) port
+`define ETH_UDP_destPort     `ETH_UDP_Begin+2         // Destination (fpga) port
+`define ETH_UDP_Length       `ETH_UDP_Begin+4         // UDP Length
+`define ETH_UDP_Checksum     `ETH_UDP_Begin+6         // UDP Checksum
+`define ETH_UDP_End          `ETH_UDP_Begin+8         // ******** End of UDP Header **************
+
+// Bit indices in Ethernet recv_info_din and recv_info_dout (FPGA V3)
+`define ETH_RECV_CRC_ERROR_BIT 26
+`define ETH_RECV_FLUSH_BIT 31
 
 // Watchdog period status 
 `define WDOG_DISABLE     3'b0     // watchdog period = 0ms (disabled)

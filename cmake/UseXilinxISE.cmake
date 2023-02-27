@@ -40,7 +40,8 @@
 #   - DEPENDENCIES:    dependencies for this target (e.g., IP cores)
 #   - FPGA_PARTNUM:    the FPGA part number
 #   - VERILOG_SOURCE:  list of Verilog source code (.v)
-#   - UCF_FILE:        User constraints file
+#   - UCF_FILE:        Primary user constraints file
+#   - BOARD_UCF_FILE:  User constraints file for attached board (QLA, etc.)
 #   - IPCORE_DIR:      Directory to search for IP cores
 #   - XPSCORE_DIR:     Directory to search for XPS generated implementation files
 #   - TOP_LEVEL:       Top level module name
@@ -75,6 +76,7 @@ function (ise_compile_fpga ...)
        FPGA_PARTNUM
        VERILOG_SOURCE
        UCF_FILE
+       BOARD_UCF_FILE
        IPCORE_DIR
        XPSCORE_DIR
        TOP_LEVEL
@@ -127,6 +129,7 @@ function (ise_compile_fpga ...)
   file (APPEND ${CMD_FILE} "-g         $ipcore_dir:${IPCORE_DIR}\n")
   file (APPEND ${CMD_FILE} "-g         $xpscore_dir:${XPSCORE_DIR}\n")
   file (APPEND ${CMD_FILE} "-g         $ucf_file:${UCF_FILE}\n")
+  file (APPEND ${CMD_FILE} "-g         $board_ucf_file:${BOARD_UCF_FILE}\n")
   file (APPEND ${CMD_FILE} "-g         $proj_output:${PROJ_OUTPUT}\n")
 
   # Prepare files used by XST (synthesis)
@@ -171,6 +174,7 @@ function (ise_compile_fpga_old ...)
        FPGA_PARTNUM
        VERILOG_SOURCE
        UCF_FILE
+       BOARD_UCF_FILE
        IPCORE_DIR
        TOP_LEVEL
        PROJ_OUTPUT)
@@ -241,6 +245,7 @@ function (ise_compile_fpga_old ...)
                              -dd ${CMAKE_CURRENT_BINARY_DIR}/_ngo
                              -sd ${IPCORE_DIR}
                              -uc ${UCF_FILE}
+                             -uc ${BOARD_UCF_FILE}
                              -p  ${FPGA_PARTNUM}
                              ${PROJ_NAME}.ngc
                              ${PROJ_NAME}.ngd

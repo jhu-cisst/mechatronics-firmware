@@ -2,78 +2,79 @@ CONFIG VCCAUX=3.3;
 
 ################################################################################
 # Main I/O Ports
+# PULLUP / PULLDOWN specified in board constraint file (e.g., QLA.ucf)
 ################################################################################
-NET  "IO1[1]"     LOC = " D22"    | IOSTANDARD = "LVCMOS33" | PULLUP;  # MISO prom_qla
-NET  "IO1[2]"     LOC = " D21"    | IOSTANDARD = "LVCMOS33" | PULLUP;  # MOSI
-NET  "IO1[3]"     LOC = " D20"    | IOSTANDARD = "LVCMOS33" | PULLUP;  # SCLK
-NET  "IO1[4]"     LOC = " D19"    | IOSTANDARD = "LVCMOS33" | PULLUP;  # /EEPROM
-NET  "IO1[5]"     LOC = " C22"    | IOSTANDARD = "LVCMOS33" | PULLUP;  # Dir34
-NET  "IO1[6]"     LOC = " C20"    | IOSTANDARD = "LVCMOS33" | PULLUP;  # Dir12
-NET  "IO1[7]"     LOC = " C19"    | IOSTANDARD = "LVCMOS33" | PULLUP;  # /MV-FLT (QLA 1.4+)
-NET  "IO1[8]"     LOC = " B22"    | IOSTANDARD = "LVCMOS33" | PULLUP;  # /IOEXP (QLA 1.5+)
-NET  "IO1[9]"     LOC = " B21"    | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO1[10]"    LOC = " B20"    | IOSTANDARD = "LVCMOS33";           # Ltc1864 sclk
-NET  "IO1[11]"    LOC = " A21"    | IOSTANDARD = "LVCMOS33";           # Ltc1864 conv
-NET  "IO1[12]"    LOC = " G7"     | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO1[13]"    LOC = " F7"     | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO1[14]"    LOC = " E6"     | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO1[15]"    LOC = " H4"     | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO1[16]"    LOC = " F5"     | IOSTANDARD = "LVCMOS33";           # dout 4
-NET  "IO1[17]"    LOC = " E5"     | IOSTANDARD = "LVCMOS33";           # dout 3
-NET  "IO1[18]"    LOC = " D5"     | IOSTANDARD = "LVCMOS33";           # dout 2
-NET  "IO1[19]"    LOC = " E4"     | IOSTANDARD = "LVCMOS33";           # dout 1
-NET  "IO1[20]"    LOC = " B3"     | IOSTANDARD = "LVCMOS33";           # Ltc2601 mosi
-NET  "IO1[21]"    LOC = " A2"     | IOSTANDARD = "LVCMOS33";           # Ltc2601 sclk
-NET  "IO1[22]"    LOC = " B2"     | IOSTANDARD = "LVCMOS33";           # Ltc2601 csel
-NET  "IO1[23]"    LOC = " C4"     | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO1[24]"    LOC = " B1"     | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO1[25]"    LOC = " D3"     | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO1[26]"    LOC = " C3"     | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO1[27]"    LOC = " D2"     | IOSTANDARD = "LVCMOS33";           # Ltc1864 conv
-NET  "IO1[28]"    LOC = " E3"     | IOSTANDARD = "LVCMOS33";           # Ltc1864 sclk
-NET  "IO1[29]"    LOC = " G4"     | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO1[30]"    LOC = " F3"     | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO1[31]"    LOC = " G3"     | IOSTANDARD = "LVCMOS33";           # pwr_enable
-NET  "IO1[32]"    LOC = " F2"     | IOSTANDARD = "LVCMOS33";           # relay_on
+NET  "IO1[1]"     LOC = " D22"    | IOSTANDARD = "LVCMOS33";
+NET  "IO1[2]"     LOC = " D21"    | IOSTANDARD = "LVCMOS33";
+NET  "IO1[3]"     LOC = " D20"    | IOSTANDARD = "LVCMOS33";
+NET  "IO1[4]"     LOC = " D19"    | IOSTANDARD = "LVCMOS33";
+NET  "IO1[5]"     LOC = " C22"    | IOSTANDARD = "LVCMOS33";
+NET  "IO1[6]"     LOC = " C20"    | IOSTANDARD = "LVCMOS33";
+NET  "IO1[7]"     LOC = " C19"    | IOSTANDARD = "LVCMOS33";
+NET  "IO1[8]"     LOC = " B22"    | IOSTANDARD = "LVCMOS33";
+NET  "IO1[9]"     LOC = " B21"    | IOSTANDARD = "LVCMOS33";
+NET  "IO1[10]"    LOC = " B20"    | IOSTANDARD = "LVCMOS33";
+NET  "IO1[11]"    LOC = " A21"    | IOSTANDARD = "LVCMOS33";
+NET  "IO1[12]"    LOC = " G7"     | IOSTANDARD = "LVCMOS33";
+NET  "IO1[13]"    LOC = " F7"     | IOSTANDARD = "LVCMOS33";
+NET  "IO1[14]"    LOC = " E6"     | IOSTANDARD = "LVCMOS33";
+NET  "IO1[15]"    LOC = " H4"     | IOSTANDARD = "LVCMOS33";
+NET  "IO1[16]"    LOC = " F5"     | IOSTANDARD = "LVCMOS33";
+NET  "IO1[17]"    LOC = " E5"     | IOSTANDARD = "LVCMOS33";
+NET  "IO1[18]"    LOC = " D5"     | IOSTANDARD = "LVCMOS33";
+NET  "IO1[19]"    LOC = " E4"     | IOSTANDARD = "LVCMOS33";
+NET  "IO1[20]"    LOC = " B3"     | IOSTANDARD = "LVCMOS33";
+NET  "IO1[21]"    LOC = " A2"     | IOSTANDARD = "LVCMOS33";
+NET  "IO1[22]"    LOC = " B2"     | IOSTANDARD = "LVCMOS33";
+NET  "IO1[23]"    LOC = " C4"     | IOSTANDARD = "LVCMOS33";
+NET  "IO1[24]"    LOC = " B1"     | IOSTANDARD = "LVCMOS33";
+NET  "IO1[25]"    LOC = " D3"     | IOSTANDARD = "LVCMOS33";
+NET  "IO1[26]"    LOC = " C3"     | IOSTANDARD = "LVCMOS33";
+NET  "IO1[27]"    LOC = " D2"     | IOSTANDARD = "LVCMOS33";
+NET  "IO1[28]"    LOC = " E3"     | IOSTANDARD = "LVCMOS33";
+NET  "IO1[29]"    LOC = " G4"     | IOSTANDARD = "LVCMOS33";
+NET  "IO1[30]"    LOC = " F3"     | IOSTANDARD = "LVCMOS33";
+NET  "IO1[31]"    LOC = " G3"     | IOSTANDARD = "LVCMOS33";
+NET  "IO1[32]"    LOC = " F2"     | IOSTANDARD = "LVCMOS33";
 
-NET  "IO2[1]"     LOC = "Y14"     | IOSTANDARD = "LVCMOS33";           # LED 1 green
-NET  "IO2[2]"     LOC = "V13"     | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO2[3]"     LOC = "AB14"    | IOSTANDARD = "LVCMOS33";           # LED 1 red
-NET  "IO2[4]"     LOC = "AA14"    | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO2[5]"     LOC = "Y13"     | IOSTANDARD = "LVCMOS33";           # LED 2 green
-NET  "IO2[6]"     LOC = "AB13"    | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO2[7]"     LOC = "Y12"     | IOSTANDARD = "LVCMOS33";           # LED 2 red
-NET  "IO2[8]"     LOC = "W13"     | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO2[9]"     LOC = "U10"     | IOSTANDARD = "LVCMOS33" | PULLUP;  # Relay status
-NET  "IO2[10]"    LOC = "AA12"    | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO2[11]"    LOC = "AB10"    | IOSTANDARD = "LVCMOS33" | PULLDOWN;  # MV-GOOD
-NET  "IO2[12]"    LOC = "AB11"    | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO2[13]"    LOC = "Y11"     | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO2[14]"    LOC = "V9"      | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO2[15]"    LOC = "Y10"     | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO2[16]"    LOC = "AA10"    | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO2[17]"    LOC = "AB9"     | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO2[18]"    LOC = "AB8"     | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO2[19]"    LOC = "Y9"      | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO2[20]"    LOC = "AA8"     | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO2[21]"    LOC = "AB7"     | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO2[22]"    LOC = "V7"      | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO2[23]"    LOC = "Y8"      | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO2[24]"    LOC = "Y7"      | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO2[25]"    LOC = "AB6"     | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO2[26]"    LOC = "Y6"      | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO2[27]"    LOC = "Y5"      | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO2[28]"    LOC = "AA6"     | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO2[29]"    LOC = "W6"      | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO2[30]"    LOC = "AB5"     | IOSTANDARD = "LVCMOS33" | PULLUP;
-NET  "IO2[31]"    LOC = "AB4"     | IOSTANDARD = "LVCMOS33" | PULLDOWN;  # /fault (1=amp_on)
-NET  "IO2[32]"    LOC = "AA4"     | IOSTANDARD = "LVCMOS33";             # amp_disable
-NET  "IO2[33]"    LOC = "Y4"      | IOSTANDARD = "LVCMOS33" | PULLDOWN;  # /fault (1=amp_on)
-NET  "IO2[34]"    LOC = "W4"      | IOSTANDARD = "LVCMOS33";             # amp_disable
-NET  "IO2[35]"    LOC = "Y3"      | IOSTANDARD = "LVCMOS33" | PULLDOWN;  # /fault (1=amp_on)
-NET  "IO2[36]"    LOC = "AB3"     | IOSTANDARD = "LVCMOS33";             # amp_disable
-NET  "IO2[37]"    LOC = "AB2"     | IOSTANDARD = "LVCMOS33" | PULLDOWN;  # /fault (1=amp_on)
-NET  "IO2[38]"    LOC = "AA2"     | IOSTANDARD = "LVCMOS33";             # amp_disable
+NET  "IO2[1]"     LOC = "Y14"     | IOSTANDARD = "LVCMOS33";
+NET  "IO2[2]"     LOC = "V13"     | IOSTANDARD = "LVCMOS33";
+NET  "IO2[3]"     LOC = "AB14"    | IOSTANDARD = "LVCMOS33";
+NET  "IO2[4]"     LOC = "AA14"    | IOSTANDARD = "LVCMOS33";
+NET  "IO2[5]"     LOC = "Y13"     | IOSTANDARD = "LVCMOS33";
+NET  "IO2[6]"     LOC = "AB13"    | IOSTANDARD = "LVCMOS33";
+NET  "IO2[7]"     LOC = "Y12"     | IOSTANDARD = "LVCMOS33";
+NET  "IO2[8]"     LOC = "W13"     | IOSTANDARD = "LVCMOS33";
+NET  "IO2[9]"     LOC = "U10"     | IOSTANDARD = "LVCMOS33";
+NET  "IO2[10]"    LOC = "AA12"    | IOSTANDARD = "LVCMOS33";
+NET  "IO2[11]"    LOC = "AB10"    | IOSTANDARD = "LVCMOS33";
+NET  "IO2[12]"    LOC = "AB11"    | IOSTANDARD = "LVCMOS33";
+NET  "IO2[13]"    LOC = "Y11"     | IOSTANDARD = "LVCMOS33";
+NET  "IO2[14]"    LOC = "V9"      | IOSTANDARD = "LVCMOS33";
+NET  "IO2[15]"    LOC = "Y10"     | IOSTANDARD = "LVCMOS33";
+NET  "IO2[16]"    LOC = "AA10"    | IOSTANDARD = "LVCMOS33";
+NET  "IO2[17]"    LOC = "AB9"     | IOSTANDARD = "LVCMOS33";
+NET  "IO2[18]"    LOC = "AB8"     | IOSTANDARD = "LVCMOS33";
+NET  "IO2[19]"    LOC = "Y9"      | IOSTANDARD = "LVCMOS33";
+NET  "IO2[20]"    LOC = "AA8"     | IOSTANDARD = "LVCMOS33";
+NET  "IO2[21]"    LOC = "AB7"     | IOSTANDARD = "LVCMOS33";
+NET  "IO2[22]"    LOC = "V7"      | IOSTANDARD = "LVCMOS33";
+NET  "IO2[23]"    LOC = "Y8"      | IOSTANDARD = "LVCMOS33";
+NET  "IO2[24]"    LOC = "Y7"      | IOSTANDARD = "LVCMOS33";
+NET  "IO2[25]"    LOC = "AB6"     | IOSTANDARD = "LVCMOS33";
+NET  "IO2[26]"    LOC = "Y6"      | IOSTANDARD = "LVCMOS33";
+NET  "IO2[27]"    LOC = "Y5"      | IOSTANDARD = "LVCMOS33";
+NET  "IO2[28]"    LOC = "AA6"     | IOSTANDARD = "LVCMOS33";
+NET  "IO2[29]"    LOC = "W6"      | IOSTANDARD = "LVCMOS33";
+NET  "IO2[30]"    LOC = "AB5"     | IOSTANDARD = "LVCMOS33";
+NET  "IO2[31]"    LOC = "AB4"     | IOSTANDARD = "LVCMOS33";
+NET  "IO2[32]"    LOC = "AA4"     | IOSTANDARD = "LVCMOS33";
+NET  "IO2[33]"    LOC = "Y4"      | IOSTANDARD = "LVCMOS33";
+NET  "IO2[34]"    LOC = "W4"      | IOSTANDARD = "LVCMOS33";
+NET  "IO2[35]"    LOC = "Y3"      | IOSTANDARD = "LVCMOS33";
+NET  "IO2[36]"    LOC = "AB3"     | IOSTANDARD = "LVCMOS33";
+NET  "IO2[37]"    LOC = "AB2"     | IOSTANDARD = "LVCMOS33";
+NET  "IO2[38]"    LOC = "AA2"     | IOSTANDARD = "LVCMOS33";
 
 ################################################################################
 # Clock Inputs

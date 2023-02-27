@@ -1,0 +1,393 @@
+<!--
+########################################################################
+##
+## Copyright (c) 2005 Xilinx, Inc.  All rights reserved.
+##
+########################################################################
+-->
+<!-- MUI DTD version 1.1 -->
+
+<!ELEMENT key       (#PCDATA)>
+<!ELEMENT label     (#PCDATA)>
+<!ELEMENT tip       (#PCDATA)>
+<!ELEMENT display   (#PCDATA)>
+<!ELEMENT tclProc   (#PCDATA)>
+<!ELEMENT unit      (#PCDATA)>
+<!ELEMENT id        (#PCDATA)>
+
+<!ELEMENT isvalid   (#PCDATA)>
+<!-- determine if this parameter is valid or not, the #PCDATA is a Tcl boolean expression -->
+
+<!ELEMENT discrete  (#PCDATA)>
+<!ATTLIST discrete  data NMTOKEN #REQUIRED>
+<!--                    display NMTOKEN #IMPLIED-->
+<!-- discrete is for describing values in the combo box -->
+
+<!ELEMENT intrange  EMPTY>
+<!ATTLIST intrange  min NMTOKEN #REQUIRED
+                    max NMTOKEN #REQUIRED
+                    step NMTOKEN #IMPLIED>
+<!-- intrange is for describing the range of a spin box -->
+
+<!ELEMENT textrange EMPTY>
+<!ATTLIST textrange data CDATA #IMPLIED>
+<!-- textrange is for describing text allowed in a text box, the text has to be valid under the regular expression -->
+
+<!ELEMENT range     ((textrange) | ((discrete | intrange)*))>
+
+<!ELEMENT value     (range?)>
+<!ATTLIST value     type (bool|text|int|enum) #REQUIRED
+                    default NMTOKEN #REQUIRED>
+
+<!ELEMENT widget    (key, label, tip, unit?, isvalid?, value?, tclProc?)>
+<!ATTLIST widget    id NMTOKEN #REQUIRED 
+                    visible (config|bsb|addip) #IMPLIED>
+
+<!ELEMENT item      (widget)>
+
+<!ELEMENT group     (display, item*)>
+<!ATTLIST group     id NMTOKEN #REQUIRED>
+
+<!ELEMENT view      (display, group*)>
+<!ATTLIST view      id (System|User|Wizard) #REQUIRED>
+
+<!ELEMENT doc       (view*)>
+<!ATTLIST doc       ver (1.1) #IMPLIED>
+
+<!ENTITY C_BASEADDR '
+
+<widget id="C_BASEADDR">
+	<key>C_BASEADDR</key>
+	<label>Base Address</label>
+	<tip></tip>
+</widget>
+'>
+<!ENTITY C_HIGHADDR '
+<widget id="C_HIGHADDR">
+	<key>C_HIGHADDR</key>
+	<label>High Address</label>
+	<tip></tip>
+</widget>
+'>
+<!ENTITY C_FAMILY '
+<widget id="C_FAMILY">
+	<key>C_FAMILY</key>
+	<label>Device Family</label>
+	<tip></tip>
+</widget>
+'>
+<!ENTITY C_SUBFAMILY '
+<widget id="C_SUBFAMILY">
+	<key>C_SUBFAMILY</key>
+	<label>Device Sub Family</label>
+	<tip></tip>
+</widget>
+'>
+<!ENTITY C_DEVICE '
+<widget id="C_DEVICE">
+	<key>C_DEVICE</key>
+	<label>Device Name</label>
+	<tip></tip>
+</widget>
+'>
+<!ENTITY C_PACKAGE '
+<widget id="C_PACKAGE">
+	<key>C_PACKAGE</key>
+	<label>Package Name</label>
+	<tip></tip>
+</widget>
+'>
+<!ENTITY C_SPEEDGRADE '
+<widget id="C_SPEEDGRADE">
+	<key>C_SPEEDGRADE</key>
+	<label>Speed Grade Name</label>
+	<tip></tip>
+</widget>
+'>
+<!ENTITY C_OPB_AWIDTH '
+<widget id="C_OPB_AWIDTH">
+	<key>C_OPB_AWIDTH</key>
+	<label>OPB Address Bus Width</label>
+	<tip></tip>
+</widget>
+'>
+<!ENTITY C_OPB_DWIDTH '
+<widget id="C_OPB_DWIDTH">
+	<key>C_OPB_DWIDTH</key>
+	<label>OPB Data Bus Width</label>
+	<tip></tip>
+</widget>
+'>
+<!ENTITY C_OPB_CLK_PERIOD_PS '
+<widget id="C_OPB_CLK_PERIOD_PS">
+	<key>C_OPB_CLK_PERIOD_PS</key>
+	<label>OPB Clock Period</label>
+	<tip></tip>
+    <unit>ps</unit>
+</widget>
+'>
+<!ENTITY C_PLB_AWIDTH '
+<widget id="C_PLB_AWIDTH">
+	<key>C_PLB_AWIDTH</key>
+	<label>PLB Address Bus Width</label>
+	<tip></tip>
+</widget>
+'>
+<!ENTITY C_PLB_DWIDTH '
+<widget id="C_PLB_DWIDTH">
+	<key>C_PLB_DWIDTH</key>
+	<label>PLB Data Bus Width</label>
+	<tip></tip>
+</widget>
+'>
+<!ENTITY C_PLB_CLK_PERIOD_PS '
+<widget id="C_PLB_CLK_PERIOD_PS">
+	<key>C_PLB_CLK_PERIOD_PS</key>
+	<label>PLB Clock Period</label>
+	<tip></tip>
+    <unit>ps</unit>
+</widget>
+'>
+<!ENTITY C_PLB_NUM_SLAVES '
+<widget id="C_PLB_NUM_SLAVES">
+	<key>C_PLB_NUM_SLAVES</key>
+	<label>Number of PLB Slaves</label>
+	<tip></tip>
+</widget>
+'>
+<!ENTITY C_PLB_NUM_MASTERS '
+<widget id="C_PLB_NUM_MASTERS">
+	<key>C_PLB_NUM_MASTERS</key>
+	<label>Number of PLB Masters</label>
+	<tip></tip>
+</widget>
+'>
+<!ENTITY C_PLB_MID_WIDTH '
+<widget id="C_PLB_MID_WIDTH">
+	<key>C_PLB_MID_WIDTH</key>
+	<label>PLB Master ID Bus Width</label>
+	<tip> Auto Computed by Tool</tip>
+</widget>
+'>
+<!ENTITY C_PLBV46_AWIDTH '
+<widget id="C_PLBV46_AWIDTH">
+	<key>C_PLBV46_AWIDTH</key>
+	<label>PLB Address Bus Width</label>
+	<tip></tip>
+</widget>
+'>
+<!ENTITY C_PLBV46_DWIDTH '
+<widget id="C_PLBV46_DWIDTH">
+	<key>C_PLBV46_DWIDTH</key>
+	<label>PLB Data Bus Width</label>
+	<tip></tip>
+</widget>
+'>
+<!ENTITY C_PLBV46_CLK_PERIOD_PS '
+<widget id="C_PLBV46_CLK_PERIOD_PS">
+	<key>C_PLBV46_CLK_PERIOD_PS</key>
+	<label>PLB Clock Period</label>
+	<tip></tip>
+    <unit>ps</unit>
+</widget>
+'>
+<!ENTITY C_PLBV46_NUM_SLAVES '
+<widget id="C_PLBV46_NUM_SLAVES">
+	<key>C_PLBV46_NUM_SLAVES</key>
+	<label>Number of PLB Slaves</label>
+	<tip></tip>
+</widget>
+'>
+<!ENTITY C_PLBV46_NUM_MASTERS '
+<widget id="C_PLBV46_NUM_MASTERS">
+	<key>C_PLBV46_NUM_MASTERS</key>
+	<label>Number of PLB Masters</label>
+	<tip></tip>
+</widget>
+'>
+<!ENTITY C_PLBV46_MID_WIDTH '
+<widget id="C_PLBV46_MID_WIDTH">
+	<key>C_PLBV46_MID_WIDTH</key>
+	<label>PLB Master ID Bus Width</label>
+	<tip> Auto Computed by Tool</tip>
+</widget>
+'>
+<!ENTITY C_DCR_AWIDTH '
+<widget id="C_DCR_AWIDTH">
+	<key>C_DCR_AWIDTH</key>
+	<label>DCR Address Bus Width</label>
+	<tip></tip>
+</widget>
+'>
+<!ENTITY C_DCR_DWIDTH '
+<widget id="C_DCR_DWIDTH">
+	<key>C_DCR_DWIDTH</key>
+	<label>DCR Data Bus Width</label>
+	<tip></tip>
+</widget>
+'>
+<!ENTITY C_DCR_BASEADDR '
+<widget id="C_DCR_BASEADDR">
+	<key>C_DCR_BASEADDR</key>
+	<label>DCR Bus Base Address</label>
+	<tip></tip>
+</widget>
+'>
+<!ENTITY C_DCR_HIGHADDR '
+<widget id="C_DCR_HIGHADDR">
+	<key>C_DCR_HIGHADDR</key>
+	<label>DCR Bus High Address</label>
+	<tip></tip>
+</widget>
+'>
+<!ENTITY C_DCR_NUM_SLAVES '
+<widget id="C_DCR_NUM_SLAVES">
+	<key>C_DCR_NUM_SLAVES</key>
+	<label>Number of DCR Slaves</label>
+	<tip></tip>
+</widget>
+'>
+<!ENTITY C_DEV_BLK_ID '
+<widget id="C_DEV_BLK_ID">
+	<key>C_DEV_BLK_ID</key>
+	<label>Device Block ID</label>
+	<tip></tip>
+</widget>
+'>
+<!ENTITY C_DMA_PRESENT '
+<widget id="C_DMA_PRESENT">
+	<key>C_DMA_PRESENT</key>
+	<label>DMA Present</label>
+	<tip></tip>
+</widget>
+'>
+<!ENTITY C_DEV_MIR_ENABLE '
+<widget id="C_DEV_MIR_ENABLE">
+	<key>C_DEV_MIR_ENABLE</key>
+	<label>Enable Module Identification Register</label>
+	<tip></tip>
+</widget>
+'>
+<!ENTITY C_SPLB_AWIDTH '
+<widget id="C_SPLB_AWIDTH">
+	<key>C_SPLB_AWIDTH</key>
+	<label>PLB Address Bus Width</label>
+	<tip></tip>
+</widget>
+'>
+<!ENTITY C_SPLB_DWIDTH '
+<widget id="C_SPLB_DWIDTH">
+	<key>C_SPLB_DWIDTH</key>
+	<label>PLB Data Bus Width</label>
+	<tip></tip>
+</widget>
+'>
+<!ENTITY C_SPLB_MID_WIDTH '
+<widget id="C_SPLB_MID_WIDTH">
+	<key>C_SPLB_MID_WIDTH</key>
+	<label>Master ID Bus Width of PLB</label>
+	<tip></tip>
+</widget>
+'>
+<!ENTITY C_SPLB_NUM_MASTERS '
+<widget id="C_SPLB_NUM_MASTERS">
+	<key>C_SPLB_NUM_MASTERS</key>
+	<label>Number of PLB Masters</label>
+	<tip></tip>
+</widget>
+'>
+<!ENTITY C_SPLB_NATIVE_DWIDTH '
+<widget id="C_SPLB_NATIVE_DWIDTH">
+	<key>C_SPLB_NATIVE_DWIDTH</key>
+	<label>Native Data Bus Width of PLB Slave</label>
+	<tip></tip>
+</widget>
+'>
+<!ENTITY C_SPLB_SUPPORT_BURSTS '
+<widget id="C_SPLB_SUPPORT_BURSTS">
+	<key>C_SPLB_SUPPORT_BURSTS</key>
+	<label>PLB Slave is Capable of Bursts</label>
+	<tip></tip>
+</widget>
+'>
+<!ENTITY C_SPLB_P2P '
+<widget id="C_SPLB_P2P">
+	<key>C_SPLB_P2P</key>
+	<label>PLB Slave Uses P2P Topology</label>
+	<tip></tip>
+</widget>
+'>
+<!ENTITY C_SPLB_BIGGEST_MASTER '
+<widget id="C_SPLB_BIGGEST_MASTER">
+	<key>C_SPLB_BIGGEST_MASTER</key>
+	<label>Largest Master Data Bus Width</label>
+	<tip><![CDATA[Largest Data Bus Width of all bus masters that are accessible to this PLB slave.]]></tip>
+</widget>
+'>
+<!ENTITY C_SPLB_SMALLEST_MASTER '
+<widget id="C_SPLB_SMALLEST_MASTER">
+	<key>C_SPLB_SMALLEST_MASTER</key>
+	<label>Smallest Master Data Bus Width</label>
+	<tip><![CDATA[Smallest Data Bus Width of all bus masters that are accessible to this PLB slave.]]></tip>
+</widget>
+'>
+<!ENTITY C_MPLB_NATIVE_DWIDTH '
+<widget id="C_MPLB_NATIVE_DWIDTH">
+	<key>C_MPLB_NATIVE_DWIDTH</key>
+	<label>Native Data Bus Width of PLB Master</label>
+	<tip></tip>
+</widget>
+'>
+<!ENTITY C_MPLB_DWIDTH '
+<widget id="C_MPLB_DWIDTH">
+	<key>C_MPLB_DWIDTH</key>
+	<label>Master Data Bus Width</label>
+	<tip></tip>
+</widget>
+'>
+<!ENTITY C_MPLB_AWIDTH '
+<widget id="C_MPLB_AWIDTH">
+	<key>C_MPLB_AWIDTH</key>
+	<label>Master Address Bus Width</label>
+	<tip></tip>
+</widget>
+'>
+<!ENTITY C_MPLB_SMALLEST_SLAVE '
+<widget id="C_MPLB_SMALLEST_SLAVE">
+	<key>C_MPLB_SMALLEST_SLAVE</key>
+	<label>Smallest Master Data Bus Width</label>
+	<tip><![CDATA[Smallest Data Bus Width of all bus slaves that are accessible to this PLB master.]]></tip>
+</widget>
+'>
+<!ENTITY C_SPLB_CLK_PERIOD_PS '
+<widget id="C_SPLB_CLK_PERIOD_PS">
+	<key>C_SPLB_CLK_PERIOD_PS</key>
+	<label>Clock Period of PLB Slave</label>
+	<tip></tip>
+    <unit>ps</unit>
+</widget>
+'>
+<!ENTITY C_SPLB_CLK_FREQ_HZ '
+<widget id="C_SPLB_CLK_FREQ_HZ">
+	<key>C_SPLB_CLK_FREQ_HZ</key>
+	<label>Clock Frequency of PLB Slave</label>
+	<tip></tip>
+    <unit>Hz</unit>
+</widget>
+'>
+<!ENTITY G_USE_DMA '
+<widget id="G_USE_DMA">
+	<key>G_USE_DMA</key>
+	<label>Use DMA</label>
+	<tip>Enable DMA for this IP</tip>
+    <value type="bool" default="false" />
+</widget>
+'>
+<!ENTITY G_USE_INTERRUPT '
+<widget id="G_USE_INTERRUPT">
+	<key>G_USE_INTERRUPT</key>
+	<label>Use Interrupt</label>
+	<tip>Enable interrupt for this IP</tip>
+    <value type="bool" default="false" />
+</widget>
+'>

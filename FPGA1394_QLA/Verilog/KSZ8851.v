@@ -3,10 +3,9 @@
 
 /*******************************************************************************    
  *
- * Copyright(C) 2014-2022 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2014-2023 ERC CISST, Johns Hopkins University.
  *
- * This module implements the higher-level Ethernet I/O, which interfaces
- * to the KSZ8851 MAC/PHY chip.
+ * This module implements the link layer interface to the KSZ8851 MAC/PHY chip.
  *
  * Revision history
  *     12/21/15    Peter Kazanzides    Initial Revision
@@ -101,7 +100,7 @@ module KSZ8851(
     input  wire[15:0] fw_reg_waddr,  // write address
     input  wire[31:0] fw_reg_wdata,  // write data
     output reg[15:0]  eth_data,      // Data to/from KSZ8851
-    output wire[31:16] eth_status,
+    output wire[7:0] eth_status,     // Status feeedback
 
     // Register interface to Ethernet memory space (for debugging)
     input  wire[15:0] reg_raddr,
@@ -125,11 +124,12 @@ module KSZ8851(
     input wire sendBusy,              // From EthernetIO
     output wire sendReady,            // Request EthernetIO to provide next send_word
     input wire[15:0] send_word,       // Word to send via Ethernet (SDRegDWR for KSZ8851)
+    // Timing measurements (do not include times for KSZ8851 to receive/transmit packet)
+    output reg[15:0] timeReceive,     // Time when receive portion finished
+    output reg[15:0] timeSinceIRQ,    // Running time counter since last IRQ
     // Feedback bits
     input wire bw_active,             // Indicates that block write module is active
-    output wire ethInternalError,     // Error summary bit to EthernetIO
-    input wire[5:0] ethioErrors,      // Error bits from EthernetIO
-    input wire useUDP                 // Whether EthernetIO is using UDP
+    output wire ethInternalError      // Error summary bit to EthernetIO
 );
 
 reg initOK;            // 1 -> Initialization successful
@@ -166,7 +166,7 @@ assign recv_word = `SDSwapped;
 
 // address decode for KSZ8851 I/O access
 wire   ksz_reg_wen;
-assign ksz_reg_wen = (fw_reg_waddr == {`ADDR_MAIN, 8'h0, `REG_ETHRES}) ? fw_reg_wen : 1'b0;
+assign ksz_reg_wen = (fw_reg_waddr == {`ADDR_MAIN, 8'h0, `REG_ETHSTAT}) ? fw_reg_wen : 1'b0;
 
 reg       ksz_req;    // External request pending for KSZ I/O
 reg[31:0] ksz_wdata;  // Cached register for KSZ I/O request
@@ -346,27 +346,18 @@ initial begin
    isWord = 1'd1;
 end
 
-// Ethernet status:
-//   Bit 31: 1 to indicate that Ethernet is present -- must be kept for backward compatibility
-//   Bit 30: 1 to indicate that an error occurred in KSZ8851 -- must be kept for backward compatibility
-//   Other fields can be assigned as needed
-assign eth_status[31] = 1'b1;            // 31: 1 -> Ethernet is present
-assign eth_status[30] = ethFwReqError;   // 30: 1 -> Could not access KSZ registers via FireWire
-assign eth_status[29] = initOK;          // 29: 1 -> Initialization OK
-assign eth_status[28:24] = ethioErrors[5:1];
-//assign eth_status[28] = ethFrameError;   // 28: 1 -> Ethernet frame unsupported
-//assign eth_status[27] = ethIPv4Error;    // 27: 1 -> IPv4 header error
-//assign eth_status[26] = ethUDPError;     // 26: 1 -> Wrong UDP port (not 1394)
-//assign eth_status[25] = ethDestError;    // 25: 1 -> Ethernet destination error
-//assign eth_status[24] = ethAccessError;  // 24: 1 -> Unable to access internal bus
-assign eth_status[23] = ethStateError;   // 23: 1 -> Invalid state detected
-assign eth_status[22] = ethioErrors[0];  // 22: 1 -> Invalid send state detected
-assign eth_status[21] = 0;               // 21: Unused
-assign eth_status[20] = useUDP;          // 20: UDP mode
-assign eth_status[19] = linkStatus;      // 19: Link status
-assign eth_status[18] = eth_io_isIdle;   // 18: Ethernet I/O state machine is idle
-assign eth_status[17:16] = waitInfo;     // 17-16: Wait points in KSZ8851.v
-
+// Ethernet status. Note that these bits supply the upper bits of the Ethernet status register,
+// so bit 7 actually corresponds to bit 31.
+//   Bit 7: 1 to indicate that Ethernet is present -- must be kept for backward compatibility
+//   Bit 6: 1 to indicate that an error occurred in KSZ8851 -- must be kept for backward compatibility
+//   Other bits can be assigned as needed
+assign eth_status[7] = 1'b1;             // 1 -> Ethernet is present
+assign eth_status[6] = ethFwReqError;    // 1 -> Could not access KSZ registers via FireWire
+assign eth_status[5] = initOK;           // 1 -> Initialization OK
+assign eth_status[4] = ethStateError;    // 1 -> Invalid state detected
+assign eth_status[3] = linkStatus;       // Link status
+assign eth_status[2] = eth_io_isIdle;    // Ethernet I/O state machine is idle
+assign eth_status[1:0] = waitInfo;       // Wait points in KSZ8851.v
 
 reg isInIRQ;           // True if IRQ handle routing
 reg[15:0] RegISR;      // 16-bit ISR register
@@ -376,13 +367,8 @@ reg[15:0] RegISROther; // Unexpected ISR value (for debugging)
 reg[7:0] FrameCount;   // Number of received frames
 reg[11:0] rxPktWords;  // Num of words in receive queue
 
-reg[15:0] timeSinceIRQ;      // Time counter since last IRQ
-reg[15:0] timeReceive;       // Time when receive portion finished
 `ifdef HAS_DEBUG_DATA
 reg[15:0] timeSend;          // Time when send portion finished
-`endif
-
-`ifdef HAS_DEBUG_DATA
 reg[15:0] numPacketValid;    // Number of valid Ethernet frames received
 reg[7:0]  numPacketInvalid;  // Number of invalid Ethernet frames received
 reg[7:0] numPacketSent;      // Number of packets sent to host PC
@@ -398,8 +384,7 @@ wire[31:0] DebugData[0:15];
 assign DebugData[0]  = "2GBD";  // DBG2 byte-swapped
 assign DebugData[1]  = { isDMAWrite, sendRequest, ~ETH_IRQn, isInIRQ,     // 31:28
                          linkStatus, 3'd0,                                // 27:24
-                         8'd0,
-                         eth_status };                                    // 16
+                         24'd0 };
 assign DebugData[2]  = { 3'd0, state, 3'd0, retState, 3'd0, nextState, 3'd0, runPC }; // 5, 5, 5, 5
 assign DebugData[3]  = { 16'd0, RegISROther};                             // 16
 assign DebugData[4]  = { 6'd0, bw_wait, FrameCount, numPacketSent};       // 10, 8, 8
@@ -863,10 +848,11 @@ always @(posedge sysclk) begin
       if (ksz_req) begin
          //****** Access to KSZ8851 registers via Firewire interface ******
          // Format of 32-bit register:
-         // 0(4) DMA(1) Reset(1) R/W(1) W/B(1) Addr(8) Data(16)
-         // bit 28: reset error flag
+         // 0(2) clearErrors(2) DMA(1) Reset(1) R/W(1) W/B(1) Addr(8) Data(16)
+         // bit 29: clear network layer error flags and counters (EthernetIO)
+         // bit 28: clear link layer error flags and counters (this file)
          // bit 27: DMA
-         // bit 26: reset
+         // bit 26: reset PHY
          // bit 25: R/W Read (0) or Write (1)
          // bit 24: W/B Word or Byte
          // bit 23-16: 8-bit address
@@ -874,8 +860,16 @@ always @(posedge sysclk) begin
          // Previously, this was implemented to accept the reset command at any time,
          // but now it will only work in the IDLE state.
          ksz_req <= 0;
-         ethFwReqError <= ksz_wdata[28] ? 1'd0 : ethFwReqError;
-         if (!ksz_wdata[26]) begin   // if not reset
+         if (ksz_wdata[28]) begin
+            ethFwReqError <= 0;
+            ethStateError <= 0;
+`ifdef HAS_DEBUG_DATA
+            numPacketValid <= 16'd0;
+            numPacketInvalid <= 8'd0;
+`endif
+         end
+         if (!ksz_wdata[26] && (ksz_wdata[31:28] == 4'd0)) begin
+            // if not reset or upper bits set
             isWrite <= ksz_wdata[25];
             isWord <= ksz_wdata[24];
             RegAddr <= ksz_wdata[23:16];

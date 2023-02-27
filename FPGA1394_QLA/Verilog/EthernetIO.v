@@ -3,10 +3,11 @@
 
 /*******************************************************************************    
  *
- * Copyright(C) 2014-2022 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2014-2023 ERC CISST, Johns Hopkins University.
  *
- * This module implements the higher-level Ethernet I/O, which interfaces
- * to the KSZ8851 MAC/PHY chip.
+ * This module implements the higher-level (network layer) Ethernet I/O, which
+ * interfaces to the link layer for the KSZ8851 MAC/PHY chip (FPGA V2) or the
+ * link layer for the RTL8211F PHY chip (FPGA V3).
  *
  * Revision history
  *     12/21/15    Peter Kazanzides    Initial Revision
@@ -38,8 +39,7 @@
 `define FW_BWRITE_HDR_SIZE 16'd20  // Firewire block write header size
 
 module EthernetIO
-    #(parameter NUM_BC_READ_QUADS = 33,
-      parameter IPv4_CSUM = 0)     // Set to 1 to generate IPv4 header checksum
+    #(parameter IPv4_CSUM = 0)     // Set to 1 to generate IPv4 header checksum
 (
     // global clock
     input wire sysclk,
@@ -53,6 +53,7 @@ module EthernetIO
     output reg[31:0] reg_rdata,
     input  wire[31:0] reg_wdata,
     input  wire ip_reg_wen,
+    input  wire ctrl_reg_wen,
     output wire[31:0] ip_address,
 
     // Interface to/from board registers. These enable the Ethernet module to drive
@@ -103,7 +104,7 @@ module EthernetIO
     input wire[31:0] sample_rdata,   // Sampled data (for block read)
     input wire[31:0] timestamp,      // Timestamp (for debugging)
 
-    // Interface to KSZ8851 or RTL8211F
+    // Interface to KSZ8851 or EthSwitchRt (2 x RTL8211F)
     input wire resetActive,          // Indicates that reset is active
     input wire isForward,            // Indicates that FireWire receiver is forwarding to Ethernet
     output wire responseRequired,    // Indicates that the received packet requires a response
@@ -118,11 +119,13 @@ module EthernetIO
     output reg sendBusy,             // To KSZ8851
     input wire sendReady,            // Request EthernetIO to provide next send_word
     output reg[15:0] send_word,      // Word to send via Ethernet (SDRegDWR for KSZ8851)
+    // Timing measurements
+    input wire[15:0] timeReceive,    // Time when receive portion finished
+    input wire[15:0] timeNow,        // Running time counter since start of packet receive
     // Feedback bits
     output wire bw_active,           // Indicates that block write module is active
     input wire ethLLError,           // Error summary bit to EthernetIO (from low-level)
-    output wire[5:0] ethioErrors,    // Error bits from EthernetIO
-    output reg useUDP                // Whether EthernetIO is using UDP
+    output wire[7:0] eth_status      // Status feedback
 );
 
 `define send_word_swapped {send_word[7:0], send_word[15:8]}
@@ -153,9 +156,6 @@ end
 
 localparam[31:0] IP_UNASSIGNED = 32'hffffffff;
 
-// maximum quadlet index for real-time feedback broadcast packet
-localparam[5:0] MAX_BBC_QUAD = (NUM_BC_READ_QUADS-1);
-
 `ifdef HAS_DEBUG_DATA
 wire eth_send_isIdle;
 assign eth_send_isIdle = (sendState == ST_SEND_DMA_IDLE) ? 1'd1 : 1'd0;
@@ -181,7 +181,16 @@ wire isRebootCmd;   // 1 -> Reboot FPGA command received
 // This mode is set each time a valid packet is received
 // (i.e., set if a valid UDP packet received, cleared if
 // a valid raw Ethernet frame is received).
-// reg useUDP;
+reg useUDP;
+
+assign eth_status[7] = ethFrameError;      // 1 -> Ethernet frame unsupported
+assign eth_status[6] = ethIPv4Error;       // 1 -> IPv4 header error
+assign eth_status[5] = ethUDPError;        // 1 -> Wrong UDP port (not 1394)
+assign eth_status[4] = ethDestError;       // 1 -> Ethernet destination error
+assign eth_status[3] = ethAccessError;     // 1 -> Unable to access internal bus
+assign eth_status[2] = ethSendStateError;  // 1 -> Invalid send state
+assign eth_status[1] = 1'b0;
+assign eth_status[0] = useUDP;             // 1 -> Using UDP, 0 -> Raw Ethernet
 
 // Whether Firewire packet was dropped, rather than being processed,
 // due to Firewire bus reset or mismatch on bus generation number.
@@ -191,6 +200,9 @@ reg fwPacketDropped;
 // This is done when a packet is dropped.
 wire sendExtra;
 assign sendExtra = fwPacketDropped;
+
+// Flag set by host to clear error bits and counters
+reg clearErrors;
 
 reg[11:0] txPktWords;  // Num of words sent
 
@@ -616,18 +628,8 @@ assign ExtraData[1] = {numStateGlitch, numPacketError};
 `else
 assign ExtraData[1] = {8'd0, numPacketError};
 `endif
-// PK TODO
-//assign ExtraData[2] = timeReceive;
-//assign ExtraData[3] = timeSinceIRQ;
-assign ExtraData[2] = 32'd0;
-assign ExtraData[3] = 32'd0;
-
-assign ethioErrors[5] = ethFrameError;   // 1 -> Ethernet frame unsupported
-assign ethioErrors[4] = ethIPv4Error;    // 1 -> IPv4 header error
-assign ethioErrors[3] = ethUDPError;     // 1 -> Wrong UDP port (not 1394)
-assign ethioErrors[2] = ethDestError;    // 1 -> Ethernet destination error
-assign ethioErrors[1] = ethAccessError;  // 1 -> Unable to access internal bus
-assign ethioErrors[0] = ethSendStateError;  // 1 -> Unable to access internal bus
+assign ExtraData[2] = timeReceive;
+assign ExtraData[3] = timeNow;
 
 // -----------------------------------------------
 // Debug data
@@ -789,6 +791,21 @@ assign addrMain = (fw_dest_offset[15:12] == `ADDR_MAIN) ? 1'd1 : 1'd0;
 assign isRebootCmd = (addrMain && (fw_dest_offset[11:0] == 12'd0) && quadWrite
                       && (fw_quadlet_data[21:20] == 2'b11)) ? 1'd1 : 1'd0;
 
+
+//*****************************************************************
+//  Write to Ethernet control register
+//*****************************************************************
+
+always @(posedge sysclk)
+begin
+   if (ctrl_reg_wen) begin
+      clearErrors <= reg_wdata[29];
+   end
+   else begin
+      clearErrors <= 0;
+   end
+end
+
 //*****************************************************************
 //  ETHERNET Receive state machine
 //*****************************************************************
@@ -833,6 +850,14 @@ begin
       sample_start <= 1'd0;
    end
 
+   if (resetActive|clearErrors) begin
+      numPacketError <= 8'd0;
+      ethFrameError <= 0;
+      ethIPv4Error <= 0;
+      ethUDPError <= 0;
+      ethDestError <= 0;
+   end
+
    // Write to IP address register
    if (ip_reg_wen) begin
       // Following is equivalent to: ip_address <= reg_wdata;
@@ -867,13 +892,8 @@ begin
       if (resetActive) begin
          // Always process reset
          FireWirePacketFresh <= 0;
-         fwPacketDropped <= 0;
-         numPacketError <= 8'd0;
          eth_send_fw_req <= 0;
-         ethFrameError <= 0;
-         ethIPv4Error <= 0;
-         ethUDPError <= 0;
-         ethDestError <= 0;
+         fwPacketDropped <= 0;
       end
       if (eth_send_fw_req) begin
          // This could have been a separate state, but would need an extra
@@ -1181,6 +1201,11 @@ begin
       txPktWords <= txPktWords + 12'd1;
    end
 
+   if (resetActive|clearErrors) begin
+      ethAccessError <= 0;
+      ethSendStateError <= 0;
+   end
+
    case (sendState)
 
    ST_SEND_DMA_IDLE:
@@ -1192,10 +1217,6 @@ begin
       txPktWords <= 12'd0;
       sfw_count <= 10'd0;
       xcnt <= 2'd0;
-      if (resetActive) begin
-         ethAccessError <= 0;
-         ethSendStateError <= 0;
-      end
       if (sendRequest) begin
          sendBusy <= 1;
          ReplyBuffer[ID_Rep_fpgaMac2][3:0] <= board_id;

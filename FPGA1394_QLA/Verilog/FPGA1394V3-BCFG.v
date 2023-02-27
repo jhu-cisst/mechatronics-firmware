@@ -3,19 +3,12 @@
 
 /*******************************************************************************    
  *
- * Copyright(C) 2011-2023 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2023 ERC CISST, Johns Hopkins University.
  *
- * This is the top level module for the FPGA1394V3-DQLA (dual QLA)  motor controller
- * interface.
+ * This is the top level module for the FPGA1394V3-BCFG boot configuration firmware.
  *
  * Revision history
- *     07/15/10                        Initial revision - MfgTest
- *     10/27/11    Paul Thienphrapa    Initial revision (pault at cs.jhu.edu)
- *     02/29/12    Zihan Chen
- *     08/29/18    Peter Kazanzides    Added DS2505 module
- *     01/22/20    Peter Kazanzides    Removed global reset
- *     04/28/22    Peter Kazanzides    Adapted for FPGA V3
- *     12/12/22    Peter Kazanzides    Adapted for DLQA
+ *      2/20/23    Peter Kazanzides    Initial version
  */
 
 `timescale 1ns / 1ps
@@ -28,7 +21,7 @@
 
 `include "Constants.v"
 
-module FPGA1394V3DQLA
+module FPGA1394V3BCFG
 (
     // ieee 1394 phy-link interface
     input            clk1394,   // 49.152 MHz
@@ -75,13 +68,8 @@ module FPGA1394V3DQLA
     input            PS_PORB
 );
 
-
-    // Number of motors and encoders
-    parameter NUM_MOTORS = 8;
-    parameter NUM_ENCODERS = 8;
-
     // Number of quadlets in real-time block read (not including Firewire header and CRC)
-    localparam NUM_RT_READ_QUADS = (4 + 2*NUM_MOTORS + 5*NUM_ENCODERS);
+    localparam NUM_RT_READ_QUADS = 4;
     // Number of quadlets in broadcast real-time block; includes sequence number
     localparam NUM_BC_READ_QUADS = (1+NUM_RT_READ_QUADS);
 
@@ -105,19 +93,6 @@ module FPGA1394V3DQLA
     wire blk_wen;               // block write enable
     wire blk_wstart;            // block write start
 
-    // Wires for block write
-    wire bw_reg_wen;            // register write signal from WriteRtData
-    wire bw_blk_wen;            // block write enable from WriteRtData
-    wire bw_blk_wstart;         // block write start from WriteRtData
-    wire[7:0] bw_reg_waddr;     // 16-bit reg write address from WriteRtData
-    wire[31:0] bw_reg_wdata;    // reg write data from WriteRtData
-    wire bw_write_en;           // 1 -> WriteRtData (real-time block write) is driving write bus
-
-    // Wires for real-time write
-    wire  rt_wen;
-    wire [3:0] rt_waddr;
-    wire [31:0] rt_wdata;
-
     // Wires for sampling block read data
     wire sample_start;        // Start sampling read data
     wire sample_busy;         // 1 -> data sampler has control of bus
@@ -125,12 +100,6 @@ module FPGA1394V3DQLA
     wire[5:0] sample_raddr;   // Address in sample_data buffer
     wire[31:0] sample_rdata;  // Output from sample_data buffer
     wire[31:0] timestamp;     // Timestamp used when sampling
-
-    // Wires for watchdog
-    wire wdog_period_led;     // 1 -> external LED displays wdog_period_status
-    wire[2:0] wdog_period_status;
-    wire wdog_timeout;        // watchdog timeout status flag
-    wire wdog_clear;          // clear watchdog timeout (e.g., on powerup)
 
 // LED on FPGA
 // Lights when PS clock is correctly initialized (clk200_ok)
@@ -195,18 +164,13 @@ fpga(
     .blk_wen(blk_wen),
     .blk_wstart(blk_wstart),
 
-    // Block write support
-    .bw_reg_waddr(bw_reg_waddr),
-    .bw_reg_wdata(bw_reg_wdata),
-    .bw_reg_wen(bw_reg_wen),
-    .bw_blk_wen(bw_blk_wen),
-    .bw_blk_wstart(bw_blk_wstart),
-    .bw_write_en(bw_write_en),
-
-    // Real-time write support
-    .rt_wen(rt_wen),
-    .rt_waddr(rt_waddr),
-    .rt_wdata(rt_wdata),
+    // Block write support (not used)
+    .bw_reg_waddr(8'd0),
+    .bw_reg_wdata(32'd0),
+    .bw_reg_wen(1'd0),
+    .bw_blk_wen(1'd0),
+    .bw_blk_wstart(1'd0),
+    .bw_write_en(1'd0),
 
     // Sampling support
     .sample_start(sample_start),
@@ -216,39 +180,17 @@ fpga(
     .sample_rdata(sample_rdata),
     .timestamp(timestamp),
 
-    // Watchdog support
-    .wdog_period_led(wdog_period_led),
-    .wdog_period_status(wdog_period_status),
-    .wdog_timeout(wdog_timeout),
-    .wdog_clear(wdog_clear)
+    // Watchdog support (not used)
+    .wdog_clear(1'd0)
 );
 
-//******************************* QLA Module **************************************
+//***************************** BootConfig Module ************************************
 
-// ~12 MHz clock
-wire clkdiv2, clk_12M;
-ClkDiv div2clk(sysclk, clkdiv2);
-defparam div2clk.width = 2;
-BUFG clk12(.I(clkdiv2), .O(clk_12M));
-
-// divide 49.152 MHz clock down to 400 kHz for temperature sensor readings
-wire clk400k_raw;
-wire clk400k;
-ClkDivI divtemp(sysclk, clk400k_raw);
-defparam divtemp.div = 122;
-
-BUFG clktemp(.I(clk400k_raw), .O(clk400k));
-
-DQLA dqla(
+BootConfig bcfg(
     .sysclk(sysclk),
     .board_id(board_id),
-    // Supplying 400k clock because different versions of hardware create
-    // this clock differently.
-    .clk400k(clk400k),
-    // ~12MHz clock for ADC
-    .clkadc(clk_12M),
 
-    // I/O between FPGA and DQLA (connectors J1 and J2)
+    // I/O from FPGA (connectors J1 and J2)
     // Note that extra I/O from FPGA V3.1 are included.
     .IO1(IO1),
     .IO2(IO2),
@@ -262,32 +204,13 @@ DQLA dqla(
     .blk_wen(blk_wen),
     .blk_wstart(blk_wstart),
 
-    // Block write support
-    .bw_reg_waddr(bw_reg_waddr),
-    .bw_reg_wdata(bw_reg_wdata),
-    .bw_reg_wen(bw_reg_wen),
-    .bw_blk_wen(bw_blk_wen),
-    .bw_blk_wstart(bw_blk_wstart),
-    .bw_write_en(bw_write_en),
-
-    // Real-time write support
-    .rt_wen(rt_wen),
-    .rt_waddr(rt_waddr),
-    .rt_wdata(rt_wdata),
-
     // Sampling support
     .sample_start(sample_start),
     .sample_busy(sample_busy),
     .sample_chan(sample_chan),
     .sample_raddr(sample_raddr),
     .sample_rdata(sample_rdata),
-    .timestamp(timestamp),
-
-    // Watchdog support
-    .wdog_period_led(wdog_period_led),
-    .wdog_period_status(wdog_period_status),
-    .wdog_timeout(wdog_timeout),
-    .wdog_clear(wdog_clear)
+    .timestamp(timestamp)
 );
 
 endmodule

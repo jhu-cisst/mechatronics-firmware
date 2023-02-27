@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2011-2022 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2011-2023 ERC CISST, Johns Hopkins University.
  *
  * This module contains common code for FPGA V1 and does not make any assumptions
  * about which board is connected.
@@ -160,7 +160,7 @@ assign reg_rdata_chan0_ext =
                    (reg_raddr[3:0]==`REG_PROMSTAT) ? prom_status :
                    (reg_raddr[3:0]==`REG_PROMRES) ? prom_result :
                    (reg_raddr[3:0]==`REG_IPADDR) ? ip_address :
-                   (reg_raddr[3:0]==`REG_ETHRES) ? Eth_Result :
+                   (reg_raddr[3:0]==`REG_ETHSTAT) ? Eth_Result :
                    reg_rdata_ext;
 
 // --------------------------------------------------------------------------

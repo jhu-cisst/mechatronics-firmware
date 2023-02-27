@@ -2,6 +2,10 @@
 set (PS7_MHS_FILE  fpgav3.mhs)
 set (PS7_PRJ_FILE  ps7_fpgav3_prj.xml)
 
+# Copy custom IP (gmii_to_rgmii) to binary directory because that is where platgen
+# expects to find it
+file (COPY "${CMAKE_CURRENT_SOURCE_DIR}/pcores" DESTINATION "${CMAKE_CURRENT_BINARY_DIR}")
+
 edk_platgen(TARGET_NAME       "PlatgenV3"
             MHS_FILE          "${CMAKE_CURRENT_SOURCE_DIR}/${PS7_MHS_FILE}"
             PRJ_FILE          "data/${PS7_PRJ_FILE}"

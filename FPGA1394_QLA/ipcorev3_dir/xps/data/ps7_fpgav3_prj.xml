@@ -11,7 +11,7 @@
   <set param="PCW::QSPI::GRP_FBCLK::ENABLE" value="0" />
   <set param="PCW::ENET0::PERIPHERAL::ENABLE" value="1" />
   <set param="PCW::ENET0::RESET::ENABLE" value="0" />
-  <set param="PCW::ENET1::PERIPHERAL::ENABLE" value="0" />
+  <set param="PCW::ENET1::PERIPHERAL::ENABLE" value="1" />
   <set param="PCW::PRESET::GLOBAL::CONFIG" value="Default" />
   <set param="PCW::MIO::MIO[16]::IOTYPE" value="LVCMOS 3.3V" />
   <set param="PCW::MIO::MIO[17]::IOTYPE" value="LVCMOS 3.3V" />
