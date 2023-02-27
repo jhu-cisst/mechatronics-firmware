@@ -86,7 +86,7 @@ wire[1:10] RESETn;
 // inputs
 wire SAFETY_CHAIN_GOOD;
 wire RELAY_GOODn;
-wire ESPMV_GOODn;
+wire ESPMV_GOOD;
 wire LVDS_RCLK;
 wire LVDS_RDAT;
 wire ADC_MV_SDO;
@@ -123,7 +123,7 @@ assign RELAY_GOODn = IO1[26];
 assign FAULTn[5] = IO1[27];
 assign IO1[28] = ESPMV_EN;
 assign OTWn[5] = IO1[29];
-assign ESPMV_GOODn = IO1[30];
+assign ESPMV_GOOD = IO1[30];
 assign ADC_CUR_SDO[4] = IO1[31];
 assign IO1[32] = RELAY_EN;
 
@@ -362,7 +362,7 @@ wire[15:0] reg_databuf;   // Data collection status
 wire is_ecm;
 wire preload_set_sysclk_toggle;
 
-wire[11:0] reg_status12 = {8'b0, preload_good, ESPMV_GOODn, esii_escc_comm_good, espm_comm_good};
+wire[11:0] reg_status12 = {8'b0, preload_good, ESPMV_GOOD, esii_escc_comm_good, espm_comm_good};
 BoardRegsDRAC chan0(
     .sysclk(sysclk),
     .pwr_enable(MV_EN),
@@ -673,7 +673,7 @@ begin
         'h000: reg_rdata_board_specific = crc_err_count;
         'h001: reg_rdata_board_specific = crc_good_count;
         'h002: reg_rdata_board_specific = mv;
-        // 'h003: reg_rdata_board_specific = {is_ecm, esii_escc_comm_good, espm_comm_good, SAFETY_CHAIN_GOOD, ESPMV_GOODn};
+        // 'h003: reg_rdata_board_specific = {is_ecm, esii_escc_comm_good, espm_comm_good, SAFETY_CHAIN_GOOD, ESPMV_GOOD};
         'h004: reg_rdata_board_specific = {22'b0, OTWn, FAULTn};
         'h010: reg_rdata_board_specific = rdata_misc[2]; // esii status
         // 'h011: reg_rdata_board_specific = rdata_misc[3]; // adc current {cannula_vmon,P5V_lcl_vmon}
