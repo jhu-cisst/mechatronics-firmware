@@ -19,6 +19,8 @@ module BootConfig(
 
     // Board ID (rotary switch)
     input wire[3:0]  board_id,
+    // 1 -> FPGA V3.0
+    input wire isV30,
 
     // I/O between FPGA and QLA (connectors J1 and J2)
     // Includes extra I/O from FPGA V3.1
@@ -51,8 +53,8 @@ module BootConfig(
     wire prom_miso;
     wire prom_mosi;
     wire prom_CSn;
-    assign IO1[3] = prom_sclk;
-    assign IO1[2] = prom_mosi;
+    assign IO1[3] = prom_CSn ? 1'bz : prom_sclk;
+    assign IO1[2] = prom_CSn ? 1'bz : prom_mosi;
     assign prom_miso = IO1[1];
     assign IO1[4] = prom_CSn;
 
@@ -101,6 +103,47 @@ QLA25AA128 prom(
     .other_busy(1'b0)
 );
 
+//---------------------------------------------------------------------------------
+//
+// Board detection logic
+//
+// The following logic distinguishes between the known boards (and NONE, which
+// means no board attached) by looking at the power-up values of the IO lines.
+// It assumes that all IO lines are configured with pull-up resistors
+// (see BootConfig.ucf).
+//
+// Note that, except for NONE, we do not check all IOs, but rather only check
+// when there is at least one expected difference.
+//
+// If desired, it would also be possible to read the PROM attached to IO1[1]-IO1[4],
+// or to look for square waves on the temperature feedback lines on QLA/DQLA.
+//
+//---------------------------------------------------------------------------------
+
+// NONE: all IO have pull-ups
+assign isNONE = ((IO1[0:33] == {34{1'b1}}) && (IO2[0:39] == {40{1'b1}})) ? 1'b1 : 1'b0;
+
+// QLA: it is sufficient to check the 0 values because IO1[31]=1 for DQLA
+//      and there are many that are 1 for DRAC and NONE
+assign QLAzeros = ~(IO1[0]|IO1[31]|IO1[32]|IO2[1]|IO2[3]|IO2[5]|IO2[7]|IO2[11]|
+                    IO2[31]|IO2[32]|IO2[33]|IO2[34]|IO2[35]|IO2[36]|IO2[37]|IO2[38]);
+assign isQLA = QLAzeros;
+
+// DQLA
+// IO1[0]=1 for NONE
+assign DQLAzeros = ~IO1[0];
+// IO1[12]=0 for DRAC and IO1[31]=0 for QLA
+assign DQLAones = IO1[12]&IO1[31];
+assign isDQLA = DQLAzeros & DQLAones;
+
+// DRAC
+// IO1[12]=1 for DQLA; all IOs are 1 for NONE
+assign DRACzeros = ~(IO1[9]|IO1[12]|IO1[19]|IO1[21]|IO1[23]|IO1[32]|
+                     IO2[10]|IO2[15]|IO2[22]|IO2[28]|IO2[29]|IO2[34]);
+// Many IOs are 0 for QLA
+assign DRACones = IO2[1]&IO2[3]&IO2[5]&IO2[31]&IO2[32]&IO2[33]&IO2[35]&IO2[36];
+assign isDRAC = DRACzeros & DRACones;
+
 // --------------------------------------------------------------------------
 // miscellaneous board I/Os
 //
@@ -110,7 +153,9 @@ QLA25AA128 prom(
 // --------------------------------------------------------------------------
 
 wire[31:0] reg_status;    // Status register
-assign reg_status = {4'd0, board_id, 24'd0 };
+assign reg_status = {4'd0, board_id, isNONE, isQLA, isDQLA, isDRAC, isV30,   // 31:19
+                     QLAzeros, DQLAzeros, DQLAones, DRACzeros, DRACones,     // 18:14
+                     14'd0 };                                                // 13:0
 wire[31:0] reg_version;   // Hardware version
 assign reg_version = 32'h42434647;   // "BCFG"
 

@@ -189,6 +189,7 @@ fpga(
 BootConfig bcfg(
     .sysclk(sysclk),
     .board_id(board_id),
+    .isV30(isV30),
 
     // I/O from FPGA (connectors J1 and J2)
     // Note that extra I/O from FPGA V3.1 are included.
