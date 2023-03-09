@@ -46,9 +46,17 @@ parameter[2:0]
 reg[2:0] rtState = RT_IDLE;
 reg[1:0] rtCnt;
 
-// Warning: following should be changed if more than 8 motors
-// (could instead use: clog2b(NUM_MOTORS)-1)
-localparam DACBIT = 2;
+function integer log2;
+   input integer value;
+   begin
+      value = value - 1;
+      for (log2 = 0; value > 0; log2 = log2 + 1)
+         value = value >> 1;
+   end
+endfunction
+localparam integer DACBIT = log2(NUM_MOTORS) - 1;
+
+reg[DACBIT:0] dac_addr;
 
 // For storing DAC values
 reg[31:0] RtDAC[0:(NUM_MOTORS-1)];
@@ -57,7 +65,7 @@ wire anyDacValid;
 wire anyAmpEnMask;
 wire rt_write_end;    // indicates that last rt write is in process
 
-// Warning: following generate code only supports 4 or 8 NUM_MOTORS
+// Warning: following generate code only supports 4, 8, or 10 NUM_MOTORS
 generate
 if (NUM_MOTORS == 4) begin
     assign anyDacValid  = RtDAC[0][31]|RtDAC[1][31]|RtDAC[2][31]|RtDAC[3][31];
@@ -70,6 +78,15 @@ else if (NUM_MOTORS == 8) begin
     assign anyAmpEnMask = RtDAC[0][29]|RtDAC[1][29]|RtDAC[2][29]|RtDAC[3][29]|
                           RtDAC[4][29]|RtDAC[5][29]|RtDAC[6][29]|RtDAC[7][29];
     assign rt_write_end = rt_write_addr[3];
+end
+else if (NUM_MOTORS == 10) begin
+   assign anyDacValid = RtDAC[0][31]|RtDAC[1][31]|RtDAC[2][31]|RtDAC[3][31]|
+                        RtDAC[4][31]|RtDAC[5][31]|RtDAC[6][31]|RtDAC[7][31]|
+                        RtDAC[8][31]|RtDAC[3][31]|RtDAC[9][31];
+   assign anyAmpEnMask= RtDAC[0][29]|RtDAC[1][29]|RtDAC[2][29]|RtDAC[3][29]|
+                        RtDAC[4][29]|RtDAC[5][29]|RtDAC[6][29]|RtDAC[7][29]|
+                        RtDAC[8][29]|RtDAC[3][29]|RtDAC[9][29];
+   assign rt_write_end = rt_write_addr == NUM_MOTORS;
 end
 endgenerate
 

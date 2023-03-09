@@ -1,0 +1,70 @@
+NET  "IO1[1]"      PULLUP;  # MISO prom_qla
+NET  "IO1[2]"      PULLUP;  # MOSI
+NET  "IO1[3]"      PULLUP;  # SCLK
+NET  "IO1[4]"      PULLUP;  # /EEPROM
+# NET  "IO1[5]"      PULLUP | OPEN_DRAIN;  # currently SUJ brake. move later.
+# NET  "IO1[6]"
+# NET  "IO1[7]"
+# NET  "IO1[8]"
+# NET  "IO1[9]"
+# NET  "IO1[10]"
+# NET  "IO1[11]"
+# NET  "IO1[12]"
+# NET  "IO1[13]"
+NET  "IO1[14]"     PULLUP; # FAULTn[4]
+NET  "IO1[15]"     PULLUP; # OTWn[4]
+# NET  "IO1[16]"
+# NET  "IO1[17]"
+# NET  "IO1[18]"
+# NET  "IO1[19]"
+# NET  "IO1[20]"
+# NET  "IO1[21]"
+# NET  "IO1[22]"
+# NET  "IO1[23]"
+# NET  "IO1[24]"
+# NET  "IO1[25]"
+NET  "IO1[26]"     PULLUP; # RELAY_GOODn
+NET  "IO1[27]"     PULLUP; # FAULTn[5]
+# NET  "IO1[28]"
+NET  "IO1[29]"     PULLUP; # OTWn[5]
+NET  "IO1[30]"     PULLUP; # ESPMV_GOODn
+# NET  "IO1[31]"
+# NET  "IO1[32]"
+# NET  "IO2[1]"
+# NET  "IO2[2]"
+# NET  "IO2[3]"
+NET  "IO2[4]"      PULLUP; # OTWn[3]
+NET  "IO2[5]"      PULLUP; # FAULTn[3]
+NET  "IO2[6]"      PULLUP; # LVDS_RCLK
+NET  "IO2[7]"      PULLUP; # LVDS_RDAT
+# NET  "IO2[8]"
+# NET  "IO2[9]"      # CONV_ADC
+# NET  "IO2[10]"
+# NET  "IO2[11]"
+# NET  "IO2[12]"
+# NET  "IO2[13]"
+# NET  "IO2[14]"     # SCLK_ADC
+# NET  "IO2[15]"
+# NET  "IO2[16]"     # SDI_ADC
+# NET  "IO2[17]"
+# NET  "IO2[18]"
+# NET  "IO2[19]"
+# NET  "IO2[20]"
+# NET  "IO2[21]"
+# NET  "IO2[22]"
+NET  "IO2[23]"     PULLUP; # OTWn[2]
+# NET  "IO2[24]"
+NET  "IO2[25]"     PULLUP; # FAULTn[2]
+# NET  "IO2[26]"
+# NET  "IO2[27]"
+# NET  "IO2[28]"
+# NET  "IO2[29]"
+# NET  "IO2[30]"
+# NET  "IO2[31]"
+# NET  "IO2[32]"
+NET  "IO2[33]"     PULLUP; # FAULTn[1]
+# NET  "IO2[34]"
+NET  "IO2[35]"     PULLUP; # OTWn[1]
+# NET  "IO2[36]"
+# NET  "IO2[37]"
+# NET  "IO2[38]"

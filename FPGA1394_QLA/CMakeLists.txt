@@ -25,6 +25,7 @@ set (FPGAV3_PARTNUM "${FPGAV3_DEVICE}${FPGAV3_SPEED}${FPGAV3_PACKAGE}")
 
 # Path to Verilog source code
 set (VERILOG_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/Verilog")
+set (HLS_GENERATED_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/hls_generated_src")
 
 # Paths to IP core files (source and build)
 # By default, use files in build tree (IPCORE_BINARY_DIR and IPCOREV3_BINARY_DIR)
@@ -120,6 +121,29 @@ set (VERILOG_SOURCE_DQLA   ${VERILOG_SOURCE_QLA_DQLA}
                            "${VERILOG_SOURCE_DIR}/BoardRegs-DQLA.v"
                            "${VERILOG_SOURCE_DIR}/DQLA.v")
 
+set (VERILOG_SOURCE_DRAC
+                           "${VERILOG_SOURCE_DIR}/DRAC.v"
+                           "${VERILOG_SOURCE_DIR}/BoardRegs-DRAC.v"
+                           "${VERILOG_SOURCE_DIR}/QLA25AA128.v"
+                           "${VERILOG_SOURCE_DIR}/AD4008.v"
+                           "${VERILOG_SOURCE_DIR}/cdc_pulse.v"
+                           "${VERILOG_SOURCE_DIR}/Crc16.v"
+                           "${VERILOG_SOURCE_DIR}/ESPMComm.v"
+                           "${VERILOG_SOURCE_DIR}/MotorChannelDRAC.v"
+                           "${VERILOG_SOURCE_DIR}/PowerControl.v"
+                           "${VERILOG_SOURCE_DIR}/PWM.v"
+                           "${VERILOG_SOURCE_DIR}/PwmAdcTiming.v"
+                           "${VERILOG_SOURCE_DIR}/SampleDataAddressTranslation.v"
+                           "${VERILOG_SOURCE_DIR}/WriteRtData.v"
+                           "${VERILOG_SOURCE_DIR}/ws2811.v")
+
+file(DOWNLOAD
+        https://raw.githubusercontent.com/keshuaixu/ws2812-verilog/ws2813/ws2811.v
+        "${VERILOG_SOURCE_DIR}/ws2811.v")
+
+file(GLOB HLS_GENERATED_SOURCES_DRAC_FPGAV1V2 CONFIGURE_DEPENDS "${HLS_GENERATED_SOURCE_DIR}/v1v2/*.v")
+file(GLOB HLS_GENERATED_SOURCES_DRAC_FPGAV3 CONFIGURE_DEPENDS "${HLS_GENERATED_SOURCE_DIR}/v3/*.v")
+
 # Source files used by BCFG (boot config)
 set (VERILOG_SOURCE_BCFG  "${VERILOG_SOURCE_DIR}/BootConfig.v"
                           "${VERILOG_SOURCE_DIR}/QLA25AA128.v")
@@ -204,6 +228,50 @@ ise_compile_fpga(PROJ_NAME      "FPGA1394V3DQLA"
                  XPSCORE_DIR    "${XPSCORE_BINARY_DIR}/implementation"
                  TOP_LEVEL      "FPGA1394V3DQLA"
                  PROJ_OUTPUT    "FPGA1394V3-DQLA"
+                 IS_V3          ON)
+
+##### FPGAV2 + dRAC
+set (VERILOG_SOURCE_FPGAV2_DRAC
+                         "${VERILOG_SOURCE_DIR}/FPGA1394Eth-DRAC.v"
+                         "${IPCORE_BINARY_DIR}/pwm_clk_gen.v"
+                         ${HLS_GENERATED_SOURCES_DRAC_FPGAV1V2}
+                         ${VERILOG_SOURCE_COMMON}
+                         ${VERILOG_SOURCE_FPGAV2}
+                         ${VERILOG_SOURCE_DRAC})
+
+# Compile the firmware -- output is FPGA1394Eth-DRAC.mcs, which is copied
+# to the Generated subdirectory in the source directory (if different).
+ise_compile_fpga(PROJ_NAME      "FPGA1394EthDRAC"
+                 DEPENDENCIES   "CoreGenCommon"
+                 FPGA_PARTNUM   ${FPGA_PARTNUM}
+                 VERILOG_SOURCE ${VERILOG_SOURCE_FPGAV2_DRAC}
+                 UCF_FILE       "${VERILOG_SOURCE_DIR}/XC6S45-Rev2.ucf"
+                 BOARD_UCF_FILE "${VERILOG_SOURCE_DIR}/DRAC.ucf"
+                 IPCORE_DIR     ${IPCORE_BINARY_DIR}
+                 TOP_LEVEL      "FPGA1394EthDRAC"
+                 PROJ_OUTPUT    "FPGA1394Eth-DRAC")
+
+##### FPGAV3 + dRAC
+set (VERILOG_SOURCE_FPGAV3_DRAC
+                         "${VERILOG_SOURCE_DIR}/FPGA1394V3-DRAC.v"
+                         "${IPCOREV3_BINARY_DIR}/pwm_clk_gen_zynq.v"
+                         ${HLS_GENERATED_SOURCES_DRAC_FPGAV3}                         
+                         ${VERILOG_SOURCE_COMMON}
+                         ${VERILOG_SOURCE_FPGAV3}
+                         ${VERILOG_SOURCE_DRAC})
+
+# Compile the firmware -- output is FPGA1394V3-DRAC.mcs, which is copied
+# to the Generated subdirectory in the source directory (if different).
+ise_compile_fpga(PROJ_NAME      "FPGA1394V3DRAC"
+                 DEPENDENCIES   "CoreGenV3" "PlatgenV3"
+                 FPGA_PARTNUM   ${FPGAV3_PARTNUM}
+                 VERILOG_SOURCE ${VERILOG_SOURCE_FPGAV3_DRAC}
+                 UCF_FILE       "${VERILOG_SOURCE_DIR}/XC7Z020.ucf"
+                 BOARD_UCF_FILE "${VERILOG_SOURCE_DIR}/DRAC.ucf"
+                 IPCORE_DIR     ${IPCOREV3_BINARY_DIR}
+                 XPSCORE_DIR    "${XPSCORE_BINARY_DIR}/implementation"
+                 TOP_LEVEL      "FPGA1394V3DRAC"
+                 PROJ_OUTPUT    "FPGA1394V3-DRAC"
                  IS_V3          ON)
 
 ##### FPGAV3 + BCFG
