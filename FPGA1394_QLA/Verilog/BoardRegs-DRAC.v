@@ -3,10 +3,10 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2008-2022 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2008-2023 ERC CISST, Johns Hopkins University.
  *
  * This module contains a register file dedicated to general board parameters
- * for the QLA.
+ * for the DRAC.
  *
  * Revision history
  *     07/17/08    Paul Thienphrapa    Initial revision - SnakeFPGA-rev2
