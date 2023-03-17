@@ -2,8 +2,12 @@
 #
 #   FPGAV1 + QLA
 #   FPGAV2 + QLA
+#   FPGAV3 + BCFG
 #   FPGAV3 + QLA
 #   FPGAV3 + DQLA
+#   FPGAV3 + DRAC
+#
+#   (can also build FPGAV2 + DRAC)
 #
 # Tested on Windows 7, 64-bit, with NMAKE (VS 2008) and Xilinx ISE 14.3
 # Tested on Ubuntu 16.04, 64-bit, with make (gcc 5.4.0) and Xilinx ISE 14.7
@@ -251,6 +255,8 @@ ise_compile_fpga(PROJ_NAME      "FPGA1394EthDRAC"
                  TOP_LEVEL      "FPGA1394EthDRAC"
                  PROJ_OUTPUT    "FPGA1394Eth-DRAC")
 
+set_target_properties(FPGA1394EthDRAC PROPERTIES EXCLUDE_FROM_ALL ON)
+
 ##### FPGAV3 + dRAC
 set (VERILOG_SOURCE_FPGAV3_DRAC
                          "${VERILOG_SOURCE_DIR}/FPGA1394V3-DRAC.v"
@@ -319,17 +325,18 @@ add_custom_command(TARGET generated POST_BUILD
                            ${CMAKE_CURRENT_SOURCE_DIR}/Generated/FPGA1394Eth-QLA.bit
                    COMMAND ${CMAKE_COMMAND}
                    ARGS -E copy_if_different
-                           ${CMAKE_CURRENT_BINARY_DIR}/FPGA1394V3-QLA.mcs
-                           ${CMAKE_CURRENT_SOURCE_DIR}/../Generated/FPGA1394V3-QLA.mcs
-                   COMMAND ${CMAKE_COMMAND}
-                   ARGS -E copy_if_different
                            ${CMAKE_CURRENT_BINARY_DIR}/FPGA1394V3QLA.bit
-                           ${CMAKE_CURRENT_SOURCE_DIR}/../Generated/FPGA1394V3-QLA.bit
+                           ${CMAKE_CURRENT_SOURCE_DIR}/Generated/FPGA1394V3-QLA.bit
                    COMMAND ${CMAKE_COMMAND}
                    ARGS -E copy_if_different
                            ${CMAKE_CURRENT_BINARY_DIR}/FPGA1394V3DQLA.bit
-                           ${CMAKE_CURRENT_SOURCE_DIR}/../Generated/FPGA1394V3-DQLA.bit
+                           ${CMAKE_CURRENT_SOURCE_DIR}/Generated/FPGA1394V3-DQLA.bit
+                   COMMAND ${CMAKE_COMMAND}
+                   ARGS -E copy_if_different
+                           ${CMAKE_CURRENT_BINARY_DIR}/FPGA1394V3DRAC.bit
+                           ${CMAKE_CURRENT_SOURCE_DIR}/Generated/FPGA1394V3-DRAC.bit
+                   COMMAND ${CMAKE_COMMAND}
                    ARGS -E copy_if_different
                            ${CMAKE_CURRENT_BINARY_DIR}/FPGA1394V3BCFG.bit
-                           ${CMAKE_CURRENT_SOURCE_DIR}/../Generated/FPGA1394V3-BCFG.bit
+                           ${CMAKE_CURRENT_SOURCE_DIR}/Generated/FPGA1394V3-BCFG.bit
                    COMMENT "Copying MCS and BIT files to source \"Generated\" directory (if different)")
