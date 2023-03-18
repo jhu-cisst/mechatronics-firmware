@@ -156,41 +156,39 @@ set (VERILOG_SOURCE_BCFG  "${VERILOG_SOURCE_DIR}/BootConfig.v"
 
 ##### FPGAV1 + QLA
 set (VERILOG_SOURCE_FPGAV1_QLA
-                         "${VERILOG_SOURCE_DIR}/FPGA1394-QLA.v"
+                         "${VERILOG_SOURCE_DIR}/FPGA1394V1-QLA.v"
                          ${VERILOG_SOURCE_COMMON}
                          ${VERILOG_SOURCE_FPGAV1}
                          ${VERILOG_SOURCE_QLA})
 
 # Compile the firmware -- output is FPGA1394-QLA.mcs, which is copied
 # to the Generated subdirectory in the source directory (if different).
-ise_compile_fpga(PROJ_NAME      "FPGA1394QLA"
+ise_compile_fpga(PROJ_NAME      "FPGA1394V1-QLA"
                  DEPENDENCIES   "CoreGenCommon"
                  FPGA_PARTNUM   ${FPGA_PARTNUM}
                  VERILOG_SOURCE ${VERILOG_SOURCE_FPGAV1_QLA}
                  UCF_FILE       "${VERILOG_SOURCE_DIR}/XC6S45.ucf"
                  BOARD_UCF_FILE "${VERILOG_SOURCE_DIR}/QLA.ucf"
                  IPCORE_DIR     ${IPCORE_BINARY_DIR}
-                 TOP_LEVEL      "FPGA1394QLA"
-                 PROJ_OUTPUT    "FPGA1394-QLA")
+                 TOP_LEVEL      "FPGA1394V1QLA")
 
 ##### FPGAV2 + QLA
 set (VERILOG_SOURCE_FPGAV2_QLA
-                         "${VERILOG_SOURCE_DIR}/FPGA1394Eth-QLA.v"
+                         "${VERILOG_SOURCE_DIR}/FPGA1394V2-QLA.v"
                          ${VERILOG_SOURCE_COMMON}
                          ${VERILOG_SOURCE_FPGAV2}
                          ${VERILOG_SOURCE_QLA})
 
-# Compile the firmware -- output is FPGA1394Eth-QLA.mcs, which is copied
+# Compile the firmware -- output is FPGA1394V2-QLA.mcs, which is copied
 # to the Generated subdirectory in the source directory (if different).
-ise_compile_fpga(PROJ_NAME      "FPGA1394EthQLA"
+ise_compile_fpga(PROJ_NAME      "FPGA1394V2-QLA"
                  DEPENDENCIES   "CoreGenCommon"
                  FPGA_PARTNUM   ${FPGA_PARTNUM}
                  VERILOG_SOURCE ${VERILOG_SOURCE_FPGAV2_QLA}
                  UCF_FILE       "${VERILOG_SOURCE_DIR}/XC6S45-Rev2.ucf"
                  BOARD_UCF_FILE "${VERILOG_SOURCE_DIR}/QLA.ucf"
                  IPCORE_DIR     ${IPCORE_BINARY_DIR}
-                 TOP_LEVEL      "FPGA1394EthQLA"
-                 PROJ_OUTPUT    "FPGA1394Eth-QLA")
+                 TOP_LEVEL      "FPGA1394V2QLA")
 
 ##### FPGAV3 + QLA
 set (VERILOG_SOURCE_FPGAV3_QLA
@@ -201,7 +199,7 @@ set (VERILOG_SOURCE_FPGAV3_QLA
 
 # Compile the firmware -- output is FPGA1394V3-QLA.bit, which is copied
 # to the Generated subdirectory in the source directory (if different).
-ise_compile_fpga(PROJ_NAME      "FPGA1394V3QLA"
+ise_compile_fpga(PROJ_NAME      "FPGA1394V3-QLA"
                  DEPENDENCIES   "CoreGenV3" "PlatgenV3"
                  FPGA_PARTNUM   ${FPGAV3_PARTNUM}
                  VERILOG_SOURCE ${VERILOG_SOURCE_FPGAV3_QLA}
@@ -210,7 +208,6 @@ ise_compile_fpga(PROJ_NAME      "FPGA1394V3QLA"
                  IPCORE_DIR     ${IPCOREV3_BINARY_DIR}
                  XPSCORE_DIR    "${XPSCORE_BINARY_DIR}/implementation"
                  TOP_LEVEL      "FPGA1394V3QLA"
-                 PROJ_OUTPUT    "FPGA1394V3-QLA"
                  IS_V3          ON)
 
 ##### FPGAV3 + DQLA
@@ -222,7 +219,7 @@ set (VERILOG_SOURCE_FPGAV3_DQLA
 
 # Compile the firmware -- output is FPGA1394V3-DQLA.bit, which is copied
 # to the Generated subdirectory in the source directory (if different).
-ise_compile_fpga(PROJ_NAME      "FPGA1394V3DQLA"
+ise_compile_fpga(PROJ_NAME      "FPGA1394V3-DQLA"
                  DEPENDENCIES   "CoreGenV3" "PlatgenV3"
                  FPGA_PARTNUM   ${FPGAV3_PARTNUM}
                  VERILOG_SOURCE ${VERILOG_SOURCE_FPGAV3_DQLA}
@@ -231,31 +228,29 @@ ise_compile_fpga(PROJ_NAME      "FPGA1394V3DQLA"
                  IPCORE_DIR     ${IPCOREV3_BINARY_DIR}
                  XPSCORE_DIR    "${XPSCORE_BINARY_DIR}/implementation"
                  TOP_LEVEL      "FPGA1394V3DQLA"
-                 PROJ_OUTPUT    "FPGA1394V3-DQLA"
                  IS_V3          ON)
 
 ##### FPGAV2 + dRAC
 set (VERILOG_SOURCE_FPGAV2_DRAC
-                         "${VERILOG_SOURCE_DIR}/FPGA1394Eth-DRAC.v"
+                         "${VERILOG_SOURCE_DIR}/FPGA1394V2-DRAC.v"
                          "${IPCORE_BINARY_DIR}/pwm_clk_gen.v"
                          ${HLS_GENERATED_SOURCES_DRAC_FPGAV1V2}
                          ${VERILOG_SOURCE_COMMON}
                          ${VERILOG_SOURCE_FPGAV2}
                          ${VERILOG_SOURCE_DRAC})
 
-# Compile the firmware -- output is FPGA1394Eth-DRAC.mcs, which is copied
+# Compile the firmware -- output is FPGA1394V2-DRAC.mcs, which is copied
 # to the Generated subdirectory in the source directory (if different).
-ise_compile_fpga(PROJ_NAME      "FPGA1394EthDRAC"
+ise_compile_fpga(PROJ_NAME      "FPGA1394V2-DRAC"
                  DEPENDENCIES   "CoreGenCommon"
                  FPGA_PARTNUM   ${FPGA_PARTNUM}
                  VERILOG_SOURCE ${VERILOG_SOURCE_FPGAV2_DRAC}
                  UCF_FILE       "${VERILOG_SOURCE_DIR}/XC6S45-Rev2.ucf"
                  BOARD_UCF_FILE "${VERILOG_SOURCE_DIR}/DRAC.ucf"
                  IPCORE_DIR     ${IPCORE_BINARY_DIR}
-                 TOP_LEVEL      "FPGA1394EthDRAC"
-                 PROJ_OUTPUT    "FPGA1394Eth-DRAC")
+                 TOP_LEVEL      "FPGA1394V2DRAC")
 
-set_target_properties(FPGA1394EthDRAC PROPERTIES EXCLUDE_FROM_ALL ON)
+set_target_properties(FPGA1394V2-DRAC PROPERTIES EXCLUDE_FROM_ALL ON)
 
 ##### FPGAV3 + dRAC
 set (VERILOG_SOURCE_FPGAV3_DRAC
@@ -268,7 +263,7 @@ set (VERILOG_SOURCE_FPGAV3_DRAC
 
 # Compile the firmware -- output is FPGA1394V3-DRAC.mcs, which is copied
 # to the Generated subdirectory in the source directory (if different).
-ise_compile_fpga(PROJ_NAME      "FPGA1394V3DRAC"
+ise_compile_fpga(PROJ_NAME      "FPGA1394V3-DRAC"
                  DEPENDENCIES   "CoreGenV3" "PlatgenV3"
                  FPGA_PARTNUM   ${FPGAV3_PARTNUM}
                  VERILOG_SOURCE ${VERILOG_SOURCE_FPGAV3_DRAC}
@@ -277,7 +272,6 @@ ise_compile_fpga(PROJ_NAME      "FPGA1394V3DRAC"
                  IPCORE_DIR     ${IPCOREV3_BINARY_DIR}
                  XPSCORE_DIR    "${XPSCORE_BINARY_DIR}/implementation"
                  TOP_LEVEL      "FPGA1394V3DRAC"
-                 PROJ_OUTPUT    "FPGA1394V3-DRAC"
                  IS_V3          ON)
 
 ##### FPGAV3 + BCFG
@@ -289,7 +283,7 @@ set (VERILOG_SOURCE_FPGAV3_BCFG
 
 # Compile the firmware -- output is FPGA1394V3-BCFG.bit, which is copied
 # to the Generated subdirectory in the source directory (if different).
-ise_compile_fpga(PROJ_NAME      "FPGA1394V3BCFG"
+ise_compile_fpga(PROJ_NAME      "FPGA1394V3-BCFG"
                  DEPENDENCIES   "CoreGenV3" "PlatgenV3"
                  FPGA_PARTNUM   ${FPGAV3_PARTNUM}
                  VERILOG_SOURCE ${VERILOG_SOURCE_FPGAV3_BCFG}
@@ -298,7 +292,6 @@ ise_compile_fpga(PROJ_NAME      "FPGA1394V3BCFG"
                  IPCORE_DIR     ${IPCOREV3_BINARY_DIR}
                  XPSCORE_DIR    "${XPSCORE_BINARY_DIR}/implementation"
                  TOP_LEVEL      "FPGA1394V3BCFG"
-                 PROJ_OUTPUT    "FPGA1394V3-BCFG"
                  IS_V3          ON)
 
 ######################### Copy Generated Files #################################
@@ -309,34 +302,34 @@ add_custom_target(generated)
 add_custom_command(TARGET generated POST_BUILD
                    COMMAND ${CMAKE_COMMAND}
                    ARGS -E copy_if_different
-                           ${CMAKE_CURRENT_BINARY_DIR}/FPGA1394-QLA.mcs
-                           ${CMAKE_CURRENT_SOURCE_DIR}/Generated/FPGA1394-QLA.mcs
+                           ${CMAKE_CURRENT_BINARY_DIR}/FPGA1394V1-QLA.mcs
+                           ${CMAKE_CURRENT_SOURCE_DIR}/Generated/FPGA1394V1-QLA.mcs
                    COMMAND ${CMAKE_COMMAND}
                    ARGS -E copy_if_different
-                           ${CMAKE_CURRENT_BINARY_DIR}/FPGA1394QLA.bit
-                           ${CMAKE_CURRENT_SOURCE_DIR}/Generated/FPGA1394-QLA.bit
+                           ${CMAKE_CURRENT_BINARY_DIR}/FPGA1394V1-QLA.bit
+                           ${CMAKE_CURRENT_SOURCE_DIR}/Generated/FPGA1394V1-QLA.bit
                    COMMAND ${CMAKE_COMMAND}
                    ARGS -E copy_if_different
-                           ${CMAKE_CURRENT_BINARY_DIR}/FPGA1394Eth-QLA.mcs
-                           ${CMAKE_CURRENT_SOURCE_DIR}/Generated/FPGA1394Eth-QLA.mcs
+                           ${CMAKE_CURRENT_BINARY_DIR}/FPGA1394V2-QLA.mcs
+                           ${CMAKE_CURRENT_SOURCE_DIR}/Generated/FPGA1394V2-QLA.mcs
                    COMMAND ${CMAKE_COMMAND}
                    ARGS -E copy_if_different
-                           ${CMAKE_CURRENT_BINARY_DIR}/FPGA1394EthQLA.bit
-                           ${CMAKE_CURRENT_SOURCE_DIR}/Generated/FPGA1394Eth-QLA.bit
+                           ${CMAKE_CURRENT_BINARY_DIR}/FPGA1394V2-QLA.bit
+                           ${CMAKE_CURRENT_SOURCE_DIR}/Generated/FPGA1394V2-QLA.bit
                    COMMAND ${CMAKE_COMMAND}
                    ARGS -E copy_if_different
-                           ${CMAKE_CURRENT_BINARY_DIR}/FPGA1394V3QLA.bit
+                           ${CMAKE_CURRENT_BINARY_DIR}/FPGA1394V3-QLA.bit
                            ${CMAKE_CURRENT_SOURCE_DIR}/Generated/FPGA1394V3-QLA.bit
                    COMMAND ${CMAKE_COMMAND}
                    ARGS -E copy_if_different
-                           ${CMAKE_CURRENT_BINARY_DIR}/FPGA1394V3DQLA.bit
+                           ${CMAKE_CURRENT_BINARY_DIR}/FPGA1394V3-DQLA.bit
                            ${CMAKE_CURRENT_SOURCE_DIR}/Generated/FPGA1394V3-DQLA.bit
                    COMMAND ${CMAKE_COMMAND}
                    ARGS -E copy_if_different
-                           ${CMAKE_CURRENT_BINARY_DIR}/FPGA1394V3DRAC.bit
+                           ${CMAKE_CURRENT_BINARY_DIR}/FPGA1394V3-DRAC.bit
                            ${CMAKE_CURRENT_SOURCE_DIR}/Generated/FPGA1394V3-DRAC.bit
                    COMMAND ${CMAKE_COMMAND}
                    ARGS -E copy_if_different
-                           ${CMAKE_CURRENT_BINARY_DIR}/FPGA1394V3BCFG.bit
+                           ${CMAKE_CURRENT_BINARY_DIR}/FPGA1394V3-BCFG.bit
                            ${CMAKE_CURRENT_SOURCE_DIR}/Generated/FPGA1394V3-BCFG.bit
                    COMMENT "Copying MCS and BIT files to source \"Generated\" directory (if different)")
