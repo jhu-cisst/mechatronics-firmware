@@ -185,6 +185,7 @@ fpga(
     .PS_SRSTB(PS_SRSTB),
     .PS_CLK(PS_CLK),
     .PS_PORB(PS_PORB),
+    .emio_ps_in({60'd0, board_id}),
 
      // Read/write bus
     .reg_raddr(reg_raddr),

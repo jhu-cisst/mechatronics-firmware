@@ -27,6 +27,9 @@ module BootConfig(
     inout[0:33]      IO1,
     inout[0:39]      IO2,
 
+    // Status register (for EMIO)
+    output wire[31:0] reg_status,
+
     // Read/Write bus
     input wire[15:0]  reg_raddr,
     input wire[15:0]  reg_waddr,
@@ -152,7 +155,6 @@ assign isDRAC = DRACzeros & DRACones;
 //
 // --------------------------------------------------------------------------
 
-wire[31:0] reg_status;    // Status register
 assign reg_status = {4'd0, board_id, isNONE, isQLA, isDQLA, isDRAC, isV30,   // 31:19
                      QLAzeros, DQLAzeros, DQLAones, DRACzeros, DRACones,     // 18:14
                      14'd0 };                                                // 13:0
