@@ -422,6 +422,35 @@ WriteRtData #(.NUM_MOTORS(10)) rt_write
     .bw_reg_wdata(bw_reg_wdata)
 );
 
+
+// --------------------------------------------------------------------------
+// Data Buffer
+// --------------------------------------------------------------------------
+reg feedback_calculation_start_toggle_pwmclk;
+always @ (posedge pwmclk) feedback_calculation_start_toggle_pwmclk <= feedback_calculation_start_toggle_pwmclk ^ feedback_calculation_start;
+reg [2:0] feedback_calculation_start_sync_sysclk;
+always @ (posedge sysclk) feedback_calculation_start_sync_sysclk <= {feedback_calculation_start_sync_sysclk[1:0], feedback_calculation_start_toggle_pwmclk};
+wire feedback_calculation_start_sysclk = feedback_calculation_start_sync_sysclk[2] ^ feedback_calculation_start_sync_sysclk[1];
+
+wire[3:0] data_channel;
+
+DataBuffer data_buffer(
+    .clk(sysclk),
+    // data collection interface
+    .cur_fb_wen(feedback_calculation_start_sysclk),
+    .cur_fb(cur_fb[data_channel]),
+    .chan(data_channel),
+    // cpu interface
+    .reg_waddr(reg_waddr),          // write address
+    .reg_wdata(reg_wdata),          // write data
+    .reg_wen(reg_wen),              // write enable
+    .reg_raddr(reg_raddr),          // read address
+    .reg_rdata(reg_rdata_databuf),  // read data
+    // status and timestamp
+    .databuf_status(reg_databuf),   // status for SampleData
+    .ts(timestamp)                  // timestamp from SampleData
+);
+
 // --------------------------------------------------------------------------
 // ESPM interface
 // --------------------------------------------------------------------------
