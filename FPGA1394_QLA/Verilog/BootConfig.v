@@ -27,8 +27,8 @@ module BootConfig(
     inout[0:33]      IO1,
     inout[0:39]      IO2,
 
-    // Status register (for EMIO)
-    output wire[31:0] reg_status,
+    // EMIO feedback (to PS)
+    output wire[63:0] reg_emio,
 
     // Read/Write bus
     input wire[15:0]  reg_raddr,
@@ -144,7 +144,7 @@ assign isDQLA = DQLAzeros & DQLAones;
 assign DRACzeros = ~(IO1[9]|IO1[12]|IO1[19]|IO1[21]|IO1[23]|IO1[32]|
                      IO2[10]|IO2[15]|IO2[22]|IO2[28]|IO2[29]|IO2[34]);
 // Many IOs are 0 for QLA
-assign DRACones = IO2[1]&IO2[3]&IO2[5]&IO2[31]&IO2[32]&IO2[33]&IO2[35]&IO2[36];
+assign DRACones = IO2[1]&IO2[3]&IO2[31]&IO2[32]&IO2[36];
 assign isDRAC = DRACzeros & DRACones;
 
 // --------------------------------------------------------------------------
@@ -155,6 +155,7 @@ assign isDRAC = DRACzeros & DRACones;
 //
 // --------------------------------------------------------------------------
 
+wire[31:0] reg_status;
 assign reg_status = {4'd0, board_id, isNONE, isQLA, isDQLA, isDRAC, isV30,   // 31:19
                      QLAzeros, DQLAzeros, DQLAones, DRACzeros, DRACones,     // 18:14
                      14'd0 };                                                // 13:0
@@ -164,6 +165,9 @@ assign reg_version = 32'h42434647;   // "BCFG"
 assign reg_rdata_chan0 = (reg_raddr[3:0] == `REG_STATUS) ? reg_status :
                          (reg_raddr[3:0] == `REG_VERSION) ? reg_version :
                          32'd0;
+
+// EMIO feedback (to PS)
+assign reg_emio = { reg_version, reg_status };
 
 // --------------------------------------------------------------------------
 // Sample data for block read

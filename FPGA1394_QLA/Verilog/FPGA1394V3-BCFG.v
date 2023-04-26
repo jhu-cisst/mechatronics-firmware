@@ -84,7 +84,7 @@ module FPGA1394V3BCFG
     assign board_id = ~wenid;
     wire LED_Out;
     wire isV30;
-    wire[31:0] board_status;    // board status register (for EMIO)
+    wire[63:0] reg_emio;        // EMIO feedback (to PS)
 
     wire[15:0] reg_raddr;       // 16-bit reg read address
     wire[15:0] reg_waddr;       // 16-bit reg write address
@@ -155,7 +155,7 @@ fpga(
     .PS_SRSTB(PS_SRSTB),
     .PS_CLK(PS_CLK),
     .PS_PORB(PS_PORB),
-    .emio_ps_in({32'd0, board_status}),
+    .emio_ps_in(reg_emio),
 
      // Read/write bus
     .reg_raddr(reg_raddr),
@@ -198,8 +198,8 @@ BootConfig bcfg(
     .IO1(IO1),
     .IO2(IO2),
 
-    // Status register for board
-    .reg_status(board_status),
+    // EMIO feedback to PS
+    .reg_emio(reg_emio),
 
     // Read/write bus
     .reg_raddr(reg_raddr),
