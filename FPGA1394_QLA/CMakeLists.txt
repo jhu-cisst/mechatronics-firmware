@@ -333,3 +333,16 @@ add_custom_command(TARGET generated POST_BUILD
                            ${CMAKE_CURRENT_BINARY_DIR}/FPGA1394V3-BCFG.bit
                            ${CMAKE_CURRENT_SOURCE_DIR}/Generated/FPGA1394V3-BCFG.bit
                    COMMENT "Copying MCS and BIT files to source \"Generated\" directory (if different)")
+
+##################### Create mechatronics-firmware-config.cmake #####################
+
+set (CONFIG_FILE "${CMAKE_BINARY_DIR}/mechatronics-firmware-config.cmake")
+file (WRITE  ${CONFIG_FILE} "#\n# CMake configuration file for mechatronics-firmware\n#\n\n")
+file (APPEND ${CONFIG_FILE} "set (FIRMWARE_VERSION ${FIRMWARE_VERSION})\n\n")
+file (APPEND ${CONFIG_FILE} "set (FIRMWARE_BINARY_DIR \"\${CMAKE_CURRENT_LIST_DIR}/FPGA1394_QLA\")\n\n")
+file (APPEND ${CONFIG_FILE} "set (FPGAV1_MCS_FILES \"\${FIRMWARE_BINARY_DIR}/FPGA1394V1-QLA.mcs\")\n")
+file (APPEND ${CONFIG_FILE} "set (FPGAV2_MCS_FILES \"\${FIRMWARE_BINARY_DIR}/FPGA1394V2-QLA.mcs\")\n\n")
+file (APPEND ${CONFIG_FILE} "set (FPGAV3_BCFG_BIT_FILE \"\${FIRMWARE_BINARY_DIR}/FPGA1394V3-BCFG.bit\")\n")
+file (APPEND ${CONFIG_FILE} "set (FPGAV3_HW_BIT_FILES  \"\${FIRMWARE_BINARY_DIR}/FPGA1394V3-QLA.bit\"\n")
+file (APPEND ${CONFIG_FILE} "                          \"\${FIRMWARE_BINARY_DIR}/FPGA1394V3-DQLA.bit\"\n")
+file (APPEND ${CONFIG_FILE} "                          \"\${FIRMWARE_BINARY_DIR}/FPGA1394V3-DRAC.bit\")\n")
