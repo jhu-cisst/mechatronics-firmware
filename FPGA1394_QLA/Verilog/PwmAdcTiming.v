@@ -31,6 +31,7 @@ parameter integer n_sck_pulses = 16; // TODO: it seems to drop the last bit with
 
 reg [15:0] adc_timing_counter = 0;
 reg [10:0] adc_conv_phase = 'd511;
+reg [3:0] current_loop_divider = 0;
 
 reg adc_data_ready_adcclk;
 
@@ -119,10 +120,21 @@ end
 
 // assign adc_data_ready = adc_data_ready_nodelay & ~adc_data_ready_delay;
 
+reg [3:0] current_loop_div_counter;
+always @(posedge clk) begin
+    if (pwm_cycle_start) begin
+        if (current_loop_div_counter == current_loop_divider) begin
+            current_loop_div_counter <= 'd0;
+        end else begin
+            current_loop_div_counter <= current_loop_div_counter + 'd1;
+        end
+    end
+end
+
 cdc_pulse adc_data_ready_cdc (.clk_a(adc_sck_div), .data_a(adc_data_ready_adcclk), .clk_b(clk), .data_b(adc_data_ready));
 
 assign pwm_cycle_start = counter_unfolded == {{COUNTER_WIDTH + 1'b1}{1'b1}};
-assign feedback_calculation_start = counter_unfolded == {{COUNTER_WIDTH + 1'b1}{1'b1}} - 50;
+assign feedback_calculation_start = (counter_unfolded == {{COUNTER_WIDTH + 1'b1}{1'b1}} - 50) && (current_loop_div_counter == 'd0);
 
 always @(posedge sysclk)
 begin
@@ -130,6 +142,7 @@ begin
         case (reg_waddr[3:0])
             4'h1: adc_sdi_buffer <= reg_wdata[15:0];
             4'h2: adc_conv_phase <= reg_wdata[11:0];
+            4'h3: current_loop_divider <= reg_wdata[3:0];
         endcase
     end
 end
