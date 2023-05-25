@@ -3,9 +3,9 @@
 
 /*******************************************************************************    
  *
- * Copyright(C) 2011-2022 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2011-2023 ERC CISST, Johns Hopkins University.
  *
- * This is the top level module for the FPGA1394-QLA motor controller interface.
+ * This is the top level module for the FPGA1394V2-QLA motor controller interface.
  *
  * Revision history
  *     07/15/10                        Initial revision - MfgTest
@@ -29,7 +29,7 @@
 `include "Constants.v"
 
 
-module FPGA1394EthQLA
+module FPGA1394V2QLA
 (
     // ieee 1394 phy-link interface
     input            clk1394,   // 49.152 MHz

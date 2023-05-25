@@ -1,11 +1,12 @@
 /*******************************************************************************
  *
- * Copyright(C) 2017 ERC CISST, Johns Hopkins University
+ * Copyright(C) 2017-2023 ERC CISST, Johns Hopkins University
  *
- * Module: DvrkRx
+ * Module: ESPMComm
  *
- * Purpose: This module is the receiving half of the duplex communication
- *          between the dVRK board and the ESPM board on the da Vinci S PSM.
+ * Purpose: This file contains the receiving module (ESPMRX) and transmitting
+ *          module (ESPMTX) of the duplex communication between the dVRK board
+ *          and the ESPM board on the da Vinci Si PSM.
  *          The communication is in three stages.
  *          FRAME:  Looks for 32-bit frame, 32'hAC450F28
  *          R_DATA: Expects 25 32-bit words
@@ -30,7 +31,7 @@ module ESPMRX (input wire clock,                 // bit clock for ESPM chain
                output reg eof,                   // end of packet
                output reg [15:0] page,
                output reg [9:0] length);
-    
+
     // internal variables
     wire [15:0] crc_data;
 
@@ -45,22 +46,21 @@ module ESPMRX (input wire clock,                 // bit clock for ESPM chain
 
     reg [5:0] recovery_extra_delay = 'd0;
     reg recovery_extra_delay_en = 'b0;
-    
-    
-    localparam FRAME = 2'h0, 
+
+
+    localparam FRAME = 2'h0,
     R_HEADER = 2'h1,
     R_DATA = 2'h2,
     R_CRC = 2'h3;
-    
+
     initial begin
         cfsm       <= FRAME;
     end
-    
+
     //----------------------------------------------------------------------------------------------
     always @(posedge clock)
     begin
         bit_ctr <= cfsm == FRAME ? 'd32 : bit_ctr + 'b1;
-
 
         case (cfsm)
             FRAME: begin
@@ -79,13 +79,13 @@ module ESPMRX (input wire clock,                 // bit clock for ESPM chain
                     page <= rdata_shift[31:16];
                 end
             end
-            
+
             R_DATA: begin
                 if ((bit_sel == 'd31) && (rdata_sel == length - 'd1)) begin
                     cfsm <= R_CRC;
                 end
             end
-                
+
             R_CRC: begin
                 if (bit_sel == 'd31) begin
                     framed  <= 'b0;
@@ -103,13 +103,13 @@ module ESPMRX (input wire clock,                 // bit clock for ESPM chain
             end
         endcase
     end
-    
+
     always @ (negedge clock) begin
         rdata_shift <= {rdat, rdata_shift[31:1]};  // always right shift in data
     end
 
     wire [7:0] crc_input = rdata_shift[31:24];
-    
+
     crc16 CRC (
     .clock   (clock),
     .init    (cfsm == FRAME),
@@ -117,25 +117,25 @@ module ESPMRX (input wire clock,                 // bit clock for ESPM chain
     .data    (crc_input),
     .q       (crc_data)
     );
-    
+
 endmodule
-    
-    
+
+
 module ESPMTX (
     input  wire        clock,      // received clock from ESM
     input  wire [31:0] tdata,      // parallel transmit data (output of mux selected by tdata_sel)
     input [15:0] page,
     input [9:0] length,
-    
+
     output reg   [1:0] cfsm,       // current state
     output wire   [9:0] tdata_sel,  // 6 bit counter that selects tdata multiplexor
     output reg         pkt_start,  // starting to xmit a new packet
     output reg         load_tdata, // loading serializer from parallel input
     output reg         tdat);      // serial data out
-    
+
     // internal variables
     wire  [15:0]  crc_data;
-    
+
     reg [14:0] bit_ctr = 'd0;
 
     // There are 2 quadlets before the payload, but here we advance the tdata_sel by 1
@@ -147,21 +147,21 @@ module ESPMTX (
     reg [9:0] length_latched;
     reg [31:0] current_quadlet;
     reg [31:0] payload_buffer;
-    
+
     localparam FRAME = 2'h0,  // transmit framing sequence
     T_HEADER = 2'h1,  // transmit header
     T_DATA = 2'h2,  // transmit data
     T_CRC = 2'h3; // transmit CRC
-    
+
     initial
     begin
         pkt_start  <= 'b0;
         load_tdata <= 'd0;
         cfsm       <= FRAME;  // start by framing on the recv data
     end
-    
+
     //----------------------------------------------------------------------------------------------
-    
+
     always @(*) begin
         case (cfsm)
             FRAME: current_quadlet = `ESPMCOMM_MAGIC;
@@ -175,33 +175,32 @@ module ESPMTX (
     always @(posedge clock) begin
         bit_ctr <= bit_ctr + 1'b1;
         tdat <= current_quadlet[bit_sel];
-        
+
         if (bit_ctr == 'd31) begin
             page_latched <= page;
             length_latched <= length;
         end
         if (load_tdata) begin
             payload_buffer <= tdata;
-        end            
+        end
         pkt_start <= bit_ctr == 'd0;
         load_tdata <= bit_sel == 'd30; // assert at 30 to load at 31 because of pipelining
-        
-        
+
         case (cfsm)
             FRAME: begin
                 if (bit_sel == 'd31) cfsm <= T_HEADER;
             end
-            
+
             T_HEADER: begin
                 if (bit_sel == 'd31) cfsm <= T_DATA;
             end
-            
-            T_DATA: begin                  
+
+            T_DATA: begin
                 if ((bit_sel == 'd31) & (tdata_sel == length_latched)) begin
                     cfsm    <= T_CRC;
                 end
             end
-                
+
             T_CRC: begin
                 if (bit_sel == 'd31) begin
                     cfsm    <= FRAME;
@@ -210,11 +209,11 @@ module ESPMTX (
             end
         endcase
     end
-    
+
     reg crc_en = 'b0;
     reg [7:0] crc_input = 'b0;
     always @(posedge clock) begin
-        case (bit_sel[1:0]) 
+        case (bit_sel[1:0])
             'b00: crc_input <= current_quadlet[7:0];
             'b01: crc_input <= current_quadlet[15:8];
             'b10: crc_input <= current_quadlet[23:16];
@@ -223,14 +222,14 @@ module ESPMTX (
         endcase
         crc_en <= bit_sel[4:2] == 'b0 && cfsm != T_CRC;
     end
-    
-    
+
+
     crc16 CRC (
     .clock   (clock),
     .init    (cfsm == FRAME),
-    .ena     (crc_en), 
+    .ena     (crc_en),
     .data    (crc_input),
     .q       (crc_data)
     );
-    
+
 endmodule

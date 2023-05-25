@@ -66,6 +66,7 @@ module FPGA1394V3
     input            PS_SRSTB,
     input            PS_CLK,
     input            PS_PORB,
+    input wire[63:0] emio_ps_in,  // EMIO input to processor
 
     // Read/Write bus
     output wire[15:0] reg_raddr,
@@ -797,7 +798,7 @@ fpgav3 zynq_ps7(
     .processing_system7_0_PS_SRSTB_pin(PS_SRSTB),
     .processing_system7_0_PS_CLK_pin(PS_CLK),
     .processing_system7_0_PS_PORB_pin(PS_PORB),
-    .processing_system7_0_GPIO_I_pin({60'd0, board_id}),
+    .processing_system7_0_GPIO_I_pin(emio_ps_in),
     .processing_system7_0_FCLK_CLK0_pin(clk_200MHz),
 
     .gmii_to_rgmii_1_rgmii_txd_pin(E1_TxD),

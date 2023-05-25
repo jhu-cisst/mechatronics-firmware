@@ -49,9 +49,8 @@
 #   - PROJ_OUTPUT:     the final output name (can be different from PROJ_NAME)
 #   - IS_V3:           Whether a V3 build (ON) or V1/V2 (OFF, default)
 #
-# Note that PROJ_OUTPUT is provided for the final naming because currently the
-# PROJ_NAMES are FPGA1394QLA and FPGA1394EthQLA, while the corresponding PROJ_OUTPUT
-# are FPGA1394-QLA and FPGA1394Eth-QLA.
+# Note that PROJ_OUTPUT is provided for the final naming in case a different filename
+# is desired. If not specified, it defaults to PROJ_NAME.
 #
 # There are two implementations:
 #   - ise_compile_fpga:      this uses Xilinx XFLOW to do most of the work
@@ -102,6 +101,10 @@ function (ise_compile_fpga ...)
     endif (${ARGUMENT_IS_A_KEYWORD} GREATER -1)
   endforeach (arg)
 
+  if (PROJ_OUTPUT STREQUAL "")
+    set(PROJ_OUTPUT ${PROJ_NAME})  # default PROJ_OUTPUT
+  endif (PROJ_OUTPUT STREQUAL "")
+
   file(TO_NATIVE_PATH ${XILINX_ISE_XFLOW} XFLOW_NATIVE)
 
   # Copy custom flow file (FLW) to build tree (customized to add promgen)
@@ -151,15 +154,19 @@ function (ise_compile_fpga ...)
 
   # Additional files to clean; ${PROJ_OUTPUT}.mcs is already handled by CMake, so here we
   # add the other generated output files (first two lines) and various log and temporary files.
+
+  get_directory_property(XILINX_CLEAN_FILES ADDITIONAL_MAKE_CLEAN_FILES)
   set(XILINX_CLEAN_FILES ${XILINX_CLEAN_FILES}
                          ${PROJ_NAME}.ngc ${PROJ_NAME}.ngd ${PROJ_NAME}.pcf
                          ${PROJ_NAME}_map.ncd ${PROJ_NAME}.ncd ${PROJ_NAME}.twr ${PROJ_NAME}.bit
                          ${PROJ_NAME}.bgn ${PROJ_NAME}.bld ${PROJ_OUTPUT}.cfi ${PROJ_NAME}.drc
-                         ${PROJ_NAME}.lso ${PROJ_NAME}.pad ${PROJ_NAME}.par ${PROJ_NAME}.prm
+                         ${TOP_LEVEL}.lso ${PROJ_NAME}.pad ${PROJ_NAME}.par ${PROJ_NAME}.prm
                          ${PROJ_NAME}.ptwx ${PROJ_NAME}.srp ${PROJ_NAME}.unroutes ${PROJ_NAME}.xpi
-                         ${PROJ_NAME}_map.map ${PROJ_NAME}_map.mrp ${PROJ_NAME}_map.ngm ${PROJ_NAME}_map.xrpt
+                         ${PROJ_NAME}_map.map ${PROJ_NAME}_map.mrp ${PROJ_NAME}_map.ngm ${TOP_LEVEL}_map.xrpt
                          ${PROJ_NAME}_ngdbuild.xrpt ${PROJ_NAME}_pad.csv ${PROJ_NAME}_pad.txt
-                         ${PROJ_NAME}.xrpt ${PROJ_NAME}_summary.xml ${PROJ_NAME}_usage.xml)
+                         ${PROJ_NAME}_xst.xrpt ${PROJ_NAME}_summary.xml ${PROJ_NAME}_usage.xml
+                         ${PROJ_NAME}_bitgen.xwbt ${TOP_LEVEL}_par.xrpt ${PROJ_NAME}.twx
+                         ${PROJ_NAME}_xst.log)
 
   set_directory_properties(PROPERTIES ADDITIONAL_MAKE_CLEAN_FILES "${XILINX_CLEAN_FILES}")
 

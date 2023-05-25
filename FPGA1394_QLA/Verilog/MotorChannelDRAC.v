@@ -12,11 +12,11 @@ module MotorChannelDRAC
     input  wire[15:0] reg_waddr, 	// register write address
     input  wire[31:0] reg_wdata,  	// register write data
     output reg[31:0] reg_rdata,  	// register read data
-    input  wire       reg_wen,      //  Reg write enable when High write, when Low Read 
+    input  wire       reg_wen,      //  Reg write enable when High write, when Low Read
     output wire[15:0] cur_fb,
     output reg[15:0] cur_fb_filtered,
     output wire[15:0] cur_cmd_fb,
-    
+
     //ADC control interface
     input  wire       adc_sck,
     input wire adc_sdo,
@@ -40,7 +40,7 @@ module MotorChannelDRAC
     //pwm interface
     input wire [COUNTER_WIDTH:0] counter_unfolded,
     input wire pwm_cycle_start,
-    output wire  pwm_p,  
+    output wire  pwm_p,
     output wire  pwm_n
 );
 
@@ -82,6 +82,9 @@ assign cur_cmd_fb = cur_cmd;
 
 reg [17:0] kp = 2000;
 reg [17:0] ki = 200;
+reg [17:0] kd = 0;
+reg [17:0] ff_resistive = 0;
+
 reg [15:0] i_term_limit = 'd1000;
 reg [15:0] output_limit = 'd1000;
 
@@ -110,6 +113,8 @@ pi_controller pi_controller_instance (
     .setpoint_V(cur_cmd),
     .kp_V(kp),
     .ki_V(ki),
+    .kd_V(kd),
+    .ff_resistive_V(ff_resistive),
     .i_term_limit_V(i_term_limit),
     .output_limit_V(output_limit),
     .error_out_V(error_out),
@@ -153,7 +158,7 @@ begin
         case (control_mode)
             `MOTOR_CONTROL_MODE_VOLTAGE: duty_cycle <= v_cmd; // Truncate the smaller bits: 0xffff = full forward. 0x8000 = no output. 0x0000 = full reverse.
             `MOTOR_CONTROL_MODE_CURRENT: if (ap_done) duty_cycle <= ap_return;
-            default: duty_cycle <= 11'sb0; 
+            default: duty_cycle <= 11'sb0;
         endcase
     end
     if (control_mode != `MOTOR_CONTROL_MODE_CURRENT || clear_disable || ~enable_pin) begin
@@ -216,7 +221,7 @@ begin
     end
 end
 
-assign fault_code = fault_latched[0] ? 1 : 
+assign fault_code = fault_latched[0] ? 1 :
                     fault_latched[1] ? 2 :
                     fault_latched[2] ? 3 : 0;
 
@@ -247,18 +252,20 @@ begin
     if (reg_raddr[7:4]== CHANNEL) begin
         case (reg_raddr[3:0])
             `OFF_MOTOR_CONTROL_MODE: reg_rdata <= {12'b0, control_mode};
-            `OFF_MOTOR_CONTROL_CURRENT_KP: reg_rdata <= kp;	 	
-            `OFF_MOTOR_CONTROL_CURRENT_KI: reg_rdata <= ki;	 	
-            `OFF_MOTOR_CONTROL_CURRENT_I_TERM_LIMIT: reg_rdata <= i_term_limit;	 	
-            `OFF_MOTOR_CONTROL_CURRENT_OUTPUT_LIMIT: reg_rdata <= output_limit;	
-            `OFF_MOTOR_CONTROL_DUTY_CYCLE: reg_rdata <= duty_cycle;	
-            `OFF_MOTOR_CONTROL_FAULT: reg_rdata <= fault_latched;	
-            `OFF_MOTOR_CONTROL_TUNE: reg_rdata <= {16'b0, tuning_pulse_width};	
-            // `OFF_RAW_CURRENT: reg_rdata <= {current_off[15:0], current_on[15:0]};	
-            // `OFF_MOTOR_CONTROL_DEBUG: reg_rdata <= {3'b0,current_bad,current_error_counter, error_out_abs};	
-            `OFF_MOTOR_CONTROL_DEBUG: reg_rdata <= error_out_abs;	
-            // `OFF_MOTOR_CONTROL_DEBUG: reg_rdata <= { current_history[3], current_history[2]} ;	
-            `OFF_MOTOR_CONTROL_DEBUG - 1: reg_rdata <= motor_status;	
+            `OFF_MOTOR_CONTROL_CURRENT_KP: reg_rdata <= kp;
+            `OFF_MOTOR_CONTROL_CURRENT_KI: reg_rdata <= ki;
+            `OFF_MOTOR_CONTROL_CURRENT_KD: reg_rdata <= kd;
+            `OFF_MOTOR_CONTROL_CURRENT_FF_RESISTIVE: reg_rdata <= ff_resistive;
+            `OFF_MOTOR_CONTROL_CURRENT_I_TERM_LIMIT: reg_rdata <= i_term_limit;
+            `OFF_MOTOR_CONTROL_CURRENT_OUTPUT_LIMIT: reg_rdata <= output_limit;
+            `OFF_MOTOR_CONTROL_DUTY_CYCLE: reg_rdata <= duty_cycle;
+            `OFF_MOTOR_CONTROL_FAULT: reg_rdata <= fault_latched;
+            `OFF_MOTOR_CONTROL_TUNE: reg_rdata <= {16'b0, tuning_pulse_width};
+            // `OFF_RAW_CURRENT: reg_rdata <= {current_off[15:0], current_on[15:0]};
+            // `OFF_MOTOR_CONTROL_DEBUG: reg_rdata <= {3'b0,current_bad,current_error_counter, error_out_abs};
+            `OFF_MOTOR_CONTROL_DEBUG: reg_rdata <= error_out_abs;
+            // `OFF_MOTOR_CONTROL_DEBUG: reg_rdata <= { current_history[3], current_history[2]} ;
+            `OFF_MOTOR_CONTROL_DEBUG - 1: reg_rdata <= motor_status;
 
             default: reg_rdata <= 32'hcccccccc;
         endcase
@@ -266,13 +273,15 @@ begin
     else begin
         reg_rdata <= 32'b0;
     end
-    
+
     if (reg_waddr[15:12]==`ADDR_MOTOR_CONTROL && reg_waddr[7:4]== CHANNEL && reg_wen) begin
         case (reg_waddr[3:0])
-            `OFF_MOTOR_CONTROL_CURRENT_KP: kp <= reg_wdata[17:0];	 	
-            `OFF_MOTOR_CONTROL_CURRENT_KI: ki <= reg_wdata[17:0];	 	
-            `OFF_MOTOR_CONTROL_CURRENT_I_TERM_LIMIT: i_term_limit <= reg_wdata[15:0];	 	
-            `OFF_MOTOR_CONTROL_CURRENT_OUTPUT_LIMIT: output_limit <= reg_wdata[15:0];	
+            `OFF_MOTOR_CONTROL_CURRENT_KP: kp <= reg_wdata[17:0];
+            `OFF_MOTOR_CONTROL_CURRENT_KI: ki <= reg_wdata[17:0];
+            `OFF_MOTOR_CONTROL_CURRENT_KD: kd <= reg_wdata[17:0];
+            `OFF_MOTOR_CONTROL_CURRENT_FF_RESISTIVE: ff_resistive <= reg_wdata[17:0];
+            `OFF_MOTOR_CONTROL_CURRENT_I_TERM_LIMIT: i_term_limit <= reg_wdata[15:0];
+            `OFF_MOTOR_CONTROL_CURRENT_OUTPUT_LIMIT: output_limit <= reg_wdata[15:0];
             `OFF_MOTOR_CONTROL_TUNE: begin
                 tuning_pulse_width <= reg_wdata[15:0];
             end
@@ -298,9 +307,11 @@ end
 
 reg [5:0] decimate_counter = 0;
 reg [21:0] decimate_sum;
+reg adc_data_latched;
 
 always @ (posedge pwmclk) begin
-    if (feedback_calculation_start) begin
+    adc_data_latched <= adc_data_ready;
+    if (adc_data_latched) begin
         decimate_counter <= decimate_counter + 1;
         if (decimate_counter == 0) begin
             decimate_sum <= measured_motor_current;

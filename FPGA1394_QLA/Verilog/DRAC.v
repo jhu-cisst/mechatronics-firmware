@@ -391,6 +391,19 @@ BoardRegsDRAC chan0(
 
 reg [5:0] espm_bram_raddr;
 reg [31:0] espm_bram_rdata;
+wire crc_good_espm_sysclk;
+reg [31:0] timestamp_espmcomm;
+reg [31:0] timestamp_espmcomm_counter;
+reg espm_bram_update_inhibit;
+reg sample_read_delay;
+wire sample_read_falling_edge = sample_read_delay & ~sample_read;
+
+always @(posedge sysclk) begin
+    timestamp_espmcomm_counter <= timestamp_espmcomm_counter + 'b1;
+    sample_read_delay <= sample_read;
+    if (sample_start) espm_bram_update_inhibit <= 'b1;
+    if (sample_read_falling_edge) espm_bram_update_inhibit <= 'b0;
+end
 
 SampleDataAddressTranslation sampler
 (
@@ -401,6 +414,7 @@ SampleDataAddressTranslation sampler
     .blk_data(sample_rdata),
     .reg_raddr(reg_raddr_sample),
     .reg_rdata(reg_rdata),
+    .timestamp_espmcomm(timestamp_espmcomm),
     .timestamp(timestamp)
 );
 
@@ -420,6 +434,35 @@ WriteRtData #(.NUM_MOTORS(10)) rt_write
     .bw_block_wstart(bw_blk_wstart),
     .bw_reg_waddr(bw_reg_waddr),
     .bw_reg_wdata(bw_reg_wdata)
+);
+
+
+// --------------------------------------------------------------------------
+// Data Buffer
+// --------------------------------------------------------------------------
+reg pwm_cycle_start_toggle_pwmclk;
+always @ (posedge pwmclk) pwm_cycle_start_toggle_pwmclk <= pwm_cycle_start_toggle_pwmclk ^ pwm_cycle_start;
+reg [2:0] pwm_cycle_start_sync_sysclk;
+always @ (posedge sysclk) pwm_cycle_start_sync_sysclk <= {pwm_cycle_start_sync_sysclk[1:0], pwm_cycle_start_toggle_pwmclk};
+wire pwm_cycle_start_sysclk = pwm_cycle_start_sync_sysclk[2] ^ pwm_cycle_start_sync_sysclk[1];
+
+wire[3:0] data_channel;
+
+DataBuffer data_buffer(
+    .clk(sysclk),
+    // data collection interface
+    .cur_fb_wen(pwm_cycle_start_sysclk),
+    .cur_fb(cur_fb[data_channel]),
+    .chan(data_channel),
+    // cpu interface
+    .reg_waddr(reg_waddr),          // write address
+    .reg_wdata(reg_wdata),          // write data
+    .reg_wen(reg_wen),              // write enable
+    .reg_raddr(reg_raddr),          // read address
+    .reg_rdata(reg_rdata_databuf),  // read data
+    // status and timestamp
+    .databuf_status(reg_databuf),   // status for SampleData
+    .ts(timestamp)                  // timestamp from SampleData
 );
 
 // --------------------------------------------------------------------------
@@ -556,7 +599,7 @@ reg [5:0] espm_bram_waddr;
 reg [31:0] espm_bram_wdata;
 reg [5:0] espm_bram_pre_crc_raddr;
 reg espm_bram_we;
-wire crc_good_espm_sysclk;
+// wire crc_good_espm_sysclk;
 cdc_pulse crc_good_espm_cdc (LVDS_RCLK, crc_good_espm, sysclk, crc_good_espm_sysclk);
 reg copy_state;
 
@@ -573,9 +616,10 @@ always @(posedge sysclk) begin
     espm_bram_waddr <= espm_bram_pre_crc_raddr;
     case (copy_state)
         0: begin
-            if (crc_good_espm_sysclk) begin
+            if (crc_good_espm_sysclk && (~espm_bram_update_inhibit)) begin
                 copy_state <= 'b1;
                 espm_bram_we <= 'b1;
+                timestamp_espmcomm <= timestamp_espmcomm_counter;
             end
         end
         1: begin
