@@ -1,5 +1,13 @@
-// `include "PID_Controller.v"
-// `include "PWM.v"
+/* -*- Mode: Verilog; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*-   */
+/* ex: set filetype=v softtabstop=4 shiftwidth=4 tabstop=4 cindent expandtab:      */
+
+/*******************************************************************************
+ *
+ * Copyright(C) 2022-2023 Johns Hopkins University.
+ *
+ * This module handles a motor channel for the dRAC
+ */
+
 `include "Constants.v"
 
 module MotorChannelDRAC
@@ -90,8 +98,6 @@ reg [15:0] output_limit = 'd1000;
 
 wire [31:0] adc_out;
 reg [31:0] adc_debug;
-// reg [15:0] current_off = 16'h8000; // only valid at rising feedback_calculation_start
-// reg [15:0] current_on = 16'hcccc; // only valid at rising feedback_calculation_start
 assign cur_fb = measured_motor_current;
 reg pid_input_ready = 0;
 
@@ -132,26 +138,12 @@ AD4008 AD4008_instance
 
 wire signed [15:0] offseted_cur_cmd = $signed({cur_cmd}) - 16'sh8000;
 
-// reg [15:0] debug_counter = 'hbbbb;
-
-
 always @(posedge pwmclk)
 begin
     pid_input_ready <= feedback_calculation_start;
     if (adc_data_ready) begin
-        // current_on <= adc_debug[15:0];
-        // debug_counter <= debug_counter + 1;
-        // current_on <= debug_counter;
-        // current_on <= 'h8123;
         measured_motor_current <= adc_out[15:0];
-        // measured_motor_current <= CHANNEL;
     end
-        // adc_debug <= adc_out;
-
-    // if (feedback_calculation_start) begin
-    //     // current_cycle_average <= 16'h8123;
-    //     measured_motor_current <= current_on;
-    // end
     if (~enable_pin) begin
         duty_cycle <= 11'sb0;
     end else begin
@@ -198,7 +190,6 @@ reg [11:0] current_error_counter = current_error_counter_top; // 51.2 ms
 assign current_regulation_fault = (current_error_counter == 12'h0);
 wire [15:0] error_out_abs = error_out[16] ? -error_out : error_out;
 wire current_bad = error_out_abs > (CHANNEL < 3 ? 16'h0200 : 16'h0800); // +- 0.128 A
-// wire current_bad = 1'b1;
 always @(posedge pwmclk) begin
     if (control_mode != `MOTOR_CONTROL_MODE_CURRENT || clear_disable || ~enable_pin) begin
         current_error_counter <= current_error_counter_top;
@@ -261,12 +252,6 @@ begin
             `OFF_MOTOR_CONTROL_DUTY_CYCLE: reg_rdata <= duty_cycle;
             `OFF_MOTOR_CONTROL_FAULT: reg_rdata <= fault_latched;
             `OFF_MOTOR_CONTROL_TUNE: reg_rdata <= {16'b0, tuning_pulse_width};
-            // `OFF_RAW_CURRENT: reg_rdata <= {current_off[15:0], current_on[15:0]};
-            // `OFF_MOTOR_CONTROL_DEBUG: reg_rdata <= {3'b0,current_bad,current_error_counter, error_out_abs};
-            `OFF_MOTOR_CONTROL_DEBUG: reg_rdata <= error_out_abs;
-            // `OFF_MOTOR_CONTROL_DEBUG: reg_rdata <= { current_history[3], current_history[2]} ;
-            `OFF_MOTOR_CONTROL_DEBUG - 1: reg_rdata <= motor_status;
-
             default: reg_rdata <= 32'hcccccccc;
         endcase
     end
@@ -304,6 +289,8 @@ begin
         end
     end
 end
+
+// Decimate the current reading by averaging. To be replaced with a proper filter.
 
 reg [5:0] decimate_counter = 0;
 reg [21:0] decimate_sum;

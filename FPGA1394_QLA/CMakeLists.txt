@@ -146,7 +146,7 @@ file(DOWNLOAD
         https://raw.githubusercontent.com/keshuaixu/ws2812-verilog/ws2813/ws2811.v
         "${VERILOG_SOURCE_DIR}/ws2811.v")
 
-file(GLOB HLS_GENERATED_SOURCES_DRAC_FPGAV1V2 CONFIGURE_DEPENDS "${HLS_GENERATED_SOURCE_DIR}/v1v2/*.v")
+# file(GLOB HLS_GENERATED_SOURCES_DRAC_FPGAV1V2 CONFIGURE_DEPENDS "${HLS_GENERATED_SOURCE_DIR}/v1v2/*.v")
 file(GLOB HLS_GENERATED_SOURCES_DRAC_FPGAV3 CONFIGURE_DEPENDS "${HLS_GENERATED_SOURCE_DIR}/v3/*.v")
 
 # Source files used by BCFG (boot config)
@@ -231,27 +231,27 @@ ise_compile_fpga(PROJ_NAME      "FPGA1394V3-DQLA"
                  TOP_LEVEL      "FPGA1394V3DQLA"
                  IS_V3          ON)
 
-##### FPGAV2 + dRAC
-set (VERILOG_SOURCE_FPGAV2_DRAC
-                         "${VERILOG_SOURCE_DIR}/FPGA1394V2-DRAC.v"
-                         "${IPCORE_BINARY_DIR}/pwm_clk_gen.v"
-                         ${HLS_GENERATED_SOURCES_DRAC_FPGAV1V2}
-                         ${VERILOG_SOURCE_COMMON}
-                         ${VERILOG_SOURCE_FPGAV2}
-                         ${VERILOG_SOURCE_DRAC})
+# ##### FPGAV2 + dRAC
+# set (VERILOG_SOURCE_FPGAV2_DRAC
+#                          "${VERILOG_SOURCE_DIR}/FPGA1394V2-DRAC.v"
+#                          "${IPCORE_BINARY_DIR}/pwm_clk_gen.v"
+#                          ${HLS_GENERATED_SOURCES_DRAC_FPGAV1V2}
+#                          ${VERILOG_SOURCE_COMMON}
+#                          ${VERILOG_SOURCE_FPGAV2}
+#                          ${VERILOG_SOURCE_DRAC})
 
-# Compile the firmware -- output is FPGA1394V2-DRAC.mcs, which is copied
-# to the Generated subdirectory in the source directory (if different).
-ise_compile_fpga(PROJ_NAME      "FPGA1394V2-DRAC"
-                 DEPENDENCIES   "CoreGenCommon"
-                 FPGA_PARTNUM   ${FPGA_PARTNUM}
-                 VERILOG_SOURCE ${VERILOG_SOURCE_FPGAV2_DRAC}
-                 UCF_FILE       "${VERILOG_SOURCE_DIR}/XC6S45-Rev2.ucf"
-                 BOARD_UCF_FILE "${VERILOG_SOURCE_DIR}/DRAC.ucf"
-                 IPCORE_DIR     ${IPCORE_BINARY_DIR}
-                 TOP_LEVEL      "FPGA1394V2DRAC")
+# # Compile the firmware -- output is FPGA1394V2-DRAC.mcs, which is copied
+# # to the Generated subdirectory in the source directory (if different).
+# ise_compile_fpga(PROJ_NAME      "FPGA1394V2-DRAC"
+#                  DEPENDENCIES   "CoreGenCommon"
+#                  FPGA_PARTNUM   ${FPGA_PARTNUM}
+#                  VERILOG_SOURCE ${VERILOG_SOURCE_FPGAV2_DRAC}
+#                  UCF_FILE       "${VERILOG_SOURCE_DIR}/XC6S45-Rev2.ucf"
+#                  BOARD_UCF_FILE "${VERILOG_SOURCE_DIR}/DRAC.ucf"
+#                  IPCORE_DIR     ${IPCORE_BINARY_DIR}
+#                  TOP_LEVEL      "FPGA1394V2DRAC")
 
-set_target_properties(FPGA1394V2-DRAC PROPERTIES EXCLUDE_FROM_ALL ON)
+# set_target_properties(FPGA1394V2-DRAC PROPERTIES EXCLUDE_FROM_ALL ON)
 
 ##### FPGAV3 + dRAC
 set (VERILOG_SOURCE_FPGAV3_DRAC

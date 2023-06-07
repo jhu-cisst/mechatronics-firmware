@@ -1,3 +1,12 @@
+/*******************************************************************************
+ *
+ * Copyright(C) 2008-2011 ERC CISST, Johns Hopkins University.
+ * 
+ * Moves a pulse from one clock domain to another.
+ */
+
+// -----------------------------------------------------------------------------
+
 module cdc_pulse(
     input clk_a,
     input data_a,
