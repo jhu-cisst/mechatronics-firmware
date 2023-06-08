@@ -20,6 +20,8 @@ Program bitgen
 # PK: commented out -l and -m; added -g UserID:0xFFFFFFFF
 #-l;                       # Create logic allocation file
 #-m;                       # Create mask file
+# PK: added -g Binary:Yes to also generate bin file
+-g Binary:Yes;
 -g UserID:0xFFFFFFFF;     # Default UserID
 -intstyle silent;         # Message Reporting Style: ise, xflow, or silent
 END Program bitgen

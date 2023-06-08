@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8" ?> 
+<!DOCTYPE project PUBLIC "project" "project.dtd" >
+<project version="1.0" >
+  <set param="PCW::QSPI::PERIPHERAL::ENABLE" value="1" />
+  <set param="PCW::SD0::PERIPHERAL::ENABLE" value="1" />
+  <set param="PCW::SD0::GRP_CD::ENABLE" value="1" />
+  <set param="PCW::SD0::GRP_CD::IO" value="MIO 46" />
+  <set param="PCW::UART1::PERIPHERAL::ENABLE" value="1" />
+  <set param="PCW::UART1::UART1::IO" value="MIO 48 .. 49" />
+  <set param="PCW::UART0::PERIPHERAL::ENABLE" value="0" />
+  <set param="PCW::QSPI::GRP_FBCLK::ENABLE" value="0" />
+  <set param="PCW::ENET0::PERIPHERAL::ENABLE" value="1" />
+  <set param="PCW::ENET0::RESET::ENABLE" value="0" />
+  <set param="PCW::ENET1::PERIPHERAL::ENABLE" value="1" />
+  <set param="PCW::PRESET::GLOBAL::CONFIG" value="Default" />
+  <set param="PCW::MIO::MIO[16]::IOTYPE" value="LVCMOS 3.3V" />
+  <set param="PCW::MIO::MIO[17]::IOTYPE" value="LVCMOS 3.3V" />
+  <set param="PCW::MIO::MIO[18]::IOTYPE" value="LVCMOS 3.3V" />
+  <set param="PCW::MIO::MIO[19]::IOTYPE" value="LVCMOS 3.3V" />
+  <set param="PCW::MIO::MIO[20]::IOTYPE" value="LVCMOS 3.3V" />
+  <set param="PCW::MIO::MIO[21]::IOTYPE" value="LVCMOS 3.3V" />
+  <set param="PCW::MIO::MIO[22]::IOTYPE" value="LVCMOS 3.3V" />
+  <set param="PCW::MIO::MIO[23]::IOTYPE" value="LVCMOS 3.3V" />
+  <set param="PCW::MIO::MIO[24]::IOTYPE" value="LVCMOS 3.3V" />
+  <set param="PCW::MIO::MIO[25]::IOTYPE" value="LVCMOS 3.3V" />
+  <set param="PCW::PRESET::GLOBAL::DEFAULT" value="powerup" />
+  <set param="PCW::UIPARAM::DDR::MEMORY_TYPE" value="DDR 3" />
+  <set param="PCW::UIPARAM::DDR::ENABLE" value="1" />
+  <set param="PCW::UIPARAM::DDR::BUS_WIDTH" value="32 Bit" />
+  <set param="PCW::UIPARAM::DDR::PARTNO" value="MT41K256M16 RE-125" />
+  <set param="PCW::FPGA0::PERIPHERAL::FREQMHZ" value="200.000000" />
+  <set param="PCW::FPGA1::PERIPHERAL::FREQMHZ" value="25.000000" />
+  <set param="PCW::FPGA2::PERIPHERAL::FREQMHZ" value="2.500000" />
+  <set param="PCW::CAN::PERIPHERAL::FREQMHZ" value="100" />
+  <set param="PCW::PRESET::FPGA::PARTNUMBER" value="xc7z020clg400-2" />
+  <set param="PCW::PRESET::FPGA::SPEED" value="-2" />
+  <set param="PCW::GPIO::PERIPHERAL::ENABLE" value="1" />
+  <set param="PCW::GPIO::MIO_GPIO::ENABLE" value="1" />
+  <set param="PCW::GPIO::EMIO_GPIO::ENABLE" value="1" />
+  <set param="PCW::GPIO::EMIO_GPIO::IO" value="64" />
+  <set param="PCW::UIPARAM::DDR::BL" value="8" />
+  <set param="PCW::UIPARAM::DDR::DRAM_WIDTH" value="16 Bits" />
+  <set param="PCW::UIPARAM::DDR::DEVICE_CAPACITY" value="4096 MBits" />
+  <set param="PCW::UIPARAM::DDR::SPEED_BIN" value="DDR3_1066F" />
+  <set param="PCW::UIPARAM::DDR::FREQ_MHZ" value="533.333" />
+  <set param="PCW::UIPARAM::DDR::BANK_ADDR_COUNT" value="3" />
+  <set param="PCW::UIPARAM::DDR::ROW_ADDR_COUNT" value="15" />
+  <set param="PCW::UIPARAM::DDR::COL_ADDR_COUNT" value="10" />
+  <set param="PCW::UIPARAM::DDR::CL" value="7" />
+  <set param="PCW::UIPARAM::DDR::CWL" value="6" />
+  <set param="PCW::UIPARAM::DDR::T_RCD" value="7" />
+  <set param="PCW::UIPARAM::DDR::T_RP" value="7" />
+  <set param="PCW::UIPARAM::DDR::T_RC" value="48.75" />
+  <set param="PCW::UIPARAM::DDR::T_RAS_MIN" value="35.0" />
+  <set param="PCW::UIPARAM::DDR::T_FAW" value="40.0" />
+  <set param="PCW:GPIO::EMIO_GPIO::WIDTH" value="64" />
+  <set param="PCW::GPIO::V2.00.A::C_EN_EMIO_GPIO" value="1" />
+  <set param="PCW::PRESET::BANK1::VOLTAGE" value="LVCMOS 3.3V" />
+  <set param="PCW::MIO::MIO[26]::IOTYPE" value="LVCMOS 3.3V" />
+  <set param="PCW::MIO::MIO[27]::IOTYPE" value="LVCMOS 3.3V" />
+  <set param="PCW::MIO::MIO[28]::IOTYPE" value="LVCMOS 3.3V" />
+  <set param="PCW::MIO::MIO[29]::IOTYPE" value="LVCMOS 3.3V" />
+  <set param="PCW::MIO::MIO[30]::IOTYPE" value="LVCMOS 3.3V" />
+  <set param="PCW::MIO::MIO[31]::IOTYPE" value="LVCMOS 3.3V" />
+  <set param="PCW::MIO::MIO[32]::IOTYPE" value="LVCMOS 3.3V" />
+  <set param="PCW::MIO::MIO[33]::IOTYPE" value="LVCMOS 3.3V" />
+  <set param="PCW::MIO::MIO[34]::IOTYPE" value="LVCMOS 3.3V" />
+  <set param="PCW::MIO::MIO[35]::IOTYPE" value="LVCMOS 3.3V" />
+  <set param="PCW::MIO::MIO[36]::IOTYPE" value="LVCMOS 3.3V" />
+  <set param="PCW::MIO::MIO[37]::IOTYPE" value="LVCMOS 3.3V" />
+  <set param="PCW::MIO::MIO[38]::IOTYPE" value="LVCMOS 3.3V" />
+  <set param="PCW::MIO::MIO[39]::IOTYPE" value="LVCMOS 3.3V" />
+  <set param="PCW::MIO::MIO[40]::IOTYPE" value="LVCMOS 3.3V" />
+  <set param="PCW::MIO::MIO[41]::IOTYPE" value="LVCMOS 3.3V" />
+  <set param="PCW::MIO::MIO[42]::IOTYPE" value="LVCMOS 3.3V" />
+  <set param="PCW::MIO::MIO[43]::IOTYPE" value="LVCMOS 3.3V" />
+  <set param="PCW::MIO::MIO[44]::IOTYPE" value="LVCMOS 3.3V" />
+  <set param="PCW::MIO::MIO[45]::IOTYPE" value="LVCMOS 3.3V" />
+  <set param="PCW::MIO::MIO[46]::IOTYPE" value="LVCMOS 3.3V" />
+  <set param="PCW::MIO::MIO[47]::IOTYPE" value="LVCMOS 3.3V" />
+  <set param="PCW::MIO::MIO[48]::IOTYPE" value="LVCMOS 3.3V" />
+  <set param="PCW::MIO::MIO[49]::IOTYPE" value="LVCMOS 3.3V" />
+  <set param="PCW::MIO::MIO[50]::IOTYPE" value="LVCMOS 3.3V" />
+  <set param="PCW::MIO::MIO[51]::IOTYPE" value="LVCMOS 3.3V" />
+  <set param="PCW::MIO::MIO[52]::IOTYPE" value="LVCMOS 3.3V" />
+  <set param="PCW::MIO::MIO[53]::IOTYPE" value="LVCMOS 3.3V" />
+  <set param="PCW::DDR::V4.00.A::C_S_AXI_HP0_BASEADDR" value="0x00000000" />
+  <set param="PCW::DDR::V4.00.A::C_S_AXI_HP0_HIGHADDR" value="0x3FFFFFFF" />
+  <set param="PCW::DDR::V4.00.A::C_S_AXI_HP1_BASEADDR" value="0x00000000" />
+  <set param="PCW::DDR::V4.00.A::C_S_AXI_HP1_HIGHADDR" value="0x3FFFFFFF" />
+  <set param="PCW::DDR::V4.00.A::C_S_AXI_HP2_BASEADDR" value="0x00000000" />
+  <set param="PCW::DDR::V4.00.A::C_S_AXI_HP2_HIGHADDR" value="0x3FFFFFFF" />
+  <set param="PCW::DDR::V4.00.A::C_S_AXI_HP3_BASEADDR" value="0x00000000" />
+  <set param="PCW::DDR::V4.00.A::C_S_AXI_HP3_HIGHADDR" value="0x3FFFFFFF" />
+</project>

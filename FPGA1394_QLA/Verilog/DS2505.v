@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2018-2021 Johns Hopkins University.
+ * Copyright(C) 2018-2022 Johns Hopkins University.
  *
  * Module: DS2505
  *
@@ -127,8 +127,9 @@ assign      ds_blk_raddr = reg_raddr[5:0];
 assign      ds_status[31:24] = family_code;
 assign      ds_status[23:16] = DS2480B_presence ? in_byte : rise_time;
 assign      ds_status[15]    = DS2480B_presence;
+assign      ds_status[14]    = 1'd0;
 assign      ds_status[13]    = (state == DS_IDLE) ? 1'b0 : 1'b1;  // 0 if idle, 1 if busy
-assign      ds_status[12]    = 1'd0;
+assign      ds_status[12:9]  = 4'd0;
 assign      ds_status[8:4]   = state;
 assign      ds_status[3]     = dout_cfg_bidir;
 assign      ds_status[2:1]   = ds_reset;
@@ -213,9 +214,6 @@ begin
           //           01 -> enable interface (take control of DOUT3)
           //           10 -> enable, initialize and read first 64 bytes from memory address
           //           11 -> continue reading next 64 bytes
-          //         bit 2
-          //            0 -> direct 1-wire interface
-          //            1 -> interface via DS2480B driver
           //         bit 3
           //            0 -> block read still running
           //            1 -> block read ends

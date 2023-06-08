@@ -21,7 +21,9 @@ Program ngdbuild
 # Lines below added by PK
 -dd ./_ngo;
 -sd $ipcore_dir;
+-sd $xpscore_dir;
 -uc $ucf_file;
+-uc $board_ucf_file;
 # Lines above added by PK
 -intstyle silent;               # Message Reporting Style: ise, xflow, or silent
 #-insert_keep_hierarchy; 	# Retain hierarchy identified by individual source input netlists

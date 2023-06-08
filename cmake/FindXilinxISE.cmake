@@ -1,12 +1,15 @@
 # Find Xilinx ISE installation
 #
-# This will automatically find the necessary command line programs if the Xilinx ISE binary directory is
-# on the system PATH. If not, it is easiest to first set XILINX_ISE_BINARY_DIR and let CMake find the programs.
+# This will automatically find the necessary command line programs if the Xilinx ISE binary directories are
+# on the system PATH. If not, it is easiest to first set XILINX_ISE_BINARY_DIR and XILINX_EDK_BINARY_DIR
+# and let CMake find the programs. It is also necessary to set XILINX_ISE_ROOT_DIR so that some environment
+# variables can later be set.
 #
 # Future enhancements could include determining the Xilinx ISE version number.
 
+set (XILINX_ISE_ROOT_DIR "" CACHE PATH "Xilinx ISE root directory (ISE_DS)")
+
 set (XILINX_ISE_BINARY_DIR "" CACHE PATH "Xilinx ISE binary directory")
-#set(ENV{PATH} "${XILINX_ISE_BINARY_DIR};$ENV{PATH}")
 
 find_program(XILINX_ISE_XFLOW NAMES "xflow" HINTS ${XILINX_ISE_BINARY_DIR} DOC "Xilinx ISE xflow tool")
 find_program(XILINX_ISE_XST NAMES "xst" HINTS ${XILINX_ISE_BINARY_DIR} DOC "Xilinx ISE XST tool")
@@ -17,6 +20,9 @@ find_program(XILINX_ISE_TRCE NAMES "trce" HINTS ${XILINX_ISE_BINARY_DIR} DOC "Xi
 find_program(XILINX_ISE_BITGEN NAMES "bitgen" HINTS ${XILINX_ISE_BINARY_DIR} DOC "Xilinx ISE bitgen tool")
 find_program(XILINX_ISE_PROMGEN NAMES "promgen" HINTS ${XILINX_ISE_BINARY_DIR} DOC "Xilinx ISE promgen tool")
 find_program(XILINX_ISE_COREGEN NAMES "coregen" HINTS ${XILINX_ISE_BINARY_DIR} DOC "Xilinx ISE coregen tool")
+
+set (XILINX_EDK_BINARY_DIR "" CACHE PATH "Xilinx EDK binary directory")
+find_program(XILINX_EDK_PLATGEN NAMES "platgen" HINTS ${XILINX_EDK_BINARY_DIR} DOC "Xilinx EDK platgen tool")
 
 set (XILINX_ISE_USE_FILE "${CMAKE_CURRENT_SOURCE_DIR}/cmake/UseXilinxISE.cmake")
 
