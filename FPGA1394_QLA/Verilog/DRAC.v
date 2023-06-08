@@ -231,10 +231,12 @@ end
 // PWM timing
 // --------------------------------------------------------------------------
 
-wire[10:0] counter_unfolded;
-wire pwm_cycle_start;
+wire[10:0] counter_unfolded; // 0..2048. The on-time is symmetrical around 1024.
+wire pwm_cycle_start; // Assert for one pwmclk at beginning of a PWM cycle.
+// Assert for one pwmclk to start feedback calculation. The calucation takes
+// <10 pwmclk cycles. It has to finish before the next PWM cycle starts.
 wire feedback_calculation_start;
-wire adc_data_ready;
+wire adc_data_ready; // Latch the ADC shift registers when this is asserted.
 
 PwmAdcTiming PwmAdcTiming_instance
 (
@@ -256,18 +258,20 @@ PwmAdcTiming PwmAdcTiming_instance
 // Motor channels
 // --------------------------------------------------------------------------
 
-wire[15:0] cur_fb[1:10];
-wire[15:0] cur_fb_filtered[1:10];
-wire[31:0] reg_adc_data;
+wire[15:0] cur_fb[1:10]; // current feedback at raw rate, used by control loop
+wire[15:0] cur_fb_filtered[1:10]; // current feedback after filtering, used for PC read
 wire [15:0] pot_data;
 
-wire[15:0] cur_cmd_fb[1:10];
+wire[15:0] cur_cmd_fb[1:10]; // current setpoint
 
+// reg_rdata_motor_control_channel[i] for each channel are driven as zeros when the channel is not selected. So you can or them together.
 wire [31:0] reg_rdata_motor_control_channel [1:10];
 assign reg_rdata_motor_control = reg_rdata_motor_control_channel[1] | reg_rdata_motor_control_channel[2] | reg_rdata_motor_control_channel[3] | reg_rdata_motor_control_channel[4] | reg_rdata_motor_control_channel[5] | reg_rdata_motor_control_channel[6] | reg_rdata_motor_control_channel[7] | reg_rdata_motor_control_channel[8] | reg_rdata_motor_control_channel[9] | reg_rdata_motor_control_channel[10];
 
 wire [31:0] motor_status [1:10];
 
+// mapping from channel number to hardware channel number.
+// each DRV8432 chip has two channels, so there are 5 DRV8432 chips.
 reg [16:0] channel_to_motor_driver [1:10];
 initial channel_to_motor_driver[8] = 1;
 initial channel_to_motor_driver[9] = 1;
@@ -280,9 +284,9 @@ initial channel_to_motor_driver[3] = 4;
 initial channel_to_motor_driver[7] = 5;
 initial channel_to_motor_driver[4] = 5;
 
-wire [1:10] motor_channel_fault;
-wire [1:10] motor_channel_clear_fault;
-wire [1:10] motor_channel_enable_requested;
+wire [1:10] motor_channel_fault; // 1 if any fault is asserted.
+wire [1:10] motor_channel_clear_fault; // 1 to clear fault state.
+wire [1:10] motor_channel_enable_requested; // PC requested to enable channel.
 
 
 genvar k;
@@ -326,13 +330,14 @@ endgenerate
 // --------------------------------------------------------------------------
 wire reg_rdata_power_control;
 
-wire espm_comm_good;
-wire esii_escc_comm_good;
-reg preload_good;
-wire mv_good;
+wire espm_comm_good; // RX from ESPM is good
+wire esii_escc_comm_good; // ESII/ESCC -> ESPM is good. Invalid when espm_comm_good is 0.
+reg preload_good; // Encoder preload is valid.
+wire mv_good; // 48V is within +-10% of nominal.
+// All interlocks must be 1 to enable any motor channel.
 wire [4:0] interlocks =
     {preload_good, esii_escc_comm_good, espm_comm_good, mv_good, ~wdog_timeout};
-wire any_amp_enable_pending;
+wire any_amp_enable_pending; // 1 if PC requested to enable any motor channel but it is not enabled yet because of interlocks.
 
 PowerControl #(.NUM_INTERLOCKS(5)) PowerControl_instance
 (
@@ -391,6 +396,19 @@ BoardRegsDRAC chan0(
 
 reg [5:0] espm_bram_raddr;
 reg [31:0] espm_bram_rdata;
+wire crc_good_espm_sysclk;
+reg [31:0] timestamp_espmcomm;
+reg [31:0] timestamp_espmcomm_counter;
+reg espm_bram_update_inhibit;
+reg sample_read_delay;
+wire sample_read_falling_edge = sample_read_delay & ~sample_read;
+
+always @(posedge sysclk) begin
+    timestamp_espmcomm_counter <= timestamp_espmcomm_counter + 'b1;
+    sample_read_delay <= sample_read;
+    if (sample_start) espm_bram_update_inhibit <= 'b1;
+    if (sample_read_falling_edge) espm_bram_update_inhibit <= 'b0;
+end
 
 SampleDataAddressTranslation sampler
 (
@@ -401,6 +419,7 @@ SampleDataAddressTranslation sampler
     .blk_data(sample_rdata),
     .reg_raddr(reg_raddr_sample),
     .reg_rdata(reg_rdata),
+    .timestamp_espmcomm(timestamp_espmcomm),
     .timestamp(timestamp)
 );
 
@@ -422,23 +441,55 @@ WriteRtData #(.NUM_MOTORS(10)) rt_write
     .bw_reg_wdata(bw_reg_wdata)
 );
 
+
+// --------------------------------------------------------------------------
+// Data Buffer
+// --------------------------------------------------------------------------
+reg pwm_cycle_start_toggle_pwmclk;
+always @ (posedge pwmclk) pwm_cycle_start_toggle_pwmclk <= pwm_cycle_start_toggle_pwmclk ^ pwm_cycle_start;
+reg [2:0] pwm_cycle_start_sync_sysclk;
+always @ (posedge sysclk) pwm_cycle_start_sync_sysclk <= {pwm_cycle_start_sync_sysclk[1:0], pwm_cycle_start_toggle_pwmclk};
+wire pwm_cycle_start_sysclk = pwm_cycle_start_sync_sysclk[2] ^ pwm_cycle_start_sync_sysclk[1];
+
+wire[3:0] data_channel;
+
+DataBuffer data_buffer(
+    .clk(sysclk),
+    // data collection interface
+    .cur_fb_wen(pwm_cycle_start_sysclk),
+    .cur_fb(cur_fb[data_channel]),
+    .chan(data_channel),
+    // cpu interface
+    .reg_waddr(reg_waddr),          // write address
+    .reg_wdata(reg_wdata),          // write data
+    .reg_wen(reg_wen),              // write enable
+    .reg_raddr(reg_raddr),          // read address
+    .reg_rdata(reg_rdata_databuf),  // read data
+    // status and timestamp
+    .databuf_status(reg_databuf),   // status for SampleData
+    .ts(timestamp)                  // timestamp from SampleData
+);
+
 // --------------------------------------------------------------------------
 // ESPM interface
 // --------------------------------------------------------------------------
 
-reg [31:0] rdata_pos [1:7];
-reg [31:0] rdata_pot [1:7];
+reg [31:0] rdata_pos [1:7]; // encoder position
+reg [31:0] rdata_pot [1:7]; // pot
 reg [31:0] rdata_misc[1:5];
 assign esii_escc_comm_good = rdata_misc[2][1];
-assign is_ecm = rdata_misc[2][0];
+assign is_ecm = rdata_misc[2][0]; // 1 if ECM, 0 if PSM
 assign pot_data = reg_raddr[7:4] > 7 ? 16'hcccc : {4'b0, rdata_pot[reg_raddr[7:4]][17:6]};
-assign reg_digin = rdata_misc[1];
+assign reg_digin = rdata_misc[1]; // buttons
 
 
 
 // --------------------------------------------------------------------------
 // TX to ESPM
 // --------------------------------------------------------------------------
+
+// Sends the content of espm_tx_ram to the ESPM all the time.
+// Except quadlet 'h10, which is for detecting loss of encoder preload due to ESPM reset.
 
 reg sysclk_div2;
 assign lvds_tx_clk = sysclk_div2;
@@ -479,14 +530,19 @@ always @(posedge lvds_tx_clk) begin
     end
 
     case (espm_tx_tdata_sel[5:0])
-    'h10: espm_tx_tdata <= {31'b0, preload_set_espm_tx_pulse};
-    default: espm_tx_tdata <= espm_tx_ram[espm_tx_tdata_sel[5:0]];
+        'h10: espm_tx_tdata <= {31'b0, preload_set_espm_tx_pulse};
+        default: espm_tx_tdata <= espm_tx_ram[espm_tx_tdata_sel[5:0]];
     endcase
 end
 
 // --------------------------------------------------------------------------
 // RX from ESPM
 // --------------------------------------------------------------------------
+
+// Pre-CRC data are dumped into espm_bram_pre_crc. Once CRC is checked, data
+// are copied to espm_bram and espm_bram2. espm_bram is read by the sampler
+// and espm_bram2 is used for debugging.
+
 wire [31:0] rdata_espm;
 wire  [9:0] rdata_sel_espm;
 wire        load_rdata_espm;
@@ -556,7 +612,6 @@ reg [5:0] espm_bram_waddr;
 reg [31:0] espm_bram_wdata;
 reg [5:0] espm_bram_pre_crc_raddr;
 reg espm_bram_we;
-wire crc_good_espm_sysclk;
 cdc_pulse crc_good_espm_cdc (LVDS_RCLK, crc_good_espm, sysclk, crc_good_espm_sysclk);
 reg copy_state;
 
@@ -573,9 +628,10 @@ always @(posedge sysclk) begin
     espm_bram_waddr <= espm_bram_pre_crc_raddr;
     case (copy_state)
         0: begin
-            if (crc_good_espm_sysclk) begin
+            if (crc_good_espm_sysclk && (~espm_bram_update_inhibit)) begin
                 copy_state <= 'b1;
                 espm_bram_we <= 'b1;
+                timestamp_espmcomm <= timestamp_espmcomm_counter;
             end
         end
         1: begin
@@ -595,7 +651,6 @@ always @(posedge sysclk) begin
             case (espm_bram_waddr)
                 `ADDR_SWITCH: rdata_misc[1] <= espm_bram_wdata;  // switch
                 `ADDR_ESII: rdata_misc[2] <= espm_bram_wdata;  // esii status
-                // `ADDR_MISC: rdata_misc[3] <= espm_bram_wdata;  // adc current {cannula_vmon,P5V_lcl_vmon}
                 `ADDR_INST_MODEL: rdata_misc[4] <= espm_bram_wdata;  // instrument ID
                 `ADDR_INST_ID:    rdata_misc[5] <= espm_bram_wdata;  // instrument ID
                 `ADDR_ESPM_PRELOAD_VALID: preload_good <= espm_bram_wdata[0];
@@ -609,6 +664,14 @@ end
 // Encoder preload
 // --------------------------------------------------------------------------
 
+// ESPM has a constant preload of midrange. When power cycled, the encoder
+// count resets. We maintain the preload here. Therefore, we must know when
+// ESPM is reset, so we can invalidate the preload. We do this by setting a
+// register in ESPM to 1 when we preload the encoder here. When ESPM is reset,
+// it will clear this register. We use this register as an interlock, which
+// will turn off the motor axes and prevent them from turning on until the
+// preload is valid.
+
 reg [23:0] encoder_preload [1:7];
 reg [23:0] encoder_preload_offset [1:7];
 reg [1:7] encoder_overflow;
@@ -621,7 +684,7 @@ initial begin
     end
 end
 
-reg [1:0] preload_set_div2;
+reg [1:0] preload_set_div2; // CDC
 assign preload_set_sysclk_toggle = preload_set_div2[1];
 integer encoder_overflow_i;
 always @(posedge sysclk)
@@ -673,16 +736,13 @@ begin
         'h000: reg_rdata_board_specific = crc_err_count;
         'h001: reg_rdata_board_specific = crc_good_count;
         'h002: reg_rdata_board_specific = mv;
-        // 'h003: reg_rdata_board_specific = {is_ecm, esii_escc_comm_good, espm_comm_good, SAFETY_CHAIN_GOOD, ESPMV_GOOD};
         'h004: reg_rdata_board_specific = {22'b0, OTWn, FAULTn};
         'h010: reg_rdata_board_specific = rdata_misc[2]; // esii status
-        // 'h011: reg_rdata_board_specific = rdata_misc[3]; // adc current {cannula_vmon,P5V_lcl_vmon}
         'h012: reg_rdata_board_specific = rdata_misc[4]; // instrument model
         'h013: reg_rdata_board_specific = rdata_misc[5]; // instrument version
         'h020: reg_rdata_board_specific = {reg_databuf, tempsense};
         'h021: reg_rdata_board_specific = reg_digin;
-        // 'h021: reg_rdata_board_specific = 'hffffffff;
-        'hfff: reg_rdata_board_specific = 'h2; // development build number
+        'hfff: reg_rdata_board_specific = 'h100; // development build number
         default: reg_rdata_board_specific = 'hcccc;
     endcase
 end
