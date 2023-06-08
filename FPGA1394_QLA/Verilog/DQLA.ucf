@@ -1,0 +1,79 @@
+################################################################################
+# DQLA I/O Ports
+################################################################################
+
+# NET  "IO1[0]"              # relay_on
+NET  "IO1[1]"     PULLUP;    # MISO prom_qla
+NET  "IO1[2]"     PULLUP;    # MOSI prom_qla
+NET  "IO1[3]"     PULLUP;    # SCLK prom_qla
+NET  "IO1[4]"     PULLUP;    # /Q2-EEPROM
+# NET  "IO1[5]"              # Q1-Out 2
+# NET  "IO1[6]"              # Q1-Out 1
+# NET  "IO1[7]"              # Q1-Out 4
+# NET  "IO1[8]"              # Q1-Out 3
+# NET  "IO1[9]"              # /Q2-DAC
+NET  "IO1[10]"    PULLUP;    # /Q1-EXP-CS
+NET  "IO1[11]"    PULLUP;    # Q2-DIR34
+NET  "IO1[12]"    PULLUP;    # /Q2-EXP-CS
+# NET  "IO1[13]"             # Q2-MOSI
+# NET  "IO1[14]"             # EXP-MISO
+NET  "IO1[15]"    PULLUP;    # /Q2-IOEXP
+# NET  "IO1[16]"             # Q1-EXP-MOSI
+# NET  "IO1[17]"             # Q2-DIR12 
+# NET  "IO1[18]"             # Q1-EXP-SCLK
+# NET  "IO1[19]"             # SCLK-POT
+# NET  "IO1[20]"             # SCLK-CUR
+# NET  "IO1[21]"             # CONV-POT
+# NET  "IO1[22]"             # SCLK (to DAC)
+# NET  "IO1[23]"             # CONV-CUR
+# NET  "IO1[24]"             # /Q1-DAC
+# NET  "IO1[25]"             #  Q1-MOSI
+NET  "IO1[26]"    PULLUP;    # Q1-MISO-P2
+NET  "IO1[27]"    PULLUP;    # Q1-MISO-P1
+NET  "IO1[28]"    PULLUP;    # /Q1-EEPROM
+NET  "IO1[29]"    PULLUP;    # Q1-MISO-P4
+NET  "IO1[30]"    PULLUP;    # Q1-MISO-P3
+NET  "IO1[31]"    PULLUP;    # /Q1-IOEXP
+# NET  "IO1[32]"             # Q1-DIR34
+# NET  "IO1[33]"             # Q1-DIR12
+
+# NET  "IO2[0]"              # Q2-Out2
+NET  "IO2[1]"     PULLUP;    # Q1-MISO-C2
+# NET  "IO2[2]"              # Q2-Out1
+NET  "IO2[3]"     PULLUP;    # Q1-MISO-C1
+# NET  "IO2[4]"              # Q2-Out4
+NET  "IO2[5]"     PULLUP;    # Q1-MISO-C4
+NET  "IO2[6]"     PULLUP;    # Q1-MISO-C3
+NET  "IO2[7]"     PULLUP;    # Q1-Temp1
+NET  "IO2[8]"     PULLUP;    # Q1-Temp2
+NET  "IO2[9]"     PULLUP;    # Q2-MISO-P2
+NET  "IO2[10]"    PULLUP;    # Q2-MISO-P1
+NET  "IO2[11]"    PULLUP;    # Q2-MISO-P4
+NET  "IO2[12]"    PULLUP;    # Q2-MISO-P3
+NET  "IO2[13]"    PULLUP;    # Q1-LIM-P4
+NET  "IO2[14]"    PULLUP;    # Q1-LIM-P3
+NET  "IO2[15]"    PULLUP;    # Q2-MISO-C4
+NET  "IO2[16]"    PULLUP;    # Q2-MISO-C1
+NET  "IO2[17]"    PULLUP;    # Q2-MISO-C2
+NET  "IO2[18]"    PULLUP;    # Q2-MISO-C3
+NET  "IO2[19]"    PULLUP;    # Q2-Temp2
+NET  "IO2[20]"    PULLUP;    # Q2-Temp1
+NET  "IO2[21]"    PULLUP;    # Q2-LIM-P4
+NET  "IO2[22]"    PULLUP;    # Q1-ENC-A1
+NET  "IO2[23]"    PULLUP;    # Q2-LIM-P3
+NET  "IO2[24]"    PULLUP;    # Q1-ENC-A2
+NET  "IO2[25]"    PULLUP;    # Q2-ENC-A1
+NET  "IO2[26]"    PULLUP;    # Q1-ENC-A3
+NET  "IO2[27]"    PULLUP;    # Q2-ENC-A2
+NET  "IO2[28]"    PULLUP;    # Q1-ENC-A4
+NET  "IO2[29]"    PULLUP;    # Q2-ENC-A3
+NET  "IO2[30]"    PULLUP;    # Q1-ENC-B1
+NET  "IO2[31]"    PULLUP;    # Q2-ENC-A4
+NET  "IO2[32]"    PULLUP;    # Q1-ENC-B2
+NET  "IO2[33]"    PULLUP;    # Q2-ENC-B1
+NET  "IO2[34]"    PULLUP;    # Q1-ENC-B3
+NET  "IO2[35]"    PULLUP;    # Q2-ENC-B2
+NET  "IO2[36]"    PULLUP;    # Q1-ENC-B4
+NET  "IO2[37]"    PULLUP;    # Q2-ENC-B3
+NET  "IO2[38]"    PULLUP;    # Q2-ENC-B4
+# NET  "IO2[39]"             # Q2-Out3

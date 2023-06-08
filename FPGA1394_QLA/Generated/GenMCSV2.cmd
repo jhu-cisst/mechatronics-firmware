@@ -1,5 +1,5 @@
 setMode -pff
-addConfigDevice  -name "FPGA1394Eth-QLA" -path "."
+addConfigDevice  -name "FPGA1394V2-QLA" -path "."
 setSubmode -pffspi
 setAttribute -configdevice -attr multibootBpiType -value ""
 addDesign -version 0 -name "0"
@@ -14,7 +14,7 @@ setAttribute -configdevice -attr multiboot -value "FALSE"
 setAttribute -configdevice -attr spiSelected -value "TRUE"
 addPromDevice -p 1 -size 2048
 setAttribute -design -attr name -value "0000"
-addDevice -p 1 -file "../FPGA1394EthQLA.bit"
+addDevice -p 1 -file "../FPGA1394V2-QLA.bit"
 generate
 setCurrentDesign -version 0
 exit

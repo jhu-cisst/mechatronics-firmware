@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2012-2020 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2012-2023 ERC CISST, Johns Hopkins University.
  *
  * Module: QLA25AA128
  *
@@ -21,6 +21,14 @@
  *     - bit 11:8 == 1: block read/write 
  *         - since 1 page is 64 bytes, we only support 64 bytes read/write (16 quadlets)
  *         - 0x3100 to 0x310F  
+ *     - bit 7:4 == channel
+ *         - 0 for QLA
+ *         - 1 for QLA #1 on DQLA
+ *         - 2 for QLA #2 on DQLA
+ *     - bit 3:0 == register number
+ *         - 0 for Command (write only)
+ *         - 1 for Status (read only)
+ *         - 2 for Result (read only)
  *   - Clock
  *     - 25AA128 Max 10 Mhz
  *     - sysclk 49.125 Mhz / 8 
@@ -50,9 +58,9 @@
 `define CMD_WBLK_25AA128   8'hFF    // Write Block 
 `define CMD_IDLE_25AA128   8'h00    // IDLE N/A cmd 
 
-`define REG_PROM_CMD       12'h000  // prom command (write)
-`define REG_PROM_STATUS    12'h001  // prom status (read)  
-`define REG_PROM_RESULT    12'h002  // prom result (read)
+`define REG_PROM_CMD       4'h0     // prom command (write)
+`define REG_PROM_STATUS    4'h1     // prom status (read)
+`define REG_PROM_RESULT    4'h2     // prom result (read)
 
 
 module QLA25AA128(
@@ -70,7 +78,9 @@ module QLA25AA128(
     output prom_mosi,              // Serial out to 25AA128
     input  prom_miso,              // Serial in from 25AA128
     output prom_sclk,              // CLK to 25AA128
-    output reg prom_cs             // /CS to 25AA128
+    output reg prom_cs,            // /CS to 25AA128
+    input wire other_busy,         // 1 -> another chip using SPI
+    output wire this_busy          // 1 -> this chip using SPI
 );
 
 initial prom_cs = 1'bz;
@@ -89,9 +99,9 @@ reg       io_disabled;
 initial   io_disabled = 1'b1;
 reg[2:0]  state;
 initial   state = ST_IDLE;
-reg[9:0]  seqn;            // 10-bit counter for sequencing operation (clock)
-reg[9:0]  SendCnt;         // (2*NumBits)*8-1
-reg[9:0]  RecvCnt;         // (2*NumBits)*8-1 (0 if no bits to receive)
+reg[8:0]  seqn;            // 9-bit counter for sequencing operation (clock)
+reg[8:0]  SendCnt;         // (2*NumBits)*8-1
+reg[8:0]  RecvCnt;         // (2*NumBits)*8-1 (0 if no bits to receive)
 reg[3:0]  RecvQuadCnt;     // Number of quadlets to read, minus 1
 reg[4:0]  WriteQuadCnt;    // Number of quadlets to write
 reg[31:0] prom_data;       // data to write to PROM (shift register)
@@ -105,8 +115,9 @@ reg[4:0]  rd_index;    // current read index 4-bit
 
 // local wires
 wire prom_reg_wen;       // main quadlet reg interface
-assign prom_reg_wen = (reg_waddr == {`ADDR_PROM_QLA, `REG_PROM_CMD}) ? reg_wen : 1'b0;
-assign prom_blk_wen = (reg_waddr[15:8] == {`ADDR_PROM_QLA, 4'd1}) ? reg_wen : 1'b0;
+wire prom_blk_wen;       // prom block write interface
+assign prom_reg_wen = ((reg_waddr[11:8] == 4'd0) && (reg_waddr[3:0] == `REG_PROM_CMD)) ? reg_wen : 1'b0;
+assign prom_blk_wen = (reg_waddr[11:8] == 4'd1) ? reg_wen : 1'b0;
 
 
 // prom_status
@@ -121,18 +132,19 @@ assign prom_status[4] = prom_mosi;
 assign prom_status[3] = blk_wrt;
 assign prom_status[2:0] = state;
 
-assign prom_mosi = io_disabled ? 1'bz : prom_data[31];
-assign prom_sclk = io_disabled ? 1'bz : seqn[3];    // sysclk/8
+assign prom_mosi = prom_data[31];
+assign prom_sclk = seqn[3];    // sysclk/8
 
-
+assign this_busy = ~io_disabled;
 
 // -----------------------------------------
 // read/write request
+// Not necessary for this to be clocked
 // ------------------------------------------
 always @(posedge(clk))
 begin
     if (reg_raddr[11:8] == 4'h0) begin
-        case (reg_raddr[11:0])
+        case (reg_raddr[3:0])
         `REG_PROM_RESULT: reg_rdata <= prom_result;
         `REG_PROM_STATUS: reg_rdata <= {16'd0, prom_status};
         // return 32'd0 by default
@@ -164,7 +176,7 @@ begin
     ST_IDLE: begin
 
       if (prom_reg_wen) begin
-        seqn <= 7'd0;
+        seqn <= 9'd0;
         blk_wrt <= 1'b0;
         wr_index <= 5'd0;
         rd_index <= 5'd0;
@@ -172,48 +184,48 @@ begin
            `CMD_IDLE_25AA128: begin    // Do nothing
            end
            `CMD_WREN_25AA128: begin    // Write Enable
-              SendCnt <= 10'd127;      // 2*8*8-1
-              RecvCnt <= 10'd0;
+              SendCnt <= 9'd127;       // 2*8*8-1
+              RecvCnt <= 9'd0;
               RecvQuadCnt <= 4'd0;
               WriteQuadCnt <= 5'd0;
               prom_data <= reg_wdata;
               state <= ST_CHIP_SELECT;
            end
            `CMD_WRDI_25AA128: begin    // Write Disable
-              SendCnt <= 10'd127;
-              RecvCnt <= 10'd0;
+              SendCnt <= 9'd127;
+              RecvCnt <= 9'd0;
               RecvQuadCnt <= 4'd0;
               WriteQuadCnt <= 5'd0;
               prom_data <= reg_wdata;
               state <= ST_CHIP_SELECT;
            end
            `CMD_RDSR_25AA128: begin    // Read Status Register
-              SendCnt <= 10'd127;      // 1-byte cmd
-              RecvCnt <= 10'd127;      // 1-byte SR
+              SendCnt <= 9'd127;       // 1-byte cmd
+              RecvCnt <= 9'd127;       // 1-byte SR
               RecvQuadCnt <= 4'd0;
               WriteQuadCnt <= 5'd0;
               prom_data <= reg_wdata;
               state <= ST_CHIP_SELECT;
            end
            `CMD_WRSR_25AA128: begin    // Write Status Register
-              SendCnt <= 10'd255;      // 1-byte cmd + 1-byte SR
-              RecvCnt <= 10'd0;
+              SendCnt <= 9'd255;       // 1-byte cmd + 1-byte SR
+              RecvCnt <= 9'd0;
               RecvQuadCnt <= 4'd0;
               WriteQuadCnt <= 5'd0;
               prom_data <= reg_wdata;
               state <= ST_CHIP_SELECT;
            end
            `CMD_READ_25AA128: begin    // Read Data (64 bytes)
-              SendCnt <= 10'd383;      // 1-byte cmd + 2-byte addr
-              RecvCnt <= 10'd127;      // 1-bype data
+              SendCnt <= 9'd383;       // 1-byte cmd + 2-byte addr
+              RecvCnt <= 9'd127;       // 1-bype data
               RecvQuadCnt <= 4'd0;
               WriteQuadCnt <= 5'd0;
               prom_data <= reg_wdata;
               state <= ST_CHIP_SELECT;
            end
            `CMD_WRIT_25AA128: begin   // Write 1 byte data
-              SendCnt <= 10'd511;     // 1 cmd 2 addr 1 data
-              RecvCnt <= 10'd0;
+              SendCnt <= 9'd511;      // 1 cmd 2 addr 1 data
+              RecvCnt <= 9'd0;
               RecvQuadCnt <= 4'd0;
               WriteQuadCnt <= 5'd0;
               prom_data <= reg_wdata;
@@ -222,16 +234,16 @@ begin
 
            // block quadlet read/write
            `CMD_RBLK_25AA128: begin
-              SendCnt <= 10'd383;        // 1-byte cmd + 2-byte addr
-              RecvCnt <= 10'd511;        // 1-quad = 4-byte data
+              SendCnt <= 9'd383;         // 1-byte cmd + 2-byte addr
+              RecvCnt <= 9'd511;         // 1-quad = 4-byte data
               RecvQuadCnt <= reg_wdata[3:0];  // num of quad to receive -1
               WriteQuadCnt <= 5'd0;
               prom_data <= {`CMD_READ_25AA128, reg_wdata[23:8], 8'd0};
               state <= ST_CHIP_SELECT;
            end
            `CMD_WBLK_25AA128: begin
-              SendCnt <= 10'd383;       // 1 cmd 2 addr
-              RecvCnt <= 10'd0;
+              SendCnt <= 9'd383;        // 1 cmd 2 addr
+              RecvCnt <= 9'd0;
               RecvQuadCnt <= 0;
               WriteQuadCnt <= reg_wdata[3:0] + 5'd1;  // num of quad to write
               prom_data <= {`CMD_WRIT_25AA128, reg_wdata[23:8], 8'd0};
@@ -243,10 +255,12 @@ begin
     end // case: ST_IDLE
 
     ST_CHIP_SELECT: begin
-       io_disabled <= 1'b0;
-       prom_cs     <= 1'b0;
+       // Only assert prom_cs (active low) and deassert io_disabled when SPI
+       // interface is not busy. Stay in this state until SPI is not busy.
+       io_disabled <= other_busy;
+       prom_cs     <= other_busy;
        prom_result <= 32'd0;
-       state <= ST_WRITE;
+       state <= other_busy ? ST_CHIP_SELECT : ST_WRITE;
     end
 
     ST_WRITE: begin
@@ -255,15 +269,15 @@ begin
         end
         if (seqn == SendCnt) begin
             if (WriteQuadCnt != 5'd0) begin
-                seqn <= 10'd0;
-                SendCnt <= 10'd511;  // 4 byte data
+                seqn <= 9'd0;
+                SendCnt <= 9'd511;   // 4 byte data
                 prom_data <= data_block[rd_index[3:0]];
                 rd_index <= rd_index + 1'd1;
                 WriteQuadCnt <= WriteQuadCnt - 1'b1;
             end
             else begin
-                state <= (RecvCnt == 10'd0) ? ST_CHIP_DESELECT : ST_READ;
-                seqn <= 10'd0;
+                state <= (RecvCnt == 9'd0) ? ST_CHIP_DESELECT : ST_READ;
+                seqn <= 9'd0;
             end
         end
         else seqn <= seqn + 1'b1;        // counter, also creates sclk
@@ -274,7 +288,7 @@ begin
             prom_result <= { prom_result[30:0], prom_miso };
         end
         if (seqn == RecvCnt) begin
-            seqn <= 10'd0;
+            seqn <= 9'd0;
             data_block[wr_index[3:0]] <= prom_result;
             wr_index <= wr_index + 1'b1;
             // deselect when finished

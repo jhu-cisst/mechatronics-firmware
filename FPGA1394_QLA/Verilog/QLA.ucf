@@ -1,0 +1,75 @@
+################################################################################
+# QLA I/O Ports
+################################################################################
+
+NET  "IO1[1]"     PULLUP;    # MISO prom_qla
+NET  "IO1[2]"     PULLUP;    # MOSI prom_qla
+NET  "IO1[3]"     PULLUP;    # SCLK prom_qla
+NET  "IO1[4]"     PULLUP;    # /EEPROM
+NET  "IO1[5]"     PULLUP;    # Dir34
+NET  "IO1[6]"     PULLUP;    # Dir12
+NET  "IO1[7]"     PULLUP;    # /MV-FLT (QLA 1.4+)
+NET  "IO1[8]"     PULLUP;    # /IOEXP (QLA 1.5+)
+NET  "IO1[9]"     PULLUP;    # /V-FAULT
+# NET  "IO1[10]"             # Ltc1864 sclk
+# NET  "IO1[11]"             # Ltc1864 conv
+NET  "IO1[12]"    PULLUP;    # MISO-P4 (pot 4)
+NET  "IO1[13]"    PULLUP;    # MISO-P3 (pot 3)
+NET  "IO1[14]"    PULLUP;    # MISO-P2 (pot 2)
+NET  "IO1[15]"    PULLUP;    # MISO-P1 (pot 1)
+# NET  "IO1[16]"             # dout 4
+# NET  "IO1[17]"             # dout 3
+# NET  "IO1[18]"             # dout 2
+# NET  "IO1[19]"             # dout 1
+# NET  "IO1[20]"             # Ltc2601 mosi
+# NET  "IO1[21]"             # Ltc2601 sclk
+# NET  "IO1[22]"             # Ltc2601 csel (/DAC)
+NET  "IO1[23]"    PULLUP;    # MISO-C1 (cur 1)
+NET  "IO1[24]"    PULLUP;    # MISO-C2 (cur 2)
+NET  "IO1[25]"    PULLUP;    # MISO-C3 (cur 3)
+NET  "IO1[26]"    PULLUP;    # MISO-C4 (cur 4)
+# NET  "IO1[27]"             # Ltc1864 conv
+# NET  "IO1[28]"             # Ltc1864 sclk
+NET  "IO1[29]"    PULLUP;    # Temp1
+NET  "IO1[30]"    PULLUP;    # Temp2
+# NET  "IO1[31]"             # pwr_enable
+# NET  "IO1[32]"             # relay_on
+
+# NET  "IO2[1]"              # LED 1 green
+NET  "IO2[2]"     PULLUP;    # ENC-I4
+# NET  "IO2[3]"              # LED 1 red
+NET  "IO2[4]"     PULLUP;    # ENC-I3
+# NET  "IO2[5]"              # LED 2 green
+NET  "IO2[6]"     PULLUP;    # ENC-I2
+# NET  "IO2[7]"              # LED 2 red
+NET  "IO2[8]"     PULLUP;    # ENC-I1
+NET  "IO2[9]"     PULLUP;    # Relay status
+NET  "IO2[10]"    PULLUP;    # ENC-B4
+NET  "IO2[11]"    PULLDOWN;  # MV-GOOD
+NET  "IO2[12]"    PULLUP;    # ENC-B3
+NET  "IO2[13]"    PULLUP;    # ENC-B2
+NET  "IO2[14]"    PULLUP;    # LIM-H1
+NET  "IO2[15]"    PULLUP;    # ENC-B1
+NET  "IO2[16]"    PULLUP;    # LIM-H2
+NET  "IO2[17]"    PULLUP;    # ENC-A4
+NET  "IO2[18]"    PULLUP;    # LIM-H3
+NET  "IO2[19]"    PULLUP;    # ENC-A3
+NET  "IO2[20]"    PULLUP;    # LIM-H4
+NET  "IO2[21]"    PULLUP;    # ENC-A2
+NET  "IO2[22]"    PULLUP;    # LIM-N1
+NET  "IO2[23]"    PULLUP;    # ENC-A1
+NET  "IO2[24]"    PULLUP;    # LIM-N3
+NET  "IO2[25]"    PULLUP;    # LIM-N2
+NET  "IO2[26]"    PULLUP;    # LIM-N4
+NET  "IO2[27]"    PULLUP;    # LIM-P1
+NET  "IO2[28]"    PULLUP;    # LIM-P2
+NET  "IO2[29]"    PULLUP;    # LIM-P3
+NET  "IO2[30]"    PULLUP;    # LIM-P4
+NET  "IO2[31]"    PULLDOWN;  # /FAULT 1 (1=amp_on)
+# NET  "IO2[32]"             # DISABLE 1
+NET  "IO2[33]"    PULLDOWN;  # /FAULT 2 (1=amp_on)
+# NET  "IO2[34]"             # DISABLE 2
+NET  "IO2[35]"    PULLDOWN;  # /FAULT 3 (1=amp_on)
+# NET  "IO2[36]"             # DISABLE 3
+NET  "IO2[37]"    PULLDOWN;  # /FAULT 4 (1=amp_on)
+# NET  "IO2[38]"             # DISABLE 4
