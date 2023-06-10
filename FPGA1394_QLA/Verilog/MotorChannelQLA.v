@@ -181,10 +181,13 @@ begin
     else if (motor_reg_wen) begin
         disable_safety <= reg_wdata[31];
         force_disable_f <= reg_wdata[30];
-        if (reg_wdata[25])
-            delay_cnt <= reg_wdata[23:16];
-        if (reg_wdata[24])
-            cur_lim <= reg_wdata[15:0];
+`ifdef MCFG_SKIP_MASK
+        delay_cnt <= reg_wdata[23:16];
+        cur_lim <= reg_wdata[15:0];
+`else
+        delay_cnt <= reg_wdata[25] ? reg_wdata[23:16] : delay_cnt;
+        cur_lim <= reg_wdata[24] ? reg_wdata[15:0] : cur_lim;
+`endif
     end
     else if (status_reg_wen) begin
         reg_disable <= (~pwr_enable) | safety_disable | (reg_wdata[CHANNEL+7] ? ~reg_wdata[CHANNEL-1] : reg_disable);

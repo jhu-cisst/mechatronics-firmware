@@ -10,7 +10,7 @@
 #   (can also build FPGAV2 + DRAC)
 #
 # Tested on Windows 7, 64-bit, with NMAKE (VS 2008) and Xilinx ISE 14.3
-# Tested on Ubuntu 16.04, 64-bit, with make (gcc 5.4.0) and Xilinx ISE 14.7
+# Tested on Ubuntu 16.04/20.04, 64-bit, with make (gcc 5.4.0/9.4.0) and Xilinx ISE 14.7
 
 project(FPGA1394_QLA NONE)
 
@@ -189,6 +189,7 @@ ise_compile_fpga(PROJ_NAME      "FPGA1394V2-QLA"
                  UCF_FILE       "${VERILOG_SOURCE_DIR}/XC6S45-Rev2.ucf"
                  BOARD_UCF_FILE "${VERILOG_SOURCE_DIR}/QLA.ucf"
                  IPCORE_DIR     ${IPCORE_BINARY_DIR}
+                 USER_MACROS    "MCFG_SKIP_MASK"
                  TOP_LEVEL      "FPGA1394V2QLA")
 
 ##### FPGAV3 + QLA
@@ -209,6 +210,7 @@ ise_compile_fpga(PROJ_NAME      "FPGA1394V3-QLA"
                  IPCORE_DIR     ${IPCOREV3_BINARY_DIR}
                  XPSCORE_DIR    "${XPSCORE_BINARY_DIR}/implementation"
                  TOP_LEVEL      "FPGA1394V3QLA"
+                 USER_MACROS    "HAS_DEBUG_DATA"
                  IS_V3          ON)
 
 ##### FPGAV3 + DQLA
@@ -229,6 +231,7 @@ ise_compile_fpga(PROJ_NAME      "FPGA1394V3-DQLA"
                  IPCORE_DIR     ${IPCOREV3_BINARY_DIR}
                  XPSCORE_DIR    "${XPSCORE_BINARY_DIR}/implementation"
                  TOP_LEVEL      "FPGA1394V3DQLA"
+                 USER_MACROS    "HAS_DEBUG_DATA"
                  IS_V3          ON)
 
 # ##### FPGAV2 + dRAC
@@ -273,6 +276,7 @@ ise_compile_fpga(PROJ_NAME      "FPGA1394V3-DRAC"
                  IPCORE_DIR     ${IPCOREV3_BINARY_DIR}
                  XPSCORE_DIR    "${XPSCORE_BINARY_DIR}/implementation"
                  TOP_LEVEL      "FPGA1394V3DRAC"
+                 USER_MACROS    "HAS_DEBUG_DATA"
                  IS_V3          ON)
 
 ##### FPGAV3 + BCFG
@@ -293,6 +297,7 @@ ise_compile_fpga(PROJ_NAME      "FPGA1394V3-BCFG"
                  IPCORE_DIR     ${IPCOREV3_BINARY_DIR}
                  XPSCORE_DIR    "${XPSCORE_BINARY_DIR}/implementation"
                  TOP_LEVEL      "FPGA1394V3BCFG"
+                 USER_MACROS    "HAS_DEBUG_DATA"
                  IS_V3          ON)
 
 ######################### Copy Generated Files #################################

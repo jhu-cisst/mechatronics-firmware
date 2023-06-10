@@ -18,9 +18,6 @@
 // global constant e.g. register & device address
 `include "Constants.v"
 
-// Define following for debug data (DBG2)
-`define HAS_DEBUG_DATA
-
 // --------------------------------------------------------------------------
 // Register Address Translator: from 8-bit offset to 16-bit address required by KSZ8851.
 // The addressing is a bit unusual when the KSZ8851 is configured with a 16-bit bus;

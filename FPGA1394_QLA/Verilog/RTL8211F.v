@@ -25,9 +25,6 @@
 
 `include "Constants.v"
 
-// Define following for debug data (DBG2)
-`define HAS_DEBUG_DATA
-
 module RTL8211F
     #(parameter[3:0] CHANNEL = 4'd1)
 (

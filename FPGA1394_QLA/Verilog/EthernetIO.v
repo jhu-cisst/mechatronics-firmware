@@ -20,9 +20,6 @@
 // global constant e.g. register & device address
 `include "Constants.v"
 
-// Define following for debug data (DBG2)
-`define HAS_DEBUG_DATA
-
 // Sizes of packet headers (in bytes)
 `define ETH_FRAME_SIZE  16'd14     // Ethernet frame
 `define IPv4_HDR_SIZE   16'd20     // IPv4 Header

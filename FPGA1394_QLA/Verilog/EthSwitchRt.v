@@ -15,9 +15,6 @@
 
 `include "Constants.v"
 
-// Define following for debug data (DBG2)
-`define HAS_DEBUG_DATA
-
 // This module is parameterized by the number of ports primarily for documentation
 // clarity. Note that some parts of the code are only valid for NUM=2 (for example,
 // the use of the single-bit register curPort).
