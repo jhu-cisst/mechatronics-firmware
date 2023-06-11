@@ -189,7 +189,6 @@ ise_compile_fpga(PROJ_NAME      "FPGA1394V2-QLA"
                  UCF_FILE       "${VERILOG_SOURCE_DIR}/XC6S45-Rev2.ucf"
                  BOARD_UCF_FILE "${VERILOG_SOURCE_DIR}/QLA.ucf"
                  IPCORE_DIR     ${IPCORE_BINARY_DIR}
-                 USER_MACROS    "MCFG_SKIP_MASK"
                  TOP_LEVEL      "FPGA1394V2QLA")
 
 ##### FPGAV3 + QLA
