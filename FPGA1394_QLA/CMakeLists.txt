@@ -162,7 +162,7 @@ set (VERILOG_SOURCE_FPGAV1_QLA
                          ${VERILOG_SOURCE_FPGAV1}
                          ${VERILOG_SOURCE_QLA})
 
-# Compile the firmware -- output is FPGA1394-QLA.mcs, which is copied
+# Compile the firmware -- output is FPGA1394V1-QLA.mcs, which is copied
 # to the Generated subdirectory in the source directory (if different).
 ise_compile_fpga(PROJ_NAME      "FPGA1394V1-QLA"
                  DEPENDENCIES   "CoreGenCommon"
@@ -199,8 +199,7 @@ set (VERILOG_SOURCE_FPGAV3_QLA
                          ${VERILOG_SOURCE_FPGAV3}
                          ${VERILOG_SOURCE_QLA})
 
-# Compile the firmware -- output is FPGA1394V3-QLA.bit, which is copied
-# to the Generated subdirectory in the source directory (if different).
+# Compile the firmware -- output is FPGA1394V3-QLA.bit
 ise_compile_fpga(PROJ_NAME      "FPGA1394V3-QLA"
                  DEPENDENCIES   "CoreGenV3" "PlatgenV3"
                  FPGA_PARTNUM   ${FPGAV3_PARTNUM}
@@ -220,8 +219,7 @@ set (VERILOG_SOURCE_FPGAV3_DQLA
                          ${VERILOG_SOURCE_FPGAV3}
                          ${VERILOG_SOURCE_DQLA})
 
-# Compile the firmware -- output is FPGA1394V3-DQLA.bit, which is copied
-# to the Generated subdirectory in the source directory (if different).
+# Compile the firmware -- output is FPGA1394V3-DQLA.bit
 ise_compile_fpga(PROJ_NAME      "FPGA1394V3-DQLA"
                  DEPENDENCIES   "CoreGenV3" "PlatgenV3"
                  FPGA_PARTNUM   ${FPGAV3_PARTNUM}
@@ -265,8 +263,7 @@ set (VERILOG_SOURCE_FPGAV3_DRAC
                          ${VERILOG_SOURCE_FPGAV3}
                          ${VERILOG_SOURCE_DRAC})
 
-# Compile the firmware -- output is FPGA1394V3-DRAC.mcs, which is copied
-# to the Generated subdirectory in the source directory (if different).
+# Compile the firmware -- output is FPGA1394V3-DRAC.bit
 ise_compile_fpga(PROJ_NAME      "FPGA1394V3-DRAC"
                  DEPENDENCIES   "CoreGenV3" "PlatgenV3"
                  FPGA_PARTNUM   ${FPGAV3_PARTNUM}
@@ -286,8 +283,7 @@ set (VERILOG_SOURCE_FPGAV3_BCFG
                          ${VERILOG_SOURCE_FPGAV3}
                          ${VERILOG_SOURCE_BCFG})
 
-# Compile the firmware -- output is FPGA1394V3-BCFG.bit, which is copied
-# to the Generated subdirectory in the source directory (if different).
+# Compile the firmware -- output is FPGA1394V3-BCFG.bit
 ise_compile_fpga(PROJ_NAME      "FPGA1394V3-BCFG"
                  DEPENDENCIES   "CoreGenV3" "PlatgenV3"
                  FPGA_PARTNUM   ${FPGAV3_PARTNUM}
