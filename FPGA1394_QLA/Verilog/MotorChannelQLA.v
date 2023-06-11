@@ -56,9 +56,9 @@ initial cur_cmd = 16'h8000;
 reg[7:0] delay_cnt;
 initial delay_cnt = 8'd120;  // 120 --> 2.5 ms delay
 
-// Motor current limit
+// Motor current limit (always positive)
 reg[15:0] cur_lim;
-initial cur_lim = 16'h8418;  // 200mA
+initial cur_lim = 16'h0418;  // 200mA
 
 reg force_disable_f;
 
@@ -74,7 +74,7 @@ reg disable_safety;
 //    25:   1 -> voltage control available (R/O)
 //    24:   1 -> (analog) current control available (R/O)
 // 23-16:   delay (20.83 us resolution)
-//  15-0:   motor current limit
+//  15-0:   motor current limit (0.19 mA resolution, always positive)
 
 assign motor_config = { disable_safety, force_disable_f, 4'd0, ioexp_present, 1'b1,
                         delay_cnt, cur_lim };
@@ -196,7 +196,7 @@ begin
         disable_safety <= reg_wdata_int[31];
         force_disable_f <= reg_wdata_int[30];
         delay_cnt <= reg_wdata_int[25] ? reg_wdata_int[23:16] : delay_cnt;
-        cur_lim <= reg_wdata_int[24] ? reg_wdata_int[15:0] : cur_lim;
+        cur_lim <= reg_wdata_int[24] ? {1'b0, reg_wdata_int[14:0]} : cur_lim;
     end
     else if (status_reg_wen_int) begin
         reg_disable <= (~pwr_enable) | safety_disable | (reg_wdata_int[CHANNEL+7] ? ~reg_wdata_int[CHANNEL-1] : reg_disable);
