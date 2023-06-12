@@ -522,14 +522,19 @@ wire reg_waddr_dac;
 assign reg_waddr_dac = ((reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[7:4] != 4'd0) &&
                         (reg_waddr[3:0]==`OFF_DAC_CTRL)) ? 1'd1 : 1'd0;
 
-wire dac_update;
+// Following handles case where a single DAC is updated (e.g., via a quadlet write),
+// since reg_wen and blk_wen are asserted at the same time.
+wire dac_update_single;
+assign dac_update_single = reg_wen&reg_wdata[31];
+
+wire dac_update_block;    // Any DAC was updated in WriteRtData
 wire dac_busy;
 reg  cur_cmd_req;
 reg  cur_cmd_updated;
 
 always @(posedge(sysclk))
 begin
-    if (reg_waddr_dac&blk_wen&dac_update) begin
+    if (reg_waddr_dac&blk_wen&(dac_update_block|dac_update_single)) begin
         cur_cmd_req <= dac_busy;
         cur_cmd_updated <= ~dac_busy;
     end
@@ -1025,7 +1030,7 @@ WriteRtData #(.NUM_MOTORS(8)) rt_write(
     .bw_block_wstart(bw_blk_wstart),
     .bw_reg_waddr(bw_reg_waddr),
     .bw_reg_wdata(bw_reg_wdata),
-    .dac_update(dac_update)
+    .dac_update(dac_update_block)
 );
 
 //------------------------------------------------------------------------------
