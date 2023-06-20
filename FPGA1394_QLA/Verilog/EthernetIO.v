@@ -9,6 +9,12 @@
  * interfaces to the link layer for the KSZ8851 MAC/PHY chip (FPGA V2) or the
  * link layer for the RTL8211F PHY chip (FPGA V3).
  *
+ * There are two parameters to the module:
+ *   IPv4_CSUM    Default is 0 (FPGA V2), set to 1 for FPGA V3
+ *   IS_V3        Default is 0 (FPGA V2), set to 1 for FPGA V3
+ * Since both parameter settings are based on FPGA version, they could be combined,
+ * but are kept separate for greater flexibility in the future.
+ *
  * Revision history
  *     12/21/15    Peter Kazanzides    Initial Revision
  *     11/28/16    Zihan Chen          Added Disable/Enable in RECEIVE
@@ -36,7 +42,8 @@
 `define FW_BWRITE_HDR_SIZE 16'd20  // Firewire block write header size
 
 module EthernetIO
-    #(parameter IPv4_CSUM = 0)     // Set to 1 to generate IPv4 header checksum
+    #(parameter IPv4_CSUM = 0,     // Set to 1 to generate IPv4 header checksum
+      parameter IS_V3 = 0)         // Set to 1 to indicate FPGA V3 timing
 (
     // global clock
     input wire sysclk,
@@ -610,9 +617,19 @@ wire[9:0] writeRequestTrigger;
 // block_data_length[13:4]  -->  block_data_length[10:1]>>3
 // block_data_length[16:7]  -->  block_data_length[10:1]>>6
 // (where block_data_length[10:1] is the number of words and we assume that the upper bits are 0)
-assign writeRequestTrigger = (`FW_BWRITE_HDR_SIZE>>1) + block_data_length[11:2]
-                             + block_data_length[13:4] - {1'b0, block_data_length[15:7]} + 10'd2;
-reg[8:0] bw_left;
+// We add 2 words to provide some margin and handle round-off.
+generate
+if (IS_V3) begin
+  assign writeRequestTrigger = (`FW_BWRITE_HDR_SIZE>>1) + block_data_length[11:2] + 10'd2;
+end
+else begin
+  assign writeRequestTrigger = (`FW_BWRITE_HDR_SIZE>>1) + block_data_length[11:2]
+                               + block_data_length[13:4] - {1'b0, block_data_length[15:7]} + 10'd2;
+end
+endgenerate
+
+reg      bw_err;     // Block write error (block write not active when expected)
+reg[8:0] bw_left;    // Number of quadlets left to write when processing last Firewire quadlet
 
 // -----------------------------------------------
 // Extra data sent to PC with every Firewire packet
@@ -648,7 +665,7 @@ assign DebugData[4]  = { fw_ctrl, host_fw_addr };                          // 16
 assign DebugData[5]  = { sendState, txPktWords, nextSendState, 12'd0 };    // 4, 12, 4, 12 (rxPktWords)
 assign DebugData[6]  = { 6'd0, numUDP, 6'd0, numIPv4 };                    // 6, 10, 6, 10
 assign DebugData[7]  = { 8'd0, numICMP, fw_bus_gen, numARP };              // 8, 8, 8, 8
-assign DebugData[8]  = { 7'd0, bw_left, 5'd0, bwState, numPacketError };   // 7, 9, 5, 3, 8
+assign DebugData[8]  = { 7'd0, bw_left, bw_err, 4'd0, bwState, numPacketError };   // 7, 9, 1, 4, 3, 8
 assign DebugData[9]  = 32'd0;
 assign DebugData[10] = 32'd0;
 assign DebugData[11] = 32'd0;
@@ -845,6 +862,14 @@ begin
 
    if (sample_start && sample_busy) begin
       sample_start <= 1'd0;
+   end
+
+   if (writeRequestQuad && eth_write_en) begin
+      writeRequestQuad <= 1'd0;
+   end
+
+   if (writeRequestBlock && eth_write_en) begin
+      writeRequestBlock <= 1'd0;
    end
 
    if (resetActive|clearErrors) begin
@@ -1067,6 +1092,12 @@ begin
          end
          else if ((rfw_count == 10'd7) && quadWrite) begin
             fw_quadlet_data <= FireWireQuadlet;
+            // Set writeRequestQuad for local quadlet write, if not also remote (i.e., not broadcast).
+            // For broadcast quadlet write, we first forward to Firewire, then set writeRequestQuad
+            // when we receive the ack (eth_send_fw_ack).
+            // The only case where this is necessary is for the broadcast query command, but we do
+            // it consistently for all broadcast quadlet writes.
+            writeRequestQuad <= isLocal&(~isRemote);
          end
          else if ((rfw_count == 10'd9) && blockWrite && addrMain) begin
             doRtBlock <= isLocal;
@@ -1083,18 +1114,11 @@ begin
                if ((addrMain && blockRead) || ((fw_dest_offset == {`ADDR_HUB, 12'h800 }) && quadWrite)) begin
                   sample_start <= 1;
                end
-               // Set writeRequestQuad for local quadlet write, if not also remote (i.e., not broadcast).
-               // For broadcast quadlet write, we first forward to Firewire, then set writeRequestQuad
-               // when we receive the ack (eth_send_fw_ack).
-               // The only case where this is necessary is for the broadcast query command, but we do
-               // it consistently for all broadcast quadlet writes.
-               writeRequestQuad <= quadWrite&(~isRemote);
-               // Set writeRequestBlock for all block writes (even broadcast), except for real-time
-               // block write (to addrMain), which is handled separately.
-               // Note that writeRequestBlock was probably set earlier (using writeRequestTrigger),
-               // but it is set again here just in case.
-               writeRequestBlock <= blockWrite&(~addrMain);
-               if (blockWrite&(~addrMain)) begin  // if writeRequestBlock
+               if (blockWrite&(~addrMain)) begin
+                  // writeRequestBlock should have been set earlier (using writeRequestTrigger) for all
+                  // local block writes (even broadcast), except for real-time block write (to addrMain),
+                  // which is handled separately. We expect write to still be active.
+                  bw_err <= ~eth_write_en;
                   // Number of quadlets left to write to registers; should be greater than 1,
                   // otherwise the register writer may have overtaken the Ethernet reader.
                   bw_left <= block_data_length[10:2] + 9'd5 - local_raddr;
@@ -1474,9 +1498,10 @@ end
 // the first 5 quadlets are the block write header, which do not get written
 // to the registers.
 //
-// For the RTL8211F, the receive process uses 3 sysclk for reading each word,
+// For the RTL8211F, the receive process uses 4 sysclk for reading each word,
 // so data is available faster. It is ok (though not optimal) to use the
-// KSZ8851 timing.
+// KSZ8851 timing, so the IS_V3 parameter is used to improve the timing.
+// In this case, quadlet N is available at t = 8*N*sysclk.
 //
 // The register block write process (below) is timed as follows:
 //   4 sysclk (80 nsec) for blk_wstart at beginning
@@ -1491,18 +1516,28 @@ end
 // reader stays ahead of the writer. We do this by setting the time when
 // writeRequestBlock is set; specifically when quadlet M is being stored
 // (see writeRequestTrigger).
-//     10*(N-M)*sysclk < 4(N+1)*sysclk
-//     M > (3N-2)/5
-// This is not the most convenient computationally on an FPGA, so we choose
-// a more conservative bound.
-//     3/5 == 1/2 + 1/10 (0.6), which is less than 1/2 + 1/8 (0.625)
-// Thus, it is sufficient to choose M = 2 + N/2 + N/8, which can be implemented
-// by shifting and adding. For an even better approximation, choose
-// M = 2 + N/2 + N/8 - N/64, where 1/2+1/8-1/64 = 0.609.
 //
-// The reader actually works with words, rather than quadlets, and has to
-// add the length of the block write header, which leads to the equation
-// above for setting writeRequestTrigger.
+// For KSZ8851:
+//   10(N-M)*sysclk < 4(N+1)*sysclk
+//   M > (3N-2)/5
+//
+//   This is not the most convenient computationally on an FPGA, so we choose
+//   a more conservative bound.
+//       3/5 == 1/2 + 1/10 (0.6), which is less than 1/2 + 1/8 - 1/64 = 0.609.
+//   Thus, it is sufficient to choose M = N/2 + N/8 - N/64, which can be
+//   implemented by shifting and adding/subtracting.
+//
+// For RTL8211F:
+//   8(N-M)*sysclk < 4(N+1)*sysclk
+//   M > (N-1)/2
+//
+//   Thus, it is sufficient to choose M = N/2, which can easily be implemented
+//   in an FPGA (shift by 2).
+//
+// The reader actually works with words, rather than quadlets, and has to add the
+// length of the block write header. In addition, we add 2 to provide some margin (and
+// handle round-off), which leads to the equation above for setting writeRequestTrigger.
+//
 
 parameter[2:0]
    BW_IDLE = 0,
@@ -1609,7 +1644,6 @@ begin
       bw_local_active <= 0;   // Stop accessing memory
       // Wait 60 nsec before asserting eth_block_wen
       if (bwCnt == 2'd3) begin
-         // writeRequestBlock should have been cleared by now
          eth_block_wen <= 1'b1;
          bwState <= BW_IDLE;
       end
