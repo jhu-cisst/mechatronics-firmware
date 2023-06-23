@@ -93,6 +93,10 @@ endgenerate
 reg[11:0] last_sendCnt;
 reg[11:0] last_responseBC;
 
+`ifdef HAS_DEBUG_DATA
+reg[9:0] bw_wait;      // Time waiting for block write to finish
+`endif
+
 reg[11:0] rxPktWords;  // Num of words in receive queue
 
 reg[11:0] recvCnt;     // Counts number of received words
@@ -125,6 +129,7 @@ reg[15:0] timeSend;          // Time when send portion finished
 reg[15:0] numPacketValid;    // Number of valid Ethernet frames received
 reg[7:0]  numPacketFlushed;  // Number of received Ethernet frames flushed
 reg[7:0]  numPacketSent;     // Number of packets sent to host PC
+reg[7:0]  recvFlushCnt;      // Number of words flushed
 `endif
 
 // sendCtrl==100 when sending not active
@@ -183,7 +188,12 @@ begin
         sendCnt <= 12'd0;
         isForward <= 0;
         send_info_wr_en <= 2'b00;
-        if (initOK[curPort] & sendReq & (~send_fifo_full[curPort])) begin
+        if (bw_active) begin
+`ifdef HAS_DEBUG_DATA
+            bw_wait <= bw_wait + 10'd1;
+`endif
+        end
+        else if (initOK[curPort] & sendReq & (~send_fifo_full[curPort])) begin
             // forward packet from FireWire
             // Note: This will forward it via the currently active port.
             // To support simultaneous use of ports 0 and 1, it would be best
@@ -194,7 +204,7 @@ begin
             sendRequest <= 1;
             state <= ST_SEND_WAIT;
         end
-        else if (initOK[curPort] & (~bw_active) & (~recv_info_fifo_empty[curPort])) begin
+        else if (initOK[curPort] & (~recv_info_fifo_empty[curPort])) begin
             rxPktWords <= ((recv_info_dout[curPort][11:0]+12'd3)>>1)&12'hffe;
             recv_first_byte_out <= recv_info_dout[curPort][23:16];
             recv_info_rd_en[curPort] <= 1'b1;
@@ -203,18 +213,18 @@ begin
             recvRequest <= ~recv_info_dout[curPort][`ETH_RECV_FLUSH_BIT];
             recvReady <= 1'b0;
             dataValid <= 1'b0;
-            // If flushing packet, just stay in recvTransition state
-            recvTransition <= recv_info_dout[curPort][`ETH_RECV_FLUSH_BIT];
+            recvTransition <= 1'b0;
             recvWait <= 1'b0;
             state <= recv_info_dout[curPort][`ETH_RECV_FLUSH_BIT] ? ST_RECEIVE : ST_RECEIVE_WAIT;
 `ifdef HAS_DEBUG_DATA
+            recvFlushCnt <= 8'd0;
             if (recv_info_dout[curPort][`ETH_RECV_FLUSH_BIT])
                 numPacketFlushed <= numPacketFlushed + 8'd1;
             else
                 numPacketValid <= numPacketValid + 16'd1;
 `endif
         end
-        else if (initOK[~curPort] & (~bw_active) & (~recv_info_fifo_empty[~curPort])) begin
+        else if (initOK[~curPort] & (~recv_info_fifo_empty[~curPort])) begin
             // If the other port has data, we switch curPort.
             // Note that this implementation only works for NUM==2.
             curPort <= ~curPort;
@@ -244,15 +254,23 @@ begin
             recvTransition <= dataValid;      // 1 clock after dataValid
             recvWait <= recvTransition;
         end
+`ifdef HAS_DEBUG_DATA
+        // Following counts number of words flushed in a valid packet
+        if (curPacketValid & (~recvBusy))
+            recvFlushCnt <= recvFlushCnt + 8'd1;
+`endif
         recv_rd_en[curPort] <= (dataValid|(~curPacketValid));
         if (dataValid && (recvCnt == 12'd0)) begin
+            // Currently, do not check for recv_fifo_error when flushing packet, since dataValid
+            // is never set in that case
             recv_fifo_error[curPort] <= (recv_fifo_dout[curPort][15:8] == recv_first_byte_out) ? 1'b0 : 1'b1;
             // May not be easy to handle an error if it occurs
 `ifdef HAS_DEBUG_DATA
             recv_first_byte <= recv_fifo_dout[curPort][15:8];
 `endif
         end
-        if (recvTransition) begin
+        // Check for end of packet.
+        if (~curPacketValid | recvTransition) begin
             if (recvCnt == rxPktWords) begin
                 sendRequest <= curPacketValid&responseRequired;
                 timeReceive <= timeNow;
@@ -333,9 +351,9 @@ assign DebugData[1] = { curPort, curPacketValid, sendRequest, send_ipv4,    // 3
                         24'd0 };
 assign DebugData[2] = { recv_first_byte, recv_first_byte_out, 4'd0, rxPktWords };   // 8, 8, 12
 assign DebugData[3] = { numPacketSent, numPacketFlushed, numPacketValid };  // 8, 8, 16
-assign DebugData[4] = { 4'd0, last_sendCnt, 4'd0, last_responseBC };
+assign DebugData[4] = { 6'd0, bw_wait, 4'd0, last_responseBC };
 assign DebugData[5] = { timeSend, timeReceive };
-assign DebugData[6] = 32'd0;
+assign DebugData[6] = { 8'd0, recvFlushCnt, 4'd0, last_sendCnt };
 assign DebugData[7] = 32'd0;
 `endif
 

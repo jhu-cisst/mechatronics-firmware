@@ -371,7 +371,9 @@ reg[7:0]  numPacketInvalid;  // Number of invalid Ethernet frames received
 reg[7:0] numPacketSent;      // Number of packets sent to host PC
 `endif
 
+`ifdef HAS_DEBUG_DATA
 reg[9:0] bw_wait;
+`endif
 
 // -----------------------------------------------
 // Debug data
@@ -1133,8 +1135,9 @@ always @(posedge sysclk) begin
       if (~recvBusy) begin
          isDMARead <= 1'b0;
          waitInfo <= WAIT_NONE;
-         // Previous implementation checked "if (blockWrite)"
-         bw_wait <= 10'd0;
+`ifdef HAS_DEBUG_DATA
+         if (bw_active) bw_wait <= 10'd0;
+`endif
          runPC <= ID_FLUSH_FRAME;
       end
    end
@@ -1153,11 +1156,13 @@ always @(posedge sysclk) begin
          waitInfo <= WAIT_FLUSH;
       end
       else if (bw_active) begin
+`ifdef HAS_DEBUG_DATA
          // Track time we are waiting for block write to finish.
          // Experimentally determined that it takes about 20-23 clocks to flush
          // the queue (i.e., after bw_left is latched). Thus, the ideal range
          // for bw_left is 2-6 (for local block write).
          bw_wait <= bw_wait + 10'd1;
+`endif
       end
       else begin
          timeReceive <= timeSinceIRQ;
