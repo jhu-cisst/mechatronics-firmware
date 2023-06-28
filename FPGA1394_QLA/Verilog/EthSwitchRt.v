@@ -86,7 +86,7 @@ genvar i;
 generate 
 for (i = 1; i <= NUM; i = i + 1) begin : gen_loop
     assign recv_fifo_dout[i-1] = recv_fifo_dout_vec[(16*i-1):(16*(i-1))];
-    assign recv_info_dout[i-1] = recv_info_dout_vec[(16*i-1):(16*(i-1))];
+    assign recv_info_dout[i-1] = recv_info_dout_vec[(32*i-1):(32*(i-1))];
 end 
 endgenerate
 
