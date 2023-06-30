@@ -142,7 +142,8 @@ assign sendIncr = sendCtrl[2];
 
 reg[7:0] recv_first_byte_out;
 `ifdef HAS_DEBUG_DATA
-reg [7:0] recv_first_byte;
+reg[7:0] recv_first_byte;
+reg[7:0] recv_fifo_error_cnt;
 `endif
 
 // ----------------------------------------------------------------------------
@@ -178,6 +179,12 @@ begin
     // which clearErrors is set.
     recv_fifo_error <= recv_fifo_error&(~(resetActiveIn|clearErrors));
     send_fifo_overflow <= send_fifo_overflow&(~(resetActiveIn|clearErrors));
+
+`ifdef HAS_DEBUG_DATA
+    if (clearErrors) begin
+        recv_fifo_error_cnt <= 8'd0;
+    end
+`endif
 
     case (state)
 
@@ -271,10 +278,12 @@ begin
         recv_rd_en[curPort] <= (recvCnt == rxPktWords) ? 1'b0 : dataValid;
 
         if (dataValid && (recvCnt == 12'd0)) begin
-            recv_fifo_error[curPort] <= (recv_fifo_dout[curPort][15:8] == recv_first_byte_out) ? 1'b0 : 1'b1;
+            recv_fifo_error[curPort] <= (recv_word[15:8] == recv_first_byte_out) ? 1'b0 : 1'b1;
             // May not be easy to handle an error if it occurs
 `ifdef HAS_DEBUG_DATA
-            recv_first_byte <= recv_fifo_dout[curPort][15:8];
+            recv_first_byte <= recv_word[15:8];
+            if (recv_word[15:8] != recv_first_byte_out)
+                recv_fifo_error_cnt <= recv_fifo_error_cnt + 8'd1;
 `endif
         end
         // Check for end of packet.
@@ -282,6 +291,9 @@ begin
             if (recvCnt == rxPktWords) begin
                 sendRequest <= curPacketValid&responseRequired;
                 timeReceive <= timeNow;
+`ifdef HAS_DEBUG_DATA
+                if (bw_active) bw_wait <= 10'd0;
+`endif
                 state <= (curPacketValid&responseRequired) ? ST_SEND_WAIT : ST_IDLE;
             end
             else begin
@@ -361,7 +373,7 @@ assign DebugData[2] = { recv_first_byte, recv_first_byte_out, 4'd0, rxPktWords }
 assign DebugData[3] = { numPacketSent, numPacketFlushed, numPacketValid };  // 8, 8, 16
 assign DebugData[4] = { 6'd0, bw_wait, 4'd0, last_responseBC };
 assign DebugData[5] = { timeSend, timeReceive };
-assign DebugData[6] = { 8'd0, recvFlushCnt, 4'd0, last_sendCnt };
+assign DebugData[6] = { recv_fifo_error_cnt, recvFlushCnt, 4'd0, last_sendCnt };
 assign DebugData[7] = 32'd0;
 `endif
 

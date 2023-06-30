@@ -289,10 +289,13 @@ end
 // ----------------------------------------------------------------------------
 
 localparam
-    ST_RX_IDLE = 1'd0,
-    ST_RX_RECV = 1'd1;
+    ST_RX_IDLE     = 2'd0,
+    ST_RX_PREAMBLE = 2'd1,
+    ST_RX_RECV     = 2'd2,
+    ST_RX_FINISH   = 2'd3;
 
-reg rxState;
+reg[1:0] rxState;
+reg rxStateError;
 
 // crc registers
 wire[7:0] recv_crc_data;    // data into crc module to compute crc on
@@ -443,18 +446,39 @@ begin
             recv_fifo_reset <= 1'b0;
     end
 
-    if (RxValid) begin
-        recv_byte <= RxD;
+    if (clearErrors) begin
+        rxStateError <= 1'b0;
+    end
+
+    case (rxState)
+
+    ST_RX_IDLE:
+    begin
+        recv_nbytes <= 12'd0;
+        recv_fifo_nb <= 12'd0;
+        recv_wr_en <= 1'b0;
+        // Note that recv_fifo_reset_req will only be acted upon in the IDLE state
+        if (~recv_fifo_reset & recv_fifo_reset_req) begin
+            recv_fifo_reset <= 1'b1;
+            // Following not needed because cnt should be 0 when reset not active
+            // recv_fifo_reset_cnt <= 3'd0;
+        end
         recv_info_wr_en <= 1'b0;
-        if (rxState == ST_RX_IDLE) begin
-            // Here, ST_RX_IDLE means receiving preamble
-            recv_wr_en <= 1'b0;
+        recv_preamble_error <= 1'b0;
+        if (RxValid) begin
+            recv_preamble_cnt <= (RxD == 8'h55) ? 3'd1 : 3'd0;
+            rxState <= ST_RX_PREAMBLE;
+        end
+    end
+
+    ST_RX_PREAMBLE:
+    begin
+        if (RxValid) begin
             if (RxD == 8'h55) begin
                 recv_preamble_cnt <= recv_preamble_cnt + 3'd1;
             end
             else begin
                 rxState <= ST_RX_RECV;
-                recv_preamble_cnt <= 3'd0;
                 recv_crc_in <= 32'hffffffff;    // Initialize CRC
                 recv_fifo_was_empty <= recv_fifo_empty;
                 recv_fifo_overflow <= 1'b0;
@@ -464,7 +488,17 @@ begin
                 end
             end
         end
-        else begin      // (rxState == ST_RX_RECV)
+        else begin
+            // Here, the preamble was terminated prematurely;
+            // This is not a significant problem.
+            rxState <= ST_RX_IDLE;
+        end
+    end
+
+    ST_RX_RECV:
+    begin
+        if (RxValid) begin
+            recv_byte <= RxD;
             if (recv_nbytes[11:4] == 8'd0) begin
                 // Save first 16 bytes (Ethernet header is 14 bytes)
                 frame_header[recv_nbytes[3:0]] <= RxD;
@@ -493,27 +527,7 @@ begin
             recv_nbytes <= recv_nbytes + 12'd1;
             recv_crc_in <= recv_crc_8b;
         end
-    end
-    else begin
-        if (rxState == ST_RX_IDLE) begin
-            recv_nbytes <= 12'd0;
-            recv_fifo_nb <= 12'd0;
-            recv_preamble_cnt <= 3'd0;
-            recv_wr_en <= 1'b0;
-            // Note that recv_fifo_reset_req will only be acted upon in the IDLE state
-            if (~recv_fifo_reset & recv_fifo_reset_req) begin
-                recv_fifo_reset <= 1'b1;
-                // Following not needed because cnt should be 0 when reset not active
-                // recv_fifo_reset_cnt <= 3'd0;
-            end
-            recv_info_wr_en <= 1'b0;
-            recv_preamble_error <= 1'b0;
-        end
         else begin
-            // This state is entered when a receive has just ended;
-            // rxState should be ST_RX_RECV and recv_nbytes should be non-zero.
-            rxState <= ST_RX_IDLE;
-            recv_info_wr_en <= 1'b0;
             // If an odd number of bytes in FIFO, pad with 0; not necessary to
             // check for FIFO full (overflow) in this case because FIFO has
             // an even number of bytes.
@@ -521,22 +535,41 @@ begin
             recv_wr_en <= recv_nbytes[0]&writeToRecvFifo;
             if (recv_fifo_nb[0]&writeToRecvFifo)
                 recv_fifo_nb <= recv_fifo_nb + 12'd1;
-            if (recv_nbytes != 12'd0) begin
-                if (recv_flush&recv_fifo_was_empty) begin
-                    recv_fifo_reset <= 1'b1;
-                    // Following not needed because cnt should be 0 when reset not active
-                    // recv_fifo_reset_cnt <= 3'd0;
-`ifdef HAS_DEBUG_DATA
-                    numRxDropped <= numRxDropped + 8'd1;
-`endif
-                end
-                else begin
-                    // Write to recv_info FIFO (on next RxClk)
-                    recv_info_wr_en <= ~recv_info_fifo_full;
-                end
-            end
+
+            // As long as bytes were received, go to ST_RX_FINISH
+            rxState <= (recv_nbytes == 12'd0) ? ST_RX_IDLE : ST_RX_FINISH;
         end
     end
+
+    ST_RX_FINISH:
+    begin
+        // This state is entered when a receive has just ended
+        // RxValid should still be 0
+
+        rxState <= ST_RX_IDLE;
+        if (recv_flush&recv_fifo_was_empty) begin
+            // If we need to flush the packet and can just reset the recv_fifo
+            recv_fifo_reset <= 1'b1;
+            // Following not needed because cnt should be 0 when reset not active
+            // recv_fifo_reset_cnt <= 3'd0;
+`ifdef HAS_DEBUG_DATA
+            numRxDropped <= numRxDropped + 8'd1;
+`endif
+        end
+        else begin
+            // Write to recv_info FIFO (on next RxClk)
+            recv_info_wr_en <= ~recv_info_fifo_full;
+        end
+    end
+
+    default:
+    begin
+        rxStateError <= 1'b1;
+        rxState <= ST_RX_IDLE;
+    end
+
+    endcase
+
 end
 
 // ----------------------------------------------------------------------------
@@ -1063,9 +1096,9 @@ assign DebugData[1] = { RxErr, recv_preamble_error, recv_fifo_reset, recv_fifo_f
                         ~IRQn_latched, 1'd0, send_fifo_error, recv_ipv4,                  // 19:16
                         recv_ipv4_err, recv_udp, 1'd0, hasIRQ,                            // 15:12
                         isUnicast, isMulticast, isBroadcast, initOK,                      // 11:8
-                        txStateError, 7'd0 };
-assign DebugData[2] = { 4'd0, speed_mode, clock_speed, state, txState, rxState, numIRQ, numReset };
-                      //          2,          2,         4       3,       1
+                        txStateError, rxStateError, 6'd0 };
+assign DebugData[2] = {  speed_mode, clock_speed, state, 1'b0, txState, 2'b0, rxState, numIRQ, numReset };
+                      //      2,          2,         4            3,            2
 assign DebugData[3] = recv_crc_in;
 assign DebugData[4] = { numRxDropped, 8'd0, send_first_byte_out, numTxSent };
 assign DebugData[5] = send_crc_in;
