@@ -187,7 +187,8 @@ begin
         recvCnt <= 12'd0;
         sendCnt <= 12'd0;
         isForward <= 0;
-        send_info_wr_en <= 2'b00;
+        send_info_wr_en <= {NUM{1'b0}};
+        recv_rd_en <= {NUM{1'b0}};
         if (bw_active) begin
 `ifdef HAS_DEBUG_DATA
             bw_wait <= bw_wait + 10'd1;
@@ -249,7 +250,7 @@ begin
     ST_RECEIVE:
     begin
         timeNow <= timeNow + 16'd1;
-        recv_info_rd_en <= 2'b00;
+        recv_info_rd_en <= {NUM{1'b0}};
         // Normal packet processing occurs when recvBusy is 1, in which case we
         // cycle through 4 states: recvReady, dataValid, recvTransition and recvWait.
         // Note that only recvReady is sent to EthernetIO.
@@ -320,7 +321,7 @@ begin
                     send_ipv4 <= (send_word == 16'h0008) ? 1'b1 : 1'b0;
             end
             else begin
-                send_wr_en <= 2'b00;
+                send_wr_en <= {NUM{1'b0}};
                 if (sendIncr)
                     sendCnt <= sendCnt + 12'd2;  // Bytes
             end
@@ -329,7 +330,7 @@ begin
             // All done
             // Compare sendCnt to responseByteCount
             sendCtrl <= 3'b100;
-            send_wr_en <= 2'b00;
+            send_wr_en <= {NUM{1'b0}};
             last_sendCnt <= sendCnt;    // for debugging
             last_responseBC <= responseByteCount;  // for debugging
             send_info_wr_en[curPort] <= 1'b1;
