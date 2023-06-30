@@ -208,6 +208,7 @@ begin
             rxPktWords <= ((recv_info_dout[curPort][11:0]+12'd3)>>1)&12'hffe;
             recv_first_byte_out <= recv_info_dout[curPort][23:16];
             recv_info_rd_en[curPort] <= 1'b1;
+            recv_rd_en[curPort] <= 1'b1;   // Get first word from FIFO
             curPacketValid <= ~recv_info_dout[curPort][`ETH_RECV_FLUSH_BIT];
             // Request EthernetIO to receive if packet valid (flush if not valid).
             recvRequest <= ~recv_info_dout[curPort][`ETH_RECV_FLUSH_BIT];
@@ -237,6 +238,7 @@ begin
     begin
         // Wait for recvRequest to be acknowledged
         timeNow <= timeNow + 16'd1;
+        recv_rd_en[curPort] <= 1'b0;
         if (recvBusy) begin
             recvRequest <= 1'b0;
             recvReady <= 1'b1;
@@ -248,21 +250,26 @@ begin
     begin
         timeNow <= timeNow + 16'd1;
         recv_info_rd_en <= 2'b00;
-        if (curPacketValid) begin
-            recvReady <= recvWait;
-            dataValid <= recvReady;           // 1 clock after recvReady
-            recvTransition <= dataValid;      // 1 clock after dataValid
-            recvWait <= recvTransition;
-        end
+        // Normal packet processing occurs when recvBusy is 1, in which case we
+        // cycle through 4 states: recvReady, dataValid, recvTransition and recvWait.
+        // Note that only recvReady is sent to EthernetIO.
+        // If recvBusy is 0, we just flush the data. In this case, recvRead is 0,
+        // and dataValid and recvTransition are both 1.
+        // Note that EthernetIO clears recvBusy in idle state, which it can enter one
+        // clock cycle after recvTransition. This will happen for packets shorter
+        // than the Ethernet minimum (64 bytes), which are padded to 64 bytes.
+        recvReady <= recvBusy & recvWait;
+        dataValid <= ~recvBusy | recvReady;        // 1 clock after recvReady
+        recvTransition <= ~recvBusy | dataValid;   // 1 clock after dataValid
+        recvWait <= recvTransition;
 `ifdef HAS_DEBUG_DATA
         // Following counts number of words flushed in a valid packet
-        if (curPacketValid & (~recvBusy))
+        if (~recvBusy & curPacketValid)
             recvFlushCnt <= recvFlushCnt + 8'd1;
 `endif
-        recv_rd_en[curPort] <= (dataValid|(~curPacketValid));
+        recv_rd_en[curPort] <= (recvCnt == rxPktWords) ? 1'b0 : dataValid;
+
         if (dataValid && (recvCnt == 12'd0)) begin
-            // Currently, do not check for recv_fifo_error when flushing packet, since dataValid
-            // is never set in that case
             recv_fifo_error[curPort] <= (recv_fifo_dout[curPort][15:8] == recv_first_byte_out) ? 1'b0 : 1'b1;
             // May not be easy to handle an error if it occurs
 `ifdef HAS_DEBUG_DATA
@@ -270,7 +277,7 @@ begin
 `endif
         end
         // Check for end of packet.
-        if (~curPacketValid | recvTransition) begin
+        if (recvTransition) begin
             if (recvCnt == rxPktWords) begin
                 sendRequest <= curPacketValid&responseRequired;
                 timeReceive <= timeNow;

@@ -378,7 +378,6 @@ wire isRaw;
 // The frame is considered raw if it has a length, rather than an EtherType.
 // The Ethernet standard allows lengths up to 1500 bytes, but we limit to 1024 bytes.
 // Thus, we check if the upper 6 bits are 0 (i.e., if length is no more than 10 bits).
-// Note: a better implementation could use B03 in the FrameStatus
 assign isRaw = (Eth_EtherType[15:10] == 6'd0) ? 1'd1 : 1'd0;
 
 //********************************* ARP Packet ***********************************

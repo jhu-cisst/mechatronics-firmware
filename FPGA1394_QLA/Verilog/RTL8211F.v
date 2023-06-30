@@ -313,6 +313,14 @@ reg recv_ipv4_err;           // 1 -> IPv4 checksum error
 
 reg  recv_fifo_reset_req;    // Recv FIFO reset request via Ethernet control register
 reg  recv_fifo_reset;
+
+// Xilinx recommends asserting reset for at least 3 cycles of the slowest clock.
+// In this implementation, the reset is asserted with respect to the write clock,
+// which is either 2.5 MHz, 25 MHz, or 125 MHz depending on the Ethernet link speed.
+// But, the read clock is 49.152 MHz (20.345 ns), so we need to assert reset for at least
+// 8 clock cycles, in case the 125 MHz (8 ns) clock is active (20.345*3/8 = 7.63).
+reg[2:0] recv_fifo_reset_cnt;
+
 reg  recv_wr_en;
 wire recv_fifo_full;
 reg[7:0]   recv_byte;
@@ -419,11 +427,21 @@ assign recv_info_din = { recv_flush, 1'b0, recv_fifo_overflow, ~isForThis,      
                          recv_fifo_nb };                                              // [11:0]
 
 `ifdef HAS_DEBUG_DATA
-reg[7:0]  numRxDropped;   // Number of irrelevant or erroneous packets dropped by Rx loop
+reg[7:0] numRxDropped;   // Number of irrelevant or erroneous packets dropped by Rx loop
 `endif
 
 always @(posedge RxClk)
 begin
+
+    // Enforce fifo reset pulse timing. Note that reset can only be asserted when RxValid is 0,
+    // but we do not worry about RxValid becoming 1 during the fifo reset pulse because we do not
+    // need to access the recv_fifo while processing the preamble.
+    if (recv_fifo_reset) begin
+        recv_fifo_reset_cnt <= recv_fifo_reset_cnt + 3'd1;
+        // Note that recv_fifo_reset_cnt will be 0 when reset deasserted
+        if (recv_fifo_reset_cnt == 3'd7)
+            recv_fifo_reset <= 1'b0;
+    end
 
     if (RxValid) begin
         recv_byte <= RxD;
@@ -483,7 +501,11 @@ begin
             recv_preamble_cnt <= 3'd0;
             recv_wr_en <= 1'b0;
             // Note that recv_fifo_reset_req will only be acted upon in the IDLE state
-            recv_fifo_reset <= recv_fifo_reset_req;
+            if (~recv_fifo_reset & recv_fifo_reset_req) begin
+                recv_fifo_reset <= 1'b1;
+                // Following not needed because cnt should be 0 when reset not active
+                // recv_fifo_reset_cnt <= 3'd0;
+            end
             recv_info_wr_en <= 1'b0;
             recv_preamble_error <= 1'b0;
         end
@@ -502,6 +524,8 @@ begin
             if (recv_nbytes != 12'd0) begin
                 if (recv_flush&recv_fifo_was_empty) begin
                     recv_fifo_reset <= 1'b1;
+                    // Following not needed because cnt should be 0 when reset not active
+                    // recv_fifo_reset_cnt <= 3'd0;
 `ifdef HAS_DEBUG_DATA
                     numRxDropped <= numRxDropped + 8'd1;
 `endif
