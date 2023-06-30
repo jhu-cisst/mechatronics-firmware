@@ -289,12 +289,13 @@ end
 // ----------------------------------------------------------------------------
 
 localparam
-    ST_RX_IDLE     = 2'd0,
-    ST_RX_PREAMBLE = 2'd1,
-    ST_RX_RECV     = 2'd2,
-    ST_RX_FINISH   = 2'd3;
+    ST_RX_IDLE     = 3'd0,
+    ST_RX_PREAMBLE = 3'd1,
+    ST_RX_RECV     = 3'd2,
+    ST_RX_FINISH   = 3'd3,
+    ST_RX_RESET    = 3'd4;
 
-reg[1:0] rxState;
+reg[2:0] rxState;
 reg rxStateError;
 
 // crc registers
@@ -366,7 +367,9 @@ assign isBroadcast = (destMac == fpgaBroadcastMAC) ? 1'b1 : 1'b0;
 wire isForThis;
 assign isForThis = isUnicast|isMulticast|isBroadcast;
 
-reg recv_fifo_was_empty;
+// For sampling recv_fifo_empty, which is synchronized with the read clock
+reg[3:0] recv_fifo_was_empty;
+
 reg recv_fifo_overflow;
 
 // Whether to write to FIFO -- always write first 16 bytes, unless FIFO is full
@@ -436,16 +439,6 @@ reg[7:0] numRxDropped;   // Number of irrelevant or erroneous packets dropped by
 always @(posedge RxClk)
 begin
 
-    // Enforce fifo reset pulse timing. Note that reset can only be asserted when RxValid is 0,
-    // but we do not worry about RxValid becoming 1 during the fifo reset pulse because we do not
-    // need to access the recv_fifo while processing the preamble.
-    if (recv_fifo_reset) begin
-        recv_fifo_reset_cnt <= recv_fifo_reset_cnt + 3'd1;
-        // Note that recv_fifo_reset_cnt will be 0 when reset deasserted
-        if (recv_fifo_reset_cnt == 3'd7)
-            recv_fifo_reset <= 1'b0;
-    end
-
     if (clearErrors) begin
         rxStateError <= 1'b0;
     end
@@ -457,30 +450,31 @@ begin
         recv_nbytes <= 12'd0;
         recv_fifo_nb <= 12'd0;
         recv_wr_en <= 1'b0;
-        // Note that recv_fifo_reset_req will only be acted upon in the IDLE state
-        if (~recv_fifo_reset & recv_fifo_reset_req) begin
-            recv_fifo_reset <= 1'b1;
-            // Following not needed because cnt should be 0 when reset not active
-            // recv_fifo_reset_cnt <= 3'd0;
-        end
         recv_info_wr_en <= 1'b0;
         recv_preamble_error <= 1'b0;
+        recv_fifo_reset <= 1'b0;
+        recv_fifo_reset_cnt <= 3'd0;
+        recv_fifo_was_empty <= 4'd0;
         if (RxValid) begin
             recv_preamble_cnt <= (RxD == 8'h55) ? 3'd1 : 3'd0;
             rxState <= ST_RX_PREAMBLE;
+        end
+        else if (recv_fifo_reset_req) begin
+            recv_fifo_reset <= 1'b1;
+            rxState <= ST_RX_RESET;
         end
     end
 
     ST_RX_PREAMBLE:
     begin
         if (RxValid) begin
+            recv_fifo_was_empty <= { recv_fifo_was_empty[2:0], recv_fifo_empty };
             if (RxD == 8'h55) begin
                 recv_preamble_cnt <= recv_preamble_cnt + 3'd1;
             end
             else begin
                 rxState <= ST_RX_RECV;
                 recv_crc_in <= 32'hffffffff;    // Initialize CRC
-                recv_fifo_was_empty <= recv_fifo_empty;
                 recv_fifo_overflow <= 1'b0;
                 if ((RxD != 8'hd5) ||
                     (recv_preamble_cnt != 3'd7)) begin
@@ -546,12 +540,12 @@ begin
         // This state is entered when a receive has just ended
         // RxValid should still be 0
 
-        rxState <= ST_RX_IDLE;
-        if (recv_flush&recv_fifo_was_empty) begin
-            // If we need to flush the packet and can just reset the recv_fifo
+        if (recv_flush && (recv_fifo_was_empty != 4'd0)) begin
+            // If we need to flush the packet and can just reset the recv_fifo.
+            // Here, we assume the fifo was empty if any of the last 4 values
+            // (sampled during preamble) are non-zero.
             recv_fifo_reset <= 1'b1;
-            // Following not needed because cnt should be 0 when reset not active
-            // recv_fifo_reset_cnt <= 3'd0;
+            rxState <= ST_RX_RESET;
 `ifdef HAS_DEBUG_DATA
             numRxDropped <= numRxDropped + 8'd1;
 `endif
@@ -559,7 +553,18 @@ begin
         else begin
             // Write to recv_info FIFO (on next RxClk)
             recv_info_wr_en <= ~recv_info_fifo_full;
+            rxState <= ST_RX_IDLE;
         end
+    end
+
+    ST_RX_RESET:
+    begin
+        // Enforce fifo reset pulse timing. Note that reset can only be asserted when RxValid is 0,
+        // but we do not worry about RxValid becoming 1 during the fifo reset pulse because we do not
+        // need to access the recv_fifo while processing the preamble.
+        recv_fifo_reset_cnt <= recv_fifo_reset_cnt + 3'd1;
+        if (recv_fifo_reset_cnt == 3'd7)
+            rxState <= ST_RX_IDLE;
     end
 
     default:
@@ -1097,8 +1102,8 @@ assign DebugData[1] = { RxErr, recv_preamble_error, recv_fifo_reset, recv_fifo_f
                         recv_ipv4_err, recv_udp, 1'd0, hasIRQ,                            // 15:12
                         isUnicast, isMulticast, isBroadcast, initOK,                      // 11:8
                         txStateError, rxStateError, 6'd0 };
-assign DebugData[2] = {  speed_mode, clock_speed, state, 1'b0, txState, 2'b0, rxState, numIRQ, numReset };
-                      //      2,          2,         4            3,            2
+assign DebugData[2] = {  speed_mode, clock_speed, state, 1'b0, txState, 1'b0, rxState, numIRQ, numReset };
+                      //      2,          2,         4            3,            3
 assign DebugData[3] = recv_crc_in;
 assign DebugData[4] = { numRxDropped, 8'd0, send_first_byte_out, numTxSent };
 assign DebugData[5] = send_crc_in;
