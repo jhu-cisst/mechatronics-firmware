@@ -213,7 +213,9 @@ begin
             state <= ST_SEND_WAIT;
         end
         else if (initOK[curPort] & (~recv_info_fifo_empty[curPort])) begin
-            rxPktWords <= ((recv_info_dout[curPort][11:0]+12'd3)>>1)&12'hffe;
+            // Number of words; following will also work for an odd number of bytes,
+            // even though number of bytes should always be even.
+            rxPktWords <= (recv_info_dout[curPort][11:0]+12'd1)>>1;
             recv_first_byte_out <= recv_info_dout[curPort][23:16];
             recv_info_rd_en[curPort] <= 1'b1;
             recv_rd_en[curPort] <= 1'b1;   // Get first word from FIFO
@@ -275,7 +277,8 @@ begin
         if (~recvBusy & curPacketValid)
             recvFlushCnt <= recvFlushCnt + 8'd1;
 `endif
-        recv_rd_en[curPort] <= (recvCnt == rxPktWords) ? 1'b0 : dataValid;
+        // Prepare to read next word from FIFO (when dataValid is 1)
+        recv_rd_en[curPort] <= (recvCnt == (rxPktWords-12'd1)) ? 1'b0 : dataValid;
 
         if (dataValid && (recvCnt == 12'd0)) begin
             recv_fifo_error[curPort] <= (recv_word[15:8] == recv_first_byte_out) ? 1'b0 : 1'b1;
@@ -288,7 +291,7 @@ begin
         end
         // Check for end of packet.
         if (recvTransition) begin
-            if (recvCnt == rxPktWords) begin
+            if (recvCnt == (rxPktWords-12'd1)) begin
                 sendRequest <= curPacketValid&responseRequired;
                 timeReceive <= timeNow;
 `ifdef HAS_DEBUG_DATA
