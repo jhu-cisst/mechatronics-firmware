@@ -69,6 +69,7 @@ module RTL8211F
     // Arbitration for Tx bus (PS may be using it)
     output reg tx_bus_req,         // Bus request
     input wire tx_bus_grant,       // Bus grant
+    output reg ps_eth_enable,      // 1 -> Enable PS access to Ethernet
 
     // Feedback bits
     output wire ethInternalError,     // Error summary bit to EthernetIO
@@ -100,6 +101,8 @@ module RTL8211F
 initial RSTn = 1'b1;
 
 initial MDIO_T = 1'b1;
+
+initial ps_eth_enable = 1'b0;
 
 assign TxErr = 1'b0;
 
@@ -926,11 +929,12 @@ begin
     if (reg_wen_ctrl) begin
         // Ignore reset request if already in reset
         resetRequest <= validChannel&reg_wdata[26]&reg_wdata[BIT_OFFSET+7]&RSTn;
-        IRQn_disable <= validChannel&reg_wdata[28]&reg_wdata[BIT_OFFSET+6];
+        IRQn_disable <= validChannel&reg_wdata[27]&reg_wdata[BIT_OFFSET+6];
         IRQ_sw <= validChannel&reg_wdata[28]&reg_wdata[BIT_OFFSET+5];
         clearErrors <= validChannel&reg_wdata[28]&reg_wdata[BIT_OFFSET+4];
         recv_fifo_reset_req <= validChannel&reg_wdata[28]&reg_wdata[BIT_OFFSET+2];
         send_fifo_reset <= validChannel&reg_wdata[28]&reg_wdata[BIT_OFFSET+1];
+        ps_eth_enable <= validChannel&reg_wdata[25]&reg_wdata[BIT_OFFSET];
     end
     else begin
         clearErrors <= 0;
@@ -1086,7 +1090,7 @@ end
 assign ethInternalError = RxErr|recv_preamble_error;
 
 // Ethernet status bits for this port
-assign eth_status = { initOK, hasIRQ, linkOK, linkSpeed, recv_fifo_error, send_fifo_overflow, 1'd0 };
+assign eth_status = { initOK, hasIRQ, linkOK, linkSpeed, recv_fifo_error, send_fifo_overflow, ps_eth_enable };
 
 // -----------------------------------------------
 // Debug data
