@@ -65,7 +65,7 @@ module EthernetIO
     // to respond to quadlet read and block read commands.
     input wire[31:0] eth_reg_rdata,
     output reg[15:0] eth_reg_raddr,
-    output reg       eth_read_en,
+    output reg       req_read_bus,
     output reg[31:0] eth_reg_wdata,
     output reg[15:0] eth_reg_waddr,
     output reg       eth_reg_wen,
@@ -1231,7 +1231,7 @@ begin
    ST_SEND_DMA_IDLE:
    begin
       sendBusy <= 0;
-      eth_read_en <= 0;
+      req_read_bus <= 0;
       sample_read <= 0;
       icmp_read_en <= 0;
       txPktWords <= 12'd0;
@@ -1358,11 +1358,11 @@ begin
    ST_SEND_DMA_PACKETDATA_HEADER:
    begin
       send_word <= Firewire_Header_Reply[sfw_count[3:0]];
+      req_read_bus <= quadRead | (blockRead&(~addrMain));   // Request access to read bus
       if ((sfw_count[3:0] == 4'd5) && quadRead) begin
          eth_reg_raddr <= fw_dest_offset;
          // Get ready to read data from the board.
          ethAccessError <= sample_busy ? 1'd1 : ethAccessError;
-         eth_read_en <= 1;
          if (sendTransition) sfw_count <= 10'd0;
          nextSendState <= ST_SEND_DMA_PACKETDATA_QUAD;
       end
@@ -1370,7 +1370,6 @@ begin
          if (blockRead) begin
             eth_reg_raddr <= fw_dest_offset;
             sample_read <= addrMain;
-            eth_read_en <= ~addrMain;
             ethAccessError <= (~addrMain&sample_busy) ? 1'd1 : ethAccessError;
             if (sendTransition) sfw_count <= 10'd0;
             nextSendState <= ST_SEND_DMA_PACKETDATA_BLOCK;
@@ -1435,7 +1434,7 @@ begin
 
    ST_SEND_DMA_PACKETDATA_CHECKSUM:
    begin
-      eth_read_en <= 0;    // Relinquish control of read bus
+      req_read_bus <= 0;   // Relinquish control of read bus
       sample_read <= 0;    // Relinquish control of sample read bus
       if (sendTransition) sfw_count[0] <= 1;
       send_word <= 16'd0;    // Checksum currently not set

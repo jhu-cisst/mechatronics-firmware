@@ -118,8 +118,7 @@ module FPGA1394V3DRAC
 
     // Wires for sampling block read data
     wire sample_start;        // Start sampling read data
-    wire sample_busy;         // 1 -> data sampler has control of bus
-    wire[3:0] sample_chan;    // Channel for sampling
+    wire sample_busy;         // Sampling in process
     wire[5:0] sample_raddr;   // Address in sample_data buffer
     wire[31:0] sample_rdata;  // Output from sample_data buffer
     wire sample_read;
@@ -218,7 +217,6 @@ fpga(
     // Sampling support
     .sample_start(sample_start),
     .sample_busy(sample_busy),
-    .sample_chan(sample_chan),
     .sample_raddr(sample_raddr),
     .sample_rdata(sample_rdata),
     .sample_read(sample_read),
@@ -286,7 +284,6 @@ DRAC drac(
     // Sampling support
     .sample_start(sample_start),
     .sample_busy(sample_busy),
-    .sample_chan(sample_chan),
     .sample_raddr(sample_raddr),
     .sample_rdata(sample_rdata),
     .sample_read(sample_read),

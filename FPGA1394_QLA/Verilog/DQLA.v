@@ -55,8 +55,7 @@ module DQLA(
 
     // Sampling support
     input wire sample_start,        // Start sampling read data
-    output wire sample_busy,        // 1 -> data sampler has control of bus
-    output wire[3:0] sample_chan,   // Channel for sampling
+    output wire sample_busy,        // Sampling in process
     input wire[5:0] sample_raddr,   // Address in sample_data buffer
     output wire[31:0] sample_rdata, // Output from sample_data buffer
     output wire[31:0] timestamp,    // Timestamp used when sampling
@@ -280,6 +279,8 @@ module DQLA(
 // hardware description
 //
 
+wire[3:0]  sample_chan;          // Channel for sampling
+
 wire[31:0] reg_rdata_prom_qla;   // reads from QLA prom
 wire[31:0] reg_rdata_prom_qla1;  // reads from QLA 1 prom
 wire[31:0] reg_rdata_prom_qla2;  // reads from QLA 2 prom
@@ -406,10 +407,7 @@ Ltc1864x4 Q2_adc_cur(
     .miso(Q2_miso_cur)
 );
 
-wire[31:0] reg_adc_data;
-assign reg_adc_data = {pot_fb[reg_raddr[7:4]], cur_fb[reg_raddr[7:4]]};
-
-assign reg_rd[`OFF_ADC_DATA] = reg_adc_data;
+assign reg_rd[`OFF_ADC_DATA] = {pot_fb[reg_raddr[7:4]], cur_fb[reg_raddr[7:4]]};
 
 // ----------------------------------------------------------------------------
 // Read/Write of commanded current (cur_cmd) and amplifier enable
@@ -449,7 +447,6 @@ wire[1:8] cur_ctrl;          // 1 -> current control, 0 -> voltage control
 
 // Motor status feedback
 wire[31:0] motor_status[1:8];
-wire[31:0] reg_motor_status;
 
 // Motor configuration
 wire[31:0] motor_config[1:8];
@@ -549,8 +546,7 @@ end
 
 assign reg_rd[`OFF_DAC_CTRL] = cur_cmd[reg_raddr[7:4]];
 
-assign reg_motor_status = motor_status[reg_raddr[7:4]];
-assign reg_rd[`OFF_MOTOR_STATUS] = reg_motor_status;
+assign reg_rd[`OFF_MOTOR_STATUS] = motor_status[reg_raddr[7:4]];
 assign reg_rd[`OFF_MOTOR_CONFIG] = motor_config[reg_raddr[7:4]];
 
 // --------------------------------------------------------------------------
@@ -591,13 +587,20 @@ wire[31:0] reg_qtr1_data;
 wire[31:0] reg_qtr5_data;
 wire[31:0] reg_run_data;
 
+// Encoder read address channel
+// For now, this is multiplexed between the normal reg_raddr and sample_chan,
+// without any check for collision (i.e., will not correctly handle simulaneous
+// read via sampling and Firewire/Ethernet, which should never happen).
+wire[3:0] enc_raddr_chan;
+assign enc_raddr_chan = sample_busy ? sample_chan : reg_raddr[7:4];
+
 // encoder controller: the thing that manages encoder reads and preloads
 CtrlEnc #(.NUM_ENC(8)) enc(
     .sysclk(sysclk),
     .enc_a({Q1_enc_a, Q2_enc_a}),
     .enc_b({Q1_enc_b, Q2_enc_b}),
     .enc_i({Q1_enc_i, Q2_enc_i}),
-    .reg_raddr_chan(reg_raddr[7:4]),
+    .reg_raddr_chan(enc_raddr_chan),
     .reg_waddr(reg_waddr),
     .reg_wdata(reg_wdata),
     .reg_wen(reg_wen),
@@ -1003,13 +1006,13 @@ SampleData #(.NUM_CHAN(8)) sampler(
     .reg_digio(reg_digio),
     .reg_temp({Q2_tempsense, Q1_tempsense}),
     .chan(sample_chan),
-    .adc_in(reg_adc_data),
+    .adc_in({pot_fb[sample_chan], cur_fb[sample_chan]}),
     .enc_pos(reg_quad_data),
     .enc_period(reg_perd_data),
     .enc_qtr1(reg_qtr1_data),
     .enc_qtr5(reg_qtr5_data),
     .enc_run(reg_run_data),
-    .motor_status(reg_motor_status),
+    .motor_status(motor_status[sample_chan]),
     .blk_addr(sample_raddr),
     .blk_data(sample_rdata),
     .timestamp(timestamp)

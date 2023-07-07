@@ -41,8 +41,7 @@ module BootConfig(
 
     // Sampling support
     input wire sample_start,        // Start sampling read data
-    output reg sample_busy,         // 1 -> data sampler has control of bus
-    output wire[3:0] sample_chan,   // Channel for sampling
+    output reg sample_busy,         // Sampling in process
     input wire[5:0] sample_raddr,   // Address in sample_data buffer
     output wire[31:0] sample_rdata, // Output from sample_data buffer
     output reg[31:0] timestamp      // Timestamp used when sampling
@@ -183,7 +182,6 @@ initial begin
 end
 
 assign sample_rdata = RT_Feedback[sample_raddr[1:0]];
-assign sample_chan = 4'd0;
 
 always @(posedge sysclk)
 begin

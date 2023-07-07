@@ -207,6 +207,8 @@ module PhyLinkInterface
     input wire[31:0] reg_rdata,   // read data from external register file
     output reg[31:0] reg_wdata,   // write data to external register file
 
+    output reg req_read_bus,      // request read bus (reg_raddr, reg_rdata)
+
 `ifdef HAS_ETHERNET
     // eth/fw interface
     input wire eth_send_fw_req,   // request from ethernet to send fw pkt
@@ -1232,10 +1234,12 @@ begin
             if (count == `SZ_QRESP) begin
                 ctl <= `CTL_IDLE;
                 state <= ST_TX_DONE1;
+                req_read_bus <= 1'b0;        // Relinquish read bus
             end
 
             else begin
                 ctl <= `CTL_DATA;
+                req_read_bus <= ~rom_addr;   // Request control of read bus (if needed)
 
                 // shift out transmit bit from buffer and update counter
                 data <= txmsb8b;
@@ -1269,6 +1273,7 @@ begin
             buffer <= buffer << 8;
             count <= count + 16'd8;
             crc_in <= (crc_ini) ? `CRC_INIT : crc_8b;
+            req_read_bus <= ~(rom_addr|addrMainRead);   // Request control of read bus (if needed)
             
             // update transmit buffer at quadlet boundaries
             case (count)
@@ -1312,6 +1317,8 @@ begin
             buffer <= buffer << 8;
             count <= count + 16'd8;
             crc_in <= (crc_ini) ? `CRC_INIT : crc_8b;
+            // Do not need to set req_read_bus because addrMainRead is always active
+            // in this state, and thus we read from sample_rdata instead of reg_rdata
             
             // update transmit buffer at quadlet boundaries
             case (count)
@@ -1362,6 +1369,7 @@ begin
             if (count == numbits) begin
                 ctl <= `CTL_IDLE;
                 state <= ST_TX_DONE1;
+                req_read_bus <= 1'b0;        // Relinquish read bus
             end
 
             else begin
