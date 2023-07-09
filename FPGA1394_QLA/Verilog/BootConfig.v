@@ -27,9 +27,6 @@ module BootConfig(
     inout[0:33]      IO1,
     inout[0:39]      IO2,
 
-    // EMIO feedback (to PS)
-    output wire[63:0] reg_emio,
-
     // Read/Write bus
     input wire[15:0]  reg_raddr,
     input wire[15:0]  reg_waddr,
@@ -164,9 +161,6 @@ assign reg_version = 32'h42434647;   // "BCFG"
 assign reg_rdata_chan0 = (reg_raddr[3:0] == `REG_STATUS) ? reg_status :
                          (reg_raddr[3:0] == `REG_VERSION) ? reg_version :
                          32'd0;
-
-// EMIO feedback (to PS)
-assign reg_emio = { reg_version, reg_status };
 
 // --------------------------------------------------------------------------
 // Sample data for block read

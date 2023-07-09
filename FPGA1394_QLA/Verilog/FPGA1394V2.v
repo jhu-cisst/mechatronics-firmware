@@ -469,7 +469,7 @@ EthernetIO EthernetTransfers(
     // to respond to quadlet read and block read commands.
     .eth_reg_rdata(reg_rdata),         //  in: reg read data
     .eth_reg_raddr(eth_reg_raddr),     // out: reg read addr
-    .req_read_bus(eth_req_read_bus),   // out: reg read enable
+    .eth_req_read_bus(eth_req_read_bus), // out: reg read enable
     .eth_reg_wdata(eth_reg_wdata),     // out: reg write data
     .eth_reg_waddr(eth_reg_waddr),     // out: reg write addr
     .eth_reg_wen(eth_reg_wen),         // out: reg write enable

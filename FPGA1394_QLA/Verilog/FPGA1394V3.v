@@ -66,7 +66,6 @@ module FPGA1394V3
     input            PS_SRSTB,
     input            PS_CLK,
     input            PS_PORB,
-    input wire[63:0] emio_ps_in,  // EMIO input to processor
 
     // Read/Write bus
     output wire[15:0] reg_raddr,
@@ -181,8 +180,127 @@ wire[5:0] fw_sample_raddr;
 wire[5:0] eth_sample_raddr;
 assign sample_raddr = eth_sample_read ? eth_sample_raddr : fw_sample_raddr;
 
-assign reg_raddr = eth_req_read_bus ? eth_reg_raddr :
-                   fw_reg_raddr;
+// Signals for PS access to registers
+wire[63:0] emio_ps_in;     // EMIO input to PS
+wire[63:0] emio_ps_out;    // EMIO output from PS
+wire[63:0] emio_ps_tri;    // EMIO tristate from PS (1 -> input to PS, 0 -> output from PS)
+
+wire[15:0] ps_reg_raddr = emio_ps_out[47:32];
+reg[31:0]  ps_reg_rdata;
+wire       ps_req_read_bus = emio_ps_out[48];
+reg        ps_reg_rdata_valid;
+
+assign emio_ps_in = {14'd0, ps_reg_rdata_valid, ps_req_read_bus, ps_reg_raddr, ps_reg_rdata };
+
+//******************* Arbitration for read bus ****************************
+
+localparam[1:0]
+    RB_IDLE = 2'd0,
+    RB_PS   = 2'd1,
+    RB_FW   = 2'd2,
+    RB_ETH  = 2'd3;
+
+reg[1:0] rbState = RB_IDLE;
+reg[1:0] rbStateNext;
+
+// Counts number of clocks that we were in the same state.
+// Generally, we want at least 3 clocks for a successful read:
+//   1 clock to set reg_raddr
+//   1 clock to wait for RAM access (in some cases)
+//   1 clock to latch reg_rdata
+reg[1:0] rbCnt;
+
+// For synchronizing ps_req_read_bus with sysclk and generating a trigger
+// on the rising edge.
+reg  ps_req_read_bus_1;
+reg  ps_req_read_bus_2;
+wire ps_req_read_bus_trig;
+
+// Generate ps_req_read_bus_trig on rising edge of ps_req_read_bus
+assign ps_req_read_bus_trig = (ps_req_read_bus_1 & (~ps_req_read_bus_2));
+
+always @(*)
+begin
+
+   case (rbState)
+
+   RB_IDLE:
+   begin
+     // If sample_busy asserted, sampler might be accessing encoder registers
+     // (on QLA and DQLA), so to be safe, we stay in IDLE state.
+     // We give priority to PS read request because it only requires 3 clocks, so
+     // it would be done before the Firewire or Ethernet would need the bus (this
+     // is true because the Firewire and Ethernet modules assert the REQ signal
+     // several clock cycles in advance).
+     if (sample_busy) rbStateNext = RB_IDLE;
+     else if (ps_req_read_bus_trig) rbStateNext = RB_PS;
+     else if (fw_req_read_bus) rbStateNext = RB_FW;
+     else if (eth_req_read_bus) rbStateNext = RB_ETH;
+     else rbStateNext = RB_IDLE;
+   end
+
+   RB_PS:
+     // We only stay in the RB_PS state for 3 clocks
+     rbStateNext = (rbCnt != 2'd2) ? RB_PS : RB_IDLE;
+
+   RB_FW:
+     // Firewire keeps the bus until it deasserts the REQ signal
+     rbStateNext = fw_req_read_bus ? RB_FW : RB_IDLE;
+
+   RB_ETH:
+     // Ethernet keeps the bus until it deasserts the REQ signal
+     rbStateNext = eth_req_read_bus ? RB_ETH : RB_IDLE;
+
+   endcase
+end
+
+always @(posedge sysclk)
+begin
+    rbState <= rbStateNext;
+    if ((rbState != rbStateNext) || sample_busy)
+       rbCnt <= 2'd0;           // Reset counter if state change (or sample_busy)
+    else if (rbCnt != 2'd2)
+       rbCnt <= rbCnt + 2'd1;   // Else, count up to 2
+
+    // Synchronize PS read request with sysclk
+    ps_req_read_bus_1 <= (rbState == RB_IDLE) ? ps_req_read_bus : 1'b0;
+    ps_req_read_bus_2 <= ps_req_read_bus_1;
+
+    if ((rbState == RB_PS) && (rbCnt == 2'd2)) begin
+        // Latch ps_reg_rdata after 3 clocks and set ps_reg_rdata_valid
+        ps_reg_rdata <= reg_rdata;
+        ps_reg_rdata_valid <= 1'b1;
+    end
+    else if (!ps_req_read_bus) begin
+        // Clear ps_reg_rdata_valid when PS deasserts ps_req_read_bus
+        ps_reg_rdata_valid <= 1'b0;
+    end
+end
+
+wire ps_has_read_bus;    // PS has control of the read bus
+wire fw_has_read_bus;    // Firewire has control of the read bus
+wire eth_has_read_bus;   // Ethernet has control of the read bus
+
+assign ps_has_read_bus = (rbState == RB_PS) ? 1'b1 : 1'b0;
+assign fw_has_read_bus = ((rbState == RB_FW) || (rbState == RB_IDLE)) ? 1'b1 : 1'b0;
+assign eth_has_read_bus = (rbState == RB_ETH) ? 1'b1 : 1'b0;
+
+assign reg_raddr = ps_has_read_bus  ? ps_reg_raddr  :
+                   eth_has_read_bus ? eth_reg_raddr :
+                                      fw_reg_raddr;
+
+// The xx_reg_rdata_valid signals indicate that reg_rdata should be valid (i.e.,
+// should correspond to the data addressed by xx_reg_raddr) since we have been in the
+// correct state for at least 3 consecutive clock cycles (including the current clock cycle).
+// These can be used for error checking within the Firewire and Ethernet modules.
+// Note that ps_reg_rdata_valid is set above.
+wire fw_reg_rdata_valid;
+wire eth_reg_rdata_valid;
+
+assign fw_reg_rdata_valid = (fw_has_read_bus && (rbCnt == 2'd2)) ? 1'b1 : 1'b0;
+assign eth_reg_rdata_valid = (eth_has_read_bus && (rbCnt == 2'd2)) ? 1'b1 : 1'b0;
+
+//***************************************************************************
 
 wire[31:0] reg_rdata;
 wire[31:0] reg_rdata_hub;      // reg_rdata_hub is for hub memory
@@ -317,7 +435,7 @@ phy(
     .reg_rdata(reg_rdata),     // in:  read data to external register
     .reg_wdata(fw_reg_wdata),  // out: write data to external register
 
-    .req_read_bus(fw_req_read_bus),    // out: request read bus
+    .req_read_bus(fw_req_read_bus),        // out: request read bus
 
     .eth_send_fw_req(eth_send_fw_req), // in: send req from eth
     .eth_send_fw_ack(eth_send_fw_ack), // out: ack send req to eth
@@ -707,7 +825,8 @@ EthernetTransfers(
     // to respond to quadlet read and block read commands.
     .eth_reg_rdata(reg_rdata),         //  in: reg read data
     .eth_reg_raddr(eth_reg_raddr),     // out: reg read addr
-    .req_read_bus(eth_req_read_bus),   // out: reg read enable
+    .eth_req_read_bus(eth_req_read_bus),  // out: reg read enable
+    .eth_reg_rdata_valid(eth_reg_rdata_valid),  // in: indicates that reg_rdata is valid
     .eth_reg_wdata(eth_reg_wdata),     // out: reg write data
     .eth_reg_waddr(eth_reg_waddr),     // out: reg write addr
     .eth_reg_wen(eth_reg_wen),         // out: reg write enable
@@ -803,6 +922,8 @@ fpgav3 zynq_ps7(
     .processing_system7_0_PS_CLK_pin(PS_CLK),
     .processing_system7_0_PS_PORB_pin(PS_PORB),
     .processing_system7_0_GPIO_I_pin(emio_ps_in),
+    .processing_system7_0_GPIO_O_pin(emio_ps_out),
+    .processing_system7_0_GPIO_T_pin(emio_ps_tri),
     .processing_system7_0_FCLK_CLK0_pin(clk_200MHz),
 
     .gmii_to_rgmii_1_rgmii_txd_pin(E1_TxD),
