@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2008-2022 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2008-2023 ERC CISST, Johns Hopkins University.
  *
  * This module implements the FireWire link layer state machine, which defines
  * the operation of the phy-link interface.  The state machine is triggered on
@@ -208,6 +208,7 @@ module PhyLinkInterface
     output reg[31:0] reg_wdata,   // write data to external register file
 
     output reg req_read_bus,      // request read bus (reg_raddr, reg_rdata)
+    output reg req_write_bus,     // request write bus (reg_waddr, reg_wdata)
 
 `ifdef HAS_ETHERNET
     // eth/fw interface
@@ -665,6 +666,8 @@ begin
             blk_wstart <= 0;                       // block write not started
             reg_wen <= 1'b0;                       // no register write events
             blk_wen <= 0;                          // no block write events
+            req_write_bus <= 1'b0;                 // do not request write bus
+            req_read_bus <= 1'b0;                  // do not request read bus
             crc_tx <= 0;                           // not in a transmit state
             rx_active <= 0;                        // clear receive active     
             fw_rt_wen <= 0;                        // clear real-time block write enable
@@ -905,12 +908,14 @@ begin
                                         lreq_trig <= 1;
                                         lreq_type <= `LREQ_TX_IMM;
                                         tx_type <= `TX_TYPE_DONE;
+                                        req_write_bus <= 1'b1;
                                     end
                                     // block write
                                     `TC_BWRITE: begin
                                         lreq_trig <= 1;
                                         lreq_type <= `LREQ_TX_IMM;
                                         tx_type <= `TX_TYPE_DONE;
+                                        // Request write bus later
                                     end
                                 endcase
                             end
@@ -951,6 +956,11 @@ begin
                             reg_raddr <= buffer[15:0];      // register address
                             reg_waddr <= buffer[15:0];
                             crc_comp <= ~crc_in;          // computed crc for quadlet read
+
+                            // Request write bus for block write, except for ADDR_MAIN because that
+                            // will be handled later by WriteRtBlock.
+                            if ((buffer[15:12] != `ADDR_MAIN) && (rx_tcode == `TC_BWRITE))
+                                req_write_bus <= 1'b1;
 
                             // broadcast read request    (trick: NOT standard !!!)
                             // rx_dest == 0 is an asynchronous quadlet write; it is sent to node 0, but processed
@@ -1318,7 +1328,9 @@ begin
             count <= count + 16'd8;
             crc_in <= (crc_ini) ? `CRC_INIT : crc_8b;
             // Do not need to set req_read_bus because addrMainRead is always active
-            // in this state, and thus we read from sample_rdata instead of reg_rdata
+            // in this state, and thus we read from sample_rdata instead of reg_rdata.
+            // But, need to request write bus to write to Hub register.
+            req_write_bus <= 1'b1;
             
             // update transmit buffer at quadlet boundaries
             case (count)

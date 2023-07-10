@@ -122,10 +122,8 @@ assign ETH_8n = 1;          // 16-bit bus
     wire[31:0] eth_reg_wdata;   // reg write data from Ethernet
     wire fw_req_read_bus;       // 1 -> Firewire is requesting read bus (driving reg_raddr to read from board registers)
     wire eth_req_read_bus;      // 1 -> Ethernet is requesting read bus (driving reg_raddr to read from board registers)
-    // Following two wires indicate which module is driving the write bus
-    // (reg_waddr, reg_wdata, reg_wen, blk_wen, blk_wstart).
-    // If neither is active, then Firewire is driving the write bus.
-    wire eth_write_en;          // 1 -> Ethernet is driving write bus
+    wire fw_req_write_bus;      // 1 -> Firewire is requesting write bus (driving reg_waddr, reg_wdata, reg_wen, blk_wen, blk_wstart)
+    wire eth_req_write_bus;     // 1 -> Ethernet is requesting write bus (driving reg_waddr, reg_wdata, reg_wen, blk_wen, blk_wstart)
     wire[5:0] node_id;          // 6-bit phy node id
     wire[31:0] prom_status;
     wire[31:0] prom_result;
@@ -216,7 +214,7 @@ begin
       reg_waddr = {8'd0, bw_reg_waddr};
       reg_wdata = bw_reg_wdata;
    end
-   else if (eth_write_en) begin
+   else if (eth_req_write_bus) begin
       reg_wen = eth_reg_wen;
       blk_wen = eth_blk_wen;
       blk_wstart = eth_blk_wstart;
@@ -302,6 +300,7 @@ phy(
     .reg_wdata(fw_reg_wdata),  // out: write data to external register
 
     .req_read_bus(fw_req_read_bus),    // out: request read bus
+    .req_write_bus(fw_req_write_bus),  // out: request read bus
 
     .eth_send_fw_req(eth_send_fw_req), // in: send req from eth
     .eth_send_fw_ack(eth_send_fw_ack), // out: ack send req to eth
@@ -475,7 +474,7 @@ EthernetIO EthernetTransfers(
     .eth_reg_wen(eth_reg_wen),         // out: reg write enable
     .eth_block_wen(eth_blk_wen),       // out: blk write enable
     .eth_block_wstart(eth_blk_wstart), // out: blk write start
-    .eth_write_en(eth_write_en),       // out: write bus enable
+    .eth_req_write_bus(eth_req_write_bus), // out: request write bus
 
     // Low-level Firewire PHY access
     .lreq_trig(eth_lreq_trig),   // out: phy request trigger
