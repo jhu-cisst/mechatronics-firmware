@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2012-2020 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2012-2023 ERC CISST, Johns Hopkins University.
  *
  * Module: M25P16
  *
@@ -95,7 +95,7 @@ wire prom_blk_end;
 wire[5:0] prom_blk_raddr;   // data block read address
 wire[5:0] prom_blk_waddr;   // data block write address
 
-assign prom_reg_wen = (reg_waddr == {`ADDR_MAIN, 4'h0, 8'h08}) ? reg_wen : 1'b0;
+assign prom_reg_wen = (reg_waddr == {`ADDR_MAIN, 8'h0, `REG_PROMSTAT}) ? reg_wen : 1'b0;
 assign prom_blk_wen = (reg_waddr[15:12] == `ADDR_PROM) ? reg_wen : 1'b0;
 assign prom_blk_start = (reg_waddr[15:12] == `ADDR_PROM) ? blk_wstart : 1'b0;
 assign prom_blk_end = (reg_waddr[15:12] == `ADDR_PROM) ? blk_wen : 1'b0;

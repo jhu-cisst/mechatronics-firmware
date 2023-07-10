@@ -138,9 +138,6 @@ assign reset_phy = 1'b1;
     wire[31:0] Eth_Result;
     wire[31:0] ip_address;
 
-// prom_result not used (see below for prom_status)
-assign prom_result = 32'd0;
-
 // For real-time write
 wire       fw_rt_wen;
 wire       eth_rt_wen;
@@ -325,15 +322,12 @@ assign eth_reg_rdata_valid = (eth_has_read_bus && (rbCnt == 2'd2)) ? 1'b1 : 1'b0
 
 wire[31:0] reg_rdata;
 wire[31:0] reg_rdata_hub;      // reg_rdata_hub is for hub memory
-wire[31:0] reg_rdata_prom;     // reg_rdata_prom is for block reads from PROM
+reg[31:0]  reg_rdata_prom;     // reg_rdata_prom is for block reads from PROM
 wire[31:0] reg_rdata_eth;      // for eth memory access (EthernetIO)
 wire[31:0] reg_rdata_rtl;      // for eth memory access (RTL8211F)
 wire[31:0] reg_rdata_eswrt;    // for eth memory access (EthSwitchRt)
 wire[31:0] reg_rdata_fw;       // for fw memory access
 wire[31:0] reg_rdata_chan0;    // for reads from board registers
-
-// No PROM for FPGA V3
-assign reg_rdata_prom = 32'd0;
 
 wire isAddrMain;
 assign isAddrMain = ((reg_raddr[15:12]==`ADDR_MAIN) && (reg_raddr[7:4]==4'd0)) ? 1'b1 : 1'b0;
@@ -1018,6 +1012,58 @@ EthernetTransfers(
 
 
 // --------------------------------------------------------------------------
+// FPGA V3 PROM, accessible via PS
+//
+// Initial implementation relies on PS to read FPGA serial number (16 bytes)
+// from QSPI PROM and write to prom_data registers. We then check for the
+// PC software attempting to read from PROM address 0x1fff000, which is where
+// the S/N is stored in the M25P16 PROM used for FPGA V1 and V2.
+// --------------------------------------------------------------------------
+
+// Indicates that PC is attempting to read from address 1fff000
+reg prom_sn_read;
+
+// 16 bits of PROM data for FPGA S/N
+reg[31:0] prom_data[0:3];
+initial begin
+   prom_data[0] = 32'hffffffff;
+   prom_data[1] = 32'hffffffff;
+   prom_data[2] = 32'hffffffff;
+   prom_data[3] = 32'hffffffff;
+end
+
+// Default values for prom_result and prom_status
+// PC software expects prom_result to contain number of quadlets read, which
+// should always be 64.
+// PC software uses lower 4 bits of prom_status to indicate that data is ready
+// (when all bits are 0).
+assign prom_result = 32'd64;
+assign prom_status = 32'd0;
+
+wire prom_reg_wen;   // main quadlet reg interface
+wire prom_blk_wen;   // PROM data reg interface
+
+assign prom_reg_wen = (reg_waddr == {`ADDR_MAIN, 8'h0, `REG_PROMSTAT}) ? reg_wen : 1'b0;
+assign prom_blk_wen = (reg_waddr[15:12] == `ADDR_PROM) ? reg_wen : 1'b0;
+
+always @(posedge sysclk)
+begin
+    // handle block read, first 4 quadlets come from registers
+    if (prom_sn_read && (reg_raddr[5:2] == 4'd0))
+        reg_rdata_prom <= prom_data[reg_raddr[1:0]];
+    else
+        reg_rdata_prom <= 32'hffffffff;
+
+    if (prom_reg_wen) begin
+        // Emulate read command (03) from address 1fff000 for FPGA S/N
+        prom_sn_read <= (reg_wdata == 32'h031fff00) ? 1'b1 : 1'b0;
+    end
+    if (prom_blk_wen && (reg_waddr[5:2] == 4'd0)) begin
+        prom_data[reg_waddr[1:0]] <= reg_wdata;
+    end
+end
+
+// --------------------------------------------------------------------------
 // FPGA board regs (Firewire PHY, firmware version, watchdog, partial status)
 // --------------------------------------------------------------------------
 
@@ -1141,9 +1187,6 @@ reg[7:0] sysclk200;   // Counter increment by sysclk, sampled and cleared every 
 reg[7:0] clk200per;   // Last measured half-period of clk_200MHz (should be about 31 sysclks)
 reg cur_msb;
 reg last_msb;
-
-// For now, use prom_status feedback (quadlet read from register 8)
-assign prom_status = {clk200_ok, 7'd0, clk200per, 8'd0, cnt_200};
 
 always @(posedge clk_200MHz)
 begin
