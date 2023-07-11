@@ -65,13 +65,14 @@ module EthernetIO
     // to respond to quadlet read and block read commands.
     input wire[31:0] eth_reg_rdata,
     output reg[15:0] eth_reg_raddr,
-    output reg       eth_read_en,
+    output reg       eth_req_read_bus,     // 1 -> request read bus (reg_raddr)
+    input wire       eth_reg_rdata_valid,  // 1 -> reg_rdata should be valid
     output reg[31:0] eth_reg_wdata,
     output reg[15:0] eth_reg_waddr,
     output reg       eth_reg_wen,
     output reg       eth_block_wen,
     output reg       eth_block_wstart,
-    output reg       eth_write_en,
+    output reg       eth_req_write_bus,
 
     // Low-level Firewire PHY access
     output reg lreq_trig,         // trigger signal for a FireWire phy request
@@ -141,6 +142,10 @@ reg ethUDPError;       // 1 -> Wrong UDP port (not 1394)
 reg ethDestError;      // 1 -> Incorrect destination (FireWire destination does not begin with 0xFFC)
 reg ethAccessError;    // 1 -> Unable to access internal bus
 reg ethSendStateError; // 1 -> Invalid Ethernet state in Send state machine
+
+// Access error condition, check when latching reg_rdata
+wire ethAccessErrorCond;
+assign ethAccessErrorCond = eth_req_read_bus & (~eth_reg_rdata_valid);
 
 // Summary of packet-related error bits
 wire ethSummaryError;
@@ -863,11 +868,11 @@ begin
       sample_start <= 1'd0;
    end
 
-   if (writeRequestQuad && eth_write_en) begin
+   if (writeRequestQuad && eth_reg_wen) begin
       writeRequestQuad <= 1'd0;
    end
 
-   if (writeRequestBlock && eth_write_en) begin
+   if (writeRequestBlock && bw_local_active) begin
       writeRequestBlock <= 1'd0;
    end
 
@@ -917,6 +922,8 @@ begin
          fwPacketDropped <= 0;
       end
       if (eth_send_fw_req) begin
+         // Request write bus, if needed (also for reboot cmd)
+         eth_req_write_bus <= quadWrite&isLocal;
          // This could have been a separate state, but would need an extra
          // bit to have 5 receive states.
          if (eth_send_fw_ack) begin
@@ -939,6 +946,7 @@ begin
          recvBusy <= 0;
          writeRequestQuad <= 1'b0;
          writeRequestBlock <= 1'b0;
+         eth_req_write_bus <= 1'b0;
          if (recvRequest) begin
             recvBusy <= 1;
             FireWirePacketFresh <= 0;
@@ -1117,7 +1125,7 @@ begin
                   // writeRequestBlock should have been set earlier (using writeRequestTrigger) for all
                   // local block writes (even broadcast), except for real-time block write (to addrMain),
                   // which is handled separately. We expect write to still be active.
-                  bw_err <= ~eth_write_en;
+                  bw_err <= ~eth_req_write_bus;
                   // Number of quadlets left to write to registers; should be greater than 1,
                   // otherwise the register writer may have overtaken the Ethernet reader.
                   bw_left <= block_data_length[10:2] + 9'd5 - local_raddr;
@@ -1134,6 +1142,7 @@ begin
          end
          if (rfw_count == writeRequestTrigger) begin
             writeRequestBlock <= blockWrite&isLocal&(~addrMain);
+            eth_req_write_bus <= 1'b1;
          end
          if (doRtBlock&rfw_count[0]) begin
             // Real-time block write.
@@ -1231,7 +1240,7 @@ begin
    ST_SEND_DMA_IDLE:
    begin
       sendBusy <= 0;
-      eth_read_en <= 0;
+      eth_req_read_bus <= 0;
       sample_read <= 0;
       icmp_read_en <= 0;
       txPktWords <= 12'd0;
@@ -1358,11 +1367,10 @@ begin
    ST_SEND_DMA_PACKETDATA_HEADER:
    begin
       send_word <= Firewire_Header_Reply[sfw_count[3:0]];
+      eth_req_read_bus <= quadRead | (blockRead&(~addrMain));   // Request access to read bus
       if ((sfw_count[3:0] == 4'd5) && quadRead) begin
          eth_reg_raddr <= fw_dest_offset;
          // Get ready to read data from the board.
-         ethAccessError <= sample_busy ? 1'd1 : ethAccessError;
-         eth_read_en <= 1;
          if (sendTransition) sfw_count <= 10'd0;
          nextSendState <= ST_SEND_DMA_PACKETDATA_QUAD;
       end
@@ -1370,8 +1378,6 @@ begin
          if (blockRead) begin
             eth_reg_raddr <= fw_dest_offset;
             sample_read <= addrMain;
-            eth_read_en <= ~addrMain;
-            ethAccessError <= (~addrMain&sample_busy) ? 1'd1 : ethAccessError;
             if (sendTransition) sfw_count <= 10'd0;
             nextSendState <= ST_SEND_DMA_PACKETDATA_BLOCK;
          end
@@ -1387,6 +1393,7 @@ begin
 
    ST_SEND_DMA_PACKETDATA_QUAD:
    begin
+      ethAccessError <= ethAccessError|ethAccessErrorCond;
       if (sfw_count[0] == 0) begin
          `send_word_swapped <= eth_reg_rdata[31:16];
          if (sendTransition) sfw_count[0] <= 1;
@@ -1403,6 +1410,7 @@ begin
    ST_SEND_DMA_PACKETDATA_BLOCK:
    begin
       if (sendTransition) sfw_count <= sfw_count + 10'd1;
+      ethAccessError <= ethAccessError|ethAccessErrorCond;
       if (sfw_count[0] == 0) begin   // even count (upper word)
          // Since we are not incrementing eth_reg_raddr, writing to SDReg does not need
          // to be conditioned on ~sendTransition, as in the odd sfw_count case below.
@@ -1435,8 +1443,8 @@ begin
 
    ST_SEND_DMA_PACKETDATA_CHECKSUM:
    begin
-      eth_read_en <= 0;    // Relinquish control of read bus
-      sample_read <= 0;    // Relinquish control of sample read bus
+      eth_req_read_bus <= 0; // Relinquish control of read bus
+      sample_read <= 0;      // Relinquish control of sample read bus
       if (sendTransition) sfw_count[0] <= 1;
       send_word <= 16'd0;    // Checksum currently not set
       if (sfw_count[0] == 1)
@@ -1579,13 +1587,11 @@ begin
             lreq_type <= (fw_quadlet_data[12] ? `LREQ_REG_WR : `LREQ_REG_RD);
             lreq_trig <= 1;
          end
-         eth_write_en <= 1;
          eth_reg_wen <= 1;
          eth_block_wen <= 1;
       end
       else if (writeRequestBlock) begin
          bw_local_active <= 1;
-         eth_write_en <= 1;
          // Assert eth_block_wstart for 80 ns before starting local block write
          // (same timing as in Firewire module).
          eth_block_wstart <= 1;
@@ -1598,7 +1604,6 @@ begin
       end
       else begin
          bw_local_active <= 0;
-         eth_write_en <= 0;
          eth_reg_wen <= 0;    // Clean up from quadlet/block writes
          eth_block_wen <= 0;
          eth_block_wstart <= 0;

@@ -7,6 +7,8 @@
  PORT processing_system7_0_PS_CLK_pin = processing_system7_0_PS_CLK, DIR = I, SIGIS = CLK
  PORT processing_system7_0_PS_PORB_pin = processing_system7_0_PS_PORB, DIR = I
  PORT processing_system7_0_GPIO_I_pin = net_processing_system7_0_GPIO_I_pin, DIR = I, VEC = [63:0]
+ PORT processing_system7_0_GPIO_O_pin = processing_system7_0_GPIO_O, DIR = O, VEC = [63:0]
+ PORT processing_system7_0_GPIO_T_pin = processing_system7_0_GPIO_T, DIR = O, VEC = [63:0]
  PORT processing_system7_0_FCLK_CLK0_pin = processing_system7_0_FCLK_CLK0, DIR = O, SIGIS = CLK, CLK_FREQ = 200000000
  PORT gmii_to_rgmii_1_rgmii_txd_pin = gmii_to_rgmii_1_rgmii_txd, DIR = O, VEC = [3:0]
  PORT gmii_to_rgmii_1_rgmii_tx_ctl_pin = gmii_to_rgmii_1_rgmii_tx_ctl, DIR = O
@@ -143,6 +145,8 @@ BEGIN processing_system7
  PORT PS_CLK = processing_system7_0_PS_CLK
  PORT PS_PORB = processing_system7_0_PS_PORB
  PORT GPIO_I = net_processing_system7_0_GPIO_I_pin
+ PORT GPIO_O = processing_system7_0_GPIO_O
+ PORT GPIO_T = processing_system7_0_GPIO_T
  PORT FCLK_CLK0 = processing_system7_0_FCLK_CLK0
  PORT FCLK_CLK1 = processing_system7_0_FCLK_CLK1
  PORT FCLK_CLK2 = processing_system7_0_FCLK_CLK2

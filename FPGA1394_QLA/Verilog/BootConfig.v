@@ -27,9 +27,6 @@ module BootConfig(
     inout[0:33]      IO1,
     inout[0:39]      IO2,
 
-    // EMIO feedback (to PS)
-    output wire[63:0] reg_emio,
-
     // Read/Write bus
     input wire[15:0]  reg_raddr,
     input wire[15:0]  reg_waddr,
@@ -41,8 +38,7 @@ module BootConfig(
 
     // Sampling support
     input wire sample_start,        // Start sampling read data
-    output reg sample_busy,         // 1 -> data sampler has control of bus
-    output wire[3:0] sample_chan,   // Channel for sampling
+    output reg sample_busy,         // Sampling in process
     input wire[5:0] sample_raddr,   // Address in sample_data buffer
     output wire[31:0] sample_rdata, // Output from sample_data buffer
     output reg[31:0] timestamp      // Timestamp used when sampling
@@ -166,9 +162,6 @@ assign reg_rdata_chan0 = (reg_raddr[3:0] == `REG_STATUS) ? reg_status :
                          (reg_raddr[3:0] == `REG_VERSION) ? reg_version :
                          32'd0;
 
-// EMIO feedback (to PS)
-assign reg_emio = { reg_version, reg_status };
-
 // --------------------------------------------------------------------------
 // Sample data for block read
 // This is a simplified version of SampleData.v
@@ -183,7 +176,6 @@ initial begin
 end
 
 assign sample_rdata = RT_Feedback[sample_raddr[1:0]];
-assign sample_chan = 4'd0;
 
 always @(posedge sysclk)
 begin

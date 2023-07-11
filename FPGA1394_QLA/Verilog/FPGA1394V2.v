@@ -74,8 +74,7 @@ module FPGA1394V2
 
     // Sampling support
     output wire sample_start,       // Start sampling read data
-    input wire sample_busy,         // 1 -> data sampler has control of bus
-    input wire[3:0] sample_chan,    // Channel for sampling
+    input wire sample_busy,         // Sampling in process
     output wire[5:0] sample_raddr,  // Address in sample_data buffer
     input wire[31:0] sample_rdata,  // Output from sample_data buffer
     output wire sample_read,        // 1 -> either eth or fw sample read
@@ -121,11 +120,10 @@ assign ETH_8n = 1;          // 16-bit bus
     wire[15:0] eth_reg_waddr;   // 16-bit reg write address from Ethernet
     wire[31:0] fw_reg_wdata;    // reg write data from FireWire
     wire[31:0] eth_reg_wdata;   // reg write data from Ethernet
-    wire eth_read_en;           // 1 -> Ethernet is driving reg_raddr to read from board registers
-    // Following two wires indicate which module is driving the write bus
-    // (reg_waddr, reg_wdata, reg_wen, blk_wen, blk_wstart).
-    // If neither is active, then Firewire is driving the write bus.
-    wire eth_write_en;          // 1 -> Ethernet is driving write bus
+    wire fw_req_read_bus;       // 1 -> Firewire is requesting read bus (driving reg_raddr to read from board registers)
+    wire eth_req_read_bus;      // 1 -> Ethernet is requesting read bus (driving reg_raddr to read from board registers)
+    wire fw_req_write_bus;      // 1 -> Firewire is requesting write bus (driving reg_waddr, reg_wdata, reg_wen, blk_wen, blk_wstart)
+    wire eth_req_write_bus;     // 1 -> Ethernet is requesting write bus (driving reg_waddr, reg_wdata, reg_wen, blk_wen, blk_wstart)
     wire[5:0] node_id;          // 6-bit phy node id
     wire[31:0] prom_status;
     wire[31:0] prom_result;
@@ -169,8 +167,7 @@ wire[5:0] fw_sample_raddr;
 wire[5:0] eth_sample_raddr;
 assign sample_raddr = eth_sample_read ? eth_sample_raddr : fw_sample_raddr;
 
-assign reg_raddr = sample_busy ? {`ADDR_MAIN, 4'd0, sample_chan, 4'd0} :
-                   eth_read_en ? eth_reg_raddr :
+assign reg_raddr = eth_req_read_bus ? eth_reg_raddr :
                    fw_reg_raddr;
 
 wire[31:0] reg_rdata;
@@ -217,7 +214,7 @@ begin
       reg_waddr = {8'd0, bw_reg_waddr};
       reg_wdata = bw_reg_wdata;
    end
-   else if (eth_write_en) begin
+   else if (eth_req_write_bus) begin
       reg_wen = eth_reg_wen;
       blk_wen = eth_blk_wen;
       blk_wstart = eth_blk_wstart;
@@ -301,6 +298,9 @@ phy(
     .reg_waddr(fw_reg_waddr),  // out: register address
     .reg_rdata(reg_rdata),     // in:  read data to external register
     .reg_wdata(fw_reg_wdata),  // out: write data to external register
+
+    .req_read_bus(fw_req_read_bus),    // out: request read bus
+    .req_write_bus(fw_req_write_bus),  // out: request read bus
 
     .eth_send_fw_req(eth_send_fw_req), // in: send req from eth
     .eth_send_fw_ack(eth_send_fw_ack), // out: ack send req to eth
@@ -468,13 +468,13 @@ EthernetIO EthernetTransfers(
     // to respond to quadlet read and block read commands.
     .eth_reg_rdata(reg_rdata),         //  in: reg read data
     .eth_reg_raddr(eth_reg_raddr),     // out: reg read addr
-    .eth_read_en(eth_read_en),         // out: reg read enable
+    .eth_req_read_bus(eth_req_read_bus), // out: reg read enable
     .eth_reg_wdata(eth_reg_wdata),     // out: reg write data
     .eth_reg_waddr(eth_reg_waddr),     // out: reg write addr
     .eth_reg_wen(eth_reg_wen),         // out: reg write enable
     .eth_block_wen(eth_blk_wen),       // out: blk write enable
     .eth_block_wstart(eth_blk_wstart), // out: blk write start
-    .eth_write_en(eth_write_en),       // out: write bus enable
+    .eth_req_write_bus(eth_req_write_bus), // out: request write bus
 
     // Low-level Firewire PHY access
     .lreq_trig(eth_lreq_trig),   // out: phy request trigger

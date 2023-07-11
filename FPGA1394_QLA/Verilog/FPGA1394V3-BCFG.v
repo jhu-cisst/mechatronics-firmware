@@ -84,7 +84,6 @@ module FPGA1394V3BCFG
     assign board_id = ~wenid;
     wire LED_Out;
     wire isV30;
-    wire[63:0] reg_emio;        // EMIO feedback (to PS)
 
     wire[15:0] reg_raddr;       // 16-bit reg read address
     wire[15:0] reg_waddr;       // 16-bit reg write address
@@ -96,8 +95,7 @@ module FPGA1394V3BCFG
 
     // Wires for sampling block read data
     wire sample_start;        // Start sampling read data
-    wire sample_busy;         // 1 -> data sampler has control of bus
-    wire[3:0] sample_chan;    // Channel for sampling
+    wire sample_busy;         // Sampling in process
     wire[5:0] sample_raddr;   // Address in sample_data buffer
     wire[31:0] sample_rdata;  // Output from sample_data buffer
     wire[31:0] timestamp;     // Timestamp used when sampling
@@ -155,7 +153,6 @@ fpga(
     .PS_SRSTB(PS_SRSTB),
     .PS_CLK(PS_CLK),
     .PS_PORB(PS_PORB),
-    .emio_ps_in(reg_emio),
 
      // Read/write bus
     .reg_raddr(reg_raddr),
@@ -177,7 +174,6 @@ fpga(
     // Sampling support
     .sample_start(sample_start),
     .sample_busy(sample_busy),
-    .sample_chan(sample_chan),
     .sample_raddr(sample_raddr),
     .sample_rdata(sample_rdata),
     .timestamp(timestamp),
@@ -198,9 +194,6 @@ BootConfig bcfg(
     .IO1(IO1),
     .IO2(IO2),
 
-    // EMIO feedback to PS
-    .reg_emio(reg_emio),
-
     // Read/write bus
     .reg_raddr(reg_raddr),
     .reg_waddr(reg_waddr),
@@ -213,7 +206,6 @@ BootConfig bcfg(
     // Sampling support
     .sample_start(sample_start),
     .sample_busy(sample_busy),
-    .sample_chan(sample_chan),
     .sample_raddr(sample_raddr),
     .sample_rdata(sample_rdata),
     .timestamp(timestamp)

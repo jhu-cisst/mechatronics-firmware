@@ -52,8 +52,7 @@ module DRAC(
 
     // Sampling support
     input wire sample_start,        // Start sampling read data
-    output wire sample_busy,        // 1 -> data sampler has control of bus
-    output wire[3:0] sample_chan,   // Channel for sampling
+    output wire sample_busy,        // Sampling in process
     input wire[5:0] sample_raddr,   // Address in sample_data buffer
     output wire[31:0] sample_rdata, // Output from sample_data buffer
     input wire sample_read,

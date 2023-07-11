@@ -70,8 +70,7 @@ module FPGA1394V1
 
     // Sampling support
     output wire sample_start,       // Start sampling read data
-    input wire sample_busy,         // 1 -> data sampler has control of bus
-    input wire[3:0] sample_chan,    // Channel for sampling
+    input wire sample_busy,         // Sampling in process
     output wire[5:0] sample_raddr,  // Address in sample_data buffer
     input wire[31:0] sample_rdata,  // Output from sample_data buffer
     input wire[31:0] timestamp,     // Timestamp used when sampling
@@ -113,7 +112,7 @@ assign ip_address = 32'hffffffff;
 wire fw_sample_start;
 assign sample_start = fw_sample_start & ~sample_busy;
 
-assign reg_raddr = sample_busy ? {`ADDR_MAIN, 4'd0, sample_chan, 4'd0} : fw_reg_raddr;
+assign reg_raddr = fw_reg_raddr;
 
 // Multiplexing of write bus between WriteRtData (bw = real-time block write module)
 // and Firewire.
