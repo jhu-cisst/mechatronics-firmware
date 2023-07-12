@@ -194,4 +194,39 @@ begin
     end
 end
 
+// --------------------------------------------------------------------------
+// dRAC LED
+// --------------------------------------------------------------------------
+wire drac_front_panel_led;
+assign IO1[6] = isDRAC ? drac_front_panel_led : 'bz;
+
+reg [25:0] blink_counter;
+reg blink_ovf;
+reg [3:0] on_led = 'd1;
+reg [7:0] led_red;
+reg [7:0] led_green;
+reg [7:0] led_blue;
+wire [3:0] led_address;
+always @(posedge sysclk) begin
+    blink_counter <= blink_counter + 'd1;
+    blink_ovf <= blink_counter == 'd12_288_000 - 'd1;
+    led_green <= led_address == on_led ? 'd50 : 'd0;
+    if (blink_ovf) begin
+        blink_counter <= 'd0;
+        on_led <= on_led + 'd1;
+        if (on_led == 'd6) begin
+            on_led <= 'd1;
+        end
+    end
+end
+
+ws2811 #(.NUM_LEDS(7),.SYSTEM_CLOCK(49_152_000)) ws2811_instance (
+    .clk(sysclk),
+    .address(led_address),
+    .red_in(led_red),
+    .blue_in(led_blue),
+    .green_in(led_green),
+    .DO(drac_front_panel_led)
+);
+
 endmodule

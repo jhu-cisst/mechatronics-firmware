@@ -151,7 +151,8 @@ file(GLOB HLS_GENERATED_SOURCES_DRAC_FPGAV3 CONFIGURE_DEPENDS "${HLS_GENERATED_S
 
 # Source files used by BCFG (boot config)
 set (VERILOG_SOURCE_BCFG  "${VERILOG_SOURCE_DIR}/BootConfig.v"
-                          "${VERILOG_SOURCE_DIR}/QLA25AA128.v")
+                          "${VERILOG_SOURCE_DIR}/QLA25AA128.v"
+                          "${VERILOG_SOURCE_DIR}/ws2811.v")
 
 ################### Complete Systems (FPGA + Board) #####################
 
