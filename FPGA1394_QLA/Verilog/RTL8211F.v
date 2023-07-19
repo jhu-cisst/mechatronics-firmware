@@ -670,6 +670,10 @@ fifo_32x32 send_info_fifo(
     .empty(send_info_fifo_empty)
 );
 
+`ifdef HAS_DEBUG_DATA
+reg[7:0]  numTxSent;         // Number of packets sent to host PC
+`endif
+
 always @(posedge TxClk)
 begin
     case (txState)
@@ -881,7 +885,6 @@ initial begin
 end
 
 `ifdef HAS_DEBUG_DATA
-reg[7:0]  numTxSent;         // Number of packets sent to host PC
 reg[15:0] debug_PhyId1;
 reg[15:0] debug_PhyId2;
 reg[23:0] debug_initCount;
@@ -1086,8 +1089,70 @@ begin
     endcase
 end
 
+
+// Registers for clk domain to synchronize signals from RxClk and TxClk
+// domains (i.e., clock domain crossing). Note that the recommended practice
+// is to use two consecutive flip-flops, but we use just one here because
+// the other occurs when reg_rdata is latched.
+
+reg RxErr_1;
+reg recv_preamble_error_1;
+
+`ifdef HAS_DEBUG_DATA
+reg recv_fifo_reset_1;
+reg recv_fifo_full_1;
+reg tx_underflow_1;
+reg send_fifo_empty_1;
+reg send_fifo_error_1;
+reg recv_ipv4_1;
+reg recv_ipv4_err_1;
+reg recv_udp_1;
+reg isUnicast_1;
+reg isMulticast_1;
+reg isBroadcast_1;
+reg txStateError_1;
+reg rxStateError_1;
+reg[2:0] txState_1;
+reg[2:0] rxState_1;
+reg[31:0] recv_crc_in_1;
+reg[7:0] numRxDropped_1;
+reg[7:0] send_first_byte_out_1;
+reg[7:0] numTxSent_1;
+reg[31:0] send_crc_in_1;
+`endif
+
+// Synchronize signals with clk
+always @(posedge clk)
+begin
+    RxErr_1 <= RxErr;
+    recv_preamble_error_1 <= recv_preamble_error;
+
+`ifdef HAS_DEBUG_DATA
+    recv_fifo_reset_1 <= recv_fifo_reset;
+    recv_fifo_full_1 <= recv_fifo_full;
+    tx_underflow_1 <= tx_underflow;
+    send_fifo_empty_1 <= send_fifo_empty;
+    send_fifo_error_1 <= send_fifo_error;
+    recv_ipv4_1 <= recv_ipv4;
+    recv_ipv4_err_1 <= recv_ipv4_err;
+    recv_udp_1 <= recv_udp;
+    isUnicast_1 <= isUnicast;
+    isMulticast_1 <= isMulticast;
+    isBroadcast_1 <= isBroadcast;
+    txStateError_1 <= txStateError;
+    rxStateError_1 <= rxStateError;
+    txState_1 <= txState;
+    rxState_1 <= rxState;
+    recv_crc_in_1 <= recv_crc_in;
+    numRxDropped_1 <= numRxDropped;
+    send_first_byte_out_1 <= send_first_byte_out;
+    numTxSent_1 <= numTxSent;
+    send_crc_in_1 <= send_crc_in;
+`endif
+end
+
 // Error bit provided to EthernetIO (reported back to PC in ExtraData)
-assign ethInternalError = RxErr|recv_preamble_error;
+assign ethInternalError = RxErr_1|recv_preamble_error_1;
 
 // Ethernet status bits for this port
 assign eth_status = { initOK, hasIRQ, linkOK, linkSpeed, recv_fifo_error, send_fifo_overflow, ps_eth_enable };
@@ -1099,18 +1164,18 @@ assign eth_status = { initOK, hasIRQ, linkOK, linkSpeed, recv_fifo_error, send_f
 `ifdef HAS_DEBUG_DATA
 wire[31:0] DebugData[0:7];
 assign DebugData[0] = "2GBD";  // DBG2 byte-swapped
-assign DebugData[1] = { RxErr, recv_preamble_error, recv_fifo_reset, recv_fifo_full,      // 31:28
+assign DebugData[1] = { RxErr_1, recv_preamble_error_1, recv_fifo_reset_1, recv_fifo_full_1,   // 31:28
                         recv_fifo_empty, recv_info_fifo_empty, 2'd0,                      // 27:24
-                        1'd0, tx_underflow, send_fifo_full, send_fifo_empty,              // 23:20
-                        ~IRQn_latched, 1'd0, send_fifo_error, recv_ipv4,                  // 19:16
-                        recv_ipv4_err, recv_udp, 1'd0, hasIRQ,                            // 15:12
-                        isUnicast, isMulticast, isBroadcast, initOK,                      // 11:8
-                        txStateError, rxStateError, 6'd0 };
-assign DebugData[2] = {  speed_mode, clock_speed, state, 1'b0, txState, 1'b0, rxState, numIRQ, numReset };
+                        1'd0, tx_underflow_1, send_fifo_full, send_fifo_empty_1,          // 23:20
+                        ~IRQn_latched, 1'd0, send_fifo_error_1, recv_ipv4_1,              // 19:16
+                        recv_ipv4_err_1, recv_udp_1, 1'd0, hasIRQ,                        // 15:12
+                        isUnicast_1, isMulticast_1, isBroadcast_1, initOK,                // 11:8
+                        txStateError_1, rxStateError_1, 6'd0 };
+assign DebugData[2] = {  speed_mode, clock_speed, state, 1'b0, txState_1, 1'b0, rxState_1, numIRQ, numReset };
                       //      2,          2,         4            3,            3
-assign DebugData[3] = recv_crc_in;
-assign DebugData[4] = { numRxDropped, 8'd0, send_first_byte_out, numTxSent };
-assign DebugData[5] = send_crc_in;
+assign DebugData[3] = recv_crc_in_1;
+assign DebugData[4] = { numRxDropped_1, 8'd0, send_first_byte_out_1, numTxSent_1 };
+assign DebugData[5] = send_crc_in_1;
 assign DebugData[6] = { debug_PhyId2, debug_PhyId1 };
 assign DebugData[7] = { 8'd0, debug_initCount };
 `endif
