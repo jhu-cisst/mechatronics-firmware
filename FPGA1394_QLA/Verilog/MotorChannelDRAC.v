@@ -23,7 +23,7 @@ module MotorChannelDRAC
     input  wire       reg_wen,      //  Reg write enable when High write, when Low Read
     output wire[15:0] cur_fb,
     output reg[15:0] cur_fb_filtered,
-    output wire[15:0] cur_cmd_fb,
+    output reg[15:0] cur_cmd_fb,
 
     //ADC control interface
     input  wire       adc_sck,
@@ -55,13 +55,14 @@ module MotorChannelDRAC
 reg [15:0] measured_motor_current = 'hbbbb;
 
 reg signed [COUNTER_WIDTH:0] duty_cycle = 0;
+reg signed [COUNTER_WIDTH:0] duty_cycle_sysclk;
 reg [15:0] tuning_counter = 0;
 reg [15:0] tuning_pulse_width = 0;
 wire tuning_mode = | tuning_pulse_width;
 reg tuning_req = 0;
 reg tuning_ack = 0;
 
-wire [3:0] fault_code;
+reg [3:0] fault_code;
 assign motor_status = {2'b0, // 31:30 unused
     enable_pin, // 29 actual enable
     enable_requested, // 28 requested enable
@@ -69,7 +70,7 @@ assign motor_status = {2'b0, // 31:30 unused
     3'b0, // 23:21 unused
     1'b0, // 20 cur_ctrl=0 no analog current loop
     fault_code, // 19:16 fault code
-    duty_cycle, 5'b0}; // 15:0 DAC output
+    duty_cycle_sysclk, 5'b0}; // 15:0 DAC output
 
 
 PWM PWM_instance
@@ -86,7 +87,6 @@ reg [10:0] v_cmd = 'sh0;
 reg [15:0] cur_cmd_normal = 16'h8000;
 reg [15:0] cur_cmd_tuning = 16'h8000;
 wire [15:0] cur_cmd = tuning_mode ? cur_cmd_tuning : cur_cmd_normal;
-assign cur_cmd_fb = cur_cmd;
 
 reg [17:0] kp = 2000;
 reg [17:0] ki = 200;
@@ -172,6 +172,7 @@ wire [31:0] fault = {28'b0,
     current_regulation_fault & (control_mode == `MOTOR_CONTROL_MODE_CURRENT) & ~enable_pin,
     adc_fault};
 reg [31:0] fault_latched = 0;
+reg [31:0] fault_latched_sysclk;
 
 // safety check - current adc is broken
 always @(posedge pwmclk) begin
@@ -189,8 +190,9 @@ localparam current_error_counter_top = 12'hfff;
 reg [11:0] current_error_counter = current_error_counter_top; // 51.2 ms
 assign current_regulation_fault = (current_error_counter == 12'h0);
 wire [15:0] error_out_abs = error_out[16] ? -error_out : error_out;
-wire current_bad = error_out_abs > (CHANNEL < 3 ? 16'h0200 : 16'h0800); // +- 0.128 A
+reg current_bad = 0;
 always @(posedge pwmclk) begin
+    current_bad <= error_out_abs > (CHANNEL < 3 ? 16'h0200 : 16'h0800); // +- 0.128 A
     if (control_mode != `MOTOR_CONTROL_MODE_CURRENT || clear_disable || ~enable_pin) begin
         current_error_counter <= current_error_counter_top;
     end else if (ap_done) begin
@@ -212,9 +214,6 @@ begin
     end
 end
 
-assign fault_code = fault_latched[0] ? 1 :
-                    fault_latched[1] ? 2 :
-                    fault_latched[2] ? 3 : 0;
 
 
 always @(posedge pwmclk) begin
@@ -237,6 +236,13 @@ end
 // pc interface
 always @(posedge sysclk)
 begin
+    duty_cycle_sysclk <= duty_cycle;
+    fault_latched_sysclk <= fault_latched;
+    fault_code <=
+        fault_latched[0] ? 1 :
+        fault_latched[1] ? 2 :
+        fault_latched[2] ? 3 : 0;
+    cur_cmd_fb <= cur_cmd;
     if (~enable_pin) begin
         cur_cmd_normal <= 'h8000;
     end
@@ -249,8 +255,8 @@ begin
             `OFF_MOTOR_CONTROL_CURRENT_FF_RESISTIVE: reg_rdata <= ff_resistive;
             `OFF_MOTOR_CONTROL_CURRENT_I_TERM_LIMIT: reg_rdata <= i_term_limit;
             `OFF_MOTOR_CONTROL_CURRENT_OUTPUT_LIMIT: reg_rdata <= output_limit;
-            `OFF_MOTOR_CONTROL_DUTY_CYCLE: reg_rdata <= duty_cycle;
-            `OFF_MOTOR_CONTROL_FAULT: reg_rdata <= fault_latched;
+            `OFF_MOTOR_CONTROL_DUTY_CYCLE: reg_rdata <= duty_cycle_sysclk;
+            `OFF_MOTOR_CONTROL_FAULT: reg_rdata <= fault_latched_sysclk;
             `OFF_MOTOR_CONTROL_TUNE: reg_rdata <= {16'b0, tuning_pulse_width};
             default: reg_rdata <= 32'hcccccccc;
         endcase
@@ -295,6 +301,7 @@ end
 reg [5:0] decimate_counter = 0;
 reg [21:0] decimate_sum;
 reg adc_data_latched;
+reg[15:0] cur_fb_filtered_pwmclk;
 
 always @ (posedge pwmclk) begin
     adc_data_latched <= adc_data_ready;
@@ -304,12 +311,16 @@ always @ (posedge pwmclk) begin
             decimate_sum <= measured_motor_current;
         end
         else if (decimate_counter == 63) begin
-            cur_fb_filtered <= (decimate_sum + measured_motor_current) >> 6;
+            cur_fb_filtered_pwmclk <= (decimate_sum + measured_motor_current) >> 6;
         end
         else begin
             decimate_sum <= decimate_sum + measured_motor_current;
         end
     end
+end
+
+always @ (posedge sysclk) begin
+    cur_fb_filtered <= cur_fb_filtered_pwmclk;
 end
 
 endmodule
