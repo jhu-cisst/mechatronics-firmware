@@ -72,7 +72,7 @@ module EthernetIO
     output reg       eth_reg_wen,
     output reg       eth_block_wen,
     output reg       eth_block_wstart,
-    output reg       eth_req_write_bus,
+    output wire      eth_req_write_bus,
 
     // Low-level Firewire PHY access
     output reg lreq_trig,         // trigger signal for a FireWire phy request
@@ -134,6 +134,11 @@ module EthernetIO
 );
 
 `define send_word_swapped {send_word[7:0], send_word[15:8]}
+
+// TEMP for V2 (should figure out why eth_write_en still needed)
+reg eth_write_en;
+reg eth_req_write_reg;
+assign eth_req_write_bus = eth_write_en | eth_req_write_reg;
 
 // Error flags
 reg ethFrameError;     // 1 -> Frame is not Raw, IPv4 or ARP
@@ -868,11 +873,11 @@ begin
       sample_start <= 1'd0;
    end
 
-   if (writeRequestQuad && eth_reg_wen) begin
+   if (writeRequestQuad && eth_write_en) begin
       writeRequestQuad <= 1'd0;
    end
 
-   if (writeRequestBlock && bw_local_active) begin
+   if (writeRequestBlock && eth_write_en) begin
       writeRequestBlock <= 1'd0;
    end
 
@@ -923,7 +928,7 @@ begin
       end
       if (eth_send_fw_req) begin
          // Request write bus, if needed (also for reboot cmd)
-         eth_req_write_bus <= quadWrite&isLocal;
+         eth_req_write_reg <= quadWrite&isLocal;
          // This could have been a separate state, but would need an extra
          // bit to have 5 receive states.
          if (eth_send_fw_ack) begin
@@ -946,7 +951,7 @@ begin
          recvBusy <= 0;
          writeRequestQuad <= 1'b0;
          writeRequestBlock <= 1'b0;
-         eth_req_write_bus <= 1'b0;
+         eth_req_write_reg <= 1'b0;
          if (recvRequest) begin
             recvBusy <= 1;
             FireWirePacketFresh <= 0;
@@ -1125,7 +1130,7 @@ begin
                   // writeRequestBlock should have been set earlier (using writeRequestTrigger) for all
                   // local block writes (even broadcast), except for real-time block write (to addrMain),
                   // which is handled separately. We expect write to still be active.
-                  bw_err <= ~eth_req_write_bus;
+                  bw_err <= ~eth_write_en;
                   // Number of quadlets left to write to registers; should be greater than 1,
                   // otherwise the register writer may have overtaken the Ethernet reader.
                   bw_left <= block_data_length[10:2] + 9'd5 - local_raddr;
@@ -1142,7 +1147,7 @@ begin
          end
          if (rfw_count == writeRequestTrigger) begin
             writeRequestBlock <= blockWrite&isLocal&(~addrMain);
-            eth_req_write_bus <= 1'b1;
+            eth_req_write_reg <= 1'b1;
          end
          if (doRtBlock&rfw_count[0]) begin
             // Real-time block write.
@@ -1587,11 +1592,13 @@ begin
             lreq_type <= (fw_quadlet_data[12] ? `LREQ_REG_WR : `LREQ_REG_RD);
             lreq_trig <= 1;
          end
+         eth_write_en <= 1;
          eth_reg_wen <= 1;
          eth_block_wen <= 1;
       end
       else if (writeRequestBlock) begin
          bw_local_active <= 1;
+         eth_write_en <= 1;
          // Assert eth_block_wstart for 80 ns before starting local block write
          // (same timing as in Firewire module).
          eth_block_wstart <= 1;
@@ -1604,6 +1611,7 @@ begin
       end
       else begin
          bw_local_active <= 0;
+         eth_write_en <= 0;
          eth_reg_wen <= 0;    // Clean up from quadlet/block writes
          eth_block_wen <= 0;
          eth_block_wstart <= 0;
