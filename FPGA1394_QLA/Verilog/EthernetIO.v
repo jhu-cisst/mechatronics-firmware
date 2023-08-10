@@ -1147,7 +1147,7 @@ begin
          end
          if (rfw_count == writeRequestTrigger) begin
             writeRequestBlock <= blockWrite&isLocal&(~addrMain);
-            eth_req_write_reg <= 1'b1;
+            eth_req_write_reg <= blockWrite&isLocal&(~addrMain);
          end
          if (doRtBlock&rfw_count[0]) begin
             // Real-time block write.
