@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2008-2020 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2008-2023 ERC CISST, Johns Hopkins University.
  *
  * This module contains a register file dedicated to general board parameters.
  * Separate register files are maintained for each I/O channel (SpiCtrl).
@@ -15,250 +15,141 @@
  *     05/08/13    Zihan Chen          Fix watchdog 
  *     05/19/13    Zihan Chen          Add mv_good 40 ms sleep
  *     09/23/15    Peter Kazanzides    Moved DOUT code to CtrlDout.v
+ *     10/15/19    Jintan Zhang        Implemented watchdog period led feedback 
  *     07/03/20    Peter Kazanzides    Changing reset to reboot
+ *     06/27/22    Peter Kazanzides    Added isQuadDac
+ *     12/14/22    Peter Kazanzides    Separated into BoardRegs.v and BoardRegs-QLA.v
  */
 
 
 // device register file offset
 `include "Constants.v" 
 
-// watchdog
-`define WIDTH_WATCHDOG 8           // period = 5.208333 us (2^8 / 49.152 MHz) 
-
-module BoardRegs(
+module BoardRegs
+(
     // global clock
     input  wire sysclk, 
     output reg  reboot,
     
-    // board input (PC writes)
-    output wire[4:1] amp_disable,   // hardware connection to op amps
-    input  wire[31:0] dout,         // digital outputs
-    input  wire dout_cfg_valid,     // digital output configuration valid
-    input  wire dout_cfg_bidir,     // whether digital outputs are bidirectional (also need to be inverted)
-    output reg  dout_cfg_reset,     // reset dout_cfg_valid
-    output reg pwr_enable,          // enable motor power
-    output reg relay_on,            // enable relay for safety loop-through
-    
-    // board output (PC reads)
-    input  wire[4:1] enc_a,         // encoder a  
-    input  wire[4:1] enc_b,         // encoder b 
-    input  wire[4:1] enc_i,         // encoder index 
-    input  wire[4:1] neg_limit,     // digi input negative limit
-    input  wire[4:1] pos_limit,     // digi input positive limit
-    input  wire[4:1] home,          // digi input home position
-    input  wire[4:1] fault,
-    
-    input  wire relay,              // relay signal
-    input  wire mv_faultn,          // motor power fault (active low) from LT4356, over-voltage or over-current
-    input  wire mv_good,            // motor voltage good 
-    input  wire v_fault,            // encoder supply voltage fault
-    input  wire io1_8,              // unused digital I/O (not connected on QLA)
-    input  wire[3:0] board_id,      // board id (rotary switch)
-    input  wire[15:0] temp_sense,   // temperature sensor reading
-    
     // register file interface
     input  wire[15:0] reg_raddr,     // register read address
     input  wire[15:0] reg_waddr,     // register write address
-    output reg[31:0] reg_rdata,     // register read data
-    input  wire[31:0] reg_wdata,    // register write data
-    input  wire reg_wen,            // write enable from FireWire module
-    
-    // PROM feedback
-    input  wire[31:0] prom_status,
-    input  wire[31:0] prom_result,
+    output reg[31:0] reg_rdata,      // register read data
+    input  wire[31:0] reg_wdata,     // register write data
+    input  wire reg_wen,             // write enable from FireWire module
+    input  wire[31:0] reg_rdata_ext, // register read data from external board
 
-    // Ethernet IP address
-    input  wire[31:0] ip_address,
-
-    // Ethernet feedback
-    input  wire[31:0] eth_result,
-
-    // Dallas chip status
-    input  wire[31:0] ds_status,
-
-    // Safety amp_disable
-    input  wire[4:1] safety_amp_disable,
-
-    // Signals used to clear error flags
-    output wire pwr_enable_cmd,
-    output wire[4:1] amp_enable_cmd,
-
-    output wire[31:0] reg_status,  // Status register (for reading)
-    output wire[31:0] reg_digin,   // Digital I/O register (for reading)
-    output reg[31:0] reg_debug     // for debug purpose only
+    output reg wdog_period_led,    // 1 -> LED1 displays wdog_period_status
+    output reg[2:0] wdog_period_status,
+    output reg wdog_timeout,       // watchdog timeout status flag
+    input  wire wdog_clear         // clear watchdog timeout (e.g., on powerup)
 );
 
     // -------------------------------------------------------------------------
     // define wires and registers
     //
 
-    // registered data
-    reg[3:0] reg_disable;       // register the disable signals
-    initial reg_disable = 4'hf; // start up all disabled
+    // Interface to Firewire PHY. The host PC writes phy_ctrl, which is
+    // actually processed in Firewire.v or EthernetIO.v. The data saved here
+    // is only for readback purposes.
+    // The Firewire.v module actually issues the write to store the value
+    // in phy_data, which can then be read by the host PC.
     reg[15:0] phy_ctrl;         // for phy request bitstream
     reg[15:0] phy_data;         // for phy register transfer data
 
     // watchdog timer
-    wire wdog_clk;              // watchdog clock
-    reg  wdog_timeout;          // watchdog timeout status flag
     reg[15:0] wdog_period;      // watchdog period, user writable
     initial wdog_period = 16'h1680;  // 0x1680 == 30 msec
-    reg[15:0] wdog_count;       // watchdog timer counter
-
-    // mv good timer
-    reg[15:0] mv_good_counter;  // mv_good counter
-    reg[4:1] mv_amp_disable;    // mv good amp_disable
-
-    assign reg_status = {
-                // Byte 3: num channels (4), board id
-                4'd4, board_id,
-                // Byte 2: wdog timeout, 0 (was eth1394), dout_cfg_valid, dout_cfg_bidir
-                wdog_timeout, 1'd0, dout_cfg_valid, dout_cfg_bidir,
-                // mv_good, power enable, safety relay state, safety relay control
-                mv_good, pwr_enable, ~relay, relay_on,
-                // mv_fault, unused (0)
-                ~mv_faultn, 3'd0,
-                // amplifier: 1 -> amplifier on, 0 -> fault (4 axes)
-                fault,
-                // Byte 0: 1 -> amplifier enabled, 0 -> disabled
-                safety_amp_disable[4:1], ~reg_disable[3:0] };
-
-    // dout[31] indicates that waveform table is driving at least one DOUT
-    assign reg_digin = {v_fault, io1_8, dout[31], 1'b0, enc_a, enc_b, enc_i, dout[3:0], neg_limit, pos_limit, home};
+    reg[23:0] wdog_count;       // watchdog timer counter (check upper 16 bits)
 
 //------------------------------------------------------------------------------
 // hardware description
 //
-initial reg_debug = 32'h2000;
-
-// mv_amp_disable for 40 ms sleep after board pwr enable
-assign amp_disable = (reg_disable[3:0] | mv_amp_disable[4:1]);
 
 wire write_main;
-assign write_main = ((reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[7:4]==0) && reg_wen) ? 1'b1 : 1'b0;
-wire write_status;
-assign write_status = (write_main && (reg_waddr[3:0] == `REG_STATUS)) ? 1'b1 : 1'b0;
+assign write_main = ((reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[7:4]==4'd0) && reg_wen) ? 1'b1 : 1'b0;
 
-// pwr_enable_cmd indicates that the host is attempting to enable board power.
-// This is used to clear error flags, such as wdog_timeout and safety_amp_disable.
-assign pwr_enable_cmd = write_status ? (reg_wdata[19]&reg_wdata[18]) : 1'd0;
+// return register data for reads
+//    REG_PROMSTAT, REG_PROMRES, REG_IPADDR and REG_ETHSTAT handled elsewhere in FPGA module
+//    reg_rdata_ext is data from external board (e.g., QLA)
+always @(*) begin
+    case (reg_raddr[3:0])
+        `REG_PHYCTRL: reg_rdata = {16'd0, phy_ctrl};
+        `REG_PHYDATA: reg_rdata = {16'd0, phy_data};
+        `REG_TIMEOUT: reg_rdata = {wdog_period_led, 15'd0, wdog_period};
+        `REG_FVERSION: reg_rdata = `FW_VERSION;
+         default:  reg_rdata = reg_rdata_ext;
+    endcase
+end
 
-// amp_enable_cmd indicates that the host is attempting to enable amplifier power.
-// This is used to clear error flags, such as wdog_timeout and safety_amp_disable.
-assign amp_enable_cmd = write_status ? {reg_wdata[11]&reg_wdata[3], reg_wdata[10]&reg_wdata[2], 
-                                        reg_wdata[ 9]&reg_wdata[1], reg_wdata[ 8]&reg_wdata[0]}
-                                     : 4'd0;
-
-// powerup_cmd is true if the host is attempting to enable board power or any amplifier.
-wire powerup_cmd;
-assign powerup_cmd = pwr_enable_cmd | amp_enable_cmd[4] | amp_enable_cmd[3] | amp_enable_cmd[2] | amp_enable_cmd[1];
-
-// clocked process simulating a register file
+// write register data
 always @(posedge(sysclk))
   begin
-    // set register values for writes
+    // Set register values for writes
+    // For REG_STATUS we only care about the FPGA reboot request bits [21:20]
     if (write_main) begin
         case (reg_waddr[3:0])
-        `REG_STATUS: begin
-            // mask reg_wdata[15:8] with [7:0] for disable (~enable) control
-            // ([15:12] and [7:4] are for an 8-axis system)
-            reg_disable[3] <= ~pwr_enable || (reg_wdata[11] ? ~reg_wdata[3] : reg_disable[3]);
-            reg_disable[2] <= ~pwr_enable || (reg_wdata[10] ? ~reg_wdata[2] : reg_disable[2]);
-            reg_disable[1] <= ~pwr_enable || (reg_wdata[9] ? ~reg_wdata[1] : reg_disable[1]);
-            reg_disable[0] <= ~pwr_enable || (reg_wdata[8] ? ~reg_wdata[0] : reg_disable[0]);
-            // mask reg_wdata[17] with [16] for safety relay control
-            relay_on <= reg_wdata[17] ? reg_wdata[16] : relay_on;
-            // mask reg_wdata[19] with [18] for pwr_enable
-            pwr_enable <= reg_wdata[19] ? reg_wdata[18] : pwr_enable;
-            // mask reg_wdata[21] with [20] for reboot (was reset prior to Rev 7)
-            reboot <= reg_wdata[21] ? reg_wdata[20] : 1'b0;
-            // Previously, masked reg_wdata[23] with [22] for eth1394 mode
-            // use reg_wdata[24] to reset dout_cfg_valid
-            dout_cfg_reset <= reg_wdata[24];
-        end
+        `REG_STATUS:  reboot <= reg_wdata[21] ? reg_wdata[20] : 1'b0;
         `REG_PHYCTRL: phy_ctrl <= reg_wdata[15:0];
         `REG_PHYDATA: phy_data <= reg_wdata[15:0];
-        `REG_TIMEOUT: wdog_period <= reg_wdata[15:0];
-        // Write to DOUT is handled in CtrlDout.v
-        // Write to PROM command register (8) is handled in M25P16.v
-        // Write to IP address is handled in EthernetIO.v
-        `REG_DEBUG:   reg_debug <= reg_wdata[31:0];
+        `REG_TIMEOUT: {wdog_period_led, wdog_period} <= {reg_wdata[31], reg_wdata[15:0]};
         endcase
-    end
-
-    // return register data for reads
-    else begin
-        case (reg_raddr[3:0])
-        `REG_STATUS: reg_rdata <= reg_status;
-        `REG_PHYCTRL: reg_rdata <= phy_ctrl;
-        `REG_PHYDATA: reg_rdata <= phy_data;
-        `REG_TIMEOUT: reg_rdata <= wdog_period;
-        `REG_VERSION: reg_rdata <= `VERSION;
-        `REG_TEMPSNS: reg_rdata <= {16'd0, temp_sense};
-        `REG_DIGIOUT: reg_rdata <= dout;
-        `REG_FVERSION: reg_rdata <= `FW_VERSION;
-        `REG_PROMSTAT: reg_rdata <= prom_status;
-        `REG_PROMRES: reg_rdata <= prom_result;
-        `REG_DSSTAT: reg_rdata <= ds_status;
-        `REG_DIGIN: reg_rdata <= reg_digin;
-        `REG_IPADDR: reg_rdata <= ip_address;
-        `REG_ETHRES: reg_rdata <= eth_result;
-        `REG_DEBUG:  reg_rdata <= reg_debug;
-
-        default:  reg_rdata <= 32'd0;
-        endcase
-
-        // Disable axes when wdog timeout or safety amp disable. Note the minor efficiency gain
-        // below by combining safety_amp_disable with !wdog_timeout.
-        reg_disable[3:0] <= reg_disable[3:0] | (wdog_timeout ? 4'b1111 : safety_amp_disable[4:1]);
-        // Turn off dout_cfg_reset in case it was previously set
-        dout_cfg_reset <= 1'b0;
     end
 end
 
 // --------------------------------------------------------------------------
 // Watchdog
 // --------------------------------------------------------------------------
-// derive watchdog clock
-ClkDiv divWdog(sysclk, wdog_clk);
-defparam divWdog.width = `WIDTH_WATCHDOG;
 
-// watchdog timer and flag, cleared via any register write
-always @(posedge(wdog_clk) or posedge(reg_wen) or posedge(powerup_cmd))
+// assign phase states to wdog_period_status
+always @(wdog_period)                           // executes if wdog_period is updated
 begin
-    if (powerup_cmd) begin
-        wdog_count <= 0;                        // clear the timer counter
-        wdog_timeout <= 0;                      // clear wdog_timeout
+    if (wdog_period == 16'h0) begin
+        wdog_period_status <= `WDOG_DISABLE;      // watchdog period = 0ms
     end
-    else if (reg_wen) begin
-        // clear counter on any reg write
-        wdog_count <= 0;                        // clear the timer counter
+    else if (wdog_period <= 16'h2580) begin
+        wdog_period_status <= `WDOG_PHASE_ONE;    // watchdog period between 0ms and 50 ms
     end
-    else if (wdog_period) begin
-        // watchdog only works when period is set
-        if (wdog_count < wdog_period) begin     // time between reg writes
-            wdog_count <= wdog_count + 1'b1;    // increment timer counter
-        end
-        else begin
-            wdog_timeout <= 1'b1;               // raise flag
-        end
+    else if (wdog_period <= 16'h4B00) begin
+        wdog_period_status <= `WDOG_PHASE_TWO;    // watchdog period between 50ms and 100 ms
+    end
+    else if (wdog_period <= 16'h7080) begin
+        wdog_period_status <= `WDOG_PHASE_THREE;  // watchdog period between 100ms and 150 ms
+    end
+    else if (wdog_period <= 16'h9600) begin
+        wdog_period_status <= `WDOG_PHASE_FOUR;   // watchdog period between 150ms and 200 ms
+    end
+    else begin
+        wdog_period_status <= `WDOG_PHASE_FIVE;   // watchdog period larger than 200ms
     end
 end
 
-// to save resources use wdog_clk, period = 5.208333 us
-// 40 ms = 7680 cnts
-always @(posedge(wdog_clk))
+// watchdog timer and flag
+//    timer (wdog_count) is cleared by any register write
+//    timeout flag (wdog_timeout) is cleared by wdog_clear (powerup_cmd)
+//
+// The watchdog clock resolution is 5.208333 us (2^8 / 49.152 MHz), since
+// we use a 24-bit counter and compare the upper 16 bits to wdog_period
+// (previous implementations used ClkDiv to create wdog_clk).
+
+always @(posedge(sysclk))
 begin
-    if ((mv_good == 1'b1) && (mv_good_counter < 16'd7680)) begin
-        mv_good_counter <= mv_good_counter + 1'b1;
-        mv_amp_disable <= 4'b1111;
-    end 
-    else if (mv_good == 1'b1) begin
-        mv_amp_disable <= 4'b0000;
+    if (wdog_clear) begin
+        wdog_count <= 24'd0;                    // clear the timer counter
+        wdog_timeout <= 1'd0;                   // clear wdog_timeout
     end
-    else begin
-        mv_amp_disable <= 4'b1111;
-        mv_good_counter <= 16'd0;
+    else if (reg_wen) begin
+        // clear counter on any reg write
+        wdog_count <= 24'd0;                    // clear the timer counter
+    end
+    else if (wdog_period != 16'd0) begin
+        // watchdog only works when period is set
+        if (wdog_count[23:8] == wdog_period) begin  // time between reg writes
+            wdog_timeout <= 1'b1;                   // raise flag
+        end
+        else begin
+            wdog_count <= wdog_count + 24'b1;       // increment timer counter
+        end
     end
 end
 

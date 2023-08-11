@@ -3,9 +3,9 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2015-2020 Johns Hopkins University.
+ * Copyright(C) 2015-2022 Johns Hopkins University.
  *
- * This module controls access to the digital output bits. Each of the four digital
+ * This module controls access to the digital output bits. Each of the digital
  * output bits can be set/cleared, put in PWM mode, or used as a 1-shot.
  * These modes are selected by a 32-bit control register for each digital output bit.
  * The upper 16 bits are the high time and the lower 16 bits are the low time.
@@ -32,11 +32,14 @@
  *     4/21/16    Peter Kazanzides  Added support for QLA Rev 1.4
  *     4/07/17    Jie Ying Wu       Minor changes so PWM finishes its current period before changing duty cycle
  *    12/13/20    Peter Kazanzides  Added waveform table
+ *    12/15/22    Peter Kazanzides  Parameterized based on NUM_DOUT and made DoutCfgCheck a separate module
  */
 
 `include "Constants.v" 
 
-module CtrlDout(
+module CtrlDout
+    #(parameter NUM_DOUT = 4)
+(
     input  wire sysclk,           // global clock
     input  wire[15:0] reg_raddr,  // register file read addr from outside 
     input  wire[15:0] reg_waddr,  // register file write addr from outside 
@@ -45,48 +48,41 @@ module CtrlDout(
     input  wire[31:0] reg_wdata,  // incoming register file data
     input  wire reg_wen,          // write enable signal from outside world
     output wire[31:0] dout,       // digital outputs
-    input  wire dir12_read,       // direction control for channels 1-2 (QLA Rev 1.4+)
-    input  wire dir34_read,       // direction control for channels 3-4 (QLA Rev 1.4+)
-    output reg  dir12_reg,        // direction control for channels 1-2 (QLA Rev 1.4+)
-    output reg  dir34_reg,        // direction control for channels 3-4 (QLA Rev 1.4+)
-    output reg  dout_cfg_valid,   // 1 -> DOUT configuration valid
-    output reg  dout_cfg_bidir,   // 1 -> new DOUT hardware (bidirectional control)
-    input  wire dout_cfg_reset    // 1 -> reset dout_cfg_valid
+    input  wire[3:0] io_extra     // Extra I/O for FPGA V3.1+
 );
 
-initial begin
-  dout_cfg_valid = 0;
-  dout_cfg_bidir = 0;
-end
-
-wire dout_set;           // write to digital output bit (masked by reg_wdata[8:11])             
+wire dout_set;           // write to digital output bit (masked by reg_wdata[15:8])
 assign dout_set = (reg_wen && (reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[7:4] == 4'd0) & (reg_waddr[3:0] == `REG_DIGIOUT)) ? 1'd1 : 1'd0;
-wire dout_set_en[1:4];   // enable signal for each digital output
-assign dout_set_en[1] = dout_set && reg_wdata[8];
-assign dout_set_en[2] = dout_set && reg_wdata[9];
-assign dout_set_en[3] = dout_set && reg_wdata[10];
-assign dout_set_en[4] = dout_set && reg_wdata[11];
+wire dout_set_en[1:NUM_DOUT];  // enable signal for each digital output
 
-wire dout_pwm[1:4];      // DOUT from PWM module (also handles regular DOUT setting)
+wire dout_pwm[1:NUM_DOUT];     // DOUT from PWM module (also handles regular DOUT setting)
 
 // Whether to enable waveform table output for each DOUT.
 // To use the waveform table, the host should first fill the table (by block write to `ADDR_WAVEFORM)
 // and then write to `REG_DIGIOUT, setting the most significant bit (to enable waveform output)
-// and the mast bits (reg[wdata[8:11]) for each digital output that should be driven by the table.
-reg[3:0] dout_waveform_en;
+// and the mask bits (reg[wdata[8:11]) for each digital output that should be driven by the table.
+reg[NUM_DOUT-1:0] dout_waveform_en;
 
 // Whether any digital output is configured to be driven by the table
 wire dout_waveform_any;
-assign dout_waveform_any = dout_waveform_en[0]|dout_waveform_en[1]|dout_waveform_en[2]|dout_waveform_en[3];
+assign dout_waveform_any = (dout_waveform_en == {NUM_DOUT{1'b0}}) ? 1'b0 : 1'b1;
 
-// Assign the digital output to be either from the waveform table (if dout_waveform_en and entry_valid)
-// or from the PWM module.
-assign dout[0] = (dout_waveform_en[0]&entry_valid) ? table_rdata[0] : dout_pwm[1];
-assign dout[1] = (dout_waveform_en[1]&entry_valid) ? table_rdata[1] : dout_pwm[2];
-assign dout[2] = (dout_waveform_en[2]&entry_valid) ? table_rdata[2] : dout_pwm[3];
-assign dout[3] = (dout_waveform_en[3]&entry_valid) ? table_rdata[3] : dout_pwm[4];
+genvar i;
+generate
+for (i = 0; i < NUM_DOUT; i = i + 1) begin : dout_loop
+    assign dout_set_en[i+1] = dout_set && reg_wdata[i+8];
+    // Assign the digital output to be either from the waveform table (if dout_waveform_en and entry_valid)
+    // or from the PWM module.
+    assign dout[i] = (dout_waveform_en[i]&entry_valid) ? table_rdata[i] : dout_pwm[i+1];
+end
+// Zero any unused dout
+for (i = NUM_DOUT; i < 8; i = i + 1) begin : dout0_loop
+    assign dout[i] = 1'b0;
+end
+endgenerate
 
-assign dout[15:4] = 12'd0;
+assign dout[11:8] = io_extra;
+assign dout[15:12] = 4'd0;
 assign dout[25:16] = table_raddr;
 assign dout[29:26] = 4'd0;
 assign dout[30] = dout_waveform_any&entry_valid;
@@ -113,7 +109,7 @@ assign end_cnt = table_rdata[30:8];
 
 // Table of DOUT values to be written.
 // This table is 1024 x 32
-// Format:  Valid(1), EndCnt(23), 0(4), DOUT(4)
+// Format:  Valid(1), EndCnt(23), DOUT(8)
 Dual_port_RAM_32X1024 dout_table(
                        .clka(sysclk),
                        .ena(1'b1),
@@ -129,8 +125,8 @@ Dual_port_RAM_32X1024 dout_table(
 always @(posedge sysclk)
 begin
    if (dout_set) begin
-      // If bit 31 set, enable DOUT based on mask bits reg_wdata[11:8]
-      dout_waveform_en <= reg_wdata[31] ? reg_wdata[11:8] : 4'd0;
+      // If bit 31 set, enable DOUT based on mask bits reg_wdata[15:8]
+      dout_waveform_en <= reg_wdata[31] ? reg_wdata[NUM_DOUT+7:8] : {NUM_DOUT{1'b0}};
       table_raddr <= 10'd0;
       table_cnt <= 23'd0;
    end
@@ -146,31 +142,54 @@ begin
    end
    else begin
       // Idle
-      dout_waveform_en <= 4'd0;
+      dout_waveform_en <= {NUM_DOUT{1'b0}};
       table_raddr <= 10'd0;
       table_cnt <= 23'd0;
    end
 end
 
-
+genvar j;
+generate
+for (j = 1; j <= NUM_DOUT; j = j + 1) begin : ctrl_loop
+    assign dout_ctrl_en[j] = (dout_ctrl && (reg_waddr[7:4] == j)) ? 1'd1 : 1'd0;
+end
+endgenerate
 
 wire dout_ctrl;           // write to control register (hi/low times)
 assign dout_ctrl = (reg_wen && (reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[3:0]==`OFF_DOUT_CTRL)) ? 1'd1 : 1'd0;
-wire dout_ctrl_en[1:4];   // enable signal for each digital output control register
-assign dout_ctrl_en[1] = (dout_ctrl && (reg_waddr[7:4] == 4'd1)) ? 1'd1 : 1'd0;
-assign dout_ctrl_en[2] = (dout_ctrl && (reg_waddr[7:4] == 4'd2)) ? 1'd1 : 1'd0;
-assign dout_ctrl_en[3] = (dout_ctrl && (reg_waddr[7:4] == 4'd3)) ? 1'd1 : 1'd0;
-assign dout_ctrl_en[4] = (dout_ctrl && (reg_waddr[7:4] == 4'd4)) ? 1'd1 : 1'd0;
+wire dout_ctrl_en[1:NUM_DOUT];   // enable signal for each digital output control register
 
-wire [31:0] reg_rd[1:4];  // read control register (hi/low times)
+wire [31:0] reg_rd[1:NUM_DOUT];  // read control register (hi/low times)
 assign reg_rdata = (reg_raddr[3:0] == `OFF_DOUT_CTRL) ? reg_rd[reg_raddr[7:4]] : 32'd0;
 // Note: reading of digital output state is done in BoardRegs.v
 
 // Instantiate module for each digital output      
-DoutPWM DoutPWM1(sysclk, reg_rd[1], dout_ctrl_en[1], reg_wdata, dout_set_en[1], reg_wdata[0], dout_pwm[1]);
-DoutPWM DoutPWM2(sysclk, reg_rd[2], dout_ctrl_en[2], reg_wdata, dout_set_en[2], reg_wdata[1], dout_pwm[2]);
-DoutPWM DoutPWM3(sysclk, reg_rd[3], dout_ctrl_en[3], reg_wdata, dout_set_en[3], reg_wdata[2], dout_pwm[3]);
-DoutPWM DoutPWM4(sysclk, reg_rd[4], dout_ctrl_en[4], reg_wdata, dout_set_en[4], reg_wdata[3], dout_pwm[4]);
+genvar k;
+generate
+for (k = 1; k <= NUM_DOUT; k = k + 1) begin : pwm_loop
+    DoutPWM DoutPWM(sysclk, reg_rd[k], dout_ctrl_en[k], reg_wdata, dout_set_en[k], reg_wdata[k-1], dout_pwm[k]);
+end
+endgenerate
+
+endmodule
+
+//***********************************************************************************************
+
+module DoutCfgCheck(
+    input  wire sysclk,           // global clock
+    input  wire dir12_read,       // direction control for channels 1-2 (QLA Rev 1.4+)
+    input  wire dir34_read,       // direction control for channels 3-4 (QLA Rev 1.4+)
+    output reg  dir12_reg,        // direction control for channels 1-2 (QLA Rev 1.4+)
+    output reg  dir34_reg,        // direction control for channels 3-4 (QLA Rev 1.4+)
+    output reg  dout_cfg_valid,   // 1 -> DOUT configuration valid
+    output reg  dout_cfg_bidir,   // 1 -> new DOUT hardware (bidirectional control)
+    input  wire dout_cfg_reset    // 1 -> reset dout_cfg_valid
+);
+
+initial begin
+  dout_cfg_valid = 0;
+  dout_cfg_bidir = 0;
+end
 
 // The following code is for a configuration check. QLA Version 1.4 has bidirectional transceivers instead of the
 // MOSFET drivers used in prior versions of the QLA. We can detect this by checking the state of the two
@@ -226,6 +245,8 @@ begin
 end
 
 endmodule
+
+//***********************************************************************************************
 
 module DoutPWM(
     input wire         sysclk,       // sysclk

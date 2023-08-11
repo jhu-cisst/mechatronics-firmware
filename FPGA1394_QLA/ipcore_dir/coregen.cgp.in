@@ -1,0 +1,22 @@
+# Date: Fri May  8 03:15:24 2020
+
+SET addpads = false
+SET asysymbol = true
+SET busformat = BusFormatAngleBracketNotRipped
+SET createndf = false
+SET designentry = Verilog
+SET device = @FPGA_DEVICE@
+SET devicefamily = @FPGA_FAMILY@
+SET flowvendor = Other
+SET formalverification = false
+SET foundationsym = false
+SET implementationfiletype = Ngc
+SET package = @FPGA_PACKAGE@
+SET removerpms = false
+SET simulationfiles = Behavioral
+SET speedgrade = @FPGA_SPEED@
+SET verilogsim = true
+SET vhdlsim = false
+SET workingdirectory = ./tmp/
+
+# CRC: 73ba7311

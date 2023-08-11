@@ -2,12 +2,14 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2013-2020 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2013-2023 ERC CISST, Johns Hopkins University.
  *
  * This module performs a safety check by comparing the measured motor current
  * (cur_in) to the commanded motor current (dac_in). If the difference is too
  * large, the amp_disable signal is set to indicate that the motor amplifiers
- * should be disabled.
+ * should be disabled. If the system is in voltage control mode (possible with
+ * QLA 1.5+), this module instead ensures that the measured motor current is
+ * within the specified current limit (cur_lim).
  *
  * Commanded and measured motor currents are both 16-bit unsigned values,
  * with a full scale of +/-6.25 Amps.
@@ -35,6 +37,9 @@ module SafetyCheck(
     input  wire clk,            // system clock
     input  wire[15:0] cur_in,   // feedback current
     input  wire[15:0] dac_in,   // command current
+    input  wire[15:0] cur_lim,  // maximum allowed current (voltage mode)
+    input  wire enable_check,   // 1 -> enable safety check (measured vs. commanded current)
+    input  wire enable_limit,   // 1 -> enable current limit check
     input  wire clear_disable,  // signal to clear amplifier disable
     output reg  amp_disable     // amplifier disable
     );
@@ -44,7 +49,10 @@ module SafetyCheck(
     reg [15:0] abs_error_cur;
     wire [15:0] high_limit;
     wire[15:0] low_limit;
-	 
+
+    wire[15:0] cur_lim_low;
+    wire[15:0] cur_lim_high;
+
     // ---- Code Starts Here -----
     initial begin
         amp_disable <= 1'b0;
@@ -54,27 +62,46 @@ module SafetyCheck(
     assign high_limit = ((dac_in[15] == 1'b1) ? dac_in : ~dac_in) + 16'h0900;
     assign low_limit = ((dac_in[15] == 1'b1) ? ~dac_in : dac_in) - 16'h0900;
 
+    // cur_lim is always positive (MSB is 0)
+    assign cur_lim_low = 16'h8000 - cur_lim;
+    assign cur_lim_high = 16'h8000 + cur_lim;
+
     always @ (posedge clk)
     begin
-        // If measured current is small (150 mA), clear error counter
-        if ((cur_in < 16'h8300) && (cur_in > 16'h7d00)) begin
-           error_counter <= 24'd0;
-        end
-        
-        // else if commanded current is large, 
-        // clear error counter (margin = 0x0900 440 mA)
-        else if ((dac_in <= 16'h0900) || (dac_in >= 16'hf6ff)) begin
-           error_counter <= 24'd0;
-        end 
-          
-        // else perform safety check
-        else begin
-           if ((cur_in < low_limit) || (cur_in > high_limit)) begin
-               error_counter <= error_counter + 1'b1;
-           end
-           else begin
+        if (enable_check) begin
+            // If measured current is small (150 mA), clear error counter
+            if ((cur_in < 16'h8300) && (cur_in > 16'h7d00)) begin
                error_counter <= 24'd0;
-           end
+            end
+
+            // else if commanded current is large,
+            // clear error counter (margin = 0x0900 440 mA)
+            else if ((dac_in <= 16'h0900) || (dac_in >= 16'hf6ff)) begin
+               error_counter <= 24'd0;
+            end
+
+            // else perform safety check
+            else begin
+               if ((cur_in < low_limit) || (cur_in > high_limit)) begin
+                   error_counter <= error_counter + 1'b1;
+               end
+               else begin
+                   error_counter <= 24'd0;
+               end
+            end
+        end
+        else if (enable_limit) begin
+            // Current limit check (measured current must be lower than current limit).
+            // Note that both safety checks cannot be active at the same time.
+            if ((cur_in > cur_lim_high) || (cur_in < cur_lim_low)) begin
+                error_counter <= error_counter + 1'b1;
+            end
+            else begin
+                error_counter <= 24'd0;
+            end
+        end
+        else begin
+            error_counter <= 24'd0;
         end
     end
 

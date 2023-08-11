@@ -1,0 +1,79 @@
+################################################################################
+# BCFG I/O Ports
+################################################################################
+
+NET  "IO1[0]"     PULLUP;
+NET  "IO1[1]"     PULLUP;    # MISO prom
+NET  "IO1[2]"     PULLUP;    # MOSI prom
+NET  "IO1[3]"     PULLUP;    # SCLK prom
+NET  "IO1[4]"     PULLUP;    # /CS prom
+NET  "IO1[5]"     PULLUP;
+NET  "IO1[6]"     PULLUP;
+NET  "IO1[7]"     PULLUP;
+NET  "IO1[8]"     PULLUP;
+NET  "IO1[9]"     PULLUP;
+NET  "IO1[10]"    PULLUP;
+NET  "IO1[11]"    PULLUP;
+NET  "IO1[12]"    PULLUP;
+NET  "IO1[13]"    PULLUP;
+NET  "IO1[14]"    PULLUP;
+NET  "IO1[15]"    PULLUP;
+NET  "IO1[16]"    PULLUP;
+NET  "IO1[17]"    PULLUP;
+NET  "IO1[18]"    PULLUP;
+NET  "IO1[19]"    PULLUP;
+NET  "IO1[20]"    PULLUP;
+NET  "IO1[21]"    PULLUP;
+NET  "IO1[22]"    PULLUP;
+NET  "IO1[23]"    PULLUP;
+NET  "IO1[24]"    PULLUP;
+NET  "IO1[25]"    PULLUP;
+NET  "IO1[26]"    PULLUP;
+NET  "IO1[27]"    PULLUP;
+NET  "IO1[28]"    PULLUP;
+NET  "IO1[29]"    PULLUP;
+NET  "IO1[30]"    PULLUP;
+NET  "IO1[31]"    PULLUP;
+NET  "IO1[32]"    PULLUP;
+NET  "IO1[33]"    PULLUP;
+
+NET  "IO2[0]"     PULLUP;
+NET  "IO2[1]"     PULLUP;
+NET  "IO2[2]"     PULLUP;
+NET  "IO2[3]"     PULLUP;
+NET  "IO2[4]"     PULLUP;
+NET  "IO2[5]"     PULLUP;
+NET  "IO2[6]"     PULLUP;
+NET  "IO2[7]"     PULLUP;
+NET  "IO2[8]"     PULLUP;
+NET  "IO2[9]"     PULLUP;
+NET  "IO2[10]"    PULLUP;
+NET  "IO2[11]"    PULLUP;
+NET  "IO2[12]"    PULLUP;
+NET  "IO2[13]"    PULLUP;
+NET  "IO2[14]"    PULLUP;
+NET  "IO2[15]"    PULLUP;
+NET  "IO2[16]"    PULLUP;
+NET  "IO2[17]"    PULLUP;
+NET  "IO2[18]"    PULLUP;
+NET  "IO2[19]"    PULLUP;
+NET  "IO2[20]"    PULLUP;
+NET  "IO2[21]"    PULLUP;
+NET  "IO2[22]"    PULLUP;
+NET  "IO2[23]"    PULLUP;
+NET  "IO2[24]"    PULLUP;
+NET  "IO2[25]"    PULLUP;
+NET  "IO2[26]"    PULLUP;
+NET  "IO2[27]"    PULLUP;
+NET  "IO2[28]"    PULLUP;
+NET  "IO2[29]"    PULLUP;
+NET  "IO2[30]"    PULLUP;
+NET  "IO2[31]"    PULLUP;
+NET  "IO2[32]"    PULLUP;
+NET  "IO2[33]"    PULLUP;
+NET  "IO2[34]"    PULLUP;
+NET  "IO2[35]"    PULLUP;
+NET  "IO2[36]"    PULLUP;
+NET  "IO2[37]"    PULLUP;
+NET  "IO2[38]"    PULLUP;
+NET  "IO2[39]"    PULLUP;

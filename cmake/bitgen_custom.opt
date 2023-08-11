@@ -3,6 +3,9 @@ FLOWTYPE = CONFIG;
 ## Filename: bitgen.opt
 ##
 ## Option File For Xilinx FPGA Bitgen Flow
+##
+## This file is used for FPGA V1 and V2.
+## It also contains options for promgen.
 ## 
 ## Version: 13.1
 ## $Header: /devl/xcs/repo/env/Jobs/Xflow/data/optionfiles/bitgen.opt,v 1.14 2011/01/05 01:18:16 rvklair Exp $

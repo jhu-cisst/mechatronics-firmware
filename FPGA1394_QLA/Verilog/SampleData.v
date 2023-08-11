@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2020-2021 Johns Hopkins University.
+ * Copyright(C) 2020-2022 Johns Hopkins University.
  *
  * This module samples the feedback data for the real-time block read packet.
  *
@@ -14,7 +14,9 @@
 
 `include "Constants.v"
 
-module SampleData(
+module SampleData
+#(parameter[3:0] NUM_CHAN = 4'd4)  // nummber of channels to sample
+(
     input wire        clk,         // system clock
     input wire        doSample,    // signal to trigger sampling
     output wire       isBusy,      // 1 -> busy sampling
@@ -28,21 +30,27 @@ module SampleData(
     input wire[31:0]  enc_qtr1,    // Encoder quarter period (last cycle)
     input wire[31:0]  enc_qtr5,    // Encoder quarter period (5 cycles ago)
     input wire[31:0]  enc_run,     // Encoder running counter
-    input wire[4:0]   blk_addr,    // Address for accessing RT_Feedback
+    input wire[31:0]  motor_status, // Motor status feedback
+    input wire[5:0]   blk_addr,    // Address for accessing RT_Feedback
     output wire[31:0] blk_data,    // Currently selected block data
-    output reg[31:0]  timestamp,   // timestamp counter register
-    input wire[15:0]  bc_sequence, // broadcast sequence number
-    input wire[15:0]  bc_board_mask // broadcast board mask
+    output reg[31:0]  timestamp    // timestamp counter register
     );
 
 // Number of quadlets in block response:
 //   1 (timestamp) + 3 (global regs) + num_channels*num_offsets
-//     num_channels: 4 (QLA)
-//     num_offsets: 4 (Rev 1-6), 6 (Rev 7+)
-//   Thus, num_quadlets = 20 (Rev 1-6) or 28 (Rev 7+)
-// We allocate the full address of 32 quadlets
+//     num_channels: 4 (QLA) or 8 (DQLA)
+//     num_offsets: 4 (Rev 1-6), 6 (Rev 7), 7 (Rev 8+)
+//   Thus, for QLA, num_quadlets = 20 (Rev 1-6), 28 (Rev 7), or 32 (Rev 8+)
+//   For DQLA, num_quadlets = 60
+// We allocate the full address of 64 quadlets
 
-reg[31:0] RT_Feedback[0:31];
+reg[31:0] RT_Feedback[0:63];
+
+integer ii;
+initial begin
+   for (ii = 1; ii <= 63; ii = ii + 1)
+      RT_Feedback[ii] = 32'd0;
+end
 
 localparam[1:0]
    SD_IDLE = 2'd0,
@@ -85,17 +93,18 @@ begin
             RT_Feedback[2] <= reg_digio;
             RT_Feedback[3] <= reg_temp;
          end
-         if (chan == 4'd5) begin
+         if (chan == (NUM_CHAN+4'd1)) begin
             state <= SD_IDLE;
          end
          else begin
-            // For chan = 1,2,3,4
+            // For chan = 1,2,3,4,...
             RT_Feedback[3+chan] <= adc_in;
-            RT_Feedback[7+chan] <= enc_pos;
-            RT_Feedback[11+chan] <= enc_period;
-            RT_Feedback[15+chan] <= enc_qtr1;
-            RT_Feedback[19+chan] <= enc_qtr5;
-            RT_Feedback[23+chan] <= enc_run;
+            RT_Feedback[3+NUM_CHAN+chan] <= enc_pos;
+            RT_Feedback[3+2*NUM_CHAN+chan] <= enc_period;
+            RT_Feedback[3+3*NUM_CHAN+chan] <= enc_qtr1;
+            RT_Feedback[3+4*NUM_CHAN+chan] <= enc_qtr5;
+            RT_Feedback[3+5*NUM_CHAN+chan] <= enc_run;
+            RT_Feedback[3+6*NUM_CHAN+chan] <= motor_status;
          end
       end
 
