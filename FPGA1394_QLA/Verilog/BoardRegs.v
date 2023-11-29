@@ -62,6 +62,34 @@ module BoardRegs
     initial wdog_period = 16'h1680;  // 0x1680 == 30 msec
     reg[23:0] wdog_count;       // watchdog timer counter (check upper 16 bits)
 
+    // Git describe
+    wire[31:0] git_desc;
+    assign git_desc[31:4] = `GIT_SHA;
+    assign git_desc[3] = `GIT_DIRTY;
+    generate
+
+        if (`GIT_COMMITS == 0)
+            assign git_desc[2] = 1'b0;
+        else
+            assign git_desc[2] = 1'b1;
+
+        // Lowest 2 bits compare FW_VERSION (F) to GIT_FW_VERSION (G)
+        //   2'd0: F == G      Actual release (FW_VERSION) or post release update (FW_VERSION+),
+        //                     if `GIT_DIRTY or `GIT_COMMITS
+        //   2'd1: F == G+1    New firmware preview (FW_VERSION-)
+        //   2'd2: F > G+1     Should not happen (FW_VERSION?)
+        //   2'd3: F < G       Should not happen (FW_VERSION?)
+        if (`FW_VERSION == `GIT_FW_VERSION)
+            assign git_desc[1:0] = 2'd0;
+        else if (`FW_VERSION == `GIT_FW_VERSION+1)
+            assign git_desc[1:0] = 2'd1;
+        else if (`FW_VERSION > `GIT_FW_VERSION+1)
+            assign git_desc[1:0] = 2'd2;
+        else // (`FW_VERSION < `GIT_FW_VERSION)
+            assign git_desc[1:0] = 2'd3;
+
+    endgenerate
+
 //------------------------------------------------------------------------------
 // hardware description
 //
@@ -78,6 +106,7 @@ always @(*) begin
         `REG_PHYDATA: reg_rdata = {16'd0, phy_data};
         `REG_TIMEOUT: reg_rdata = {wdog_period_led, 15'd0, wdog_period};
         `REG_FVERSION: reg_rdata = `FW_VERSION;
+        `REG_GIT_DESC: reg_rdata = git_desc;
          default:  reg_rdata = reg_rdata_ext;
     endcase
 end

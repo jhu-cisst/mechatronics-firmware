@@ -62,6 +62,7 @@
 `define REG_ETHSTAT  4'd12         // Ethernet status/control register
 `define REG_DSSTAT   4'd13         // Dallas chip status
 `define REG_IO_EXP   4'd14         // I/O Expander (MAX7317)
+`define REG_GIT_DESC 4'd15         // Git description (firmware build)
 
 // device register file offsets from channel base
 // For additional fields, please update SampleData.v to send back data in the correct slot
