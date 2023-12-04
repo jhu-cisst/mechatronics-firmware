@@ -60,7 +60,7 @@ module BoardRegsQLA
     input  wire safety_fb,          // whether voltage present on safety line
     input  wire mv_fb,              // comparator feedback used to measure motor supply voltage
     input  wire[3:0] board_id,      // board id (rotary switch)
-    input  wire[15:0] temp_sense,   // temperature sensor reading
+    input  wire[31:0] temp_sense,   // temperature sensor reading
     input  wire[11:0] reg_status12, // lowest 12-bits of status register (amplifier-related)
 
     // register file interface
@@ -147,7 +147,7 @@ always @(posedge(sysclk))
         case (reg_raddr[3:0])
         `REG_STATUS: reg_rdata <= reg_status;
         `REG_VERSION: reg_rdata <= VERSION;
-        `REG_TEMPSNS: reg_rdata <= {16'd0, temp_sense};
+        `REG_TEMPSNS: reg_rdata <= temp_sense;
         `REG_DIGIOUT: reg_rdata <= dout;
         `REG_DSSTAT: reg_rdata <= ds_status;
         `REG_DIGIN: reg_rdata <= reg_digin;

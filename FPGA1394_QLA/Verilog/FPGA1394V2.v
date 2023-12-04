@@ -15,7 +15,8 @@
 `include "Constants.v"
 
 module FPGA1394V2
-    #(parameter NUM_BC_READ_QUADS = 33)
+    #(parameter NUM_MOTORS = 4,
+      parameter NUM_ENCODERS = 4)
 (
     // global clock
     input wire       sysclk,
@@ -58,6 +59,8 @@ module FPGA1394V2
     output reg reg_wen,
     output reg blk_wen,
     output reg blk_wstart,
+    output wire req_blk_rt_rd,    // request for real-time block read
+    output wire blk_rt_rd,        // real-time block read in process
 
     // Block write support
     input wire bw_write_en,
@@ -72,13 +75,8 @@ module FPGA1394V2
     output reg[3:0] rt_waddr,
     output reg[31:0] rt_wdata,
 
-    // Sampling support
-    output wire sample_start,       // Start sampling read data
-    input wire sample_busy,         // Sampling in process
-    output wire[5:0] sample_raddr,  // Address in sample_data buffer
-    input wire[31:0] sample_rdata,  // Output from sample_data buffer
-    output wire sample_read,        // 1 -> either eth or fw sample read
-    input wire[31:0] timestamp,     // Timestamp used when sampling
+    // Timestamp
+    input wire[31:0] timestamp,
 
     // Watchdog support
     output wire wdog_period_led,    // 1 -> external LED displays wdog_period_status
@@ -87,8 +85,13 @@ module FPGA1394V2
     input  wire wdog_clear          // clear watchdog timeout (e.g., on powerup)
 );
 
+// Number of quadlets in real-time block read (not including Firewire header and CRC)
+localparam NUM_RT_READ_QUADS = (4 + 2*NUM_MOTORS + 5*NUM_ENCODERS);
+// Number of quadlets in broadcast real-time block; includes sequence number
+localparam NUM_BC_READ_QUADS = (1+NUM_RT_READ_QUADS);
+
 // 1394 phy low reset, never reset
-assign reset_phy = 1'b1; 
+assign reset_phy = 1'b1;
 
 // Ethernet
 assign ETH_CSn = 0;         // Always select
@@ -114,14 +117,18 @@ assign ETH_8n = 1;          // 16-bit bus
     wire eth_blk_wen;           // block write enable from Ethernet
     wire fw_blk_wstart;         // block write start from FireWire
     wire eth_blk_wstart;        // block write start from Ethernet
+    wire fw_req_blk_rt_rd;      // real-time block read request from FireWire
+    wire eth_req_blk_rt_rd;     // real-time block read request from Ethernet
+    wire fw_blk_rt_rd;          // real-time block read from FireWire
+    wire eth_blk_rt_rd;         // real-time block read from Ethernet
     wire[15:0] fw_reg_raddr;    // 16-bit reg read address from FireWire
     wire[15:0] eth_reg_raddr;   // 16-bit reg read address from Ethernet
     wire[15:0] fw_reg_waddr;    // 16-bit reg write address from FireWire
     wire[15:0] eth_reg_waddr;   // 16-bit reg write address from Ethernet
     wire[31:0] fw_reg_wdata;    // reg write data from FireWire
     wire[31:0] eth_reg_wdata;   // reg write data from Ethernet
-    wire fw_req_read_bus;       // 1 -> Firewire is requesting read bus (driving reg_raddr to read from board registers)
-    wire eth_req_read_bus;      // 1 -> Ethernet is requesting read bus (driving reg_raddr to read from board registers)
+    wire fw_req_read_bus;       // 1 -> Firewire is requesting read bus (driving reg_raddr and blk_rt_rd to read from board registers)
+    wire eth_req_read_bus;      // 1 -> Ethernet is requesting read bus (driving reg_raddr and blk_rt_rd to read from board registers)
     wire fw_req_write_bus;      // 1 -> Firewire is requesting write bus (driving reg_waddr, reg_wdata, reg_wen, blk_wen, blk_wstart)
     wire eth_req_write_bus;     // 1 -> Ethernet is requesting write bus (driving reg_waddr, reg_wdata, reg_wen, blk_wen, blk_wstart)
     wire[5:0] node_id;          // 6-bit phy node id
@@ -152,23 +159,32 @@ begin
    end
 end
 
-// Manage access to data sampling between Ethernet and Firewire.
-// As with most shared Ethernet/Firewire functionality, it is assumed that
-// only one interface will be receiving packets from the host PC, so this is
-// likely to fail if the host PC sends packets by both Ethernet and Firewire.
-wire fw_sample_start;
-wire eth_sample_start;
-assign sample_start = (eth_sample_start|fw_sample_start) & ~sample_busy;
+wire[15:0] host_reg_raddr;
+assign host_reg_raddr = eth_req_read_bus ? eth_reg_raddr :
+                        fw_reg_raddr;
 
-wire eth_sample_read;      // 1 -> Ethernet module has control of sample_raddr
-wire fw_sample_read;
-assign sample_read = eth_sample_read | fw_sample_read;
-wire[5:0] fw_sample_raddr;
-wire[5:0] eth_sample_raddr;
-assign sample_raddr = eth_sample_read ? eth_sample_raddr : fw_sample_raddr;
+assign blk_rt_rd = eth_req_read_bus ? eth_blk_rt_rd :
+                   fw_blk_rt_rd;
 
-assign reg_raddr = eth_req_read_bus ? eth_reg_raddr :
-                   fw_reg_raddr;
+// The real-time block read request indicates that we have latched the
+// timestamp and will soon be starting a real-time block read.
+assign req_blk_rt_rd = fw_req_blk_rt_rd | eth_req_blk_rt_rd;
+
+//*********************** Read Address Translation *******************************
+
+// Read bus address translation (to support real-time block read).
+// This could instead be instantiated in the either the FPGAV1 or QLA modules
+// (FPGAV1 module would need NUM_MOTORS and NUM_ENCODERS).
+
+ReadAddressTranslation
+    #(.NUM_MOTORS(NUM_MOTORS), .NUM_ENCODERS(NUM_ENCODERS))
+ReadAddr(
+    .reg_raddr_in(host_reg_raddr),
+    .reg_raddr_out(reg_raddr),
+    .blk_rt_rd(blk_rt_rd)
+);
+
+//***************************************************************************
 
 wire[31:0] reg_rdata;
 wire[31:0] reg_rdata_hub;      // reg_rdata_hub is for hub memory
@@ -293,6 +309,8 @@ phy(
     .reg_wen(fw_reg_wen),       // out: reg write signal
     .blk_wen(fw_blk_wen),       // out: block write signal
     .blk_wstart(fw_blk_wstart), // out: block write is starting
+    .blk_rt_rd(fw_blk_rt_rd),   // out: real-time block read in process
+    .req_blk_rt_rd(fw_req_blk_rt_rd),  // out: real-time block read request
 
     .reg_raddr(fw_reg_raddr),  // out: register address
     .reg_waddr(fw_reg_waddr),  // out: register address
@@ -334,12 +352,8 @@ phy(
     .fw_rt_waddr(fw_rt_waddr),
     .fw_rt_wdata(fw_rt_wdata),
 
-    // Interface for sampling data (for block read)
-    .sample_start(fw_sample_start),   // 1 -> start sampling for block read
-    .sample_busy(sample_busy),        // Sampling in process
-    .sample_raddr(fw_sample_raddr),   // Read address for sampled data
-    .sample_rdata(sample_rdata),      // Sampled data (for block read)
-    .sample_read(fw_sample_read)
+    // Timestamp
+    .timestamp(timestamp)
 );
 
 
@@ -474,6 +488,8 @@ EthernetIO EthernetTransfers(
     .eth_reg_wen(eth_reg_wen),         // out: reg write enable
     .eth_block_wen(eth_blk_wen),       // out: blk write enable
     .eth_block_wstart(eth_blk_wstart), // out: blk write start
+    .eth_blk_rt_rd(eth_blk_rt_rd),     // out: real-time block read in process
+    .eth_req_blk_rt_rd(eth_req_blk_rt_rd), // out: real-time block read request
     .eth_req_write_bus(eth_req_write_bus), // out: request write bus
 
     // Low-level Firewire PHY access
@@ -503,13 +519,8 @@ EthernetIO EthernetTransfers(
     .eth_rt_waddr(eth_rt_waddr),
     .eth_rt_wdata(eth_rt_wdata),
 
-    // Interface for sampling data (for block read)
-    .sample_start(eth_sample_start),   // 1 -> start sampling for block read
-    .sample_busy(sample_busy),         // Sampling in process
-    .sample_read(eth_sample_read),     // 1 -> reading from sample memory
-    .sample_raddr(eth_sample_raddr),   // Read address for sampled data
-    .sample_rdata(sample_rdata),       // Sampled data (for block read)
-    .timestamp(timestamp),             // timestamp
+    // Timestamp
+    .timestamp(timestamp),
 
     // Interface to KSZ8851
     .resetActive(eth_resetActive),    // Indicates that reset is active

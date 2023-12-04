@@ -70,11 +70,6 @@ module FPGA1394V2QLA
     parameter NUM_MOTORS = 4;
     parameter NUM_ENCODERS = 4;
 
-    // Number of quadlets in real-time block read (not including Firewire header and CRC)
-    localparam NUM_RT_READ_QUADS = (4 + 2*NUM_MOTORS + 5*NUM_ENCODERS);
-    // Number of quadlets in broadcast real-time block; includes sequence number
-    localparam NUM_BC_READ_QUADS = (1+NUM_RT_READ_QUADS);
-
     // System clock
     wire sysclk;
     BUFG clksysclk(.I(clk1394), .O(sysclk));
@@ -98,6 +93,7 @@ module FPGA1394V2QLA
     wire reg_wen;               // register write signal
     wire blk_wen;               // block write enable
     wire blk_wstart;            // block write start
+    wire blk_rt_rd;             // real-time block read
 
     // Wires for block write
     wire bw_reg_wen;            // register write signal from WriteRtData
@@ -112,12 +108,8 @@ module FPGA1394V2QLA
     wire [3:0] rt_waddr;
     wire [31:0] rt_wdata;
 
-    // Wires for sampling block read data
-    wire sample_start;        // Start sampling read data
-    wire sample_busy;         // Sampling in process
-    wire[5:0] sample_raddr;   // Address in sample_data buffer
-    wire[31:0] sample_rdata;  // Output from sample_data buffer
-    wire[31:0] timestamp;     // Timestamp used when sampling
+    // Timestamp
+    wire[31:0] timestamp;
 
     // Wires for watchdog
     wire wdog_period_led;     // 1 -> external LED displays wdog_period_status
@@ -131,7 +123,7 @@ assign LED = IO1[32];     // NOTE: IO1[32] pwr_enable
 
 // FPGA module, including Firewire and Ethernet
 FPGA1394V2
-    #(.NUM_BC_READ_QUADS(NUM_BC_READ_QUADS))
+    #(.NUM_MOTORS(NUM_MOTORS), .NUM_ENCODERS(NUM_ENCODERS))
 fpga(
     .sysclk(sysclk),
     .reboot_clk(clk_12M),
@@ -168,6 +160,7 @@ fpga(
     .reg_wen(reg_wen),
     .blk_wen(blk_wen),
     .blk_wstart(blk_wstart),
+    .blk_rt_rd(blk_rt_rd),
 
     // Block write support
     .bw_reg_waddr(bw_reg_waddr),
@@ -182,11 +175,7 @@ fpga(
     .rt_waddr(rt_waddr),
     .rt_wdata(rt_wdata),
 
-    // Sampling support
-    .sample_start(sample_start),
-    .sample_busy(sample_busy),
-    .sample_raddr(sample_raddr),
-    .sample_rdata(sample_rdata),
+    // Timestamp
     .timestamp(timestamp),
 
     // Watchdog support
@@ -213,7 +202,7 @@ QLA qla(
     .clk400k(clk400k),
     // ~12MHz clock for ADC
     .clkadc(clk_12M),
-    
+
     // I/O between FPGA and QLA (connectors J1 and J2)
     .IO1(IO1[1:32]),
     .IO2(IO2[1:38]),
@@ -227,6 +216,7 @@ QLA qla(
     .reg_wen(reg_wen),
     .blk_wen(blk_wen),
     .blk_wstart(blk_wstart),
+    .blk_rt_rd(blk_rt_rd),
 
     // Block write support
     .bw_reg_waddr(bw_reg_waddr),
@@ -241,11 +231,7 @@ QLA qla(
     .rt_waddr(rt_waddr),
     .rt_wdata(rt_wdata),
 
-    // Sampling support
-    .sample_start(sample_start),
-    .sample_busy(sample_busy),
-    .sample_raddr(sample_raddr),
-    .sample_rdata(sample_rdata),
+    // Timestamp
     .timestamp(timestamp),
 
     // Watchdog support

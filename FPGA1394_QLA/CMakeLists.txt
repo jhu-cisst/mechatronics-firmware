@@ -49,7 +49,8 @@ add_subdirectory(ipcorev3_dir)
 # Source files for everything
 set (VERILOG_SOURCE_COMMON "${VERILOG_SOURCE_DIR}/ClkDiv.v"
                            "${VERILOG_SOURCE_DIR}/Constants.v"
-                           "${VERILOG_BINARY_DIR}/Versions.v")
+                           "${VERILOG_BINARY_DIR}/Versions.v"
+                           "${VERILOG_SOURCE_DIR}/ReadAddressTranslation.v")
 
 add_custom_command (OUTPUT "${VERILOG_BINARY_DIR}/Versions-New.v"
                     COMMAND ${CMAKE_COMMAND} -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
@@ -127,8 +128,7 @@ set (VERILOG_SOURCE_QLA_DQLA
                            "${VERILOG_SOURCE_DIR}/MotorChannelQLA.v"
                            "${VERILOG_SOURCE_DIR}/CtrlDac.v"
                            "${VERILOG_SOURCE_DIR}/DS2505.v"
-                           "${VERILOG_SOURCE_DIR}/WriteRtData.v"
-                           "${VERILOG_SOURCE_DIR}/SampleData.v")
+                           "${VERILOG_SOURCE_DIR}/WriteRtData.v")
 
 # Source files used by QLA
 set (VERILOG_SOURCE_QLA    ${VERILOG_SOURCE_QLA_DQLA}
@@ -156,7 +156,6 @@ set (VERILOG_SOURCE_DRAC
                            "${VERILOG_SOURCE_DIR}/PowerControl.v"
                            "${VERILOG_SOURCE_DIR}/PWM.v"
                            "${VERILOG_SOURCE_DIR}/PwmAdcTiming.v"
-                           "${VERILOG_SOURCE_DIR}/SampleDataAddressTranslation.v"
                            "${VERILOG_SOURCE_DIR}/WriteRtData.v"
                            "${VERILOG_SOURCE_DIR}/ws2811.v")
 

@@ -53,12 +53,8 @@ module DQLA(
     input wire[3:0]  rt_waddr,
     input wire[31:0] rt_wdata,
 
-    // Sampling support
-    input wire sample_start,        // Start sampling read data
-    output wire sample_busy,        // Sampling in process
-    input wire[5:0] sample_raddr,   // Address in sample_data buffer
-    output wire[31:0] sample_rdata, // Output from sample_data buffer
-    output wire[31:0] timestamp,    // Timestamp used when sampling
+    // Timestamp
+    output reg[31:0] timestamp,
 
     // Watchdog support
     input wire wdog_period_led,     // 1 -> external LED displays wdog_period_status
@@ -279,8 +275,6 @@ module DQLA(
 // hardware description
 //
 
-wire[3:0]  sample_chan;          // Channel for sampling
-
 wire[31:0] reg_rdata_prom_qla;   // reads from QLA prom
 wire[31:0] reg_rdata_prom_qla1;  // reads from QLA 1 prom
 wire[31:0] reg_rdata_prom_qla2;  // reads from QLA 2 prom
@@ -309,7 +303,7 @@ end
 
 // Mux routing read data based on read address
 //   See Constants.v for details
-//     addr[15:12]  main | hub | prom | prom_qla | eth | firewire | dallas | databuf | waveform
+//     addr[15:12]  main | hub | prom | prom_qla | eth | firewire | dallas | waveform
 assign reg_rdata = (reg_raddr[15:12]==`ADDR_PROM_QLA) ? (reg_rdata_prom_qla) :
                    (reg_raddr[15:12]==`ADDR_DS) ? (reg_rdata_ds) :
                    (reg_raddr[15:12]==`ADDR_WAVEFORM) ? (reg_rtable) :
@@ -322,6 +316,14 @@ assign reg_rd[`OFF_UNUSED_03] = 32'd0;
 assign reg_rd[`OFF_UNUSED_13] = 32'd0;
 assign reg_rd[`OFF_UNUSED_14] = 32'd0;
 assign reg_rd[`OFF_UNUSED_15] = 32'd0;
+
+// -------------------------------------------------------------------------
+// Timestamp: just a free-running counter
+// -------------------------------------------------------------------------
+always @(posedge sysclk)
+begin
+   timestamp <= timestamp + 32'd1;
+end
 
 // --------------------------------------------------------------------------
 // adcs: pot + current 
@@ -587,20 +589,13 @@ wire[31:0] reg_qtr1_data;
 wire[31:0] reg_qtr5_data;
 wire[31:0] reg_run_data;
 
-// Encoder read address channel
-// For now, this is multiplexed between the normal reg_raddr and sample_chan,
-// without any check for collision (i.e., will not correctly handle simulaneous
-// read via sampling and Firewire/Ethernet, which should never happen).
-wire[3:0] enc_raddr_chan;
-assign enc_raddr_chan = sample_busy ? sample_chan : reg_raddr[7:4];
-
 // encoder controller: the thing that manages encoder reads and preloads
 CtrlEnc #(.NUM_ENC(8)) enc(
     .sysclk(sysclk),
     .enc_a({Q1_enc_a, Q2_enc_a}),
     .enc_b({Q1_enc_b, Q2_enc_b}),
     .enc_i({Q1_enc_i, Q2_enc_i}),
-    .reg_raddr_chan(enc_raddr_chan),
+    .reg_raddr_chan(reg_raddr[7:4]),
     .reg_waddr(reg_waddr),
     .reg_wdata(reg_wdata),
     .reg_wen(reg_wen),
@@ -943,8 +938,6 @@ DS2505 ds_instrument(
 // miscellaneous board I/Os
 // --------------------------------------------------------------------------
 
-wire[31:0] reg_status;    // Status register
-wire[31:0] reg_digio;     // Digital I/O register
 wire[15:0] Q1_tempsense;  // Temperature sensor
 wire[15:0] Q2_tempsense;  // Temperature sensor
 
@@ -989,33 +982,7 @@ BoardRegsDQLA chan0(
     .ds_status(ds_status),
     .pwr_enable_cmd(pwr_enable_cmd),
     .mv_amp_disable({Q2_mv_amp_disable, Q1_mv_amp_disable}),
-    .reg_status(reg_status),
-    .reg_digin(reg_digio),
     .wdog_timeout(wdog_timeout)
-);
-
-// --------------------------------------------------------------------------
-// Sample data for block read
-// --------------------------------------------------------------------------
-
-SampleData #(.NUM_CHAN(8)) sampler(
-    .clk(sysclk),
-    .doSample(sample_start),
-    .isBusy(sample_busy),
-    .reg_status(reg_status),
-    .reg_digio(reg_digio),
-    .reg_temp({Q2_tempsense, Q1_tempsense}),
-    .chan(sample_chan),
-    .adc_in({pot_fb[sample_chan], cur_fb[sample_chan]}),
-    .enc_pos(reg_quad_data),
-    .enc_period(reg_perd_data),
-    .enc_qtr1(reg_qtr1_data),
-    .enc_qtr5(reg_qtr5_data),
-    .enc_run(reg_run_data),
-    .motor_status(motor_status[sample_chan]),
-    .blk_addr(sample_raddr),
-    .blk_data(sample_rdata),
-    .timestamp(timestamp)
 );
 
 // --------------------------------------------------------------------------

@@ -72,6 +72,8 @@ module EthernetIO
     output reg       eth_reg_wen,
     output reg       eth_block_wen,
     output reg       eth_block_wstart,
+    output reg       eth_req_blk_rt_rd,    // request to start real-time block read
+    output wire      eth_blk_rt_rd,        // real-time block read
     output wire      eth_req_write_bus,
 
     // Low-level Firewire PHY access
@@ -101,13 +103,8 @@ module EthernetIO
     output reg[3:0]  eth_rt_waddr,
     output reg[31:0] eth_rt_wdata,
 
-    // Interface for sampling data (for block read)
-    output reg sample_start,         // 1 -> start sampling for block read
-    input wire sample_busy,          // Sampling in process
-    output reg sample_read,          // Reading from memory in process
-    output wire[5:0] sample_raddr,   // Read address for sampled data
-    input wire[31:0] sample_rdata,   // Sampled data (for block read)
-    input wire[31:0] timestamp,      // Timestamp (for debugging)
+    // Timestamp
+    input wire[31:0] timestamp,
 
     // Interface to KSZ8851 or EthSwitchRt (2 x RTL8211F)
     input wire resetActive,          // Indicates that reset is active
@@ -234,9 +231,6 @@ wire[15:0] LengthFW;   // Firewire packet length in bytes
 assign LengthFW = isUDP ? (UDP_Length-8'd10) : (Eth_EtherType-8'd2);
 
 assign eth_fwpkt_len = LengthFW;
-
-// Read address for sampled data (32-bit data)
-assign sample_raddr = sfw_count[6:1];
 
 //************************ Large buffer to hold various packets **************************
 // Note that it is fine for some buffers to overlap. Below, the UDP, ICMP and ARP buffers
@@ -664,7 +658,7 @@ assign DebugData[1]  = timestamp;
 assign DebugData[2]  = { writeRequestQuad, writeRequestBlock, bw_local_active, eth_send_isIdle,  // 31:28
                          eth_recv_isIdle, ethUDPError, ethAccessError, ethIPv4Error,             // 27:24
                          sendBusy, sendRequest, eth_send_fw_ack, eth_send_fw_req,                // 23:20
-                         sample_start, sample_busy, isLocal, isRemote,                           // 19:16
+                         2'd0, isLocal, isRemote,                                                // 19:16
                          FireWirePacketFresh, isForward, sendARP, isUDP,                         // 15:12
                          isICMP, isEcho, is_IPv4_Long, is_IPv4_Short,                            // 11:8
                          fw_bus_reset, 3'd0,                                                     //  7:4
@@ -811,9 +805,18 @@ assign blockWrite = (fw_tcode == `TC_BWRITE) ? 1'd1 : 1'd0;
 
 assign addrMain = (fw_dest_offset[15:12] == `ADDR_MAIN) ? 1'd1 : 1'd0;
 
+// Following signal indicates whether real-time block read
+assign eth_blk_rt_rd = addrMain & blockRead & eth_req_read_bus;
+
+wire timestamp_rd;
+assign timestamp_rd = (eth_blk_rt_rd && (reg_raddr[7:0] == 8'd0)) ? 1'd1 : 1'd0;
+
 assign isRebootCmd = (addrMain && (fw_dest_offset[11:0] == 12'd0) && quadWrite
                       && (fw_quadlet_data[21:20] == 2'b11)) ? 1'd1 : 1'd0;
 
+// For reading the timestamp
+reg[31:0] timestamp_latched;
+reg[31:0] timestamp_prev;
 
 //*****************************************************************
 //  Write to Ethernet control register
@@ -869,10 +872,6 @@ begin
    dataValid <= recvReady;           // 1 clock after recvReady
    recvTransition <= dataValid;      // 1 clock after dataValid
 
-   if (sample_start && sample_busy) begin
-      sample_start <= 1'd0;
-   end
-
    if (writeRequestQuad && eth_write_en) begin
       writeRequestQuad <= 1'd0;
    end
@@ -917,6 +916,7 @@ begin
       mem_wen <= 0;
       doRtBlock <= 0;
       eth_rt_wen <= 0;
+      eth_req_blk_rt_rd <= 1'b0;
       rfw_count <= 10'd0;
       recvCnt <= 6'd0;
       nextRecvState <= ST_RECEIVE_DMA_IDLE;
@@ -1119,12 +1119,13 @@ begin
             nextRecvState <= ST_RECEIVE_DMA_IDLE;  // was ST_RECEIVE_DMA_FRAME_CRC;
             doRtBlock <= 0;
             if (isLocal) begin
-               // Start sampling feedback data if a block read from ADDR_MAIN or
-               // a broadcast read request (quadlet write to ADDR_HUB). Note that sampler
-               // will enter its busy state (after the next cycle) and take control of reg_raddr
-               // for a few cycles.
-               if ((addrMain && blockRead) || ((fw_dest_offset == {`ADDR_HUB, 12'h800 }) && quadWrite)) begin
-                  sample_start <= 1;
+               // Latch timestamp if a block read from ADDR_MAIN (eth_blk_rt_rd) or a broadcast read request
+               // (quadlet write to ADDR_HUB).
+               if (eth_blk_rt_rd || ((fw_dest_offset == {`ADDR_HUB, 12'h800 }) && quadWrite)) begin
+                  // TODO: Subtracting 1 for backward compatibility; may eliminate that for Firmware Rev 9
+                  timestamp_latched <= (timestamp-timestamp_prev)-32'd1;
+                  timestamp_prev <= timestamp;
+                  eth_req_blk_rt_rd <= 1'b1;
                end
                if (blockWrite&(~addrMain)) begin
                   // writeRequestBlock should have been set earlier (using writeRequestTrigger) for all
@@ -1246,7 +1247,6 @@ begin
    begin
       sendBusy <= 0;
       eth_req_read_bus <= 0;
-      sample_read <= 0;
       icmp_read_en <= 0;
       txPktWords <= 12'd0;
       sfw_count <= 10'd0;
@@ -1372,7 +1372,7 @@ begin
    ST_SEND_DMA_PACKETDATA_HEADER:
    begin
       send_word <= Firewire_Header_Reply[sfw_count[3:0]];
-      eth_req_read_bus <= quadRead | (blockRead&(~addrMain));   // Request access to read bus
+      eth_req_read_bus <= quadRead | blockRead;         // Request access to read bus
       if ((sfw_count[3:0] == 4'd5) && quadRead) begin
          eth_reg_raddr <= fw_dest_offset;
          // Get ready to read data from the board.
@@ -1382,7 +1382,6 @@ begin
       else if (sfw_count[3:0] == 4'd9) begin  // block read
          if (blockRead) begin
             eth_reg_raddr <= fw_dest_offset;
-            sample_read <= addrMain;
             if (sendTransition) sfw_count <= 10'd0;
             nextSendState <= ST_SEND_DMA_PACKETDATA_BLOCK;
          end
@@ -1419,7 +1418,7 @@ begin
       if (sfw_count[0] == 0) begin   // even count (upper word)
          // Since we are not incrementing eth_reg_raddr, writing to SDReg does not need
          // to be conditioned on ~sendTransition, as in the odd sfw_count case below.
-         `send_word_swapped <= (addrMain ? sample_rdata[31:16] : eth_reg_rdata[31:16]);
+         `send_word_swapped <= timestamp_rd ? timestamp_latched[31:16] : eth_reg_rdata[31:16];
          // stay in this state
          //nextSendState <= ST_SEND_DMA_PACKETDATA_BLOCK;
       end
@@ -1435,7 +1434,7 @@ begin
          //  sendTransition so that the code works for both register reads (no delay) and
          //  memory reads (1 clk delay).
          if (addrMain)                    // real-time block read
-            `send_word_swapped <= sample_rdata[15:0];
+            `send_word_swapped <= timestamp_rd ? timestamp_latched[15:0] : eth_reg_rdata[15:0];
          else if (~sendTransition)        // general block read
             `send_word_swapped <= eth_reg_rdata[15:0];
          // sfw_count is in words and block_data_length is in bytes, but we compare in quadlets
@@ -1449,7 +1448,6 @@ begin
    ST_SEND_DMA_PACKETDATA_CHECKSUM:
    begin
       eth_req_read_bus <= 0; // Relinquish control of read bus
-      sample_read <= 0;      // Relinquish control of sample read bus
       if (sendTransition) sfw_count[0] <= 1;
       send_word <= 16'd0;    // Checksum currently not set
       if (sfw_count[0] == 1)

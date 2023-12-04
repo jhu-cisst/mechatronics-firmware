@@ -200,7 +200,9 @@ module PhyLinkInterface
     output reg reg_wen,          // register write signal
     output reg blk_wen,          // block write signal
     output reg blk_wstart,       // block write is starting
-    
+    output reg  req_blk_rt_rd,   // request to start real-time block read
+    output wire blk_rt_rd,       // real-time block read in process
+
     // register access
     output reg[15:0] reg_raddr,   // read address to external register file
     output reg[15:0] reg_waddr,   // write address to external register file
@@ -243,12 +245,8 @@ module PhyLinkInterface
     output reg[3:0]  fw_rt_waddr,
     output reg[31:0] fw_rt_wdata,
 
-    // Interface for sampling data (for block read)
-    output reg sample_start,         // 1 -> start sampling for block read
-    input wire sample_busy,          // Sampling in process
-    output wire[5:0] sample_raddr,   // Read address for sampled data
-    input wire[31:0] sample_rdata,   // Sampled data (for block read)
-    output wire sample_read
+    // External timestamp
+    input wire[31:0] timestamp
 
     // debug
 `ifdef USE_CHIPSCOPE
@@ -334,14 +332,19 @@ module PhyLinkInterface
     reg[7:0] RtCnt;               // Counter for real-time block quadlets
     reg[7:0] RtLen;               // Number of quadlets in the RT write block for current board
 
-    // Read address for sampled data
-    assign sample_raddr = reg_raddr[5:0];
-
     wire addrMainRead;
     wire addrMainWrite;
     assign addrMainRead  = (reg_raddr[15:12] == `ADDR_MAIN) ? 1'd1 : 1'd0;
     assign addrMainWrite = (reg_waddr[15:12] == `ADDR_MAIN) ? 1'd1 : 1'd0;
-    assign sample_read = addrMainRead && (state == ST_TX_DATA || state == ST_TX_HEAD);
+    // Following signal indicates whether real-time block read (check for tx_type is for broadcast read,
+    // where we need to do the real-time block read when writing to hub and sending to other boards.
+    assign blk_rt_rd     = (req_read_bus && addrMainRead && ((rx_tcode == `TC_BREAD) || (tx_type == `TX_TYPE_BBC))) ? 1'd1 : 1'd0;
+    wire timestamp_rd;
+    assign timestamp_rd = (blk_rt_rd && (reg_raddr[7:0] == 8'd0)) ? 1'd1 : 1'd0;
+
+    // For reading the timestamp
+    reg[31:0] timestamp_latched;
+    reg[31:0] timestamp_prev;
 
     // It is a ROM read (or write) when the upper 36 bits are ffff f0000.
     // This covers addresses from ffff f000 0000 to ffff f000 0fff, which includes
@@ -649,11 +652,6 @@ begin
     end
 `endif
 
-    // Clear sample_start when sample_busy asserted
-    if (sample_start && sample_busy) begin
-        sample_start <= 1'd0;
-    end
-
     // phy-link state machine
     case (state)
 
@@ -666,48 +664,45 @@ begin
             blk_wstart <= 0;                       // block write not started
             reg_wen <= 1'b0;                       // no register write events
             blk_wen <= 0;                          // no block write events
+            req_blk_rt_rd <= 1'b1;                 // no request for real-time block read
             req_write_bus <= 1'b0;                 // do not request write bus
             req_read_bus <= 1'b0;                  // do not request read bus
             crc_tx <= 0;                           // not in a transmit state
             rx_active <= 0;                        // clear receive active     
             fw_rt_wen <= 0;                        // clear real-time block write enable
 
-            // To be safe, we stay in the idle state if the sampler still has control
-            // over the read bus (reg_raddr), which should only be for a few cycles.
-            if (~(sample_start|sample_busy)) begin
-                // monitor ctl to select next state
-                case (ctl)
-                    `CTL_PHY_IDLE: begin
-                        state <= ST_IDLE;           // stay in monitor state
-                        if (write_trig) begin
-                            lreq_trig <= 1;
-                            lreq_type <= `LREQ_TX_ISO;
-                            tx_type <= `TX_TYPE_BBC;
-                        end
-`ifdef HAS_ETHERNET
-                        else if (eth_send_fw_req) begin
-                            eth_send_fw_ack <= 1;
-                            lreq_trig <= 1;
-                            lreq_type <= `LREQ_TX_ISO;
-                            tx_type <= `TX_TYPE_FWD;
-                            eth_fwpkt_raddr <= 9'h00;
-                            numbits <= (eth_fwpkt_len << 3);
-                        end
-`endif
-                        else begin
-                            lreq_trig <= 0;
-                        end
+            // monitor ctl to select next state
+            case (ctl)
+                `CTL_PHY_IDLE: begin
+                    state <= ST_IDLE;           // stay in monitor state
+                    if (write_trig) begin
+                        lreq_trig <= 1;
+                        lreq_type <= `LREQ_TX_ISO;
+                        tx_type <= `TX_TYPE_BBC;
                     end
+`ifdef HAS_ETHERNET
+                    else if (eth_send_fw_req) begin
+                        eth_send_fw_ack <= 1;
+                        lreq_trig <= 1;
+                        lreq_type <= `LREQ_TX_ISO;
+                        tx_type <= `TX_TYPE_FWD;
+                        eth_fwpkt_raddr <= 9'h00;
+                        numbits <= (eth_fwpkt_len << 3);
+                    end
+`endif
+                    else begin
+                        lreq_trig <= 0;
+                    end
+                end
                 
-                    `CTL_PHY_RECV: state <= ST_RX_D_ON;  // phy data from the bus
-                    `CTL_PHY_GRNT: state <= ST_TX;       // phy grants tx request
-                    `CTL_PHY_STAT: begin                 // phy status transfer
-                        st_buff <= {14'b0, data2b};      // clock in status bits
-                        state <= ST_STATUS;              // continue status loop
-                        stcount <= 2;                    // start status bit count
-                        end
-                endcase
-            end
+                `CTL_PHY_RECV: state <= ST_RX_D_ON;  // phy data from the bus
+                `CTL_PHY_GRNT: state <= ST_TX;       // phy grants tx request
+                `CTL_PHY_STAT: begin                 // phy status transfer
+                    st_buff <= {14'b0, data2b};      // clock in status bits
+                    state <= ST_STATUS;              // continue status loop
+                    stcount <= 2;                    // start status bit count
+                    end
+            endcase
         end
 
 
@@ -1097,14 +1092,15 @@ begin
                     reg_wen <= (rx_active & (rx_tcode==`TC_QWRITE));
                     blk_wen <= (rx_active & ((rx_tcode==`TC_QWRITE) | ((rx_tcode==`TC_BWRITE) && !addrMainWrite)));
 
-                    // Start sampling feedback data if a block read from ADDR_MAIN or
-                    // a broadcast read request (quadlet write to ADDR_HUB). Note that sampler
-                    // will enter its busy state (after the next cycle) and take control of reg_raddr
-                    // for a few cycles.
+                    // Latch timestamp if a block read from ADDR_MAIN (blk_rt_rd) or a broadcast read request
+                    // (quadlet write to ADDR_HUB).
                     if (rx_active &&
-                        ((addrMainRead && (rx_tcode==`TC_BREAD)) ||
+                        (blk_rt_rd ||
                          ((reg_waddr[15:0] == {`ADDR_HUB, 12'h800}) && (rx_tcode==`TC_QWRITE)))) begin
-                       sample_start <= 1;
+                        // TODO: Subtracting 1 for backward compatibility; may eliminate that for Firmware Rev 9
+                        timestamp_latched <= (timestamp-timestamp_prev)-32'd1;
+                        timestamp_prev <= timestamp;
+                        req_blk_rt_rd <= 1'b1;
                     end
                 end
 
@@ -1283,7 +1279,7 @@ begin
             buffer <= buffer << 8;
             count <= count + 16'd8;
             crc_in <= (crc_ini) ? `CRC_INIT : crc_8b;
-            req_read_bus <= ~(rom_addr|addrMainRead);   // Request control of read bus (if needed)
+            req_read_bus <= ~rom_addr;     // Request control of read bus (if needed)
             
             // update transmit buffer at quadlet boundaries
             case (count)
@@ -1303,7 +1299,7 @@ begin
                 152: begin                                    // quadlet 6 
                     // ----- BRESP Continue -------
                     buffer <= rom_addr ? rom_data :
-                              addrMainRead ? sample_rdata : reg_rdata;
+                              timestamp_rd ? timestamp_latched : reg_rdata;
                     // Note that for rom_addr, we increment by 4, otherwise by 1.
                     reg_raddr[11:0] <= reg_raddr[11:0] + {9'd0,rom_addr,1'b0,~rom_addr};
                     state <= ST_TX_DATA;
@@ -1327,9 +1323,9 @@ begin
             buffer <= buffer << 8;
             count <= count + 16'd8;
             crc_in <= (crc_ini) ? `CRC_INIT : crc_8b;
-            // Do not need to set req_read_bus because addrMainRead is always active
-            // in this state, and thus we read from sample_rdata instead of reg_rdata.
-            // But, need to request write bus to write to Hub register.
+            // Request read bus to access data.
+            // Request write bus to write to Hub register.
+            req_read_bus <= 1'b1;
             req_write_bus <= 1'b1;
             
             // update transmit buffer at quadlet boundaries
@@ -1366,7 +1362,7 @@ begin
                     // for transmission via FireWire
                     buffer <= { rx_bc_sequence, 8'd0, SZ_BBC_QUADS };
                     crc_ini <= 0;           // clear crc start bit
-                    reg_raddr <= {`ADDR_MAIN, 12'd0 };  // Will actually read from SampleData
+                    reg_raddr <= {`ADDR_MAIN, 12'd0 };  // blk_rt_rd should be 1
                     state <= ST_TX_DATA;    // goto ST_TX_DATA
                 end
 
@@ -1399,12 +1395,12 @@ begin
                     // (reg_wen is set in ST_TX_HEAD_BC)
                     if (reg_waddr[7:0] != SZ_BBC_QUADS-8'd1) begin
                         reg_waddr[7:0] <= reg_waddr[7:0] + 8'd1;
-                        reg_wdata <= sample_rdata;
+                        reg_wdata <= timestamp_rd ? timestamp_latched : reg_rdata;
                     end
 
                     // send to FireWire bus
                     buffer <= rom_addr ? rom_data :
-                              addrMainRead ? sample_rdata : reg_rdata;
+                              timestamp_rd ? timestamp_latched : reg_rdata;
                     // 12-bit address increment, even though Firewire limited to 512 quadlets (9 bits)
                     // because this way we can support non-zero starting addresses.
                     // Note that for rom_addr, we increment by 4, otherwise by 1.

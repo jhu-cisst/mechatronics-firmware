@@ -15,7 +15,8 @@
 `include "Constants.v"
 
 module FPGA1394V1
-    #(parameter NUM_BC_READ_QUADS = 33)
+    #(parameter NUM_MOTORS = 4,
+      parameter NUM_ENCODERS = 4)
 (
     // global clock
     input wire       sysclk,
@@ -54,6 +55,8 @@ module FPGA1394V1
     output reg reg_wen,
     output reg blk_wen,
     output reg blk_wstart,
+    output wire req_blk_rt_rd,    // request for real-time block read
+    output wire blk_rt_rd,        // real-time block read in process
 
     // Block write support
     input wire bw_write_en,
@@ -68,12 +71,8 @@ module FPGA1394V1
     output wire[3:0] rt_waddr,
     output wire[31:0] rt_wdata,
 
-    // Sampling support
-    output wire sample_start,       // Start sampling read data
-    input wire sample_busy,         // Sampling in process
-    output wire[5:0] sample_raddr,  // Address in sample_data buffer
-    input wire[31:0] sample_rdata,  // Output from sample_data buffer
-    input wire[31:0] timestamp,     // Timestamp used when sampling
+    // Timestamp
+    input wire[31:0] timestamp,
 
     // Watchdog support
     output wire wdog_period_led,    // 1 -> external LED displays wdog_period_status
@@ -81,6 +80,11 @@ module FPGA1394V1
     output wire wdog_timeout,       // watchdog timeout status flag
     input  wire wdog_clear          // clear watchdog timeout (e.g., on powerup)
 );
+
+// Number of quadlets in real-time block read (not including Firewire header and CRC)
+localparam NUM_RT_READ_QUADS = (4 + 2*NUM_MOTORS + 5*NUM_ENCODERS);
+// Number of quadlets in broadcast real-time block; includes sequence number
+localparam NUM_BC_READ_QUADS = (1+NUM_RT_READ_QUADS);
 
 // 1394 phy low reset, never reset
 assign reset_phy = 1'b1; 
@@ -95,6 +99,8 @@ assign reset_phy = 1'b1;
     wire fw_reg_wen;            // register write signal from FireWire
     wire fw_blk_wen;            // block write enable from FireWire
     wire fw_blk_wstart;         // block write start from FireWire
+    wire fw_req_blk_rt_rd;      // real-time block read request from Firewire
+    wire fw_blk_rt_rd;          // real-time block read from Firewire
     wire[15:0] fw_reg_raddr;    // 16-bit reg read address from FireWire
     wire[15:0] fw_reg_waddr;    // 16-bit reg write address from FireWire
     wire[31:0] fw_reg_wdata;    // reg write data from FireWire
@@ -108,11 +114,22 @@ assign reset_phy = 1'b1;
 assign  Eth_Result = 32'b0;
 assign ip_address = 32'hffffffff;
 
-// For data sampling
-wire fw_sample_start;
-assign sample_start = fw_sample_start & ~sample_busy;
+//*********************** Read Address Translation *******************************
 
-assign reg_raddr = fw_reg_raddr;
+// Read bus address translation (to support real-time block read).
+// This could instead be instantiated in the either the FPGAV1 or QLA modules
+// (FPGAV1 module would need NUM_MOTORS and NUM_ENCODERS).
+
+assign req_blk_rt_rd = fw_req_blk_rt_rd;
+assign blk_rt_rd = fw_blk_rt_rd;
+
+ReadAddressTranslation
+    #(.NUM_MOTORS(NUM_MOTORS), .NUM_ENCODERS(NUM_ENCODERS))
+ReadAddr(
+    .reg_raddr_in(fw_reg_raddr),
+    .reg_raddr_out(reg_raddr),
+    .blk_rt_rd(blk_rt_rd)
+);
 
 // Multiplexing of write bus between WriteRtData (bw = real-time block write module)
 // and Firewire.
@@ -203,6 +220,8 @@ phy(
     .reg_wen(fw_reg_wen),       // out: reg write signal
     .blk_wen(fw_blk_wen),       // out: block write signal
     .blk_wstart(fw_blk_wstart), // out: block write is starting
+    .blk_rt_rd(fw_blk_rt_rd),   // out: real-time block read in process
+    .req_blk_rt_rd(fw_req_blk_rt_rd),  // out: real-time block read request
 
     .reg_raddr(fw_reg_raddr),  // out: register address
     .reg_waddr(fw_reg_waddr),  // out: register address
@@ -222,11 +241,8 @@ phy(
     .fw_rt_waddr(rt_waddr),
     .fw_rt_wdata(rt_wdata),
 
-    // Interface for sampling data (for block read)
-    .sample_start(fw_sample_start),   // 1 -> start sampling for block read
-    .sample_busy(sample_busy),        // Sampling in process
-    .sample_raddr(sample_raddr),      // Read address for sampled data
-    .sample_rdata(sample_rdata)       // Sampled data (for block read)
+    // Timestamp
+    .timestamp(timestamp)
 );
 
 
