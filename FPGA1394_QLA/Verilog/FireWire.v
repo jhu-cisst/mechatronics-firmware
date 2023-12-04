@@ -336,9 +336,10 @@ module PhyLinkInterface
     wire addrMainWrite;
     assign addrMainRead  = (reg_raddr[15:12] == `ADDR_MAIN) ? 1'd1 : 1'd0;
     assign addrMainWrite = (reg_waddr[15:12] == `ADDR_MAIN) ? 1'd1 : 1'd0;
-    // Following signal indicates whether real-time block read (check for tx_type is for broadcast read,
-    // where we need to do the real-time block read when writing to hub and sending to other boards.
-    assign blk_rt_rd     = (req_read_bus && addrMainRead && ((rx_tcode == `TC_BREAD) || (tx_type == `TX_TYPE_BBC))) ? 1'd1 : 1'd0;
+    // Following signal indicates whether real-time block read is in process, which can happen when
+    // transmitting a response to a block read (TX_TYPE_BRESP) or a broadcast read response (TX_TYPE_BBC).
+    assign blk_rt_rd = (req_read_bus && addrMainRead &&
+                       ((tx_type == `TX_TYPE_BRESP) || (tx_type == `TX_TYPE_BBC))) ? 1'd1 : 1'd0;
     wire timestamp_rd;
     assign timestamp_rd = (blk_rt_rd && (reg_raddr[7:0] == 8'd0)) ? 1'd1 : 1'd0;
 
@@ -1095,7 +1096,7 @@ begin
                     // Latch timestamp if a block read from ADDR_MAIN (blk_rt_rd) or a broadcast read request
                     // (quadlet write to ADDR_HUB).
                     if (rx_active &&
-                        (blk_rt_rd ||
+                        ((addrMainRead && (rx_tcode==`TC_BREAD)) ||
                          ((reg_waddr[15:0] == {`ADDR_HUB, 12'h800}) && (rx_tcode==`TC_QWRITE)))) begin
                         // TODO: Subtracting 1 for backward compatibility; may eliminate that for Firmware Rev 9
                         timestamp_latched <= (timestamp-timestamp_prev)-32'd1;

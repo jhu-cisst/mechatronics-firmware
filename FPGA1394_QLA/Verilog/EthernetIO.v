@@ -1119,9 +1119,9 @@ begin
             nextRecvState <= ST_RECEIVE_DMA_IDLE;  // was ST_RECEIVE_DMA_FRAME_CRC;
             doRtBlock <= 0;
             if (isLocal) begin
-               // Latch timestamp if a block read from ADDR_MAIN (eth_blk_rt_rd) or a broadcast read request
+               // Latch timestamp if a block read from ADDR_MAIN or a broadcast read request
                // (quadlet write to ADDR_HUB).
-               if (eth_blk_rt_rd || ((fw_dest_offset == {`ADDR_HUB, 12'h800 }) && quadWrite)) begin
+               if ((addrMain && blockRead) || ((fw_dest_offset == {`ADDR_HUB, 12'h800 }) && quadWrite)) begin
                   // TODO: Subtracting 1 for backward compatibility; may eliminate that for Firmware Rev 9
                   timestamp_latched <= (timestamp-timestamp_prev)-32'd1;
                   timestamp_prev <= timestamp;
