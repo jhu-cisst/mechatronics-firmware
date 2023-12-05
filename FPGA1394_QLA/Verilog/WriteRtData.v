@@ -30,11 +30,10 @@ module WriteRtData
     output reg       bw_block_wen,
     output reg       bw_block_wstart,
     output reg[7:0]  bw_reg_waddr,
-    output reg[31:0] bw_reg_wdata,
-    output reg       dac_update       // 1 -> at least one DAC value was updated
+    output reg[31:0] bw_reg_wdata
     );
 
-parameter[2:0]
+localparam[2:0]
    RT_IDLE = 0,
    RT_WSTART = 1,
    RT_WRITE = 2,
@@ -107,7 +106,6 @@ begin
       bw_reg_wen <= 0;
       bw_block_wen <= 0;
       bw_block_wstart <= 0;
-      dac_update <= 0;
       // Could check if rt_write_en is asserted when we are not in the idle state
       // and flag an error in that case
       if (rt_write_en) begin
@@ -119,7 +117,6 @@ begin
                // (same timing as in Firewire module).
                bw_write_en <= 1;
                bw_block_wstart <= 1;
-               dac_update <= anyDacValid;
                rtState <= RT_WSTART;
             end
             else begin

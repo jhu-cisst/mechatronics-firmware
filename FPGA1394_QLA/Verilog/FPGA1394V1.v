@@ -58,19 +58,6 @@ module FPGA1394V1
     output wire req_blk_rt_rd,    // request for real-time block read
     output wire blk_rt_rd,        // real-time block read in process
 
-    // Block write support
-    input wire bw_write_en,
-    input wire[7:0] bw_reg_waddr,
-    input wire[31:0] bw_reg_wdata,
-    input wire bw_reg_wen,
-    input wire bw_blk_wen,
-    input wire bw_blk_wstart,
-
-    // Real-time write support
-    output wire rt_wen,
-    output wire[3:0] rt_waddr,
-    output wire[31:0] rt_wdata,
-
     // Timestamp
     input wire[31:0] timestamp,
 
@@ -87,7 +74,7 @@ localparam NUM_RT_READ_QUADS = (4 + 2*NUM_MOTORS + 5*NUM_ENCODERS);
 localparam NUM_BC_READ_QUADS = (1+NUM_RT_READ_QUADS);
 
 // 1394 phy low reset, never reset
-assign reset_phy = 1'b1; 
+assign reset_phy = 1'b1;
 
     // -------------------------------------------------------------------------
     // local wires to tie the instantiated modules and I/Os
@@ -99,8 +86,8 @@ assign reset_phy = 1'b1;
     wire fw_reg_wen;            // register write signal from FireWire
     wire fw_blk_wen;            // block write enable from FireWire
     wire fw_blk_wstart;         // block write start from FireWire
-    wire fw_req_blk_rt_rd;      // real-time block read request from Firewire
-    wire fw_blk_rt_rd;          // real-time block read from Firewire
+    wire fw_req_blk_rt_rd;      // real-time block read request from FireWire
+    wire fw_blk_rt_rd;          // real-time block read from FireWire
     wire[15:0] fw_reg_raddr;    // 16-bit reg read address from FireWire
     wire[15:0] fw_reg_waddr;    // 16-bit reg write address from FireWire
     wire[31:0] fw_reg_wdata;    // reg write data from FireWire
@@ -129,6 +116,36 @@ ReadAddr(
     .reg_raddr_in(fw_reg_raddr),
     .reg_raddr_out(reg_raddr),
     .blk_rt_rd(blk_rt_rd)
+);
+
+// --------------------------------------------------------------------------
+// Write data for real-time block
+// --------------------------------------------------------------------------
+
+// For real-time write
+wire       rt_wen;
+wire[3:0]  rt_waddr;
+wire[31:0] rt_wdata;
+
+wire bw_write_en;
+wire[7:0] bw_reg_waddr;
+wire[31:0] bw_reg_wdata;
+wire bw_reg_wen;
+wire bw_blk_wen;
+wire bw_blk_wstart;
+
+WriteRtData #(.NUM_MOTORS(NUM_MOTORS)) rt_write
+(
+    .clk(sysclk),
+    .rt_write_en(rt_wen),       // Write enable
+    .rt_write_addr(rt_waddr),   // Write address
+    .rt_write_data(rt_wdata),   // Write data
+    .bw_write_en(bw_write_en),
+    .bw_reg_wen(bw_reg_wen),
+    .bw_block_wen(bw_blk_wen),
+    .bw_block_wstart(bw_blk_wstart),
+    .bw_reg_waddr(bw_reg_waddr),
+    .bw_reg_wdata(bw_reg_wdata)
 );
 
 // Multiplexing of write bus between WriteRtData (bw = real-time block write module)

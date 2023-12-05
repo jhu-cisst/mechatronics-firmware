@@ -99,19 +99,6 @@ module FPGA1394V3DQLA
     wire blk_wen;               // block write enable
     wire blk_wstart;            // block write start
 
-    // Wires for block write
-    wire bw_reg_wen;            // register write signal from WriteRtData
-    wire bw_blk_wen;            // block write enable from WriteRtData
-    wire bw_blk_wstart;         // block write start from WriteRtData
-    wire[7:0] bw_reg_waddr;     // 16-bit reg write address from WriteRtData
-    wire[31:0] bw_reg_wdata;    // reg write data from WriteRtData
-    wire bw_write_en;           // 1 -> WriteRtData (real-time block write) is driving write bus
-
-    // Wires for real-time write
-    wire  rt_wen;
-    wire [3:0] rt_waddr;
-    wire [31:0] rt_wdata;
-
     // Timestamp
     wire[31:0] timestamp;
 
@@ -184,19 +171,6 @@ fpga(
     .blk_wen(blk_wen),
     .blk_wstart(blk_wstart),
 
-    // Block write support
-    .bw_reg_waddr(bw_reg_waddr),
-    .bw_reg_wdata(bw_reg_wdata),
-    .bw_reg_wen(bw_reg_wen),
-    .bw_blk_wen(bw_blk_wen),
-    .bw_blk_wstart(bw_blk_wstart),
-    .bw_write_en(bw_write_en),
-
-    // Real-time write support
-    .rt_wen(rt_wen),
-    .rt_waddr(rt_waddr),
-    .rt_wdata(rt_wdata),
-
     // Timestamp
     .timestamp(timestamp),
 
@@ -245,19 +219,6 @@ DQLA dqla(
     .reg_wen(reg_wen),
     .blk_wen(blk_wen),
     .blk_wstart(blk_wstart),
-
-    // Block write support
-    .bw_reg_waddr(bw_reg_waddr),
-    .bw_reg_wdata(bw_reg_wdata),
-    .bw_reg_wen(bw_reg_wen),
-    .bw_blk_wen(bw_blk_wen),
-    .bw_blk_wstart(bw_blk_wstart),
-    .bw_write_en(bw_write_en),
-
-    // Real-time write support
-    .rt_wen(rt_wen),
-    .rt_waddr(rt_waddr),
-    .rt_wdata(rt_wdata),
 
     // Timestamp
     .timestamp(timestamp),

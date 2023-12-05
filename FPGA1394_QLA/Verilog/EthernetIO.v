@@ -836,7 +836,7 @@ end
 //  ETHERNET Receive state machine
 //*****************************************************************
 
-parameter[1:0]
+localparam[1:0]
     ST_RECEIVE_DMA_IDLE = 2'd0,
     ST_RECEIVE_DMA_ETHERNET_HEADERS = 2'd1,
     ST_RECEIVE_DMA_FIREWIRE_PACKET = 2'd2,
@@ -1191,7 +1191,7 @@ end
 //  ETHERNET Send DMA state machine
 //*****************************************************************
 
-parameter[3:0]
+localparam[3:0]
     ST_SEND_DMA_IDLE = 4'd0,
     ST_SEND_DMA_ETHERNET_HEADERS = 4'd3,
     ST_SEND_DMA_PACKETDATA_HEADER = 4'd4,
@@ -1549,7 +1549,7 @@ end
 // handle round-off), which leads to the equation above for setting writeRequestTrigger.
 //
 
-parameter[2:0]
+localparam[2:0]
    BW_IDLE = 0,
    BW_WSTART = 1,
    BW_WRITE = 2,

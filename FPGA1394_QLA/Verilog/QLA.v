@@ -41,19 +41,6 @@ module QLA(
     input wire blk_wstart,
     input wire blk_rt_rd,
 
-    // Block write support
-    output wire bw_write_en,
-    output wire[7:0] bw_reg_waddr,
-    output wire[31:0] bw_reg_wdata,
-    output wire bw_reg_wen,
-    output wire bw_blk_wen,
-    output wire bw_blk_wstart,
-
-    // Real-time write support
-    input wire  rt_wen,
-    input wire[3:0]  rt_waddr,
-    input wire[31:0] rt_wdata,
-
     // Timestamp
     output reg[31:0] timestamp,
 
@@ -261,23 +248,39 @@ wire reg_waddr_dac;
 assign reg_waddr_dac = ((reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[7:4] != 4'd0) &&
                         (reg_waddr[3:0]==`OFF_DAC_CTRL)) ? 1'd1 : 1'd0;
 
-// Following handles case where a single DAC is updated (e.g., via a quadlet write),
-// since reg_wen and blk_wen are asserted at the same time.
-wire dac_update_single;
-assign dac_update_single = reg_wen&reg_wdata[31];
+// Following indicates whether at least one DAC has been updated (via a block write)
+// since the last write.
+reg dac_update;
 
-wire dac_update_block;    // Any DAC was updated in WriteRtData
+// Following indicates whether DAC value is valid (bit 31 set), assuming
+// reg_waddr_dac is 1. This will work for either a block write or a single quadlet
+// write because in both cases reg_wen is set.
+wire dac_valid;
+assign dac_valid = reg_wen & reg_wdata[31];
+
 wire dac_busy;
 reg  cur_cmd_req;
 reg  cur_cmd_updated;
 
 always @(posedge(sysclk))
 begin
-    if (reg_waddr_dac&blk_wen&(dac_update_block|dac_update_single)) begin
-        cur_cmd_req <= dac_busy;
-        cur_cmd_updated <= ~dac_busy;
+    if (reg_waddr_dac) begin
+        // For block write, dac_update will be set if any DAC was valid prior to blk_wen
+        // For quadlet write, need to check dac_valid because blk_wen and reg_wen occur
+        // at the same time
+        if (blk_wen) begin
+            dac_update <= 1'b0;
+            if (dac_update|dac_valid) begin
+                cur_cmd_req <= dac_busy;
+                cur_cmd_updated <= ~dac_busy;
+            end
+        end
+        else if (dac_valid) begin
+            // This condition is only possible for block write
+            dac_update <= 1'b1;
+        end
     end
-    else if (cur_cmd_req&(~dac_busy)) begin
+    if (cur_cmd_req&(~dac_busy)) begin
         cur_cmd_req <= 0;
         cur_cmd_updated <= 1;
     end
@@ -586,24 +589,6 @@ BoardRegsQLA chan0(
     .ds_status(ds_status),
     .pwr_enable_cmd(pwr_enable_cmd),
     .wdog_timeout(wdog_timeout)
-);
-
-// --------------------------------------------------------------------------
-// Write data for real-time block
-// --------------------------------------------------------------------------
-
-WriteRtData rt_write(
-    .clk(sysclk),
-    .rt_write_en(rt_wen),       // Write enable
-    .rt_write_addr(rt_waddr),   // Write address
-    .rt_write_data(rt_wdata),   // Write data
-    .bw_write_en(bw_write_en),
-    .bw_reg_wen(bw_reg_wen),
-    .bw_block_wen(bw_blk_wen),
-    .bw_block_wstart(bw_blk_wstart),
-    .bw_reg_waddr(bw_reg_waddr),
-    .bw_reg_wdata(bw_reg_wdata),
-    .dac_update(dac_update_block)
 );
 
 // --------------------------------------------------------------------------

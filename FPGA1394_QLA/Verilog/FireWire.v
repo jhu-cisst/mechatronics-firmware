@@ -552,7 +552,7 @@ module PhyLinkInterface
     end
 
     // state machine states
-    parameter[3:0]
+    localparam[3:0]
         ST_IDLE = 0,              // wait for phy event
         ST_STATUS = 1,            // receive status from phy
         ST_RX_D_ON = 2,           // rx state, data-on indication

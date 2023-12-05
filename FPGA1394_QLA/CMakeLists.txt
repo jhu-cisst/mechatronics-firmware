@@ -71,7 +71,8 @@ add_custom_target (VersionFile ALL
 set (VERILOG_SOURCE_FPGA "${VERILOG_SOURCE_DIR}/Crc32.v"
                          "${VERILOG_SOURCE_DIR}/HubReg.v"
                          "${VERILOG_SOURCE_DIR}/FireWire.v"
-                         "${VERILOG_SOURCE_DIR}/BoardRegs.v")
+                         "${VERILOG_SOURCE_DIR}/BoardRegs.v"
+                         "${VERILOG_SOURCE_DIR}/WriteRtData.v")
 
 # Source files for FPGA V1 and V2
 set (VERILOG_SOURCE_FPGAV1_V2
@@ -127,8 +128,7 @@ set (VERILOG_SOURCE_QLA_DQLA
                            "${VERILOG_SOURCE_DIR}/CtrlDout.v"
                            "${VERILOG_SOURCE_DIR}/MotorChannelQLA.v"
                            "${VERILOG_SOURCE_DIR}/CtrlDac.v"
-                           "${VERILOG_SOURCE_DIR}/DS2505.v"
-                           "${VERILOG_SOURCE_DIR}/WriteRtData.v")
+                           "${VERILOG_SOURCE_DIR}/DS2505.v")
 
 # Source files used by QLA
 set (VERILOG_SOURCE_QLA    ${VERILOG_SOURCE_QLA_DQLA}
@@ -156,7 +156,6 @@ set (VERILOG_SOURCE_DRAC
                            "${VERILOG_SOURCE_DIR}/PowerControl.v"
                            "${VERILOG_SOURCE_DIR}/PWM.v"
                            "${VERILOG_SOURCE_DIR}/PwmAdcTiming.v"
-                           "${VERILOG_SOURCE_DIR}/WriteRtData.v"
                            "${VERILOG_SOURCE_DIR}/ws2811.v")
 
 file(DOWNLOAD

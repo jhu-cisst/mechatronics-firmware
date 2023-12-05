@@ -79,19 +79,6 @@ module FPGA1394V3
     output wire req_blk_rt_rd,    // request for real-time block read
     output wire blk_rt_rd,        // real-time block read in process
 
-    // Block write support
-    input wire bw_write_en,
-    input wire[7:0] bw_reg_waddr,
-    input wire[31:0] bw_reg_wdata,
-    input wire bw_reg_wen,
-    input wire bw_blk_wen,
-    input wire bw_blk_wstart,
-
-    // Real-time write support
-    output reg rt_wen,
-    output reg[3:0] rt_waddr,
-    output reg[31:0] rt_wdata,
-
     // Timestamp
     input wire[31:0] timestamp,
 
@@ -148,10 +135,13 @@ assign reset_phy = 1'b1;
 // For real-time write
 wire       fw_rt_wen;
 wire       eth_rt_wen;
+reg        rt_wen;
 wire[3:0]  fw_rt_waddr;
 wire[3:0]  eth_rt_waddr;
+reg[3:0]   rt_waddr;
 wire[31:0] fw_rt_wdata;
 wire[31:0] eth_rt_wdata;
+reg [31:0] rt_wdata;
 
 always @(*)
 begin
@@ -366,6 +356,43 @@ assign reg_rdata_chan0_ext =
                    (reg_raddr[3:0]==`REG_IPADDR) ? ip_address :
                    (reg_raddr[3:0]==`REG_ETHSTAT) ? Eth_Result :
                    reg_rdata_ext;
+
+// --------------------------------------------------------------------------
+// Write data for real-time block
+// --------------------------------------------------------------------------
+
+wire bw_write_en;
+wire[7:0] bw_reg_waddr;
+wire[31:0] bw_reg_wdata;
+wire bw_reg_wen;
+wire bw_blk_wen;
+wire bw_blk_wstart;
+
+generate
+if (NUM_MOTORS > 0) begin
+WriteRtData #(.NUM_MOTORS(NUM_MOTORS)) rt_write
+(
+    .clk(sysclk),
+    .rt_write_en(rt_wen),       // Write enable
+    .rt_write_addr(rt_waddr),   // Write address
+    .rt_write_data(rt_wdata),   // Write data
+    .bw_write_en(bw_write_en),
+    .bw_reg_wen(bw_reg_wen),
+    .bw_block_wen(bw_blk_wen),
+    .bw_block_wstart(bw_blk_wstart),
+    .bw_reg_waddr(bw_reg_waddr),
+    .bw_reg_wdata(bw_reg_wdata)
+);
+end
+else begin
+   assign bw_write_en = 1'b0;
+   assign bw_reg_wen = 1'b0;
+   assign bw_blk_wen = 1'b0;
+   assign bw_blk_wstart = 1'b0;
+   assign bw_reg_waddr = 8'd0;
+   assign bw_reg_wdata = 32'd0;
+end
+endgenerate
 
 //******************* Arbitration for write bus ****************************
 

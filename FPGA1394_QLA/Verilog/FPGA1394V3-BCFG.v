@@ -160,14 +160,6 @@ fpga(
     .blk_wstart(blk_wstart),
     .blk_rt_rd(blk_rt_rd),
 
-    // Block write support (not used)
-    .bw_reg_waddr(8'd0),
-    .bw_reg_wdata(32'd0),
-    .bw_reg_wen(1'd0),
-    .bw_blk_wen(1'd0),
-    .bw_blk_wstart(1'd0),
-    .bw_write_en(1'd0),
-
     // Timestamp
     .timestamp(timestamp),
 

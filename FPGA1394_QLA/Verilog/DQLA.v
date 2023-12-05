@@ -40,19 +40,6 @@ module DQLA(
     input wire blk_wen,
     input wire blk_wstart,
 
-    // Block write support
-    output wire bw_write_en,
-    output wire[7:0] bw_reg_waddr,
-    output wire[31:0] bw_reg_wdata,
-    output wire bw_reg_wen,
-    output wire bw_blk_wen,
-    output wire bw_blk_wstart,
-
-    // Real-time write support
-    input wire  rt_wen,
-    input wire[3:0]  rt_waddr,
-    input wire[31:0] rt_wdata,
-
     // Timestamp
     output reg[31:0] timestamp,
 
@@ -983,24 +970,6 @@ BoardRegsDQLA chan0(
     .pwr_enable_cmd(pwr_enable_cmd),
     .mv_amp_disable({Q2_mv_amp_disable, Q1_mv_amp_disable}),
     .wdog_timeout(wdog_timeout)
-);
-
-// --------------------------------------------------------------------------
-// Write data for real-time block
-// --------------------------------------------------------------------------
-
-WriteRtData #(.NUM_MOTORS(8)) rt_write(
-    .clk(sysclk),
-    .rt_write_en(rt_wen),       // Write enable
-    .rt_write_addr(rt_waddr),   // Write address
-    .rt_write_data(rt_wdata),   // Write data
-    .bw_write_en(bw_write_en),
-    .bw_reg_wen(bw_reg_wen),
-    .bw_block_wen(bw_blk_wen),
-    .bw_block_wstart(bw_blk_wstart),
-    .bw_reg_waddr(bw_reg_waddr),
-    .bw_reg_wdata(bw_reg_wdata),
-    .dac_update(dac_update_block)
 );
 
 //------------------------------------------------------------------------------
