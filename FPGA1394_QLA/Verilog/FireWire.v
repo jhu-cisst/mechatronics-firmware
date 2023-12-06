@@ -240,11 +240,6 @@ module PhyLinkInterface
     output wire write_trig_reset,    // reset write_trig
     output wire fw_idle,             // whether Firewire state machine is idle
 
-    // Interface for real-time block write
-    output reg       fw_rt_wen,
-    output reg[3:0]  fw_rt_waddr,
-    output reg[31:0] fw_rt_wdata,
-
     // External timestamp
     input wire[31:0] timestamp
 
@@ -670,7 +665,6 @@ begin
             req_read_bus <= 1'b0;                  // do not request read bus
             crc_tx <= 0;                           // not in a transmit state
             rx_active <= 0;                        // clear receive active     
-            fw_rt_wen <= 0;                        // clear real-time block write enable
 
             // monitor ctl to select next state
             case (ctl)
@@ -835,20 +829,22 @@ begin
                                 // The header will also specify the number of motors being addressed
                                 // (4 for QLA and 10 for dRAC). The last quadlet is for power control.
                                 // The protocol uses 8 bits for the length (RtLen), even though currently
-                                // the largest block write is 12 quadlets (for dRAC). Note, however, that
-                                // fw_rt_waddr is only 4 bits.
-                                fw_rt_wdata <= buffer;
+                                // the largest block write is 12 quadlets (for dRAC).
+                                reg_wdata <= buffer;
                                 if ((RtCnt == 8'h0) || (RtCnt == RtLen)) begin
                                     RtLen <= buffer[7:0];
                                     RtCnt <= 8'h1;
                                     dac_local <= (buffer[11:8] == board_id) ? 1'b1 : 1'b0;
-                                    fw_rt_waddr <= 4'hf;
-                                    fw_rt_wen <= 0;
+                                    reg_waddr[7:0] <= { 4'd0, `OFF_DAC_CTRL };
+                                    reg_wen <= 0;
                                 end
                                 else begin
                                     RtCnt <= RtCnt + 8'h1;
-                                    fw_rt_waddr <= fw_rt_waddr + 4'd1;
-                                    fw_rt_wen <= rx_active & dac_local;
+                                    if (RtCnt == RtLen-1)
+                                        reg_waddr[7:0] <= { 4'd0, `REG_STATUS };  // Power control
+                                    else
+                                        reg_waddr[7:4] <= reg_waddr[7:4] + 4'd1;  // DAC
+                                    reg_wen <= rx_active & dac_local;
                                 end
                             end
                             // other space
@@ -864,7 +860,6 @@ begin
                         end
                         else begin
                             reg_wen <= 0;
-                            fw_rt_wen <= 0;
                         end
 
                         // save the computed crc of the block data
@@ -1021,9 +1016,10 @@ begin
                         160: begin 
                             // flag to indicate the start of block data
                             data_block <= (rx_tcode==`TC_BWRITE) ? 1'b1 : 1'b0;
+                            blk_wstart <= (rx_tcode==`TC_BWRITE) ? 1'b1 : 1'b0;
 
                             if (addrMainWrite) begin
-                                // main is special, write to WriteRtData module
+                                // main is special, ignore address in 1394 packet
                                 RtCnt <= 8'd0;
                             end
                             else begin
@@ -1031,7 +1027,6 @@ begin
                                 // NOTE: read addr (see 3rd quad)
                                 //       write addr-1 to match timing
                                 reg_waddr[11:0] <= reg_waddr[11:0] - 1'b1; 
-                                blk_wstart <= (rx_tcode==`TC_BWRITE) ? 1'b1 : 1'b0;
                             end
                         end
                         // iffy implementation, works for now ------------------
@@ -1091,7 +1086,7 @@ begin
                     //   & - bitwise AND
                     //   result is a 1-bit and assigned to reg_wen 
                     reg_wen <= (rx_active & (rx_tcode==`TC_QWRITE));
-                    blk_wen <= (rx_active & ((rx_tcode==`TC_QWRITE) | ((rx_tcode==`TC_BWRITE) && !addrMainWrite)));
+                    blk_wen <= (rx_active & ((rx_tcode==`TC_QWRITE) | (rx_tcode==`TC_BWRITE)));
 
                     // Latch timestamp if a block read from ADDR_MAIN (blk_rt_rd) or a broadcast read request
                     // (quadlet write to ADDR_HUB).

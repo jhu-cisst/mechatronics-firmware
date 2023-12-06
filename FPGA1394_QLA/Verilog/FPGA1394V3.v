@@ -133,29 +133,9 @@ assign reset_phy = 1'b1;
     wire[31:0] ip_address;
 
 // For real-time write
-wire       fw_rt_wen;
 wire       eth_rt_wen;
-reg        rt_wen;
-wire[3:0]  fw_rt_waddr;
 wire[3:0]  eth_rt_waddr;
-reg[3:0]   rt_waddr;
-wire[31:0] fw_rt_wdata;
 wire[31:0] eth_rt_wdata;
-reg [31:0] rt_wdata;
-
-always @(*)
-begin
-   if (eth_rt_wen) begin
-      rt_wen = eth_rt_wen;
-      rt_waddr = eth_rt_waddr;
-      rt_wdata = eth_rt_wdata;
-   end
-   else begin
-      rt_wen = fw_rt_wen;
-      rt_waddr = fw_rt_waddr;
-      rt_wdata = fw_rt_wdata;
-   end
-end
 
 // Signals for PS access to registers
 wire[63:0] emio_ps_in;     // EMIO input to PS
@@ -373,13 +353,13 @@ if (NUM_MOTORS > 0) begin
 WriteRtData #(.NUM_MOTORS(NUM_MOTORS)) rt_write
 (
     .clk(sysclk),
-    .rt_write_en(rt_wen),       // Write enable
-    .rt_write_addr(rt_waddr),   // Write address
-    .rt_write_data(rt_wdata),   // Write data
+    .rt_write_en(eth_rt_wen),       // Write enable
+    .rt_write_addr(eth_rt_waddr),   // Write address
+    .rt_write_data(eth_rt_wdata),   // Write data
     .bw_write_en(bw_write_en),
     .bw_reg_wen(bw_reg_wen),
-    .bw_block_wen(bw_blk_wen),
-    .bw_block_wstart(bw_blk_wstart),
+    .bw_blk_wen(bw_blk_wen),
+    .bw_blk_wstart(bw_blk_wstart),
     .bw_reg_waddr(bw_reg_waddr),
     .bw_reg_wdata(bw_reg_wdata)
 );
@@ -626,11 +606,6 @@ phy(
     .write_trig(hub_write_trig),   // in: 1 -> broadcast write this board's hub data
     .write_trig_reset(hub_write_trig_reset),
     .fw_idle(fw_idle),
-
-    // Interface for real-time block write
-    .fw_rt_wen(fw_rt_wen),
-    .fw_rt_waddr(fw_rt_waddr),
-    .fw_rt_wdata(fw_rt_wdata),
 
     // Timestamp
     .timestamp(timestamp)

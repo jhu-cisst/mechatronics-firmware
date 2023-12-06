@@ -49,12 +49,12 @@ module FPGA1394V1
 
     // Read/Write bus
     output wire[15:0] reg_raddr,
-    output reg[15:0]  reg_waddr,
+    output wire[15:0] reg_waddr,
     input wire[31:0]  reg_rdata_ext,
-    output reg[31:0]  reg_wdata,
-    output reg reg_wen,
-    output reg blk_wen,
-    output reg blk_wstart,
+    output wire[31:0] reg_wdata,
+    output wire reg_wen,
+    output wire blk_wen,
+    output wire blk_wstart,
     output wire req_blk_rt_rd,    // request for real-time block read
     output wire blk_rt_rd,        // real-time block read in process
 
@@ -101,6 +101,15 @@ assign reset_phy = 1'b1;
 assign  Eth_Result = 32'b0;
 assign ip_address = 32'hffffffff;
 
+//******************************* Write Bus **************************************
+// No arbitration since only Firewire interface
+
+assign  reg_wen = fw_reg_wen;
+assign  blk_wen = fw_blk_wen;
+assign  blk_wstart = fw_blk_wstart;
+assign  reg_waddr = fw_reg_waddr;
+assign  reg_wdata = fw_reg_wdata;
+
 //*********************** Read Address Translation *******************************
 
 // Read bus address translation (to support real-time block read).
@@ -117,56 +126,6 @@ ReadAddr(
     .reg_raddr_out(reg_raddr),
     .blk_rt_rd(blk_rt_rd)
 );
-
-// --------------------------------------------------------------------------
-// Write data for real-time block
-// --------------------------------------------------------------------------
-
-// For real-time write
-wire       rt_wen;
-wire[3:0]  rt_waddr;
-wire[31:0] rt_wdata;
-
-wire bw_write_en;
-wire[7:0] bw_reg_waddr;
-wire[31:0] bw_reg_wdata;
-wire bw_reg_wen;
-wire bw_blk_wen;
-wire bw_blk_wstart;
-
-WriteRtData #(.NUM_MOTORS(NUM_MOTORS)) rt_write
-(
-    .clk(sysclk),
-    .rt_write_en(rt_wen),       // Write enable
-    .rt_write_addr(rt_waddr),   // Write address
-    .rt_write_data(rt_wdata),   // Write data
-    .bw_write_en(bw_write_en),
-    .bw_reg_wen(bw_reg_wen),
-    .bw_blk_wen(bw_blk_wen),
-    .bw_blk_wstart(bw_blk_wstart),
-    .bw_reg_waddr(bw_reg_waddr),
-    .bw_reg_wdata(bw_reg_wdata)
-);
-
-// Multiplexing of write bus between WriteRtData (bw = real-time block write module)
-// and Firewire.
-always @(*)
-begin
-   if (bw_write_en) begin
-      reg_wen = bw_reg_wen;
-      blk_wen = bw_blk_wen;
-      blk_wstart = bw_blk_wstart;
-      reg_waddr = {8'd0, bw_reg_waddr};
-      reg_wdata = bw_reg_wdata;
-   end
-   else begin
-      reg_wen = fw_reg_wen;
-      blk_wen = fw_blk_wen;
-      blk_wstart = fw_blk_wstart;
-      reg_waddr = fw_reg_waddr;
-      reg_wdata = fw_reg_wdata;
-   end
-end
 
 wire[31:0] reg_rdata;
 wire[31:0] reg_rdata_hub;      // reg_rdata_hub is for hub memory
@@ -252,11 +211,6 @@ phy(
     .write_trig(hub_write_trig),   // in: 1 -> broadcast write this board's hub data
     .write_trig_reset(hub_write_trig_reset),
     .fw_idle(fw_idle),
-
-    // Interface for real-time block write
-    .fw_rt_wen(rt_wen),
-    .fw_rt_waddr(rt_waddr),
-    .fw_rt_wdata(rt_wdata),
 
     // Timestamp
     .timestamp(timestamp)

@@ -242,6 +242,11 @@ assign reg_status12 = {
        motor_status[4][29], motor_status[3][29], motor_status[2][29], motor_status[1][29]
        };
 
+// Write to global status register
+wire reg_waddr_status;
+assign reg_waddr_status = ((reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[7:4] == 4'd0) &&
+                           (reg_waddr[3:0]==`REG_STATUS)) ? 1'd1 : 1'd0;
+
 // Check for non-zero channel number (reg_waddr[7:4]) to ignore write to global register.
 // It would be even better to check that channel number is 1-4.
 wire reg_waddr_dac;
@@ -264,13 +269,15 @@ reg  cur_cmd_updated;
 
 always @(posedge(sysclk))
 begin
-    if (reg_waddr_dac) begin
+    // We check both reg_waddr_dac and reg_waddr_status because in a block write, the last
+    // write is to the status/control register.
+    if (reg_waddr_dac | reg_waddr_status) begin
         // For block write, dac_update will be set if any DAC was valid prior to blk_wen
-        // For quadlet write, need to check dac_valid because blk_wen and reg_wen occur
-        // at the same time
+        // For quadlet write, need to check (dac_valid&reg_waddr_dac) because blk_wen and
+        // reg_wen occur at the same time
         if (blk_wen) begin
             dac_update <= 1'b0;
-            if (dac_update|dac_valid) begin
+            if (dac_update|(dac_valid&reg_waddr_dac)) begin
                 cur_cmd_req <= dac_busy;
                 cur_cmd_updated <= ~dac_busy;
             end

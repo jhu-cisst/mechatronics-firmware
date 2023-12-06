@@ -71,8 +71,7 @@ add_custom_target (VersionFile ALL
 set (VERILOG_SOURCE_FPGA "${VERILOG_SOURCE_DIR}/Crc32.v"
                          "${VERILOG_SOURCE_DIR}/HubReg.v"
                          "${VERILOG_SOURCE_DIR}/FireWire.v"
-                         "${VERILOG_SOURCE_DIR}/BoardRegs.v"
-                         "${VERILOG_SOURCE_DIR}/WriteRtData.v")
+                         "${VERILOG_SOURCE_DIR}/BoardRegs.v")
 
 # Source files for FPGA V1 and V2
 set (VERILOG_SOURCE_FPGAV1_V2
@@ -93,6 +92,7 @@ set (VERILOG_SOURCE_FPGAV2
                          ${VERILOG_SOURCE_FPGAV1_V2}
                          "${VERILOG_SOURCE_DIR}/FPGA1394V2.v"
                          "${VERILOG_SOURCE_DIR}/KSZ8851.v"
+                         "${VERILOG_SOURCE_DIR}/WriteRtData.v"
                          "${VERILOG_SOURCE_DIR}/EthernetIO.v")
 
 # Source files for FPGA V3
@@ -100,6 +100,7 @@ set (VERILOG_SOURCE_FPGAV3
                          ${VERILOG_SOURCE_FPGA}
                          "${VERILOG_SOURCE_DIR}/FPGA1394V3.v"
                          "${VERILOG_SOURCE_DIR}/RTL8211F.v"
+                         "${VERILOG_SOURCE_DIR}/WriteRtData.v"
                          "${VERILOG_SOURCE_DIR}/EthernetIO.v"
                          "${VERILOG_SOURCE_DIR}/EthSwitchRt.v"
                          "${IPCOREV3_BINARY_DIR}/hub_mem_gen.v"

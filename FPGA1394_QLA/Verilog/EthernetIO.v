@@ -135,7 +135,7 @@ module EthernetIO
 // TEMP for V2 (should figure out why eth_write_en still needed)
 reg eth_write_en;
 reg eth_req_write_reg;
-assign eth_req_write_bus = eth_write_en | eth_req_write_reg;
+assign req_write_bus = eth_write_en | eth_req_write_reg;
 
 // Error flags
 reg ethFrameError;     // 1 -> Frame is not Raw, IPv4 or ARP
@@ -809,7 +809,7 @@ assign addrMain = (fw_dest_offset[15:12] == `ADDR_MAIN) ? 1'd1 : 1'd0;
 assign blk_rt_rd = addrMain & blockRead & req_read_bus;
 
 wire timestamp_rd;
-assign timestamp_rd = (blk_rt_rd && (reg_raddr_in[7:0] == 8'd0)) ? 1'd1 : 1'd0;
+assign timestamp_rd = (blk_rt_rd && (reg_raddr[7:0] == 8'd0)) ? 1'd1 : 1'd0;
 
 assign isRebootCmd = (addrMain && (fw_dest_offset[11:0] == 12'd0) && quadWrite
                       && (fw_quadlet_data[21:20] == 2'b11)) ? 1'd1 : 1'd0;
