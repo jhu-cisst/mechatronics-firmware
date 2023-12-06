@@ -53,9 +53,9 @@ module EthernetIO
     input wire[5:0] node_id,
 
     // Register interface to Ethernet memory space and IP address register
-    input  wire[15:0] reg_raddr,
-    output reg[31:0] reg_rdata,
-    input  wire[31:0] reg_wdata,
+    input  wire[15:0] reg_raddr_in,
+    output reg[31:0] reg_rdata_out,
+    input  wire[31:0] reg_wdata_in,
     input  wire ip_reg_wen,
     input  wire ctrl_reg_wen,
     output wire[31:0] ip_address,
@@ -63,18 +63,18 @@ module EthernetIO
     // Interface to/from board registers. These enable the Ethernet module to drive
     // the internal bus on the FPGA. In particular, they are used to read registers
     // to respond to quadlet read and block read commands.
-    input wire[31:0] eth_reg_rdata,
-    output reg[15:0] eth_reg_raddr,
-    output reg       eth_req_read_bus,     // 1 -> request read bus (reg_raddr)
-    input wire       eth_reg_rdata_valid,  // 1 -> reg_rdata should be valid
+    input wire[31:0] reg_rdata,
+    output reg[15:0] reg_raddr,
+    output reg       req_read_bus,     // 1 -> request read bus (reg_raddr)
+    input wire       reg_rdata_valid,  // 1 -> reg_rdata should be valid
     output reg[31:0] eth_reg_wdata,
     output reg[15:0] eth_reg_waddr,
     output reg       eth_reg_wen,
-    output reg       eth_block_wen,
-    output reg       eth_block_wstart,
-    output reg       eth_req_blk_rt_rd,    // request to start real-time block read
-    output wire      eth_blk_rt_rd,        // real-time block read
-    output wire      eth_req_write_bus,
+    output reg       eth_blk_wen,
+    output reg       eth_blk_wstart,
+    output reg       req_blk_rt_rd,    // request to start real-time block read
+    output wire      blk_rt_rd,        // real-time block read
+    output wire      req_write_bus,
 
     // Low-level Firewire PHY access
     output reg lreq_trig,         // trigger signal for a FireWire phy request
@@ -147,7 +147,7 @@ reg ethSendStateError; // 1 -> Invalid Ethernet state in Send state machine
 
 // Access error condition, check when latching reg_rdata
 wire ethAccessErrorCond;
-assign ethAccessErrorCond = eth_req_read_bus & (~eth_reg_rdata_valid);
+assign ethAccessErrorCond = req_read_bus & (~reg_rdata_valid);
 
 // Summary of packet-related error bits
 wire ethSummaryError;
@@ -706,7 +706,7 @@ reg      icmp_read_en;    // 1 -> ICMP needs to read from memory
 assign mem_raddr = eth_send_fw_ack   ? eth_fwpkt_raddr :
                    bw_local_active   ? local_raddr :
                    icmp_read_en      ? sfw_count[9:1]
-                                     : {2'd0, reg_raddr[6:0]};
+                                     : {2'd0, reg_raddr_in[6:0]};
 assign eth_fwpkt_rdata = mem_rdata;
 
 reg[31:0] FireWireQuadlet;   // the current quadlet being read
@@ -746,28 +746,28 @@ reg FireWirePacketFresh;   // 1 -> FireWirePacket data is valid (fresh)
 // TODO: This will need to be changed to properly decode the port number.
 always @(*)
 begin
-   if (reg_raddr[7] == 0) begin               // 4x00-4x7f
+   if (reg_raddr_in[7] == 0) begin               // 4x00-4x7f
       // read_error = eth_send_fw_ack|bw_local_active|icmp_read_en;
-      reg_rdata = mem_rdata;
+      reg_rdata_out = mem_rdata;
    end
-   else if (reg_raddr[6:4] == 3'b000) begin   // 4x80-4x8f
+   else if (reg_raddr_in[6:4] == 3'b000) begin   // 4x80-4x8f
 `ifdef HAS_DEBUG_DATA
-         reg_rdata = DebugData[reg_raddr[3:0]];
+         reg_rdata_out = DebugData[reg_raddr_in[3:0]];
 `else
-         reg_rdata = "0GBD";
+         reg_rdata_out = "0GBD";
 `endif
    end
-   else if (reg_raddr[6:4] == 3'b100) begin   // 4xc0-4xcf
-         reg_rdata = {PacketBuffer[{reg_raddr[3:0],1'b1}], PacketBuffer[{reg_raddr[3:0],1'b0}]};
+   else if (reg_raddr_in[6:4] == 3'b100) begin   // 4xc0-4xcf
+         reg_rdata_out = {PacketBuffer[{reg_raddr_in[3:0],1'b1}], PacketBuffer[{reg_raddr_in[3:0],1'b0}]};
    end
-   else if (reg_raddr[6:4] == 3'b101) begin   // 4xd0-4xdf
-         reg_rdata = {ReplyBuffer[{reg_raddr[2:0],1'b1}],  ReplyBuffer[{reg_raddr[2:0],1'b0}]};
+   else if (reg_raddr_in[6:4] == 3'b101) begin   // 4xd0-4xdf
+         reg_rdata_out = {ReplyBuffer[{reg_raddr_in[2:0],1'b1}],  ReplyBuffer[{reg_raddr_in[2:0],1'b0}]};
    end
-   else if (reg_raddr[6:5] == 2'b11) begin    // 4xe0-4xff
-         reg_rdata = {10'd0, ReplyIndex[{reg_raddr[4:0],1'b1}], 10'd0, ReplyIndex[{reg_raddr[4:0],1'b0}]};
+   else if (reg_raddr_in[6:5] == 2'b11) begin    // 4xe0-4xff
+         reg_rdata_out = {10'd0, ReplyIndex[{reg_raddr_in[4:0],1'b1}], 10'd0, ReplyIndex[{reg_raddr_in[4:0],1'b0}]};
    end
    else begin
-         reg_rdata = 32'd0;
+         reg_rdata_out = 32'd0;
    end
 end
 
@@ -806,10 +806,10 @@ assign blockWrite = (fw_tcode == `TC_BWRITE) ? 1'd1 : 1'd0;
 assign addrMain = (fw_dest_offset[15:12] == `ADDR_MAIN) ? 1'd1 : 1'd0;
 
 // Following signal indicates whether real-time block read
-assign eth_blk_rt_rd = addrMain & blockRead & eth_req_read_bus;
+assign blk_rt_rd = addrMain & blockRead & req_read_bus;
 
 wire timestamp_rd;
-assign timestamp_rd = (eth_blk_rt_rd && (reg_raddr[7:0] == 8'd0)) ? 1'd1 : 1'd0;
+assign timestamp_rd = (blk_rt_rd && (reg_raddr_in[7:0] == 8'd0)) ? 1'd1 : 1'd0;
 
 assign isRebootCmd = (addrMain && (fw_dest_offset[11:0] == 12'd0) && quadWrite
                       && (fw_quadlet_data[21:20] == 2'b11)) ? 1'd1 : 1'd0;
@@ -825,7 +825,7 @@ reg[31:0] timestamp_prev;
 always @(posedge sysclk)
 begin
    if (ctrl_reg_wen) begin
-      clearErrors <= reg_wdata[29];
+      clearErrors <= reg_wdata_in[29];
    end
    else begin
       clearErrors <= 0;
@@ -890,9 +890,9 @@ begin
 
    // Write to IP address register
    if (ip_reg_wen) begin
-      // Following is equivalent to: ip_address <= reg_wdata;
-      ReplyBuffer[ID_Rep_IPv4_Address0] <= {reg_wdata[7:0], reg_wdata[15:8] };
-      ReplyBuffer[ID_Rep_IPv4_Address1] <= {reg_wdata[23:16], reg_wdata[31:24] };
+      // Following is equivalent to: ip_address <= reg_wdata_in;
+      ReplyBuffer[ID_Rep_IPv4_Address0] <= {reg_wdata_in[7:0], reg_wdata_in[15:8] };
+      ReplyBuffer[ID_Rep_IPv4_Address1] <= {reg_wdata_in[23:16], reg_wdata_in[31:24] };
    end
 
    if (recvTransition) begin
@@ -916,7 +916,7 @@ begin
       mem_wen <= 0;
       doRtBlock <= 0;
       eth_rt_wen <= 0;
-      eth_req_blk_rt_rd <= 1'b0;
+      req_blk_rt_rd <= 1'b0;
       rfw_count <= 10'd0;
       recvCnt <= 6'd0;
       nextRecvState <= ST_RECEIVE_DMA_IDLE;
@@ -1125,7 +1125,7 @@ begin
                   // TODO: Subtracting 1 for backward compatibility; may eliminate that for Firmware Rev 9
                   timestamp_latched <= (timestamp-timestamp_prev)-32'd1;
                   timestamp_prev <= timestamp;
-                  eth_req_blk_rt_rd <= 1'b1;
+                  req_blk_rt_rd <= 1'b1;
                end
                if (blockWrite&(~addrMain)) begin
                   // writeRequestBlock should have been set earlier (using writeRequestTrigger) for all
@@ -1246,7 +1246,7 @@ begin
    ST_SEND_DMA_IDLE:
    begin
       sendBusy <= 0;
-      eth_req_read_bus <= 0;
+      req_read_bus <= 0;
       icmp_read_en <= 0;
       txPktWords <= 12'd0;
       sfw_count <= 10'd0;
@@ -1372,16 +1372,16 @@ begin
    ST_SEND_DMA_PACKETDATA_HEADER:
    begin
       send_word <= Firewire_Header_Reply[sfw_count[3:0]];
-      eth_req_read_bus <= quadRead | blockRead;         // Request access to read bus
+      req_read_bus <= quadRead | blockRead;         // Request access to read bus
       if ((sfw_count[3:0] == 4'd5) && quadRead) begin
-         eth_reg_raddr <= fw_dest_offset;
+         reg_raddr <= fw_dest_offset;
          // Get ready to read data from the board.
          if (sendTransition) sfw_count <= 10'd0;
          nextSendState <= ST_SEND_DMA_PACKETDATA_QUAD;
       end
       else if (sfw_count[3:0] == 4'd9) begin  // block read
          if (blockRead) begin
-            eth_reg_raddr <= fw_dest_offset;
+            reg_raddr <= fw_dest_offset;
             if (sendTransition) sfw_count <= 10'd0;
             nextSendState <= ST_SEND_DMA_PACKETDATA_BLOCK;
          end
@@ -1399,13 +1399,13 @@ begin
    begin
       ethAccessError <= ethAccessError|ethAccessErrorCond;
       if (sfw_count[0] == 0) begin
-         `send_word_swapped <= eth_reg_rdata[31:16];
+         `send_word_swapped <= reg_rdata[31:16];
          if (sendTransition) sfw_count[0] <= 1;
          // stay in this state
          //nextSendState <= ST_SEND_DMA_PACKETDATA_QUAD;
       end
       else begin
-         `send_word_swapped <= eth_reg_rdata[15:0];
+         `send_word_swapped <= reg_rdata[15:0];
          if (sendTransition) sfw_count[0] <= 0;
          nextSendState <= ST_SEND_DMA_PACKETDATA_CHECKSUM;
       end
@@ -1416,27 +1416,27 @@ begin
       if (sendTransition) sfw_count <= sfw_count + 10'd1;
       ethAccessError <= ethAccessError|ethAccessErrorCond;
       if (sfw_count[0] == 0) begin   // even count (upper word)
-         // Since we are not incrementing eth_reg_raddr, writing to SDReg does not need
+         // Since we are not incrementing reg_raddr, writing to SDReg does not need
          // to be conditioned on ~sendTransition, as in the odd sfw_count case below.
-         `send_word_swapped <= timestamp_rd ? timestamp_latched[31:16] : eth_reg_rdata[31:16];
+         `send_word_swapped <= timestamp_rd ? timestamp_latched[31:16] : reg_rdata[31:16];
          // stay in this state
          //nextSendState <= ST_SEND_DMA_PACKETDATA_BLOCK;
       end
       else begin   // odd count (lower word)
          // 12-bit address increment, even though Firewire limited to 512 quadlets (9 bits)
          // because this way we can support non-zero starting addresses.
-         // We have to increment eth_reg_raddr during sendReady so that it works
+         // We have to increment reg_raddr during sendReady so that it works
          // correctly when reading from memory -- otherwise, the upper word (even sfw_count
          // case above) will not yet be retrieved from the memory.
          if (sendReady)
-            eth_reg_raddr[11:0] <= eth_reg_raddr[11:0] + 12'd1;
+            reg_raddr[11:0] <= reg_raddr[11:0] + 12'd1;
          // For general block read (not real-time block read) cannot write to SDReg during
          //  sendTransition so that the code works for both register reads (no delay) and
          //  memory reads (1 clk delay).
          if (addrMain)                    // real-time block read
-            `send_word_swapped <= timestamp_rd ? timestamp_latched[15:0] : eth_reg_rdata[15:0];
+            `send_word_swapped <= timestamp_rd ? timestamp_latched[15:0] : reg_rdata[15:0];
          else if (~sendTransition)        // general block read
-            `send_word_swapped <= eth_reg_rdata[15:0];
+            `send_word_swapped <= reg_rdata[15:0];
          // sfw_count is in words and block_data_length is in bytes, but we compare in quadlets
          if ((sfw_count[9:1] + 8'd1) == block_data_length[10:2])
             nextSendState <= ST_SEND_DMA_PACKETDATA_CHECKSUM;
@@ -1447,7 +1447,7 @@ begin
 
    ST_SEND_DMA_PACKETDATA_CHECKSUM:
    begin
-      eth_req_read_bus <= 0; // Relinquish control of read bus
+      req_read_bus <= 0; // Relinquish control of read bus
       if (sendTransition) sfw_count[0] <= 1;
       send_word <= 16'd0;    // Checksum currently not set
       if (sfw_count[0] == 1)
@@ -1592,14 +1592,14 @@ begin
          end
          eth_write_en <= 1;
          eth_reg_wen <= 1;
-         eth_block_wen <= 1;
+         eth_blk_wen <= 1;
       end
       else if (writeRequestBlock) begin
          bw_local_active <= 1;
          eth_write_en <= 1;
-         // Assert eth_block_wstart for 80 ns before starting local block write
+         // Assert eth_blk_wstart for 80 ns before starting local block write
          // (same timing as in Firewire module).
-         eth_block_wstart <= 1;
+         eth_blk_wstart <= 1;
          bwState <= BW_WSTART;
          // block write data starts at quadlet 5
          local_raddr <= 9'd5;
@@ -1611,8 +1611,8 @@ begin
          bw_local_active <= 0;
          eth_write_en <= 0;
          eth_reg_wen <= 0;    // Clean up from quadlet/block writes
-         eth_block_wen <= 0;
-         eth_block_wstart <= 0;
+         eth_blk_wen <= 0;
+         eth_blk_wstart <= 0;
          lreq_trig <= 0;      // Clear lreq_trig in case it was set
       end
    end
@@ -1620,7 +1620,7 @@ begin
    BW_WSTART:
    begin
       if (bwCnt == 2'd3) begin
-         eth_block_wstart <= 0;
+         eth_blk_wstart <= 0;
          bwState <= BW_WRITE;
       end
    end
@@ -1652,9 +1652,9 @@ begin
    BW_BLK_WEN:
    begin
       bw_local_active <= 0;   // Stop accessing memory
-      // Wait 60 nsec before asserting eth_block_wen
+      // Wait 60 nsec before asserting eth_blk_wen
       if (bwCnt == 2'd3) begin
-         eth_block_wen <= 1'b1;
+         eth_blk_wen <= 1'b1;
          bwState <= BW_IDLE;
       end
    end

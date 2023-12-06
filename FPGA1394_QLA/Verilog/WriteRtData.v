@@ -27,8 +27,8 @@ module WriteRtData
     // Following signals are used to write to the DAC and power control
     output reg       bw_write_en,
     output reg       bw_reg_wen,
-    output reg       bw_block_wen,
-    output reg       bw_block_wstart,
+    output reg       bw_blk_wen,
+    output reg       bw_blk_wstart,
     output reg[7:0]  bw_reg_waddr,
     output reg[31:0] bw_reg_wdata
     );
@@ -104,8 +104,8 @@ begin
    begin
       bw_write_en <= 0;
       bw_reg_wen <= 0;
-      bw_block_wen <= 0;
-      bw_block_wstart <= 0;
+      bw_blk_wen <= 0;
+      bw_blk_wstart <= 0;
       // Could check if rt_write_en is asserted when we are not in the idle state
       // and flag an error in that case
       if (rt_write_en) begin
@@ -113,10 +113,10 @@ begin
             RtCtrl <= rt_write_data[19:0];
             // Now, start writing to the DAC and/or control register
             if (anyDacValid|anyAmpEnMask) begin
-               // Assert bw_block_wstart for 80 ns before starting local block write
+               // Assert bw_blk_wstart for 80 ns before starting local block write
                // (same timing as in Firewire module).
                bw_write_en <= 1;
-               bw_block_wstart <= 1;
+               bw_blk_wstart <= 1;
                rtState <= RT_WSTART;
             end
             else begin
@@ -134,7 +134,7 @@ begin
    RT_WSTART:
    begin
       if (rtCnt == 2'd3) begin
-         bw_block_wstart <= 0;
+         bw_blk_wstart <= 0;
          bw_reg_waddr <= {4'd0, `OFF_DAC_CTRL};
          rtState <= RT_WRITE;
       end
@@ -165,9 +165,9 @@ begin
 
    RT_BLK_WEN:
    begin
-      // Wait 60 nsec before asserting block_wen
+      // Wait 60 nsec before asserting blk_wen
       if (rtCnt == 2'd3) begin
-         bw_block_wen <= 1'b1;
+         bw_blk_wen <= 1'b1;
          // Write quadlet if non-zero (here, we know that at
          // least one DAC or Amp Enable was valid)
          if (RtCtrl == 20'd0)
@@ -181,7 +181,7 @@ begin
    begin
       // Wait a little between DAC block write and
       // power control quadlet write
-      bw_block_wen <= 1'b0;
+      bw_blk_wen <= 1'b0;
       if (rtCnt == 2'd3)
          rtState <= RT_WQUAD;
    end
@@ -192,7 +192,7 @@ begin
       bw_reg_waddr <= 8'd0;
       bw_reg_wdata <= {12'd0, RtCtrl};
       bw_reg_wen <= 1;
-      bw_block_wen <= 1;
+      bw_blk_wen <= 1;
       RtCtrl <= 20'd0;   // Clear RtCtrl
       rtState <= RT_IDLE;
    end
