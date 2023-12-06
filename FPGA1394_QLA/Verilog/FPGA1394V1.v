@@ -142,8 +142,8 @@ WriteRtData #(.NUM_MOTORS(NUM_MOTORS)) rt_write
     .rt_write_data(rt_wdata),   // Write data
     .bw_write_en(bw_write_en),
     .bw_reg_wen(bw_reg_wen),
-    .bw_block_wen(bw_blk_wen),
-    .bw_block_wstart(bw_blk_wstart),
+    .bw_blk_wen(bw_blk_wen),
+    .bw_blk_wstart(bw_blk_wstart),
     .bw_reg_waddr(bw_reg_waddr),
     .bw_reg_wdata(bw_reg_wdata)
 );

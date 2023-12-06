@@ -972,9 +972,9 @@ EthernetTransfers(
 
     // Register interface to Ethernet memory space (ADDR_ETH=0x4000)
     // and IP address register (REG_IPADDR=11).
-    .reg_rdata(reg_rdata_eth),         // Data from Ethernet memory space
-    .reg_raddr(reg_raddr),             // Read address for Ethernet memory
-    .reg_wdata(reg_wdata),             // Data to write to IP address register
+    .reg_rdata_out(reg_rdata_eth),     // Data from Ethernet memory space
+    .reg_raddr_in(reg_raddr),          // Read address for Ethernet memory
+    .reg_wdata_in(reg_wdata),          // Data to write to IP address register
     .ip_reg_wen(ip_reg_wen),           // Enable write to IP address register
     .ctrl_reg_wen(eth_ctrl_wen),       // Enable write to Ethernet control register
     .ip_address(ip_address),           // IP address of this board
@@ -982,18 +982,18 @@ EthernetTransfers(
     // Interface to/from board registers. These enable the Ethernet module to drive
     // the internal bus on the FPGA. In particular, they are used to read registers
     // to respond to quadlet read and block read commands.
-    .eth_reg_rdata(reg_rdata),         //  in: reg read data
-    .eth_reg_raddr(eth_reg_raddr),     // out: reg read addr
-    .eth_req_read_bus(eth_req_read_bus),  // out: reg read enable
-    .eth_reg_rdata_valid(eth_reg_rdata_valid),  // in: indicates that reg_rdata is valid
+    .reg_rdata(reg_rdata),             //  in: reg read data
+    .reg_raddr(eth_reg_raddr),         // out: reg read addr
+    .req_read_bus(eth_req_read_bus),   // out: reg read enable
+    .reg_rdata_valid(eth_reg_rdata_valid),  // in: indicates that reg_rdata is valid
     .eth_reg_wdata(eth_reg_wdata),     // out: reg write data
     .eth_reg_waddr(eth_reg_waddr),     // out: reg write addr
     .eth_reg_wen(eth_reg_wen),         // out: reg write enable
-    .eth_block_wen(eth_blk_wen),       // out: blk write enable
-    .eth_block_wstart(eth_blk_wstart), // out: blk write start
-    .eth_blk_rt_rd(eth_blk_rt_rd),     // out: real-time block read in process
-    .eth_req_blk_rt_rd(eth_req_blk_rt_rd), // out: real-time block read request
-    .eth_req_write_bus(eth_req_write_bus), // out: request write bus
+    .eth_blk_wen(eth_blk_wen),         // out: blk write enable
+    .eth_blk_wstart(eth_blk_wstart),   // out: blk write start
+    .blk_rt_rd(eth_blk_rt_rd),         // out: real-time block read in process
+    .req_blk_rt_rd(eth_req_blk_rt_rd), // out: real-time block read request
+    .req_write_bus(eth_req_write_bus), // out: request write bus
 
     // Low-level Firewire PHY access
     .lreq_trig(eth_lreq_trig),   // out: phy request trigger
