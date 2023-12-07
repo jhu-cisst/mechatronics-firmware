@@ -67,11 +67,11 @@ module EthernetIO
     output reg[15:0] reg_raddr,
     output reg       req_read_bus,     // 1 -> request read bus (reg_raddr)
     input wire       reg_rdata_valid,  // 1 -> reg_rdata should be valid
-    output reg[31:0] eth_reg_wdata,
-    output reg[15:0] eth_reg_waddr,
-    output reg       eth_reg_wen,
-    output reg       eth_blk_wen,
-    output reg       eth_blk_wstart,
+    output reg[31:0] reg_wdata,
+    output reg[15:0] reg_waddr,
+    output reg       reg_wen,
+    output reg       blk_wen,
+    output reg       blk_wstart,
     output reg       req_blk_rt_rd,    // request to start real-time block read
     output wire      blk_rt_rd,        // real-time block read
     output wire      req_write_bus,
@@ -1596,8 +1596,8 @@ begin
    BW_IDLE:
    begin
       if (writeRequestQuad) begin
-         eth_reg_waddr <= fw_dest_offset;
-         eth_reg_wdata <= fw_quadlet_data;
+         reg_waddr <= fw_dest_offset;
+         reg_wdata <= fw_quadlet_data;
          // Special case: write to FireWire PHY register
          if (addrMain && (fw_dest_offset[11:0] == {8'h0, `REG_PHYCTRL})) begin
             // check the RW bit to determine access type (bit 12, after byte-swap)
@@ -1605,34 +1605,34 @@ begin
             lreq_trig <= 1;
          end
          eth_write_en <= 1;
-         eth_reg_wen <= 1;
-         eth_blk_wen <= 1;
+         reg_wen <= 1;
+         blk_wen <= 1;
       end
       else if (writeRequestBlock) begin
          bw_local_active <= 1;
          eth_write_en <= 1;
-         // Assert eth_blk_wstart for 80 ns before starting local block write
+         // Assert blk_wstart for 80 ns before starting local block write
          // (same timing as in Firewire module).
-         eth_blk_wstart <= 1;
+         blk_wstart <= 1;
          bwState <= BW_WSTART;
          local_raddr <= bwStart;
          bwAddrMain <= addrMain;
          if (addrMain) begin
              // real-time block write
-             eth_reg_waddr[15:0] <= { `ADDR_MAIN, 8'd0, `OFF_DAC_CTRL };
+             reg_waddr[15:0] <= { `ADDR_MAIN, 8'd0, `OFF_DAC_CTRL };
          end
          else begin
              // other block write
-             eth_reg_waddr[15:12] <= fw_dest_offset[15:12];
-             eth_reg_waddr[11:0] <= fw_dest_offset[11:0] - 12'd1;
+             reg_waddr[15:12] <= fw_dest_offset[15:12];
+             reg_waddr[11:0] <= fw_dest_offset[11:0] - 12'd1;
          end
       end
       else begin
          bw_local_active <= 0;
          eth_write_en <= 0;
-         eth_reg_wen <= 0;    // Clean up from quadlet/block writes
-         eth_blk_wen <= 0;
-         eth_blk_wstart <= 0;
+         reg_wen <= 0;    // Clean up from quadlet/block writes
+         blk_wen <= 0;
+         blk_wstart <= 0;
          lreq_trig <= 0;      // Clear lreq_trig in case it was set
       end
    end
@@ -1640,7 +1640,7 @@ begin
    BW_WSTART:
    begin
       if (bwCnt == 2'd3) begin
-         eth_blk_wstart <= 0;
+         blk_wstart <= 0;
          bwState <= BW_WRITE;
       end
    end
@@ -1651,15 +1651,15 @@ begin
          local_raddr <= local_raddr + 9'd1;
          if (bwAddrMain) begin
              if (local_raddr == (bwEnd - 9'd1))
-                 eth_reg_waddr[7:0] <= { 4'd0, `REG_STATUS };  // Power control
+                 reg_waddr[7:0] <= { 4'd0, `REG_STATUS };  // Power control
              else
-                 eth_reg_waddr[7:4] <= eth_reg_waddr[7:4] + 4'd1;  // DAC
+                 reg_waddr[7:4] <= reg_waddr[7:4] + 4'd1;  // DAC
          end
          else begin
-             eth_reg_waddr[11:0] <= eth_reg_waddr[11:0] + 12'd1;
+             reg_waddr[11:0] <= reg_waddr[11:0] + 12'd1;
          end
-         eth_reg_wdata <= mem_rdata;
-         eth_reg_wen <= 1;
+         reg_wdata <= mem_rdata;
+         reg_wen <= 1;
          bwState <= BW_WRITE_GAP;
       end
    end
@@ -1667,7 +1667,7 @@ begin
    BW_WRITE_GAP:
    begin
       // hold reg_wen low for 60 nsec (3 cycles)
-      eth_reg_wen <= 1'b0;
+      reg_wen <= 1'b0;
       if (bwCnt == 2'd3) begin
          if (local_raddr == bwEnd)
             bwState <= BW_BLK_WEN;
@@ -1679,9 +1679,9 @@ begin
    BW_BLK_WEN:
    begin
       bw_local_active <= 0;   // Stop accessing memory
-      // Wait 60 nsec before asserting eth_blk_wen
+      // Wait 60 nsec before asserting blk_wen
       if (bwCnt == 2'd3) begin
-         eth_blk_wen <= 1'b1;
+         blk_wen <= 1'b1;
          bwState <= BW_IDLE;
       end
    end

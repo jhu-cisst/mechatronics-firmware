@@ -903,11 +903,11 @@ EthernetTransfers(
     .reg_raddr(eth_reg_raddr),         // out: reg read addr
     .req_read_bus(eth_req_read_bus),   // out: reg read enable
     .reg_rdata_valid(eth_reg_rdata_valid),  // in: indicates that reg_rdata is valid
-    .eth_reg_wdata(eth_reg_wdata),     // out: reg write data
-    .eth_reg_waddr(eth_reg_waddr),     // out: reg write addr
-    .eth_reg_wen(eth_reg_wen),         // out: reg write enable
-    .eth_blk_wen(eth_blk_wen),         // out: blk write enable
-    .eth_blk_wstart(eth_blk_wstart),   // out: blk write start
+    .reg_wdata(eth_reg_wdata),         // out: reg write data
+    .reg_waddr(eth_reg_waddr),         // out: reg write addr
+    .reg_wen(eth_reg_wen),             // out: reg write enable
+    .blk_wen(eth_blk_wen),             // out: blk write enable
+    .blk_wstart(eth_blk_wstart),       // out: blk write start
     .blk_rt_rd(eth_blk_rt_rd),         // out: real-time block read in process
     .req_blk_rt_rd(eth_req_blk_rt_rd), // out: real-time block read request
     .req_write_bus(eth_req_write_bus), // out: request write bus
