@@ -139,8 +139,9 @@ begin
        write_trig <= 0;
     end
     else if (board_selected && !write_trig_done) begin
-       // write_trig is sent to Firewire module to start broadcast write of hub data from this board to
-       // all other boards. Note that writing is done sequentially, by board number.
+       // write_trig is sent to Firewire module to start broadcast write of real-time block data from this board to all
+       // other boards; while doing this, the Firewire module also writes the real-time block data to the hub memory (hub_mem).
+       // Note that writing is done sequentially, by board number.
        if (board_mask_lower == 16'd0) begin
           // First board: wait 150 cycles (~3 usec)
           if (bcTimer == 14'd150) begin

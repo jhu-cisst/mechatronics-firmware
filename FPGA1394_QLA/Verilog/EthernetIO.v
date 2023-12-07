@@ -598,9 +598,9 @@ assign is_ip_unassigned = (ip_address == IP_UNASSIGNED) ? 1'd1 : 1'd0;
 reg writeRequestBlock;
 reg writeRequestQuad;
 
-reg[8:0] bwStart;      // Starting offset in pkt_mem for RT write block (for this board)
-reg[8:0] bwLen;        // Number of quadlets in the RT write block in pkt_mem (for this board)
-wire[8:0] bwEnd;       // Ending offset in pkt_mem for RT write block (for this board)
+reg[8:0] bwStart;      // Starting offset in bw_packet for RT write block (for this board)
+reg[8:0] bwLen;        // Number of quadlets in the RT write block in bw_packet (for this board)
+wire[8:0] bwEnd;       // Ending offset in bw_packet for RT write block (for this board)
 
 assign bwEnd = bwStart + bwLen;
 
@@ -612,8 +612,6 @@ wire bw_remote_active;
 assign bw_remote_active = (isRemote&blockWrite&(eth_send_fw_req|eth_send_fw_ack));
 
 assign bw_active = bw_local_active | bw_remote_active;
-
-reg eth_send_fw_req_pending;
 
 // Word number at which to request a block write, so that reader and writer
 // can overlap. See explanation below (search for writeRequestTrigger).
@@ -708,21 +706,32 @@ wire[31:0] mem_rdata;
 reg[8:0] local_raddr;
 reg      icmp_read_en;    // 1 -> ICMP needs to read from memory
 
-assign mem_raddr = eth_send_fw_ack   ? eth_fwpkt_raddr :
-                   bw_local_active   ? local_raddr :
+assign mem_raddr = bw_local_active   ? local_raddr :
                    icmp_read_en      ? sfw_count[9:1]
                                      : {2'd0, reg_raddr_in[6:0]};
-assign eth_fwpkt_rdata = mem_rdata;
-
 reg[31:0] FireWireQuadlet;   // the current quadlet being read
 
 reg mem_wen;   // memory write enable
 
-// packet module (used to store Ethernet packet that will be forwarded to Firewire or that will be used
-// by this module for quadlet/block write -- see bwState).
-// This is 512 quadlets (512 x 32), which is the maximum possible Firewire packet size at 400 Mbits/sec
+// packet memories: these store the received Ethernet packet. There currently are two memories to support
+// simultaneous access:
+//   fw_packet:  read by the Firewire module for packets that need to be forwarded
+//   bw_packet:  primarily used for local block writes, but is also used for ICMP response and is
+//               available for reading (for debugging)
+// These are 512 quadlets (512 x 32), which is the maximum possible Firewire packet size at 400 Mbits/sec
 // (actually, could add a few quadlets because the 512 limit does not include header and CRC).
+// The block write process is already set up to run in parallel with packet reception (see writeRequestTrigger).
+// This is not yet implemented for forwarding to Firewire (would be necessary to set eth_send_fw_req earlier).
 hub_mem_gen fw_packet(.clka(sysclk),
+                      .wea(mem_wen),
+                      .addra(rfw_count[9:1]),
+                      .dina(FireWireQuadlet),
+                      .clkb(sysclk),
+                      .addrb(eth_fwpkt_raddr),
+                      .doutb(eth_fwpkt_rdata)
+                     );
+
+hub_mem_gen bw_packet(.clka(sysclk),
                       .wea(mem_wen),
                       .addra(rfw_count[9:1]),
                       .dina(FireWireQuadlet),
@@ -933,11 +942,7 @@ begin
          eth_send_fw_req <= 0;
          fwPacketDropped <= 0;
       end
-      if (eth_send_fw_req_pending&(~bw_local_active)) begin
-         eth_send_fw_req <= 1'b1;
-         eth_send_fw_req_pending <= 1'b0;
-      end
-      else if (eth_send_fw_req) begin
+      if (eth_send_fw_req) begin
          // Request write bus, if needed (also for reboot cmd)
          eth_req_write_reg <= quadWrite&isLocal;
          // This could have been a separate state, but would need an extra
@@ -1120,6 +1125,8 @@ begin
             // when we receive the ack (eth_send_fw_ack).
             // The only case where this is necessary is for the broadcast query command, but we do
             // it consistently for all broadcast quadlet writes.
+            // It is necessary for the broadcast query command to make sure that all boards are ready for
+            // the sequential update of Hub memory (especially if this board is the lowest numbered board)
             writeRequestQuad <= isLocal&(~isRemote);
          end
          else if ((rfw_count == 10'd9) && blockWrite) begin
@@ -1157,8 +1164,7 @@ begin
             end
             if (isRemote) begin
                // Request to forward pkt.
-               eth_send_fw_req_pending <= bw_local_active;
-               eth_send_fw_req <= ~bw_local_active;
+               eth_send_fw_req <= 1'b1;
                host_fw_addr <= fw_src_id;
             end
          end
@@ -1572,21 +1578,15 @@ localparam[2:0]
 reg[2:0] bwState = BW_IDLE;
 reg[1:0] bwCnt;
 reg bwAddrMain;        // 1 -> real-time block write
-reg bwHadMemAccess;    // Indicates that Ethernet module was not accessing the memory
 
-// The following is to check whether the Firewire module has taken control of the memory read bus.
-// This could only occur with broadcast block write commands, since the Firewire module would
-// need to access the memory to forward the packet. The current implementation does not store
-// the real-time block write data (addrMain) in the memory, so is not affected.
-// Since other block writes are not broadcast, this memory conflict should never occur, but
-// the check is included just in case.
-wire bwHasMemAccess;
-assign bwHasMemAccess = bwHadMemAccess&(~eth_send_fw_ack)&bw_local_active;
+// TODO: following signal should become input to module
+//       (1 --> have control of write bus)
+wire grant_write_bus;
+assign grant_write_bus = 1'b1;
 
 always @(posedge sysclk)
 begin
 
-   bwHadMemAccess <= (~eth_send_fw_ack)&bw_local_active;
    bwCnt <= (bwState == BW_IDLE)  ? 2'd0 :
             (bwState == BW_WRITE) ? 2'd1 :
                                     (bwCnt + 2'd1);
@@ -1647,18 +1647,22 @@ begin
 
    BW_WRITE:
    begin
-      if (bwHasMemAccess) begin
+      if (grant_write_bus) begin
          local_raddr <= local_raddr + 9'd1;
          if (bwAddrMain) begin
-             if (local_raddr == (bwEnd - 9'd1))
+             if (local_raddr == (bwEnd - 9'd1)) begin
                  reg_waddr[7:0] <= { 4'd0, `REG_STATUS };  // Power control
-             else
+                 reg_wdata <= {12'd0, mem_rdata[19:0] };
+             end
+             else begin
                  reg_waddr[7:4] <= reg_waddr[7:4] + 4'd1;  // DAC
+                 reg_wdata <= mem_rdata;
+             end
          end
          else begin
              reg_waddr[11:0] <= reg_waddr[11:0] + 12'd1;
+             reg_wdata <= mem_rdata;
          end
-         reg_wdata <= mem_rdata;
          reg_wen <= 1;
          bwState <= BW_WRITE_GAP;
       end

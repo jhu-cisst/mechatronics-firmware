@@ -435,6 +435,7 @@ EthernetIO EthernetTransfers(
     .reg_rdata(reg_rdata),             //  in: reg read data
     .reg_raddr(eth_reg_raddr),         // out: reg read addr
     .req_read_bus(eth_req_read_bus),   // out: reg read enable
+    .reg_rdata_valid(1'b1),            //  in: indicates that reg_rdata is valid
     .reg_wdata(eth_reg_wdata),         // out: reg write data
     .reg_waddr(eth_reg_waddr),         // out: reg write addr
     .reg_wen(eth_reg_wen),             // out: reg write enable

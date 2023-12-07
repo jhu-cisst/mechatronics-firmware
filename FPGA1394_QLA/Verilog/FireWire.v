@@ -830,7 +830,6 @@ begin
                                 // (4 for QLA and 10 for dRAC). The last quadlet is for power control.
                                 // The protocol uses 8 bits for the length (RtLen), even though currently
                                 // the largest block write is 12 quadlets (for dRAC).
-                                reg_wdata <= buffer;
                                 if ((RtCnt == 8'h0) || (RtCnt == RtLen)) begin
                                     RtLen <= buffer[7:0];
                                     RtCnt <= 8'h1;
@@ -840,10 +839,14 @@ begin
                                 end
                                 else begin
                                     RtCnt <= RtCnt + 8'h1;
-                                    if (RtCnt == RtLen-1)
+                                    if (RtCnt == RtLen-1) begin
                                         reg_waddr[7:0] <= { 4'd0, `REG_STATUS };  // Power control
-                                    else
+                                        reg_wdata <= { 12'd0, buffer[19:0] };
+                                    end
+                                    else begin
                                         reg_waddr[7:4] <= reg_waddr[7:4] + 4'd1;  // DAC
+                                        reg_wdata <= buffer;
+                                    end
                                     reg_wen <= rx_active & dac_local;
                                 end
                             end
