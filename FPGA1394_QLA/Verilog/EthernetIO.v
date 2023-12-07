@@ -98,11 +98,6 @@ module EthernetIO
 
     input wire fw_bus_reset,         // Firewire bus reset in process
 
-    // Interface for real-time block write
-    output reg       eth_rt_wen,
-    output reg[3:0]  eth_rt_waddr,
-    output reg[31:0] eth_rt_wdata,
-
     // Timestamp
     input wire[31:0] timestamp,
 
@@ -603,6 +598,12 @@ assign is_ip_unassigned = (ip_address == IP_UNASSIGNED) ? 1'd1 : 1'd0;
 reg writeRequestBlock;
 reg writeRequestQuad;
 
+reg[8:0] bwStart;      // Starting offset in pkt_mem for RT write block (for this board)
+reg[8:0] bwLen;        // Number of quadlets in the RT write block in pkt_mem (for this board)
+wire[8:0] bwEnd;       // Ending offset in pkt_mem for RT write block (for this board)
+
+assign bwEnd = bwStart + bwLen;
+
 // Indicates that block write module is actively accessing memory
 reg bw_local_active;
 
@@ -612,22 +613,24 @@ assign bw_remote_active = (isRemote&blockWrite&(eth_send_fw_req|eth_send_fw_ack)
 
 assign bw_active = bw_local_active | bw_remote_active;
 
+reg eth_send_fw_req_pending;
+
 // Word number at which to request a block write, so that reader and writer
 // can overlap. See explanation below (search for writeRequestTrigger).
+// bwLen is in quadlets, so 2*bwLen is in words.
 wire[9:0] writeRequestTrigger;
-// FW_BWRITE_HDR_SIZE>>1    -->  number of words in block write header
-// block_data_length[11:2]  -->  block_data_length[10:1]>>1
-// block_data_length[13:4]  -->  block_data_length[10:1]>>3
-// block_data_length[16:7]  -->  block_data_length[10:1]>>6
-// (where block_data_length[10:1] is the number of words and we assume that the upper bits are 0)
+// (2*bwStart)  == {bwStart, 1'd0}    --> word offset for block write header
+// (2*bwLen)>>1 == {1'd0, bwLen}      --> equivalent to numWords/2
+// (2*bwLen)>>3 == {3'd0, bwLen[8:2]} --> equivalent to numWords/8
+// (2*bwLen)>>6 == {6'd0, bwLen[8:5]} --> equivalent to numWords/64
 // We add 2 words to provide some margin and handle round-off.
 generate
 if (IS_V3) begin
-  assign writeRequestTrigger = (`FW_BWRITE_HDR_SIZE>>1) + block_data_length[11:2] + 10'd2;
+  assign writeRequestTrigger = {bwStart, 1'd0} + {1'd0, bwLen} + 10'd2;
 end
 else begin
-  assign writeRequestTrigger = (`FW_BWRITE_HDR_SIZE>>1) + block_data_length[11:2]
-                               + block_data_length[13:4] - {1'b0, block_data_length[15:7]} + 10'd2;
+  assign writeRequestTrigger = {bwStart, 1'd0} + {1'd0, bwLen} +
+                               {3'd0, bwLen[8:2]} - {6'd0, bwLen[8:5]} + 10'd2;
 end
 endgenerate
 
@@ -682,8 +685,10 @@ assign DebugData[15] = 32'd0;
 //    - 16 bytes (4 quadlets) for quadlet read request
 //    - 20 bytes (5 quadlets) for quadlet write or block read request
 //    - (24+block_data_length) bytes for block write
-//      - real-time block_data_length = 4*5 = 20 bytes (Rev 7+)
-//        max size in quadlets is (24+20)/4 = 11
+//      - real-time block_data_length = 4*5 = 20 bytes for QLA (Rev 7+)
+//                                    = 4*9 = 36 bytes for DQLA
+//                                    = 4*11 = 44 bytes for DRAC
+//        max size in quadlets is (24+44)/4 = 17
 //      - real-time broadcast write = 16*(4*5) = 320 bytes (Rev 7+)
 //        max size in quadlets is (24+320)/4 = 86
 //      - PROM write block_data_length can be up to 260 bytes
@@ -713,7 +718,8 @@ reg[31:0] FireWireQuadlet;   // the current quadlet being read
 
 reg mem_wen;   // memory write enable
 
-// packet module (used to store Ethernet packet that will be forwarded to Firewire)
+// packet module (used to store Ethernet packet that will be forwarded to Firewire or that will be used
+// by this module for quadlet/block write -- see bwState).
 // This is 512 quadlets (512 x 32), which is the maximum possible Firewire packet size at 400 Mbits/sec
 // (actually, could add a few quadlets because the 512 limit does not include header and CRC).
 hub_mem_gen fw_packet(.clka(sysclk),
@@ -861,7 +867,7 @@ reg[5:0] rebootCnt;     // Counter used to delay reboot command (could reuse rec
 reg doRtBlock;         // Indicates that we are processing a real-time block write
 reg dac_local;         // Indicates that DAC entries in block write are for this board_id
 reg[7:0] RtCnt;        // Counter for real-time block quadlets
-reg[7:0] RtLen;        // Number of quadlets in the RT write block for this board
+reg[7:0] RtLen;        // Number of quadlets in the RT write block being processed
 
 assign responseRequired = ((FireWirePacketFresh && (quadRead || blockRead) && (isLocal || sendExtra))
                           || sendARP || isEcho) ? 1'b1 : 1'b0;
@@ -915,9 +921,10 @@ begin
    begin
       mem_wen <= 0;
       doRtBlock <= 0;
-      eth_rt_wen <= 0;
       req_blk_rt_rd <= 1'b0;
       rfw_count <= 10'd0;
+      bwStart <= 9'd0;
+      bwLen <= 9'h1ff;      // Large value to avoid spurious writeRequestTrigger
       recvCnt <= 6'd0;
       nextRecvState <= ST_RECEIVE_DMA_IDLE;
       if (resetActive) begin
@@ -926,7 +933,11 @@ begin
          eth_send_fw_req <= 0;
          fwPacketDropped <= 0;
       end
-      if (eth_send_fw_req) begin
+      if (eth_send_fw_req_pending&(~bw_local_active)) begin
+         eth_send_fw_req <= 1'b1;
+         eth_send_fw_req_pending <= 1'b0;
+      end
+      else if (eth_send_fw_req) begin
          // Request write bus, if needed (also for reboot cmd)
          eth_req_write_reg <= quadWrite&isLocal;
          // This could have been a separate state, but would need an extra
@@ -1111,9 +1122,17 @@ begin
             // it consistently for all broadcast quadlet writes.
             writeRequestQuad <= isLocal&(~isRemote);
          end
-         else if ((rfw_count == 10'd9) && blockWrite && addrMain) begin
-            doRtBlock <= isLocal;
-            RtCnt <= 8'd0;
+         else if ((rfw_count == 10'd9) && blockWrite) begin
+            if (addrMain) begin
+               doRtBlock <= isLocal;
+               RtCnt <= 8'd0;
+               // bwStart and bwLen will be set later, since just a subset of the data
+               // will be sent for a broadcast block write.
+            end
+            else begin
+               bwStart <= 9'd5;
+               bwLen <= block_data_length[10:2];
+            end
          end
          else if (rfw_count == maxCountFW) begin
             nextRecvState <= ST_RECEIVE_DMA_IDLE;  // was ST_RECEIVE_DMA_FRAME_CRC;
@@ -1127,19 +1146,19 @@ begin
                   timestamp_prev <= timestamp;
                   req_blk_rt_rd <= 1'b1;
                end
-               if (blockWrite&(~addrMain)) begin
+               if (blockWrite) begin
                   // writeRequestBlock should have been set earlier (using writeRequestTrigger) for all
-                  // local block writes (even broadcast), except for real-time block write (to addrMain),
-                  // which is handled separately. We expect write to still be active.
+                  // local block writes (even broadcast). We expect write to still be active.
                   bw_err <= ~eth_write_en;
                   // Number of quadlets left to write to registers; should be greater than 1,
                   // otherwise the register writer may have overtaken the Ethernet reader.
-                  bw_left <= block_data_length[10:2] + 9'd5 - local_raddr;
+                  bw_left <= bwEnd - local_raddr;
                end
             end
             if (isRemote) begin
                // Request to forward pkt.
-               eth_send_fw_req <= 1;
+               eth_send_fw_req_pending <= bw_local_active;
+               eth_send_fw_req <= ~bw_local_active;
                host_fw_addr <= fw_src_id;
             end
          end
@@ -1147,8 +1166,8 @@ begin
             nextRecvState <= ST_RECEIVE_DMA_FIREWIRE_PACKET;
          end
          if (rfw_count == writeRequestTrigger) begin
-            writeRequestBlock <= blockWrite&isLocal&(~addrMain);
-            eth_req_write_reg <= blockWrite&isLocal&(~addrMain);
+            writeRequestBlock <= blockWrite&isLocal;
+            eth_req_write_reg <= blockWrite&isLocal;
          end
          if (doRtBlock&rfw_count[0]) begin
             // Real-time block write.
@@ -1160,26 +1179,20 @@ begin
             // The header will also specify the number of motors being addressed
             // (4 for QLA and 10 for dRAC). The last quadlet is for power control.
             // The protocol uses 8 bits for the length (RtLen), even though currently
-            // the largest block write is 12 quadlets (for dRAC). Note, however, that
-            // eth_rt_waddr is only 4 bits.
-            eth_rt_wdata <= FireWireQuadlet;
+            // the largest block write is 12 quadlets (for dRAC).
             if ((RtCnt == 8'h0) || (RtCnt == RtLen)) begin
                RtLen <= FireWireQuadlet[7:0];
                RtCnt <= 8'h1;
                dac_local <= (FireWireQuadlet[11:8] == board_id) ? 1'b1 : 1'b0;
-               eth_rt_waddr <= 4'hf;
-               eth_rt_wen <= 0;
             end
             else begin
                RtCnt <= RtCnt + 8'd1;
-               eth_rt_waddr <= eth_rt_waddr + 4'd1;
-               eth_rt_wen <= dac_local;
+               if (dac_local && (RtCnt == 8'h1)) begin
+                   bwStart <= rfw_count[9:1];        // Start offset for block write
+                   bwLen <= { 1'd0, (RtLen-8'd1)};   // Length for block write (-1 for header)
+               end
             end
          end
-      end
-      else begin
-         // Remove eth_rt_wen when not in dataValid phase
-         eth_rt_wen <= 0;
       end
    end
 
@@ -1558,6 +1571,7 @@ localparam[2:0]
 
 reg[2:0] bwState = BW_IDLE;
 reg[1:0] bwCnt;
+reg bwAddrMain;        // 1 -> real-time block write
 reg bwHadMemAccess;    // Indicates that Ethernet module was not accessing the memory
 
 // The following is to check whether the Firewire module has taken control of the memory read bus.
@@ -1601,11 +1615,17 @@ begin
          // (same timing as in Firewire module).
          eth_blk_wstart <= 1;
          bwState <= BW_WSTART;
-         // block write data starts at quadlet 5
-         local_raddr <= 9'd5;
-         // Set up for writing
-         eth_reg_waddr[15:12] <= fw_dest_offset[15:12];
-         eth_reg_waddr[11:0] <= fw_dest_offset[11:0] - 12'd1;
+         local_raddr <= bwStart;
+         bwAddrMain <= addrMain;
+         if (addrMain) begin
+             // real-time block write
+             eth_reg_waddr[15:0] <= { `ADDR_MAIN, 8'd0, `OFF_DAC_CTRL };
+         end
+         else begin
+             // other block write
+             eth_reg_waddr[15:12] <= fw_dest_offset[15:12];
+             eth_reg_waddr[11:0] <= fw_dest_offset[11:0] - 12'd1;
+         end
       end
       else begin
          bw_local_active <= 0;
@@ -1629,7 +1649,15 @@ begin
    begin
       if (bwHasMemAccess) begin
          local_raddr <= local_raddr + 9'd1;
-         eth_reg_waddr[11:0] <= eth_reg_waddr[11:0] + 12'd1;
+         if (bwAddrMain) begin
+             if (local_raddr == (bwEnd - 9'd1))
+                 eth_reg_waddr[7:0] <= { 4'd0, `REG_STATUS };  // Power control
+             else
+                 eth_reg_waddr[7:4] <= eth_reg_waddr[7:4] + 4'd1;  // DAC
+         end
+         else begin
+             eth_reg_waddr[11:0] <= eth_reg_waddr[11:0] + 12'd1;
+         end
          eth_reg_wdata <= mem_rdata;
          eth_reg_wen <= 1;
          bwState <= BW_WRITE_GAP;
@@ -1641,8 +1669,7 @@ begin
       // hold reg_wen low for 60 nsec (3 cycles)
       eth_reg_wen <= 1'b0;
       if (bwCnt == 2'd3) begin
-         // block_data_length is in bytes
-         if (local_raddr == (block_data_length[10:2] + 9'd5))
+         if (local_raddr == bwEnd)
             bwState <= BW_BLK_WEN;
          else
             bwState <= BW_WRITE;

@@ -132,11 +132,6 @@ assign reset_phy = 1'b1;
     wire[31:0] Eth_Result;
     wire[31:0] ip_address;
 
-// For real-time write
-wire       eth_rt_wen;
-wire[3:0]  eth_rt_waddr;
-wire[31:0] eth_rt_wdata;
-
 // Signals for PS access to registers
 wire[63:0] emio_ps_in;     // EMIO input to PS
 wire[63:0] emio_ps_out;    // EMIO output from PS
@@ -337,43 +332,6 @@ assign reg_rdata_chan0_ext =
                    (reg_raddr[3:0]==`REG_ETHSTAT) ? Eth_Result :
                    reg_rdata_ext;
 
-// --------------------------------------------------------------------------
-// Write data for real-time block
-// --------------------------------------------------------------------------
-
-wire bw_write_en;
-wire[7:0] bw_reg_waddr;
-wire[31:0] bw_reg_wdata;
-wire bw_reg_wen;
-wire bw_blk_wen;
-wire bw_blk_wstart;
-
-generate
-if (NUM_MOTORS > 0) begin
-WriteRtData #(.NUM_MOTORS(NUM_MOTORS)) rt_write
-(
-    .clk(sysclk),
-    .rt_write_en(eth_rt_wen),       // Write enable
-    .rt_write_addr(eth_rt_waddr),   // Write address
-    .rt_write_data(eth_rt_wdata),   // Write data
-    .bw_write_en(bw_write_en),
-    .bw_reg_wen(bw_reg_wen),
-    .bw_blk_wen(bw_blk_wen),
-    .bw_blk_wstart(bw_blk_wstart),
-    .bw_reg_waddr(bw_reg_waddr),
-    .bw_reg_wdata(bw_reg_wdata)
-);
-end
-else begin
-   assign bw_write_en = 1'b0;
-   assign bw_reg_wen = 1'b0;
-   assign bw_blk_wen = 1'b0;
-   assign bw_blk_wstart = 1'b0;
-   assign bw_reg_waddr = 8'd0;
-   assign bw_reg_wdata = 32'd0;
-end
-endgenerate
-
 //******************* Arbitration for write bus ****************************
 
 localparam[2:0]
@@ -381,8 +339,7 @@ localparam[2:0]
     WB_PS     = 3'd1,
     WB_FW     = 3'd2,
     WB_ETH    = 3'd3,
-    WB_BW     = 3'd4,
-    WB_PS_BLK = 3'd5;
+    WB_PS_BLK = 3'd4;
 
 reg[2:0] wbState = WB_IDLE;
 reg[2:0] wbStateNext;
@@ -407,9 +364,7 @@ begin
 
    WB_IDLE:
    begin
-     // We give priority to the BW (WriteRtData block write)
-     if (bw_write_en) wbStateNext = WB_BW;
-     else if (fw_req_write_bus) wbStateNext = WB_FW;
+     if (fw_req_write_bus) wbStateNext = WB_FW;
      else if (eth_req_write_bus) wbStateNext = WB_ETH;
      else if (ps_req_write_bus_trig) wbStateNext = ps_blk_wstart ? WB_PS_BLK : WB_PS;
      else wbStateNext = WB_IDLE;
@@ -426,10 +381,6 @@ begin
    WB_ETH:
      // Ethernet keeps the bus until it deasserts the REQ signal
      wbStateNext = eth_req_write_bus ? WB_ETH : WB_IDLE;
-
-   WB_BW:
-     // WriteRtData keeps the bus until it deasserts the REQ signal
-     wbStateNext = bw_write_en ? WB_BW : WB_IDLE;
 
    WB_PS_BLK:
      // PS holds the bus until it deasserts ps_req_write_bus or
@@ -464,24 +415,15 @@ end
 wire ps_has_write_bus;    // PS has control of the write bus
 wire fw_has_write_bus;    // Firewire has control of the write bus
 wire eth_has_write_bus;   // Ethernet has control of the write bus
-wire bw_has_write_bus;    // WriteRtData has control of the write bus
 
 assign ps_has_write_bus = ((wbState == WB_PS) || (wbState == WB_PS_BLK)) ? 1'b1 : 1'b0;
 assign fw_has_write_bus = ((wbState == WB_FW) || (wbState == WB_IDLE)) ? 1'b1 : 1'b0;
 assign eth_has_write_bus = (wbState == WB_ETH) ? 1'b1 : 1'b0;
-assign bw_has_write_bus =  (wbState == WB_BW)  ? 1'b1 : 1'b0;
 
 // Multiplexing of write bus between BW, PS, FW and ETH
 always @(*)
 begin
-   if (bw_has_write_bus) begin
-      reg_wen = bw_reg_wen;
-      blk_wen = bw_blk_wen;
-      blk_wstart = bw_blk_wstart;
-      reg_waddr = {8'd0, bw_reg_waddr};
-      reg_wdata = bw_reg_wdata;
-   end
-   else if (eth_has_write_bus) begin
+   if (eth_has_write_bus) begin
       reg_wen = eth_reg_wen;
       blk_wen = eth_blk_wen;
       blk_wstart = eth_blk_wstart;
@@ -991,11 +933,6 @@ EthernetTransfers(
 
     // Signal from Firewire indicating bus reset in process
     .fw_bus_reset(fw_bus_reset),
-
-    // Interface for real-time block write
-    .eth_rt_wen(eth_rt_wen),
-    .eth_rt_waddr(eth_rt_waddr),
-    .eth_rt_wdata(eth_rt_wdata),
 
     // Timestamp
     .timestamp(timestamp),

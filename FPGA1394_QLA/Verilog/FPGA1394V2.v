@@ -124,11 +124,6 @@ assign ETH_8n = 1;          // 16-bit bus
     wire[31:0] Eth_Result;
     wire[31:0] ip_address;
 
-// For real-time write
-wire       eth_rt_wen;
-wire[3:0]  eth_rt_waddr;
-wire[31:0] eth_rt_wdata;
-
 wire[15:0] host_reg_raddr;
 assign host_reg_raddr = eth_req_read_bus ? eth_reg_raddr :
                         fw_reg_raddr;
@@ -189,43 +184,10 @@ assign reg_rdata_chan0_ext =
                    (reg_raddr[3:0]==`REG_ETHSTAT) ? Eth_Result :
                    reg_rdata_ext;
 
-// --------------------------------------------------------------------------
-// Write data for real-time block
-// --------------------------------------------------------------------------
-
-wire bw_write_en;
-wire[7:0] bw_reg_waddr;
-wire[31:0] bw_reg_wdata;
-wire bw_reg_wen;
-wire bw_blk_wen;
-wire bw_blk_wstart;
-
-WriteRtData #(.NUM_MOTORS(NUM_MOTORS)) rt_write
-(
-    .clk(sysclk),
-    .rt_write_en(eth_rt_wen),       // Write enable
-    .rt_write_addr(eth_rt_waddr),   // Write address
-    .rt_write_data(eth_rt_wdata),   // Write data
-    .bw_write_en(bw_write_en),
-    .bw_reg_wen(bw_reg_wen),
-    .bw_blk_wen(bw_blk_wen),
-    .bw_blk_wstart(bw_blk_wstart),
-    .bw_reg_waddr(bw_reg_waddr),
-    .bw_reg_wdata(bw_reg_wdata)
-);
-
-// Multiplexing of write bus between WriteRtData (bw = real-time block write module),
-// Ethernet (eth) and Firewire.
+// Multiplexing of write bus between Ethernet (eth) and Firewire.
 always @(*)
 begin
-   if (bw_write_en) begin
-      reg_wen = bw_reg_wen;
-      blk_wen = bw_blk_wen;
-      blk_wstart = bw_blk_wstart;
-      reg_waddr = {8'd0, bw_reg_waddr};
-      reg_wdata = bw_reg_wdata;
-   end
-   else if (eth_req_write_bus) begin
+   if (eth_req_write_bus) begin
       reg_wen = eth_reg_wen;
       blk_wen = eth_blk_wen;
       blk_wstart = eth_blk_wstart;
@@ -503,11 +465,6 @@ EthernetIO EthernetTransfers(
 
     // Signal from Firewire indicating bus reset in process
     .fw_bus_reset(fw_bus_reset),
-
-    // Interface for real-time block write
-    .eth_rt_wen(eth_rt_wen),
-    .eth_rt_waddr(eth_rt_waddr),
-    .eth_rt_wdata(eth_rt_wdata),
 
     // Timestamp
     .timestamp(timestamp),
