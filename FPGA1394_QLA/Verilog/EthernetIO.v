@@ -120,7 +120,7 @@ module EthernetIO
     input wire[15:0] timeReceive,    // Time when receive portion finished
     input wire[15:0] timeNow,        // Running time counter since start of packet receive
     // Feedback bits
-    output wire bw_active,           // Indicates that block write module is active
+    output reg bw_active,            // Indicates that block write module is active
     input wire ethLLError,           // Error summary bit to EthernetIO (from low-level)
     output wire[7:0] eth_status      // Status feedback
 );
@@ -195,8 +195,8 @@ assign eth_status[6] = ethIPv4Error;       // 1 -> IPv4 header error
 assign eth_status[5] = ethUDPError;        // 1 -> Wrong UDP port (not 1394)
 assign eth_status[4] = ethDestError;       // 1 -> Ethernet destination error
 assign eth_status[3] = ethAccessError;     // 1 -> Unable to access internal bus
-assign eth_status[2] = ethSendStateError;  // 1 -> Invalid send state
-assign eth_status[1] = ethRecvStateError;  // 1 -> Invalid recv state
+assign eth_status[2] = (ethSendStateError|ethRecvStateError);  // 1 -> Invalid send/receive state
+assign eth_status[1] = 1'b0;
 assign eth_status[0] = useUDP;             // 1 -> Using UDP, 0 -> Raw Ethernet
 
 // Whether Firewire packet was dropped, rather than being processed,
@@ -606,15 +606,6 @@ wire[8:0] bwEnd;       // Ending offset in bw_packet for RT write block (for thi
 
 assign bwEnd = bwStart + bwLen;
 
-// Indicates that block write module is actively accessing memory
-reg bw_local_active;
-
-// Indicates that remote block write is in process
-wire bw_remote_active;
-assign bw_remote_active = (isRemote&blockWrite&(eth_send_fw_req|eth_send_fw_ack));
-
-assign bw_active = bw_local_active | bw_remote_active;
-
 // Word number at which to request a block write and Firewire packet forward, so that
 // reader and writer can overlap. See explanation below (search for writeRequestTrigger).
 // bwLen is in quadlets, so 2*bwLen is in words. LengthFW is in bytes.
@@ -650,7 +641,7 @@ reg[8:0] bw_left;    // Number of quadlets left to write when processing last Fi
 reg      fw_err;     // Firewire forward error (Firewire forward not active when expected)
 reg[8:0] fw_left;    // Number of quadlets left to forward when processing last quadlet
 
-reg[7:0] recv_wait_cnt;   // Number of clocks waiting for block write or Firewire forward to finish
+reg[7:0] fw_wait_cnt;   // Number of clocks waiting for Firewire forward to finish
 
 // -----------------------------------------------
 // Extra data sent to PC with every Firewire packet
@@ -673,7 +664,7 @@ assign ExtraData[3] = timeNow;
 wire[31:0] DebugData[0:15];
 assign DebugData[0]  = "2GBD";  // DBG2 byte-swapped
 assign DebugData[1]  = timestamp;
-assign DebugData[2]  = { writeRequestQuad, writeRequestBlock, bw_local_active, eth_send_isIdle,  // 31:28
+assign DebugData[2]  = { writeRequestQuad, writeRequestBlock, bw_active, eth_send_isIdle,  // 31:28
                          eth_recv_isIdle, ethUDPError, ethAccessError, ethIPv4Error,             // 27:24
                          sendBusy, sendRequest, eth_send_fw_ack, eth_send_fw_req,                // 23:20
                          2'd0, isLocal, isRemote,                                                // 19:16
@@ -687,7 +678,7 @@ assign DebugData[5]  = { sendState, txPktWords, nextSendState, 12'd0 };    // 4,
 assign DebugData[6]  = { 6'd0, numUDP, 6'd0, numIPv4 };                    // 6, 10, 6, 10
 assign DebugData[7]  = { 8'd0, numICMP, fw_bus_gen, numARP };              // 8, 8, 8, 8
 assign DebugData[8]  = { 7'd0, bw_left, bw_err, 4'd0, bwState, numPacketError };   // 7, 9, 1, 4, 3, 8
-assign DebugData[9]  = { 7'd0, fw_left, fw_err, 7'd0, recv_wait_cnt };
+assign DebugData[9]  = { 7'd0, fw_left, fw_err, 7'd0, fw_wait_cnt };
 assign DebugData[10] = 32'd0;
 assign DebugData[11] = 32'd0;
 assign DebugData[12] = 32'd0;
@@ -723,9 +714,9 @@ wire[31:0] mem_rdata;
 reg[8:0] local_raddr;
 reg      icmp_read_en;    // 1 -> ICMP needs to read from memory
 
-assign mem_raddr = bw_local_active   ? local_raddr :
-                   icmp_read_en      ? sfw_count[9:1]
-                                     : {2'd0, reg_raddr_in[6:0]};
+assign mem_raddr = bw_active     ? local_raddr :
+                   icmp_read_en  ? sfw_count[9:1]
+                                 : {2'd0, reg_raddr_in[6:0]};
 reg[31:0] FireWireQuadlet;   // the current quadlet being read
 
 reg mem_wen;   // memory write enable
@@ -779,7 +770,7 @@ reg FireWirePacketFresh;   // 1 -> FireWirePacket data is valid (fresh)
 always @(*)
 begin
    if (reg_raddr_in[7] == 0) begin               // 4x00-4x7f
-      // read_error = eth_send_fw_ack|bw_local_active|icmp_read_en;
+      // read_error = eth_send_fw_ack|bw_active|icmp_read_en;
       reg_rdata_out = mem_rdata;
    end
    else if (reg_raddr_in[6:4] == 3'b000) begin   // 4x80-4x8f
@@ -959,16 +950,18 @@ begin
       bwLen <= 9'h1ff;      // Large value to avoid spurious writeRequestTrigger
       recvCnt <= 6'd0;
       nextRecvState <= ST_RECEIVE_DMA_IDLE;
-      if (resetActive) begin
-         // Always process reset
-         FireWirePacketFresh <= 0;
-         eth_send_fw_req <= 0;
-         fwPacketDropped <= 0;
-      end
       recvBusy <= 0;
       writeRequestQuad <= 1'b0;
       writeRequestBlock <= 1'b0;
       eth_req_write_reg <= 1'b0;
+      eth_send_fw_req <= 0;
+
+      if (resetActive|clearErrors) begin
+         FireWirePacketFresh <= 0;
+         fwPacketDropped <= 0;
+         ethRecvStateError <= 0;
+      end
+
       if (recvRequest) begin
          recvBusy <= 1;
          FireWirePacketFresh <= 0;
@@ -1142,7 +1135,6 @@ begin
             end
          end
          else if (rfw_count == maxCountFW) begin
-            recv_wait_cnt <= 8'd0;
             nextRecvState <= ST_RECEIVE_DMA_WAIT;  // was ST_RECEIVE_DMA_FRAME_CRC;
             doRtBlock <= 0;
             if (isLocal) begin
@@ -1180,8 +1172,9 @@ begin
             writeRequestBlock <= blockWrite&isLocal;
             eth_req_write_reg <= blockWrite&isLocal;
          end
-         if (rfw_count == fwRequestTrigger) begin
-            eth_send_fw_req <= isRemote;
+         if ((rfw_count == fwRequestTrigger) && isRemote) begin
+            eth_send_fw_req <= 1'b1;
+            fw_wait_cnt <= 8'd0;
             host_fw_addr <= fw_src_id;
          end
 
@@ -1214,9 +1207,9 @@ begin
 
    ST_RECEIVE_DMA_WAIT:
    begin
-      if (bw_local_active | eth_send_fw_req | eth_send_fw_ack) begin
-         // Waiting local block write or Ethernet forward to finish
-         recv_wait_cnt <= recv_wait_cnt + 8'd1;
+      if (eth_send_fw_req | eth_send_fw_ack) begin
+         // Waiting for Ethernet forward to finish
+         fw_wait_cnt <= fw_wait_cnt + 8'd1;
       end
       else begin
          if (isRebootCmd&isRemote&isLocal) begin
@@ -1423,7 +1416,7 @@ begin
 
    ST_SEND_DMA_ICMP_DATA:
    begin
-      //read_error = eth_send_fw_ack|bw_local_active;
+      //read_error = eth_send_fw_ack|bw_active;
       `send_word_swapped <= (sfw_count[0] == 0) ? mem_rdata[31:16]
                                               : mem_rdata[15:0];
       // Increment a little earlier due to reading from memory
@@ -1665,7 +1658,7 @@ begin
          blk_wen <= 1;
       end
       else if (writeRequestBlock) begin
-         bw_local_active <= 1;
+         bw_active <= 1;
          eth_write_en <= 1;
          // Assert blk_wstart for 80 ns before starting local block write
          // (same timing as in Firewire module).
@@ -1684,7 +1677,7 @@ begin
          end
       end
       else begin
-         bw_local_active <= 0;
+         bw_active <= 0;
          eth_write_en <= 0;
          reg_wen <= 0;    // Clean up from quadlet/block writes
          blk_wen <= 0;
@@ -1738,7 +1731,7 @@ begin
 
    BW_BLK_WEN:
    begin
-      bw_local_active <= 0;   // Stop accessing memory
+      bw_active <= 0;   // Stop accessing memory
       // Wait 60 nsec before asserting blk_wen
       if (bwCnt == 2'd3) begin
          blk_wen <= 1'b1;
