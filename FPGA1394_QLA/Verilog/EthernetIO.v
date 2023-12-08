@@ -139,6 +139,7 @@ reg ethUDPError;       // 1 -> Wrong UDP port (not 1394)
 reg ethDestError;      // 1 -> Incorrect destination (FireWire destination does not begin with 0xFFC)
 reg ethAccessError;    // 1 -> Unable to access internal bus
 reg ethSendStateError; // 1 -> Invalid Ethernet state in Send state machine
+reg ethRecvStateError; // 1 -> Invalid Ethernet state in Receive state machine
 
 // Access error condition, check when latching reg_rdata
 wire ethAccessErrorCond;
@@ -150,7 +151,7 @@ assign ethSummaryError = ethFrameError | ethIPv4Error | ethUDPError | ethDestErr
 
 // Summary of internal error bits
 wire ethInternalError;
-assign ethInternalError = ethAccessError | ethSendStateError | ethLLError;
+assign ethInternalError = ethAccessError | ethSendStateError | ethRecvStateError | ethLLError;
 
 // Firewire bus generation. Incremented each time fw_bus_reset is cleared.
 reg[7:0] fw_bus_gen;
@@ -195,7 +196,7 @@ assign eth_status[5] = ethUDPError;        // 1 -> Wrong UDP port (not 1394)
 assign eth_status[4] = ethDestError;       // 1 -> Ethernet destination error
 assign eth_status[3] = ethAccessError;     // 1 -> Unable to access internal bus
 assign eth_status[2] = ethSendStateError;  // 1 -> Invalid send state
-assign eth_status[1] = 1'b0;
+assign eth_status[1] = ethRecvStateError;  // 1 -> Invalid recv state
 assign eth_status[0] = useUDP;             // 1 -> Using UDP, 0 -> Raw Ethernet
 
 // Whether Firewire packet was dropped, rather than being processed,
@@ -211,6 +212,9 @@ assign sendExtra = fwPacketDropped;
 reg clearErrors;
 
 reg[11:0] txPktWords;  // Num of words sent
+
+wire[15:0] Eth_EtherType;
+wire[15:0] UDP_Length; // UDP packet length (bytes)
 
 wire[9:0] maxCountFW;  // Maximum count (of words) when reading FireWire packets
 // Maximum count, in words, is (nBytes/2-1), assuming nBytes is an even number
@@ -362,7 +366,6 @@ end
 endgenerate
 
 //************************** Ethernet Frame Header ********************************
-wire[15:0] Eth_EtherType;
 assign Eth_EtherType = PacketBuffer[ID_Frame_Length];
 
 wire isIPv4;
@@ -454,7 +457,6 @@ wire isICMP;
 assign isICMP = (isIPv4 && (IPv4_Protocol == 8'd1)) ? 1'd1 : 1'd0;
 
 //********************************* UDP Header ****************************************
-wire[15:0] UDP_Length;
 assign UDP_Length = PacketBuffer[ID_UDP_Length];
 
 wire isPortValid;
@@ -613,27 +615,42 @@ assign bw_remote_active = (isRemote&blockWrite&(eth_send_fw_req|eth_send_fw_ack)
 
 assign bw_active = bw_local_active | bw_remote_active;
 
-// Word number at which to request a block write, so that reader and writer
-// can overlap. See explanation below (search for writeRequestTrigger).
-// bwLen is in quadlets, so 2*bwLen is in words.
+// Word number at which to request a block write and Firewire packet forward, so that
+// reader and writer can overlap. See explanation below (search for writeRequestTrigger).
+// bwLen is in quadlets, so 2*bwLen is in words. LengthFW is in bytes.
 wire[9:0] writeRequestTrigger;
 // (2*bwStart)  == {bwStart, 1'd0}    --> word offset for block write header
 // (2*bwLen)>>1 == {1'd0, bwLen}      --> equivalent to numWords/2
 // (2*bwLen)>>3 == {3'd0, bwLen[8:2]} --> equivalent to numWords/8
 // (2*bwLen)>>6 == {6'd0, bwLen[8:5]} --> equivalent to numWords/64
-// We add 2 words to provide some margin and handle round-off.
+wire[9:0] fwRequestTrigger;
+// Following assumes that LengthFW is not more than 12 bits
+// (LengthFw>>1)>>1 == LengthFW[11:2]           --> numWords/2
+// (LengthFw>>1)>>3 == { 2'd0, LengthFW[11:4] } --> numWords/8
+// (LengthFw>>1)>>6 == { 5'd0, LengthFW[11:7] } --> numWords/64
+//   Quadlet read:  N=16 --> M = (3/5)*N = 10
+//   Quadlet write: N=20 --> M = (3/5)*N = 12
+// In both cases, we add 2 words to provide some margin and handle round-off.
 generate
 if (IS_V3) begin
   assign writeRequestTrigger = {bwStart, 1'd0} + {1'd0, bwLen} + 10'd2;
+  assign fwRequestTrigger    = LengthFW[11:2] + 10'd2;
 end
 else begin
   assign writeRequestTrigger = {bwStart, 1'd0} + {1'd0, bwLen} +
                                {3'd0, bwLen[8:2]} - {6'd0, bwLen[8:5]} + 10'd2;
+  assign fwRequestTrigger    = LengthFW[11:2] + {2'd0, LengthFW[11:4]} +
+                               {5'd0, LengthFW[11:7]} + 10'd2;
 end
 endgenerate
 
 reg      bw_err;     // Block write error (block write not active when expected)
 reg[8:0] bw_left;    // Number of quadlets left to write when processing last Firewire quadlet
+
+reg      fw_err;     // Firewire forward error (Firewire forward not active when expected)
+reg[8:0] fw_left;    // Number of quadlets left to forward when processing last quadlet
+
+reg[7:0] recv_wait_cnt;   // Number of clocks waiting for block write or Firewire forward to finish
 
 // -----------------------------------------------
 // Extra data sent to PC with every Firewire packet
@@ -670,7 +687,7 @@ assign DebugData[5]  = { sendState, txPktWords, nextSendState, 12'd0 };    // 4,
 assign DebugData[6]  = { 6'd0, numUDP, 6'd0, numIPv4 };                    // 6, 10, 6, 10
 assign DebugData[7]  = { 8'd0, numICMP, fw_bus_gen, numARP };              // 8, 8, 8, 8
 assign DebugData[8]  = { 7'd0, bw_left, bw_err, 4'd0, bwState, numPacketError };   // 7, 9, 1, 4, 3, 8
-assign DebugData[9]  = 32'd0;
+assign DebugData[9]  = { 7'd0, fw_left, fw_err, 7'd0, recv_wait_cnt };
 assign DebugData[10] = 32'd0;
 assign DebugData[11] = 32'd0;
 assign DebugData[12] = 32'd0;
@@ -851,14 +868,16 @@ end
 //  ETHERNET Receive state machine
 //*****************************************************************
 
-localparam[1:0]
-    ST_RECEIVE_DMA_IDLE = 2'd0,
-    ST_RECEIVE_DMA_ETHERNET_HEADERS = 2'd1,
-    ST_RECEIVE_DMA_FIREWIRE_PACKET = 2'd2,
-    ST_RECEIVE_DMA_ICMP_DATA = 2'd3;
+localparam[2:0]
+    ST_RECEIVE_DMA_IDLE = 3'd0,
+    ST_RECEIVE_DMA_ETHERNET_HEADERS = 3'd1,
+    ST_RECEIVE_DMA_FIREWIRE_PACKET = 3'd2,
+    ST_RECEIVE_DMA_ICMP_DATA = 3'd3,
+    ST_RECEIVE_DMA_WAIT = 3'd4,
+    ST_RECEIVE_DMA_REBOOT = 3'd5;
 
-reg[1:0] recvState = ST_RECEIVE_DMA_IDLE;
-reg[1:0] nextRecvState = ST_RECEIVE_DMA_IDLE;
+reg[2:0] recvState = ST_RECEIVE_DMA_IDLE;
+reg[2:0] nextRecvState = ST_RECEIVE_DMA_IDLE;
 
 // recvReady (aka dataReady) -->  dataValid  -->  recvTransition
 reg dataValid;          // Data has been stored in PacketBuffer
@@ -893,6 +912,10 @@ begin
 
    if (writeRequestBlock && eth_write_en) begin
       writeRequestBlock <= 1'd0;
+   end
+
+   if (eth_send_fw_ack) begin
+      eth_send_fw_req <= 0;
    end
 
    if (resetActive|clearErrors) begin
@@ -942,38 +965,15 @@ begin
          eth_send_fw_req <= 0;
          fwPacketDropped <= 0;
       end
-      if (eth_send_fw_req) begin
-         // Request write bus, if needed (also for reboot cmd)
-         eth_req_write_reg <= quadWrite&isLocal;
-         // This could have been a separate state, but would need an extra
-         // bit to have 5 receive states.
-         if (eth_send_fw_ack) begin
-            eth_send_fw_req <= 0;
-            // If a broadcast quadlet write (local and remote), then
-            // write it to the hardware now, except for reboot
-            writeRequestQuad <= quadWrite&isLocal&(~isRebootCmd);
-         end
-         rebootCnt <= 6'd1;   // only needed if isRebootCmd is true
-      end
-      else if ((isRebootCmd&isRemote&isLocal&(~eth_send_fw_ack)) && (rebootCnt != 6'd0)) begin
-         // Wait an additional 1.3 us after eth_send_fw_ack removed to
-         // make sure Firewire packet has been transmitted
-         rebootCnt <= rebootCnt + 6'd1;
-         if (rebootCnt == 6'h3f)
-            writeRequestQuad <= 1;
-      end
-      else begin
-         // Normal idle state. Wait for recvRequest to be set.
-         recvBusy <= 0;
-         writeRequestQuad <= 1'b0;
-         writeRequestBlock <= 1'b0;
-         eth_req_write_reg <= 1'b0;
-         if (recvRequest) begin
-            recvBusy <= 1;
-            FireWirePacketFresh <= 0;
-            fwPacketDropped <= 0;
-            recvState <= ST_RECEIVE_DMA_ETHERNET_HEADERS;
-         end
+      recvBusy <= 0;
+      writeRequestQuad <= 1'b0;
+      writeRequestBlock <= 1'b0;
+      eth_req_write_reg <= 1'b0;
+      if (recvRequest) begin
+         recvBusy <= 1;
+         FireWirePacketFresh <= 0;
+         fwPacketDropped <= 0;
+         recvState <= ST_RECEIVE_DMA_ETHERNET_HEADERS;
       end
    end
 
@@ -1142,7 +1142,8 @@ begin
             end
          end
          else if (rfw_count == maxCountFW) begin
-            nextRecvState <= ST_RECEIVE_DMA_IDLE;  // was ST_RECEIVE_DMA_FRAME_CRC;
+            recv_wait_cnt <= 8'd0;
+            nextRecvState <= ST_RECEIVE_DMA_WAIT;  // was ST_RECEIVE_DMA_FRAME_CRC;
             doRtBlock <= 0;
             if (isLocal) begin
                // Latch timestamp if a block read from ADDR_MAIN or a broadcast read request
@@ -1163,18 +1164,27 @@ begin
                end
             end
             if (isRemote) begin
-               // Request to forward pkt.
-               eth_send_fw_req <= 1'b1;
-               host_fw_addr <= fw_src_id;
+               // Request to forward should already have been set (using fwRequestTrigger).
+               // We expect that it would still be active.
+               fw_err <= ~eth_send_fw_ack;
+               // Number of quadlets left to write to registers; should be greater than 1,
+               // otherwise the Firewire writer may have overtaken the Ethernet reader.
+               fw_left <= eth_fwpkt_len[10:2] - eth_fwpkt_raddr;
             end
          end
          else begin
             nextRecvState <= ST_RECEIVE_DMA_FIREWIRE_PACKET;
          end
+
          if (rfw_count == writeRequestTrigger) begin
             writeRequestBlock <= blockWrite&isLocal;
             eth_req_write_reg <= blockWrite&isLocal;
          end
+         if (rfw_count == fwRequestTrigger) begin
+            eth_send_fw_req <= isRemote;
+            host_fw_addr <= fw_src_id;
+         end
+
          if (doRtBlock&rfw_count[0]) begin
             // Real-time block write.
             // Starting with Rev 8, the first entry is a header that specifies which
@@ -1200,6 +1210,47 @@ begin
             end
          end
       end
+   end
+
+   ST_RECEIVE_DMA_WAIT:
+   begin
+      if (bw_local_active | eth_send_fw_req | eth_send_fw_ack) begin
+         // Waiting local block write or Ethernet forward to finish
+         recv_wait_cnt <= recv_wait_cnt + 8'd1;
+      end
+      else begin
+         if (isRebootCmd&isRemote&isLocal) begin
+            // Special case handling of broadcast reboot
+            rebootCnt <= 6'd1;
+            recvState <= ST_RECEIVE_DMA_REBOOT;
+         end
+         else begin
+            // If any other broadcast quadlet write (local and remote),
+            // write it to the hardware now.
+            eth_req_write_reg <= quadWrite&isLocal;
+            writeRequestQuad <= quadWrite&isLocal;
+            recvState <= ST_RECEIVE_DMA_IDLE;
+         end
+      end
+   end
+
+   ST_RECEIVE_DMA_REBOOT:
+   begin
+      // Wait an additional 1.3 us after eth_send_fw_ack removed to
+      // make sure Firewire packet has been transmitted
+      rebootCnt <= rebootCnt + 6'd1;
+      if (rebootCnt == 6'h3f) begin
+         eth_req_write_reg <= 1'b1;
+         writeRequestQuad <= 1'b1;
+         recvState <= ST_RECEIVE_DMA_IDLE;
+      end
+   end
+
+   default:
+   begin
+      ethRecvStateError <= 1;
+      recvState <= ST_RECEIVE_DMA_IDLE;
+      nextRecvState <= ST_RECEIVE_DMA_IDLE;
    end
 
    endcase // case (recvState)
@@ -1516,8 +1567,7 @@ begin
    endcase // case (sendState)
 end
 
-// Following handles writing to board registers via quadlet or block write,
-// except for real-time block write, which is handled by WriteRtData.
+// Following handles writing to board registers via quadlet or block write.
 //
 // For the KSZ8851,
 // the DMA receive process requires 5 sysclk for reading each word (16-bits)
@@ -1567,7 +1617,13 @@ end
 // length of the block write header. In addition, we add 2 to provide some margin (and
 // handle round-off), which leads to the equation above for setting writeRequestTrigger.
 //
-
+// Forwarding packets via Firewire has similar timing. The Firewire module requires
+// 4 clocks per quadlet, whereas the KSZ8851 requires 10 clocks and the RTL8211F requires
+// 8 clocks. Thus, we can start the Firewire transfer when we are M of the
+// way through a packet of size N:
+//   KSZ8851:  (N-M)*10 < N*4  --> 6*N < 10*M --> M > (3/5)*N
+//   RTL8211F: (N-M)*8 < N*4   --> 4*N < 8*M  --> M > (1/2)*N
+//
 localparam[2:0]
    BW_IDLE = 0,
    BW_WSTART = 1,
