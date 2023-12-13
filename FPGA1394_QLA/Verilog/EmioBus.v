@@ -39,8 +39,8 @@ module EmioBus
 reg[31:0] ps_reg_rdata;                 // emio[31:0]
 wire[15:0] ps_reg_addr;
    
-// Following are not synchronized with sysclk, but should be
-// stable since they are not used the read or write bus is granted.
+// Following are not synchronized with sysclk, but should be stable
+// since they are not used until the read or write bus is granted.
 assign ps_reg_addr = emio_ps_out[47:32]; // emio[47:32]
 assign reg_raddr = ps_reg_addr;
 assign reg_waddr = ps_reg_addr;
@@ -94,7 +94,7 @@ begin
         req_read_bus <= 1'b1;
     end
     // Latch reg_rdata when we get the bus and data is valid
-    if (grant_read_bus & reg_rvalid) begin
+    if (req_read_bus & grant_read_bus & reg_rvalid) begin
         ps_reg_rdata <= reg_rdata;
         ps_read_done <= 1'b1;
         req_read_bus <= 1'b0;
@@ -112,6 +112,7 @@ end
 // on the rising and falling edges.
 reg ps_req_write_bus_1;
 reg ps_req_write_bus_2;
+reg reg_wen_latched;
 reg is_block;             // indicates block write
 
 always @(posedge sysclk)
@@ -119,6 +120,7 @@ begin
     // Synchronize req_write_bus with sysclk
     ps_req_write_bus_1 <= ps_req_write_bus;
     ps_req_write_bus_2 <= ps_req_write_bus_1;
+    reg_wen_latched <= reg_wen;
 
     if (ps_req_write_bus_1 & (~ps_req_write_bus_2)) begin
         // Request write bus on rising edge of ps_req_write_bus
@@ -127,7 +129,7 @@ begin
     end   
     // Write is done when we get the bus
     if (grant_write_bus) begin
-        ps_write_done <= reg_wen;
+        ps_write_done <= reg_wen_latched;
         // Keep write bus if a block write
         req_write_bus <= is_block;
     end
