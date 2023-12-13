@@ -68,7 +68,8 @@ assign ps_write = (emio_ps_tri[31:0] == 32'd0) ? 1'b1 : 1'b0;
 assign ps_req_read_bus = ps_req_bus & (~ps_write);
 assign ps_req_write_bus = ps_req_bus & ps_write;
 
-assign emio_ps_in = {9'd0,
+assign emio_ps_in = {4'd1,                                            // Version 1
+                     5'd0,                                            // Unused
                      (ps_write ? grant_write_bus : grant_read_bus),   // [54]
                      ps_write,                                        // [53]
                      blk_wen, blk_wstart, reg_wen,                    // [52:50]
@@ -100,7 +101,7 @@ begin
         req_read_bus <= 1'b0;
     end
     if ((~ps_req_read_bus_1) & ps_req_read_bus_2) begin
-        // Clear ps_read_done on falling edge of ps_req_write_bus
+        // Clear ps_read_done on falling edge of ps_req_read_bus
         ps_read_done <= 1'b0;
         req_read_bus <= 1'b0;
     end
