@@ -95,6 +95,7 @@ module FPGA1394V3DQLA
     wire[15:0] reg_waddr;       // 16-bit reg write address
     wire[31:0] reg_rdata;       // reg read data
     wire[31:0] reg_wdata;       // reg write data
+    wire reg_rwait;             // reg read wait state
     wire reg_wen;               // register write signal
     wire blk_wen;               // block write enable
     wire blk_wstart;            // block write start
@@ -167,6 +168,7 @@ fpga(
     .reg_waddr(reg_waddr),
     .reg_rdata_ext(reg_rdata),
     .reg_wdata(reg_wdata),
+    .reg_rwait_ext(reg_rwait),
     .reg_wen(reg_wen),
     .blk_wen(blk_wen),
     .blk_wstart(blk_wstart),
@@ -216,6 +218,7 @@ DQLA dqla(
     .reg_waddr(reg_waddr),
     .reg_rdata(reg_rdata),
     .reg_wdata(reg_wdata),
+    .reg_rwait(reg_rwait),
     .reg_wen(reg_wen),
     .blk_wen(blk_wen),
     .blk_wstart(blk_wstart),

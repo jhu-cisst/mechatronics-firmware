@@ -32,6 +32,7 @@ module BootConfig(
     input wire[15:0]  reg_waddr,
     output wire[31:0] reg_rdata,
     input wire[31:0]  reg_wdata,
+    output wire reg_rwait,
     input wire reg_wen,
     input wire blk_wen,
     input wire blk_wstart,
@@ -67,6 +68,9 @@ wire[31:0] reg_rdata_chan0;      // 'channel 0' is a special axis that contains 
 //   See Constants.v for details
 assign reg_rdata = (reg_raddr[15:12]==`ADDR_PROM_QLA) ? (reg_rdata_prom) :
                    (reg_raddr[15:12]==`ADDR_MAIN) ? (reg_rdata_chan0) : 32'd0;
+
+// No wait-states for reg_rdata
+assign reg_rwait = 1'b0;
 
 // --------------------------------------------------------------------------
 // Prom 25AA128

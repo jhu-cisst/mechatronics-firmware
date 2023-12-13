@@ -33,6 +33,7 @@ module DRAC(
     input wire[15:0]  reg_waddr,
     output reg[31:0]  reg_rdata,
     input wire[31:0]  reg_wdata,
+    output reg reg_rwait,
     input wire reg_wen,
     input wire blk_wen,
     input wire blk_wstart,
@@ -192,17 +193,18 @@ wire[31:0] reg_rdata_motor_control;
 reg[31:0] reg_rdata_main;
 reg[31:0] reg_rdata_board_specific;
 wire[31:0] reg_rdata_databuf;
+wire reg_rwait_databuf;
 reg [31:0] reg_espm_bram;
 
 always @(*) begin
     case (reg_raddr[15:12])
-        `ADDR_PROM_QLA: reg_rdata = reg_rdata_prom_qla;
-        `ADDR_DATA_BUF: reg_rdata = reg_rdata_databuf;
-        `ADDR_MOTOR_CONTROL: reg_rdata = reg_rdata_motor_control;
-        `ADDR_ESPM: reg_rdata = reg_espm_bram;
-        `ADDR_BOARD_SPECIFIC: reg_rdata = reg_rdata_board_specific;
-        `ADDR_MAIN: reg_rdata = (reg_raddr[7:4]==4'd0) ? reg_rdata_chan0 : reg_rdata_main;
-        default: reg_rdata = 'b0;
+        `ADDR_PROM_QLA: {reg_rdata, reg_rwait} = {reg_rdata_prom_qla, 1'b0};
+        `ADDR_DATA_BUF: {reg_rdata, reg_rwait} = {reg_rdata_databuf, reg_rwait_databuf};
+        `ADDR_MOTOR_CONTROL: {reg_rdata, reg_rwait} = {reg_rdata_motor_control, 1'b0};
+        `ADDR_ESPM: {reg_rdata, reg_rwait} = {reg_espm_bram, 1'b0};
+        `ADDR_BOARD_SPECIFIC: {reg_rdata, reg_rwait} = {reg_rdata_board_specific, 1'b0};
+        `ADDR_MAIN: {reg_rdata, reg_rwait} = (reg_raddr[7:4]==4'd0) ? {reg_rdata_chan0, 1'b0} : {reg_rdata_main, 1'b0};
+        default: {reg_rdata, reg_rwait} = {32'b0, 1'b0};
     endcase
 end
 
@@ -415,6 +417,7 @@ DataBuffer data_buffer(
     .reg_wen(reg_wen),              // write enable
     .reg_raddr(reg_raddr),          // read address
     .reg_rdata(reg_rdata_databuf),  // read data
+    .reg_rwait(reg_rwait_databuf),  // read wait state
     // status and timestamp
     .databuf_status(reg_databuf),   // status for real-time block read
     .ts(timestamp)                  // timestamp

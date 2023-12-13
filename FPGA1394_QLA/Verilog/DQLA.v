@@ -36,6 +36,7 @@ module DQLA(
     input wire[15:0]  reg_waddr,
     output wire[31:0] reg_rdata,
     input wire[31:0]  reg_wdata,
+    output wire reg_rwait,
     input wire reg_wen,
     input wire blk_wen,
     input wire blk_wstart,
@@ -291,11 +292,15 @@ end
 // Mux routing read data based on read address
 //   See Constants.v for details
 //     addr[15:12]  main | hub | prom | prom_qla | eth | firewire | dallas | waveform
-assign reg_rdata = (reg_raddr[15:12]==`ADDR_PROM_QLA) ? (reg_rdata_prom_qla) :
-                   (reg_raddr[15:12]==`ADDR_DS) ? (reg_rdata_ds) :
-                   (reg_raddr[15:12]==`ADDR_WAVEFORM) ? (reg_rtable) :
-                   (reg_raddr[7:4]!=4'd0) ? (reg_rd[reg_raddr[3:0]]) :
-                   (reg_raddr[3:0]==`REG_IO_EXP) ? (reg_rdata_ioexp) : (reg_rdata_chan0);
+// reg_rwait indicates when reg_rdata is valid
+//   0 --> one sysclk after reg_raddr set (e.g., register read)
+//   1 --> two sysclks after reg_raddr set (e.g., reading from memory)
+assign {reg_rdata, reg_rwait} =
+                   (reg_raddr[15:12]==`ADDR_PROM_QLA) ? {reg_rdata_prom_qla, 1'b0} :
+                   (reg_raddr[15:12]==`ADDR_DS) ? {reg_rdata_ds, 1'b0} :
+                   (reg_raddr[15:12]==`ADDR_WAVEFORM) ? {reg_rtable, 1'b1} :
+                   (reg_raddr[7:4]!=4'd0) ? {reg_rd[reg_raddr[3:0]], 1'b0} :
+                   (reg_raddr[3:0]==`REG_IO_EXP) ? {reg_rdata_ioexp, 1'b0} : {reg_rdata_chan0, 1'b0};
 
 // Unused channel offsets
 assign reg_rd[`OFF_UNUSED_02] = 32'd0;

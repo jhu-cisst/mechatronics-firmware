@@ -56,6 +56,7 @@ module FPGA1394V2
     output reg[15:0]  reg_waddr,
     input wire[31:0]  reg_rdata_ext,
     output reg[31:0]  reg_wdata,
+    input wire reg_rwait_ext,
     output reg reg_wen,
     output reg blk_wen,
     output reg blk_wstart,
@@ -116,19 +117,30 @@ assign ETH_8n = 1;          // 16-bit bus
     wire[31:0] eth_reg_wdata;   // reg write data from Ethernet
     wire fw_req_read_bus;       // 1 -> Firewire is requesting read bus (driving reg_raddr and blk_rt_rd to read from board registers)
     wire eth_req_read_bus;      // 1 -> Ethernet is requesting read bus (driving reg_raddr and blk_rt_rd to read from board registers)
+    wire fw_grant_read_bus;     // 1 -> Firewire has read bus
+    wire eth_grant_read_bus;    // 1 -> Ethernet has read bus
     wire fw_req_write_bus;      // 1 -> Firewire is requesting write bus (driving reg_waddr, reg_wdata, reg_wen, blk_wen, blk_wstart)
     wire eth_req_write_bus;     // 1 -> Ethernet is requesting write bus (driving reg_waddr, reg_wdata, reg_wen, blk_wen, blk_wstart)
+    wire fw_grant_write_bus;    // 1 -> Firewire has write bus
+    wire eth_grant_write_bus;   // 1 -> Ethernet has write bus
     wire[5:0] node_id;          // 6-bit phy node id
     wire[31:0] prom_status;
     wire[31:0] prom_result;
     wire[31:0] Eth_Result;
     wire[31:0] ip_address;
 
+
+//********************* Read Bus Arbitration *************************************
+// Firewire gets bus when requested, and has it when system is idle
+
+assign fw_grant_read_bus = fw_req_read_bus | (~eth_req_read_bus);
+assign eth_grant_read_bus = (~fw_req_read_bus) & eth_req_read_bus;
+
 wire[15:0] host_reg_raddr;
-assign host_reg_raddr = eth_req_read_bus ? eth_reg_raddr :
+assign host_reg_raddr = eth_grant_read_bus ? eth_reg_raddr :
                         fw_reg_raddr;
 
-assign blk_rt_rd = eth_req_read_bus ? eth_blk_rt_rd :
+assign blk_rt_rd = eth_grant_read_bus ? eth_blk_rt_rd :
                    fw_blk_rt_rd;
 
 // The real-time block read request indicates that we have latched the
@@ -159,17 +171,25 @@ wire[31:0] reg_rdata_ksz;      // for eth memory access (KSZ8851)
 wire[31:0] reg_rdata_fw;       // for fw memory access
 wire[31:0] reg_rdata_chan0;    // for reads from board registers
 
+wire reg_rwait;                // read wait state
+wire reg_rvalid;               // reg_rdata is valid (based on reg_rwait)
+
 wire isAddrMain;
 assign isAddrMain = ((reg_raddr[15:12]==`ADDR_MAIN) && (reg_raddr[7:4]==4'd0)) ? 1'b1 : 1'b0;
 
 // Mux routing read data based on read address
 //   See Constants.v for details
 //     addr[15:12]  main | hub | prom | prom_qla | eth | firewire | dallas | databuf | waveform
-assign reg_rdata = (reg_raddr[15:12]==`ADDR_HUB) ? (reg_rdata_hub) :
-                   (reg_raddr[15:12]==`ADDR_PROM) ? (reg_rdata_prom) :
-                   (reg_raddr[15:12]==`ADDR_ETH) ? (reg_rdata_eth|reg_rdata_ksz) :
-                   (reg_raddr[15:12]==`ADDR_FW) ? (reg_rdata_fw) :
-                   isAddrMain ? reg_rdata_chan0 : reg_rdata_ext;
+// reg_rwait indicates when reg_rdata is valid
+//   0 --> one sysclk after reg_raddr set (e.g., register read)
+//   1 --> two sysclks after reg_raddr set (e.g., reading from memory)
+// For ADDR_ETH, set reg_rwait=1 (worst-case) even though it could be 0 in some cases
+assign {reg_rdata, reg_rwait} =
+                   (reg_raddr[15:12]==`ADDR_HUB) ? {reg_rdata_hub, reg_rwait_hub} :
+                   (reg_raddr[15:12]==`ADDR_PROM) ? {reg_rdata_prom, 1'b0} :
+                   (reg_raddr[15:12]==`ADDR_ETH) ? {reg_rdata_eth|reg_rdata_ksz, 1'b1} :
+                   (reg_raddr[15:12]==`ADDR_FW) ? {reg_rdata_fw, 1'b1} :
+                   isAddrMain ? {reg_rdata_chan0, 1'b0} : {reg_rdata_ext, reg_rwait_ext};
 
 // Data for channel 0 (board registers) is distributed across several FPGA modules, as well
 // as coming from the external board (e.g., QLA). In the following, we mux these together
@@ -184,10 +204,24 @@ assign reg_rdata_chan0_ext =
                    (reg_raddr[3:0]==`REG_ETHSTAT) ? Eth_Result :
                    reg_rdata_ext;
 
-// Multiplexing of write bus between Ethernet (eth) and Firewire.
+// Generate reg_rvalid
+ReadDataValid rdata_valid
+(
+   .sysclk(sysclk),
+   .reg_raddr(reg_raddr),
+   .reg_rwait(reg_rwait),
+   .reg_rvalid(reg_rvalid)
+ );
+
+//********************* Write Bus Arbitration *************************************
+// Firewire gets bus when requested, and has it when system is idle
+
+assign fw_grant_write_bus = fw_req_write_bus | (~eth_req_write_bus);
+assign eth_grant_write_bus = (~fw_req_write_bus) & eth_req_write_bus;
+
 always @(*)
 begin
-   if (eth_req_write_bus) begin
+   if (eth_grant_write_bus) begin
       reg_wen = eth_reg_wen;
       blk_wen = eth_blk_wen;
       blk_wstart = eth_blk_wstart;
@@ -224,6 +258,7 @@ HubReg hub(
     .reg_waddr(reg_waddr),
     .reg_rdata(reg_rdata_hub),
     .reg_wdata(reg_wdata),
+    .reg_rwait(reg_rwait_hub),
     .sequence(bc_sequence),
     .board_id(board_id),
     .write_trig(hub_write_trig),
@@ -434,8 +469,9 @@ EthernetIO EthernetTransfers(
     // to respond to quadlet read and block read commands.
     .reg_rdata(reg_rdata),             //  in: reg read data
     .reg_raddr(eth_reg_raddr),         // out: reg read addr
-    .req_read_bus(eth_req_read_bus),   // out: reg read enable
-    .reg_rdata_valid(1'b1),            //  in: indicates that reg_rdata is valid
+    .req_read_bus(eth_req_read_bus),   // out: read bus request
+    .grant_read_bus(eth_grant_read_bus),  // in: read bus grant
+    .reg_rvalid(reg_rvalid),           //  in: indicates that reg_rdata is valid
     .reg_wdata(eth_reg_wdata),         // out: reg write data
     .reg_waddr(eth_reg_waddr),         // out: reg write addr
     .reg_wen(eth_reg_wen),             // out: reg write enable
@@ -444,6 +480,7 @@ EthernetIO EthernetTransfers(
     .blk_rt_rd(eth_blk_rt_rd),         // out: real-time block read in process
     .req_blk_rt_rd(eth_req_blk_rt_rd), // out: real-time block read request
     .req_write_bus(eth_req_write_bus), // out: request write bus
+    .grant_write_bus(eth_grant_write_bus), // in: write bus grant
 
     // Low-level Firewire PHY access
     .lreq_trig(eth_lreq_trig),   // out: phy request trigger

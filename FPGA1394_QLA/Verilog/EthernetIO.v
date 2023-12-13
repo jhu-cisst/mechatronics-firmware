@@ -66,7 +66,8 @@ module EthernetIO
     input wire[31:0] reg_rdata,
     output reg[15:0] reg_raddr,
     output reg       req_read_bus,     // 1 -> request read bus (reg_raddr)
-    input wire       reg_rdata_valid,  // 1 -> reg_rdata should be valid
+    input wire       grant_read_bus,   // 1 -> read bus granted
+    input wire       reg_rvalid,       // 1 -> reg_rdata should be valid
     output reg[31:0] reg_wdata,
     output reg[15:0] reg_waddr,
     output reg       reg_wen,
@@ -75,6 +76,7 @@ module EthernetIO
     output reg       req_blk_rt_rd,    // request to start real-time block read
     output wire      blk_rt_rd,        // real-time block read
     output wire      req_write_bus,
+    input wire       grant_write_bus,
 
     // Low-level Firewire PHY access
     output reg lreq_trig,         // trigger signal for a FireWire phy request
@@ -137,13 +139,8 @@ reg ethFrameError;     // 1 -> Frame is not Raw, IPv4 or ARP
 reg ethIPv4Error;      // 1 -> IPv4 header error (protocol not UDP or ICMP; header version != 4)
 reg ethUDPError;       // 1 -> Wrong UDP port (not 1394)
 reg ethDestError;      // 1 -> Incorrect destination (FireWire destination does not begin with 0xFFC)
-reg ethAccessError;    // 1 -> Unable to access internal bus
 reg ethSendStateError; // 1 -> Invalid Ethernet state in Send state machine
 reg ethRecvStateError; // 1 -> Invalid Ethernet state in Receive state machine
-
-// Access error condition, check when latching reg_rdata
-wire ethAccessErrorCond;
-assign ethAccessErrorCond = req_read_bus & (~reg_rdata_valid);
 
 // Summary of packet-related error bits
 wire ethSummaryError;
@@ -151,7 +148,7 @@ assign ethSummaryError = ethFrameError | ethIPv4Error | ethUDPError | ethDestErr
 
 // Summary of internal error bits
 wire ethInternalError;
-assign ethInternalError = ethAccessError | ethSendStateError | ethRecvStateError | ethLLError;
+assign ethInternalError = ethSendStateError | ethRecvStateError | ethLLError;
 
 // Firewire bus generation. Incremented each time fw_bus_reset is cleared.
 reg[7:0] fw_bus_gen;
@@ -194,7 +191,7 @@ assign eth_status[7] = ethFrameError;      // 1 -> Ethernet frame unsupported
 assign eth_status[6] = ethIPv4Error;       // 1 -> IPv4 header error
 assign eth_status[5] = ethUDPError;        // 1 -> Wrong UDP port (not 1394)
 assign eth_status[4] = ethDestError;       // 1 -> Ethernet destination error
-assign eth_status[3] = ethAccessError;     // 1 -> Unable to access internal bus
+assign eth_status[3] = 1'b0;               // 1 -> Unable to access internal bus
 assign eth_status[2] = (ethSendStateError|ethRecvStateError);  // 1 -> Invalid send/receive state
 assign eth_status[1] = 1'b0;
 assign eth_status[0] = useUDP;             // 1 -> Using UDP, 0 -> Raw Ethernet
@@ -665,7 +662,7 @@ wire[31:0] DebugData[0:15];
 assign DebugData[0]  = "2GBD";  // DBG2 byte-swapped
 assign DebugData[1]  = timestamp;
 assign DebugData[2]  = { writeRequestQuad, writeRequestBlock, bw_active, eth_send_isIdle,  // 31:28
-                         eth_recv_isIdle, ethUDPError, ethAccessError, ethIPv4Error,             // 27:24
+                         eth_recv_isIdle, ethUDPError, 1'b0, ethIPv4Error,                 // 27:24
                          sendBusy, sendRequest, eth_send_fw_ack, eth_send_fw_req,                // 23:20
                          2'd0, isLocal, isRemote,                                                // 19:16
                          FireWirePacketFresh, isForward, sendARP, isUDP,                         // 15:12
@@ -770,7 +767,6 @@ reg FireWirePacketFresh;   // 1 -> FireWirePacket data is valid (fresh)
 always @(*)
 begin
    if (reg_raddr_in[7] == 0) begin               // 4x00-4x7f
-      // read_error = eth_send_fw_ack|bw_active|icmp_read_en;
       reg_rdata_out = mem_rdata;
    end
    else if (reg_raddr_in[6:4] == 3'b000) begin   // 4x80-4x8f
@@ -926,16 +922,6 @@ begin
 
    if (recvTransition) begin
       recvState <= nextRecvState;
-`ifdef HAS_DEBUG_DATA
-      if ((recvState != ST_RECEIVE_DMA_IDLE) && (nextRecvState == ST_RECEIVE_DMA_IDLE)) begin
-         // PK TODO: maybe move these somewhere else
-         // Increment counters
-         numIPv4 <= numIPv4 + {9'd0, isIPv4};
-         numARP <= numARP + {7'd0, isARP};
-         numICMP <= numICMP + {7'd0, isICMP};
-         numUDP <= numUDP + {9'd0, isUDP};
-      end
-`endif
    end
 
    case (recvState)
@@ -1212,6 +1198,13 @@ begin
          fw_wait_cnt <= fw_wait_cnt + 8'd1;
       end
       else begin
+`ifdef HAS_DEBUG_DATA
+         // Increment counters
+         numIPv4 <= numIPv4 + {9'd0, isIPv4};
+         numARP <= numARP + {7'd0, isARP};
+         numICMP <= numICMP + {7'd0, isICMP};
+         numUDP <= numUDP + {9'd0, isUDP};
+`endif
          if (isRebootCmd&isRemote&isLocal) begin
             // Special case handling of broadcast reboot
             rebootCnt <= 6'd1;
@@ -1300,7 +1293,6 @@ begin
    end
 
    if (resetActive|clearErrors) begin
-      ethAccessError <= 0;
       ethSendStateError <= 0;
    end
 
@@ -1416,7 +1408,6 @@ begin
 
    ST_SEND_DMA_ICMP_DATA:
    begin
-      //read_error = eth_send_fw_ack|bw_active;
       `send_word_swapped <= (sfw_count[0] == 0) ? mem_rdata[31:16]
                                               : mem_rdata[15:0];
       // Increment a little earlier due to reading from memory
@@ -1460,51 +1451,56 @@ begin
 
    ST_SEND_DMA_PACKETDATA_QUAD:
    begin
-      ethAccessError <= ethAccessError|ethAccessErrorCond;
-      if (sfw_count[0] == 0) begin
-         `send_word_swapped <= reg_rdata[31:16];
-         if (sendTransition) sfw_count[0] <= 1;
-         // stay in this state
-         //nextSendState <= ST_SEND_DMA_PACKETDATA_QUAD;
+      if (grant_read_bus&reg_rvalid) begin
+         if (sfw_count[0] == 0) begin
+            `send_word_swapped <= reg_rdata[31:16];
+            if (sendTransition) sfw_count[0] <= 1;
+         end
+         else begin
+            `send_word_swapped <= reg_rdata[15:0];
+            if (sendTransition) sfw_count[0] <= 0;
+            nextSendState <= ST_SEND_DMA_PACKETDATA_CHECKSUM;
+         end
       end
       else begin
-         `send_word_swapped <= reg_rdata[15:0];
-         if (sendTransition) sfw_count[0] <= 0;
-         nextSendState <= ST_SEND_DMA_PACKETDATA_CHECKSUM;
+         // Can note that read was interrupted/delayed
       end
    end
 
    ST_SEND_DMA_PACKETDATA_BLOCK:
    begin
-      if (sendTransition) sfw_count <= sfw_count + 10'd1;
-      ethAccessError <= ethAccessError|ethAccessErrorCond;
-      if (sfw_count[0] == 0) begin   // even count (upper word)
-         // Since we are not incrementing reg_raddr, writing to SDReg does not need
-         // to be conditioned on ~sendTransition, as in the odd sfw_count case below.
-         `send_word_swapped <= timestamp_rd ? timestamp_latched[31:16] : reg_rdata[31:16];
-         // stay in this state
-         //nextSendState <= ST_SEND_DMA_PACKETDATA_BLOCK;
-      end
-      else begin   // odd count (lower word)
+      if ((sfw_count[0] == 1) && sendReady) begin
          // 12-bit address increment, even though Firewire limited to 512 quadlets (9 bits)
          // because this way we can support non-zero starting addresses.
          // We have to increment reg_raddr during sendReady so that it works
          // correctly when reading from memory -- otherwise, the upper word (even sfw_count
-         // case above) will not yet be retrieved from the memory.
-         if (sendReady)
-            reg_raddr[11:0] <= reg_raddr[11:0] + 12'd1;
-         // For general block read (not real-time block read) cannot write to SDReg during
-         //  sendTransition so that the code works for both register reads (no delay) and
-         //  memory reads (1 clk delay).
-         if (addrMain)                    // real-time block read
-            `send_word_swapped <= timestamp_rd ? timestamp_latched[15:0] : reg_rdata[15:0];
-         else if (~sendTransition)        // general block read
-            `send_word_swapped <= reg_rdata[15:0];
-         // sfw_count is in words and block_data_length is in bytes, but we compare in quadlets
-         if ((sfw_count[9:1] + 8'd1) == block_data_length[10:2])
-            nextSendState <= ST_SEND_DMA_PACKETDATA_CHECKSUM;
-         //else
-         //   nextSendState <= ST_SEND_DMA_PACKETDATA_BLOCK;
+         // case below) will not yet be retrieved from the memory.
+         reg_raddr[11:0] <= reg_raddr[11:0] + 12'd1;
+      end
+      // TODO
+      // if (grant_read_bus&reg_rvalid) begin
+      if (grant_read_bus) begin
+         if (sendTransition) sfw_count <= sfw_count + 10'd1;
+         if (sfw_count[0] == 0) begin   // even count (upper word)
+            // Since we are not incrementing reg_raddr, writing to SDReg does not need
+            // to be conditioned on ~sendTransition, as in the odd sfw_count case above.
+            `send_word_swapped <= timestamp_rd ? timestamp_latched[31:16] : reg_rdata[31:16];
+         end
+         else begin   // odd count (lower word)
+            // For general block read (not real-time block read) cannot write to SDReg during
+            //  sendTransition so that the code works for both register reads (no delay) and
+            //  memory reads (1 clk delay).
+            if (addrMain)                    // real-time block read
+               `send_word_swapped <= timestamp_rd ? timestamp_latched[15:0] : reg_rdata[15:0];
+            else if (~sendTransition)        // general block read
+               `send_word_swapped <= reg_rdata[15:0];
+            // sfw_count is in words and block_data_length is in bytes, but we compare in quadlets
+            if ((sfw_count[9:1] + 8'd1) == block_data_length[10:2])
+               nextSendState <= ST_SEND_DMA_PACKETDATA_CHECKSUM;
+         end
+      end
+      else begin
+         // Can note that read was interrupted/delayed
       end
    end
 
@@ -1627,11 +1623,6 @@ localparam[2:0]
 reg[2:0] bwState = BW_IDLE;
 reg[1:0] bwCnt;
 reg bwAddrMain;        // 1 -> real-time block write
-
-// TODO: following signal should become input to module
-//       (1 --> have control of write bus)
-wire grant_write_bus;
-assign grant_write_bus = 1'b1;
 
 always @(posedge sysclk)
 begin

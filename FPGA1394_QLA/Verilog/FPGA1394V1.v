@@ -52,6 +52,7 @@ module FPGA1394V1
     output wire[15:0] reg_waddr,
     input wire[31:0]  reg_rdata_ext,
     output wire[31:0] reg_wdata,
+    input wire reg_rwait_ext,
     output wire reg_wen,
     output wire blk_wen,
     output wire blk_wstart,
@@ -132,15 +133,21 @@ wire[31:0] reg_rdata_hub;      // reg_rdata_hub is for hub memory
 wire[31:0] reg_rdata_prom;     // reg_rdata_prom is for block reads from PROM
 wire[31:0] reg_rdata_chan0;    // for reads from board registers
 
+wire reg_rwait;                // read wait state
+
 wire isAddrMain;
 assign isAddrMain = ((reg_raddr[15:12]==`ADDR_MAIN) && (reg_raddr[7:4]==4'd0)) ? 1'b1 : 1'b0;
 
 // Mux routing read data based on read address
 //   See Constants.v for details
 //     addr[15:12]  main | hub | prom | prom_qla | eth | firewire | dallas | databuf | waveform
-assign reg_rdata = (reg_raddr[15:12]==`ADDR_HUB) ? (reg_rdata_hub) :
-                   (reg_raddr[15:12]==`ADDR_PROM) ? (reg_rdata_prom) :
-                   isAddrMain ? reg_rdata_chan0 : reg_rdata_ext;
+// reg_rwait indicates when reg_rdata is valid
+//   0 --> one sysclk after reg_raddr set (e.g., register read)
+//   1 --> two sysclks after reg_raddr set (e.g., reading from memory)
+assign {reg_rdata, reg_rwait} =
+                   (reg_raddr[15:12]==`ADDR_HUB) ? {reg_rdata_hub, reg_rwait_hub} :
+                   (reg_raddr[15:12]==`ADDR_PROM) ? {reg_rdata_prom, 1'b0} :
+                   isAddrMain ? {reg_rdata_chan0, 1'b0} : {reg_rdata_ext, reg_rwait_ext};
 
 // Data for channel 0 (board registers) is distributed across several FPGA modules, as well
 // as coming from the external board (e.g., QLA). In the following, we mux these together
@@ -171,6 +178,7 @@ HubReg hub(
     .reg_waddr(reg_waddr),
     .reg_rdata(reg_rdata_hub),
     .reg_wdata(reg_wdata),
+    .reg_rwait(reg_rwait_hub),
     .sequence(bc_sequence),
     .board_id(board_id),
     .write_trig(hub_write_trig),

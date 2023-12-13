@@ -373,6 +373,7 @@ reg[7:0] numPacketSent;      // Number of packets sent to host PC
 
 `ifdef HAS_DEBUG_DATA
 reg[9:0] bw_wait;
+reg[9:0] bw_wait_last;
 `endif
 
 // -----------------------------------------------
@@ -386,7 +387,7 @@ assign DebugData[1]  = { isDMAWrite, sendRequest, ~ETH_IRQn, isInIRQ,     // 31:
                          24'd0 };
 assign DebugData[2]  = { 3'd0, state, 3'd0, retState, 3'd0, nextState, 3'd0, runPC }; // 5, 5, 5, 5
 assign DebugData[3]  = { 16'd0, RegISROther};                             // 16
-assign DebugData[4]  = { 6'd0, bw_wait, FrameCount, numPacketSent};       // 10, 8, 8
+assign DebugData[4]  = { 6'd0, bw_wait_last, FrameCount, numPacketSent};  // 10, 8, 8
 assign DebugData[5]  = { 16'd0, 4'd0, rxPktWords };                       // 12
 assign DebugData[6]  = { timeSend, timeReceive };                         // 16, 16
 assign DebugData[7]  = { numReset, numPacketInvalid, numPacketValid };    // 8, 8, 16
@@ -865,6 +866,7 @@ always @(posedge sysclk) begin
 `ifdef HAS_DEBUG_DATA
             numPacketValid <= 16'd0;
             numPacketInvalid <= 8'd0;
+            bw_wait_last <= 10'd0;
 `endif
          end
          if (!ksz_wdata[26] && (ksz_wdata[31:28] == 4'd0)) begin
@@ -1136,7 +1138,7 @@ always @(posedge sysclk) begin
          isDMARead <= 1'b0;
          waitInfo <= WAIT_NONE;
 `ifdef HAS_DEBUG_DATA
-         if (bw_active) bw_wait <= 10'd0;
+         bw_wait <= 10'd0;
 `endif
          runPC <= ID_FLUSH_FRAME;
       end
@@ -1165,6 +1167,9 @@ always @(posedge sysclk) begin
 `endif
       end
       else begin
+`ifdef HAS_DEBUG_DATA
+         if (bw_wait != 10'd0) bw_wait_last <= bw_wait;
+`endif
          timeReceive <= timeSinceIRQ;
          if (FrameValid & responseRequired) begin
             runPC <= ID_ENABLE_DMA_SEND;

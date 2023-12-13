@@ -50,7 +50,8 @@ add_subdirectory(ipcorev3_dir)
 set (VERILOG_SOURCE_COMMON "${VERILOG_SOURCE_DIR}/ClkDiv.v"
                            "${VERILOG_SOURCE_DIR}/Constants.v"
                            "${VERILOG_BINARY_DIR}/Versions.v"
-                           "${VERILOG_SOURCE_DIR}/ReadAddressTranslation.v")
+                           "${VERILOG_SOURCE_DIR}/ReadAddressTranslation.v"
+			   "${VERILOG_SOURCE_DIR}/ReadDataValid.v")
 
 add_custom_command (OUTPUT "${VERILOG_BINARY_DIR}/Versions-New.v"
                     COMMAND ${CMAKE_COMMAND} -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
@@ -101,6 +102,7 @@ set (VERILOG_SOURCE_FPGAV3
                          "${VERILOG_SOURCE_DIR}/RTL8211F.v"
                          "${VERILOG_SOURCE_DIR}/EthernetIO.v"
                          "${VERILOG_SOURCE_DIR}/EthSwitchRt.v"
+			 "${VERILOG_SOURCE_DIR}/EmioBus.v"
                          "${IPCOREV3_BINARY_DIR}/hub_mem_gen.v"
                          "${IPCOREV3_BINARY_DIR}/Dual_port_RAM_32X1024.v"
                          "${IPCOREV3_BINARY_DIR}/fifo_8x8192_16.v"

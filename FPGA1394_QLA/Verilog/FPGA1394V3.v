@@ -73,6 +73,7 @@ module FPGA1394V3
     output reg[15:0]  reg_waddr,
     input wire[31:0]  reg_rdata_ext,
     output reg[31:0]  reg_wdata,
+    input wire reg_rwait_ext,
     output reg reg_wen,
     output reg blk_wen,
     output reg blk_wstart,
@@ -108,24 +109,34 @@ assign reset_phy = 1'b1;
     wire[2:0] eth_lreq_type;    // phy request type from Ethernet
     wire fw_reg_wen;            // register write signal from FireWire
     wire eth_reg_wen;           // register write signal from Ethernet
+    wire ps_reg_wen;            // register write signal from PS EMIO
     wire fw_blk_wen;            // block write enable from FireWire
     wire eth_blk_wen;           // block write enable from Ethernet
+    wire ps_blk_wen;            // block write enable from PS EMIO
     wire fw_blk_wstart;         // block write start from FireWire
     wire eth_blk_wstart;        // block write start from Ethernet
+    wire ps_blk_wstart;         // block write start from PS EMIO
     wire fw_req_blk_rt_rd;      // real-time block read request from FireWire
     wire eth_req_blk_rt_rd;     // real-time block read request from Ethernet
+    wire ps_req_blk_rt_rd;      // real-time block read request from PS EMIO
     wire fw_blk_rt_rd;          // real-time block read from FireWire
     wire eth_blk_rt_rd;         // real-time block read from Ethernet
+    wire ps_blk_rt_rd;          // real-time block read from PS EMIO
     wire[15:0] fw_reg_raddr;    // 16-bit reg read address from FireWire
     wire[15:0] eth_reg_raddr;   // 16-bit reg read address from Ethernet
+    wire[15:0] ps_reg_raddr;    // 16-bit reg read address from PS EMIO
     wire[15:0] fw_reg_waddr;    // 16-bit reg write address from FireWire
     wire[15:0] eth_reg_waddr;   // 16-bit reg write address from Ethernet
+    wire[15:0] ps_reg_waddr;    // 16-bit reg write address from PS EMIO
     wire[31:0] fw_reg_wdata;    // reg write data from FireWire
     wire[31:0] eth_reg_wdata;   // reg write data from Ethernet
+    wire[31:0] ps_reg_wdata;    // reg write data from PS EMIO
     wire fw_req_read_bus;       // 1 -> Firewire is requesting read bus (driving reg_raddr and blk_rt_rd to read from board registers)
     wire eth_req_read_bus;      // 1 -> Ethernet is requesting read bus (driving reg_raddr and blk_rt_rd to read from board registers)
+    wire ps_req_read_bus;       // 1 -> PS EMIO is requesting read bus (driving reg_raddr and blk_rt_rd to read from board registers)
     wire fw_req_write_bus;      // 1 -> Firewire is requesting write bus (driving reg_waddr, reg_wdata, reg_wen, blk_wen, blk_wstart)
     wire eth_req_write_bus;     // 1 -> Ethernet is requesting write bus (driving reg_waddr, reg_wdata, reg_wen, blk_wen, blk_wstart)
+    wire ps_req_write_bus;      // 1 -> PS EMIO is requesting write bus (driving reg_waddr, reg_wdata, reg_wen, blk_wen, blk_wstart)
     wire[5:0] node_id;          // 6-bit phy node id
     wire[31:0] prom_status;
     wire[31:0] prom_result;
@@ -137,150 +148,34 @@ wire[63:0] emio_ps_in;     // EMIO input to PS
 wire[63:0] emio_ps_out;    // EMIO output from PS
 wire[63:0] emio_ps_tri;    // EMIO tristate from PS (1 -> input to PS, 0 -> output from PS)
 
-reg[31:0]  ps_reg_rdata;                       // emio[31:0]
-wire[31:0] ps_reg_wdata = emio_ps_out[31:0];   // emio[31:0]
-wire[15:0] ps_reg_addr = emio_ps_out[47:32];   // emio[47:32]
-wire       ps_req_bus = emio_ps_out[48];       // emio[48]
-reg        ps_read_done;                       // emio[49]
-reg        ps_write_done;                      // emio[49]
-wire       ps_reg_wen = emio_ps_out[50];       // emio[50]
-wire       ps_blk_wstart = emio_ps_out[51];    // emio[51]
-wire       ps_blk_wen = emio_ps_out[52];       // emio[52]
-wire       ps_write;                           // emio[53]
+//********************* Read Bus Arbitration *************************************
+// Firewire gets bus when requested, and has it when system is idle
+// Ethernet gets bus when not requested by Firewire and when not already granted to PS
+//   (i.e., Ethernet will not interrupt PS)
+// PS EMIO gets bus when not requested by (and granted to) Firewire or granted to Ethernet
 
-wire ps_req_read_bus;
-wire ps_req_write_bus;
-
-// It is a write when no data lines are tristate; otherwise, we assume a read
-assign ps_write = (emio_ps_tri[31:0] == 32'd0) ? 1'b1 : 1'b0;
-
-assign ps_req_read_bus = ps_req_bus & (~ps_write);
-assign ps_req_write_bus = ps_req_bus & ps_write;
-
-assign emio_ps_in = {10'd0, ps_write,
-                     ps_blk_wen, ps_blk_wstart, ps_reg_wen,
-                     (ps_write ? ps_write_done : ps_read_done),
-                     ps_req_bus, ps_reg_addr,
-                     (ps_write ? ps_reg_wdata : ps_reg_rdata) };
-
-//******************* Arbitration for read bus ****************************
-
-localparam[1:0]
-    RB_IDLE = 2'd0,
-    RB_PS   = 2'd1,
-    RB_FW   = 2'd2,
-    RB_ETH  = 2'd3;
-
-reg[1:0] rbState = RB_IDLE;
-reg[1:0] rbStateNext;
-
-// Counts number of clocks that we were in the same state.
-// Generally, we want at least 3 clocks for a successful read:
-//   1 clock to set reg_raddr
-//   1 clock to wait for RAM access (in some cases)
-//   1 clock to latch reg_rdata
-reg[1:0] rbCnt;
-
-// For synchronizing ps_req_read_bus with sysclk and generating triggers
-// on the rising and falling edges.
-reg  ps_req_read_bus_1;
-reg  ps_req_read_bus_2;
-wire ps_req_read_bus_trig;
-wire ps_req_read_bus_untrig;
-
-// Generate ps_req_read_bus_trig on rising edge of ps_req_read_bus
-assign ps_req_read_bus_trig = (ps_req_read_bus_1 & (~ps_req_read_bus_2));
-
-// Generate ps_req_read_bus_untrig on falling edge of ps_req_read_bus
-assign ps_req_read_bus_untrig = ((~ps_req_read_bus_1) & ps_req_read_bus_2);
-
-always @(*)
-begin
-
-   case (rbState)
-
-   RB_IDLE:
-   begin
-     // We give priority to PS read request because it only requires 3 clocks, so
-     // it would be done before the Firewire or Ethernet would need the bus (this
-     // is true because the Firewire and Ethernet modules assert the REQ signal
-     // several clock cycles in advance).
-     if (ps_req_read_bus_trig) rbStateNext = RB_PS;
-     else if (fw_req_read_bus) rbStateNext = RB_FW;
-     else if (eth_req_read_bus) rbStateNext = RB_ETH;
-     else rbStateNext = RB_IDLE;
-   end
-
-   RB_PS:
-     // We only stay in the RB_PS state for 3 clocks
-     rbStateNext = (rbCnt != 2'd2) ? RB_PS : RB_IDLE;
-
-   RB_FW:
-     // Firewire keeps the bus until it deasserts the REQ signal
-     rbStateNext = fw_req_read_bus ? RB_FW : RB_IDLE;
-
-   RB_ETH:
-     // Ethernet keeps the bus until it deasserts the REQ signal
-     rbStateNext = eth_req_read_bus ? RB_ETH : RB_IDLE;
-
-   endcase
-end
-
+reg ps_grant_read_bus_reg;
 always @(posedge sysclk)
 begin
-    rbState <= rbStateNext;
-    if (rbState != rbStateNext)
-       rbCnt <= 2'd0;           // Reset counter if state change
-    else if (rbCnt != 2'd2)
-       rbCnt <= rbCnt + 2'd1;   // Else, count up to 2
-
-    // Synchronize PS read request with sysclk
-    ps_req_read_bus_1 <= (rbState == RB_IDLE) ? ps_req_read_bus : 1'b0;
-    ps_req_read_bus_2 <= ps_req_read_bus_1;
-
-    if ((rbState == RB_PS) && (rbCnt == 2'd2)) begin
-        // Latch ps_reg_rdata after 3 clocks and set ps_read_done
-        ps_reg_rdata <= reg_rdata;
-        ps_read_done <= 1'b1;
-    end
-    if (ps_req_read_bus_untrig) begin
-        // Clear ps_read_done when PS deasserts ps_req_read_bus
-        ps_read_done <= 1'b0;
-    end
+   ps_grant_read_bus_reg <= ps_grant_read_bus;
 end
 
-wire ps_has_read_bus;    // PS has control of the read bus
-wire fw_has_read_bus;    // Firewire has control of the read bus
-wire eth_has_read_bus;   // Ethernet has control of the read bus
-
-assign ps_has_read_bus = (rbState == RB_PS) ? 1'b1 : 1'b0;
-assign fw_has_read_bus = ((rbState == RB_FW) || (rbState == RB_IDLE)) ? 1'b1 : 1'b0;
-assign eth_has_read_bus = (rbState == RB_ETH) ? 1'b1 : 1'b0;
+assign fw_grant_read_bus = fw_req_read_bus | (~(eth_req_read_bus|ps_req_read_bus));
+assign eth_grant_read_bus = (~fw_req_read_bus) & eth_req_read_bus & (~ps_grant_read_bus_reg);
+assign ps_grant_read_bus = (~fw_req_read_bus) & (~eth_grant_read_bus) & ps_req_read_bus;
 
 wire[15:0] host_reg_raddr;
-assign host_reg_raddr = ps_has_read_bus  ? ps_reg_addr  :
-                        eth_has_read_bus ? eth_reg_raddr :
-                                           fw_reg_raddr;
+assign host_reg_raddr = ps_grant_read_bus  ? ps_reg_raddr  :
+                        eth_grant_read_bus ? eth_reg_raddr :
+                                             fw_reg_raddr;
 
-// TODO: add ps_blk_rt_rd and ps_req_blk_rt_rd
-
-assign blk_rt_rd = eth_has_read_bus ? eth_blk_rt_rd :
+assign blk_rt_rd = ps_grant_read_bus ? ps_blk_rt_rd :
+                   eth_grant_read_bus ? eth_blk_rt_rd :
                    fw_blk_rt_rd;
 
 // The real-time block read request indicates that we have latched the
 // timestamp and will soon be starting a real-time block read.
-assign req_blk_rt_rd = fw_req_blk_rt_rd | eth_req_blk_rt_rd;
-
-// The xx_reg_rdata_valid signals indicate that reg_rdata should be valid (i.e.,
-// should correspond to the data addressed by xx_reg_raddr) since we have been in the
-// correct state for at least 3 consecutive clock cycles (including the current clock cycle).
-// These can be used for error checking within the Firewire and Ethernet modules.
-// Note that ps_read_done is set above.
-wire fw_reg_rdata_valid;
-wire eth_reg_rdata_valid;
-
-assign fw_reg_rdata_valid = (fw_has_read_bus && (rbCnt == 2'd2)) ? 1'b1 : 1'b0;
-assign eth_reg_rdata_valid = (eth_has_read_bus && (rbCnt == 2'd2)) ? 1'b1 : 1'b0;
+assign req_blk_rt_rd = fw_req_blk_rt_rd | eth_req_blk_rt_rd | ps_req_blk_rt_rd;
 
 //*********************** Read Address Translation *******************************
 
@@ -307,17 +202,25 @@ wire[31:0] reg_rdata_eswrt;    // for eth memory access (EthSwitchRt)
 wire[31:0] reg_rdata_fw;       // for fw memory access
 wire[31:0] reg_rdata_chan0;    // for reads from board registers
 
+wire reg_rwait;                // read wait state
+wire reg_rvalid;               // reg_rdata is valid (based on reg_rwait)
+
 wire isAddrMain;
 assign isAddrMain = ((reg_raddr[15:12]==`ADDR_MAIN) && (reg_raddr[7:4]==4'd0)) ? 1'b1 : 1'b0;
 
 // Mux routing read data based on read address
 //   See Constants.v for details
 //     addr[15:12]  main | hub | prom | prom_qla | eth | firewire | dallas | databuf | waveform
-assign reg_rdata = (reg_raddr[15:12]==`ADDR_HUB) ? (reg_rdata_hub) :
-                   (reg_raddr[15:12]==`ADDR_PROM) ? (reg_rdata_prom) :
-                   (reg_raddr[15:12]==`ADDR_ETH) ? (reg_rdata_eth|reg_rdata_rtl|reg_rdata_eswrt) :
-                   (reg_raddr[15:12]==`ADDR_FW) ? (reg_rdata_fw) :
-                   isAddrMain ? reg_rdata_chan0 : reg_rdata_ext;
+// reg_rwait indicates when reg_rdata is valid
+//   0 --> one sysclk after reg_raddr set (e.g., register read)
+//   1 --> two sysclks after reg_raddr set (e.g., reading from memory)
+// For ADDR_ETH, set reg_rwait=1 (worst-case) even though it could be 0 in some cases
+assign {reg_rdata, reg_rwait} =
+                   (reg_raddr[15:12]==`ADDR_HUB) ? {reg_rdata_hub, reg_rwait_hub} :
+                   (reg_raddr[15:12]==`ADDR_PROM) ? {reg_rdata_prom, 1'b0} :
+                   (reg_raddr[15:12]==`ADDR_ETH) ? {reg_rdata_eth|reg_rdata_rtl|reg_rdata_eswrt, 1'b1} :
+                   (reg_raddr[15:12]==`ADDR_FW) ? {reg_rdata_fw, 1'b1} :
+                   isAddrMain ? {reg_rdata_chan0, 1'b0} : {reg_rdata_ext, reg_rwait_ext};
 
 // Data for channel 0 (board registers) is distributed across several FPGA modules, as well
 // as coming from the external board (e.g., QLA). In the following, we mux these together
@@ -332,109 +235,46 @@ assign reg_rdata_chan0_ext =
                    (reg_raddr[3:0]==`REG_ETHSTAT) ? Eth_Result :
                    reg_rdata_ext;
 
-//******************* Arbitration for write bus ****************************
+// Generate reg_rvalid
+ReadDataValid rdata_valid
+(
+   .sysclk(sysclk),
+   .reg_raddr(reg_raddr),
+   .reg_rwait(reg_rwait),
+   .reg_rvalid(reg_rvalid)
+ );
 
-localparam[2:0]
-    WB_IDLE   = 3'd0,
-    WB_PS     = 3'd1,
-    WB_FW     = 3'd2,
-    WB_ETH    = 3'd3,
-    WB_PS_BLK = 3'd4;
+//********************* Write Bus Arbitration *************************************
+// Firewire gets bus when requested, and has it when system is idle
+// Ethernet gets bus when not requested by Firewire and when not already granted to PS
+//   (i.e., Ethernet will not interrupt PS)
+// PS EMIO gets bus when not requested by (and granted to) Firewire or granted to Ethernet
 
-reg[2:0] wbState = WB_IDLE;
-reg[2:0] wbStateNext;
-
-// For synchronizing ps_req_write_bus with sysclk and generating triggers
-// on the rising and falling edges.
-reg  ps_req_write_bus_1;
-reg  ps_req_write_bus_2;
-wire ps_req_write_bus_trig;
-wire ps_req_write_bus_untrig;
-
-// Generate ps_req_write_bus_trig on rising edge of ps_req_write_bus
-assign ps_req_write_bus_trig = (ps_req_write_bus_1 & (~ps_req_write_bus_2));
-
-// Generate ps_req_write_bus_untrig on falling edge of ps_req_write_bus
-assign ps_req_write_bus_untrig = ((~ps_req_write_bus_1) & ps_req_write_bus_2);
-
-always @(*)
-begin
-
-   case (wbState)
-
-   WB_IDLE:
-   begin
-     if (fw_req_write_bus) wbStateNext = WB_FW;
-     else if (eth_req_write_bus) wbStateNext = WB_ETH;
-     else if (ps_req_write_bus_trig) wbStateNext = ps_blk_wstart ? WB_PS_BLK : WB_PS;
-     else wbStateNext = WB_IDLE;
-   end
-
-   WB_PS:
-     // We stay in the WB_PS state for 1 clock
-     wbStateNext = reg_wen ? WB_IDLE : WB_PS;
-
-   WB_FW:
-     // Firewire keeps the bus until it deasserts the REQ signal
-     wbStateNext = fw_req_write_bus ? WB_FW : WB_IDLE;
-
-   WB_ETH:
-     // Ethernet keeps the bus until it deasserts the REQ signal
-     wbStateNext = eth_req_write_bus ? WB_ETH : WB_IDLE;
-
-   WB_PS_BLK:
-     // PS holds the bus until it deasserts ps_req_write_bus or
-     // issues blk_wen
-     wbStateNext = (ps_req_write_bus_untrig | blk_wen) ? WB_IDLE : WB_PS_BLK;
-
-   default:
-     // Should not happen
-     wbStateNext = WB_IDLE;
-
-   endcase
-end
-
+reg ps_grant_write_bus_reg;
 always @(posedge sysclk)
 begin
-    wbState <= wbStateNext;
-
-    // Synchronize PS write request with sysclk
-    ps_req_write_bus_1 <= (wbState == WB_IDLE) ? ps_req_write_bus : 1'b0;
-    ps_req_write_bus_2 <= ps_req_write_bus_1;
-
-    if ((wbState == WB_PS) || (wbState == WB_PS_BLK)) begin
-        ps_write_done <= reg_wen;
-    end
-
-    if (ps_req_write_bus_untrig) begin
-        // Clear ps_write_done when PS deasserts ps_req_write_bus
-        ps_write_done <= 1'b0;
-    end
+   ps_grant_write_bus_reg <= ps_grant_write_bus;
 end
 
-wire ps_has_write_bus;    // PS has control of the write bus
-wire fw_has_write_bus;    // Firewire has control of the write bus
-wire eth_has_write_bus;   // Ethernet has control of the write bus
+assign fw_grant_write_bus = fw_req_write_bus | (~(eth_req_write_bus|ps_req_write_bus));
+assign eth_grant_write_bus = (~fw_req_write_bus) & eth_req_write_bus & (~ps_grant_write_bus_reg);
+assign ps_grant_write_bus = (~fw_req_write_bus) & (~eth_grant_write_bus) & ps_req_write_bus;
 
-assign ps_has_write_bus = ((wbState == WB_PS) || (wbState == WB_PS_BLK)) ? 1'b1 : 1'b0;
-assign fw_has_write_bus = ((wbState == WB_FW) || (wbState == WB_IDLE)) ? 1'b1 : 1'b0;
-assign eth_has_write_bus = (wbState == WB_ETH) ? 1'b1 : 1'b0;
-
-// Multiplexing of write bus between BW, PS, FW and ETH
+// Multiplexing of write bus between PS, FW and ETH
 always @(*)
 begin
-   if (eth_has_write_bus) begin
+   if (eth_grant_write_bus) begin
       reg_wen = eth_reg_wen;
       blk_wen = eth_blk_wen;
       blk_wstart = eth_blk_wstart;
       reg_waddr = eth_reg_waddr;
       reg_wdata = eth_reg_wdata;
    end
-   else if (ps_has_write_bus) begin
+   else if (ps_grant_write_bus) begin
       reg_wen = ps_reg_wen;
       blk_wen = ps_blk_wen;
       blk_wstart = ps_blk_wstart;
-      reg_waddr = ps_reg_addr;
+      reg_waddr = ps_reg_waddr;
       reg_wdata = ps_reg_wdata;
    end
    else begin
@@ -469,6 +309,7 @@ HubReg hub(
     .reg_waddr(reg_waddr),
     .reg_rdata(reg_rdata_hub),
     .reg_wdata(reg_wdata),
+    .reg_rwait(reg_rwait_hub),
     .sequence(bc_sequence),
     .board_id(board_id),
     .write_trig(hub_write_trig),
@@ -902,7 +743,8 @@ EthernetTransfers(
     .reg_rdata(reg_rdata),             //  in: reg read data
     .reg_raddr(eth_reg_raddr),         // out: reg read addr
     .req_read_bus(eth_req_read_bus),   // out: reg read enable
-    .reg_rdata_valid(eth_reg_rdata_valid),  // in: indicates that reg_rdata is valid
+    .grant_read_bus(eth_grant_read_bus),  // in: read bus grant
+    .reg_rvalid(reg_rvalid),           // in: indicates that reg_rdata is valid
     .reg_wdata(eth_reg_wdata),         // out: reg write data
     .reg_waddr(eth_reg_waddr),         // out: reg write addr
     .reg_wen(eth_reg_wen),             // out: reg write enable
@@ -911,6 +753,7 @@ EthernetTransfers(
     .blk_rt_rd(eth_blk_rt_rd),         // out: real-time block read in process
     .req_blk_rt_rd(eth_req_blk_rt_rd), // out: real-time block read request
     .req_write_bus(eth_req_write_bus), // out: request write bus
+    .grant_write_bus(eth_grant_write_bus), // in: write bus grant
 
     // Low-level Firewire PHY access
     .lreq_trig(eth_lreq_trig),   // out: phy request trigger
@@ -984,6 +827,7 @@ end
 // should always be 64.
 // PC software uses lower 4 bits of prom_status to indicate that data is ready
 // (when all bits are 0).
+
 assign prom_result = 32'd64;
 assign prom_status = 32'd0;
 
@@ -1126,6 +970,29 @@ fpgav3 zynq_ps7(
 //    txd:    output from PS and PL ethernet, mux input to gmii_to_rgmii core
 //    tx_en:  output from PS and PL ethernet, mux input to gmii_to_rgmii core
 //    tx_err: output from PS and PL ethernet, mux input to gmii_to_rgmii core
+
+EmioBus PS_EMIO(
+    .sysclk(sysclk),
+
+    .emio_ps_in(emio_ps_in),
+    .emio_ps_out(emio_ps_out),
+    .emio_ps_tri(emio_ps_tri),
+
+    .reg_raddr(ps_reg_raddr),
+    .reg_rdata(reg_rdata),
+    .reg_rvalid(reg_rvalid),
+    .req_read_bus(ps_req_read_bus),
+    .grant_read_bus(ps_grant_read_bus),
+    .reg_waddr(ps_reg_waddr),
+    .reg_wdata(ps_reg_wdata),
+    .reg_wen(ps_reg_wen),
+    .blk_wen(ps_blk_wen),
+    .blk_wstart(ps_blk_wstart),
+    .req_blk_rt_rd(ps_req_blk_rt_rd),
+    .blk_rt_rd(ps_blk_rt_rd),
+    .req_write_bus(ps_req_write_bus),
+    .grant_write_bus(ps_grant_write_bus)
+);
 
 // *** BEGIN: TEST code for PS clocks
 
