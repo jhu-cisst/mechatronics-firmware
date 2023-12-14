@@ -117,12 +117,12 @@ assign ETH_8n = 1;          // 16-bit bus
     wire[31:0] eth_reg_wdata;   // reg write data from Ethernet
     wire fw_req_read_bus;       // 1 -> Firewire is requesting read bus (driving reg_raddr and blk_rt_rd to read from board registers)
     wire eth_req_read_bus;      // 1 -> Ethernet is requesting read bus (driving reg_raddr and blk_rt_rd to read from board registers)
-    wire fw_grant_read_bus;     // 1 -> Firewire has read bus
-    wire eth_grant_read_bus;    // 1 -> Ethernet has read bus
+    reg  fw_grant_read_bus;     // 1 -> Firewire has read bus
+    reg  eth_grant_read_bus;    // 1 -> Ethernet has read bus
     wire fw_req_write_bus;      // 1 -> Firewire is requesting write bus (driving reg_waddr, reg_wdata, reg_wen, blk_wen, blk_wstart)
     wire eth_req_write_bus;     // 1 -> Ethernet is requesting write bus (driving reg_waddr, reg_wdata, reg_wen, blk_wen, blk_wstart)
-    wire fw_grant_write_bus;    // 1 -> Firewire has write bus
-    wire eth_grant_write_bus;   // 1 -> Ethernet has write bus
+    reg  fw_grant_write_bus;    // 1 -> Firewire has write bus
+    reg  eth_grant_write_bus;   // 1 -> Ethernet has write bus
     wire[5:0] node_id;          // 6-bit phy node id
     wire[31:0] prom_status;
     wire[31:0] prom_result;
@@ -133,8 +133,11 @@ assign ETH_8n = 1;          // 16-bit bus
 //********************* Read Bus Arbitration *************************************
 // Firewire gets bus when requested, and has it when system is idle
 
-assign fw_grant_read_bus = fw_req_read_bus | (~eth_req_read_bus);
-assign eth_grant_read_bus = (~fw_req_read_bus) & eth_req_read_bus;
+always @(posedge sysclk)
+begin
+    fw_grant_read_bus <= fw_req_read_bus | (~eth_req_read_bus);
+    eth_grant_read_bus <= (~fw_req_read_bus) & eth_req_read_bus;
+end
 
 wire[15:0] host_reg_raddr;
 assign host_reg_raddr = eth_grant_read_bus ? eth_reg_raddr :
@@ -172,6 +175,7 @@ wire[31:0] reg_rdata_fw;       // for fw memory access
 wire[31:0] reg_rdata_chan0;    // for reads from board registers
 
 wire reg_rwait;                // read wait state
+wire reg_rwait_chan0;
 wire reg_rvalid;               // reg_rdata is valid (based on reg_rwait)
 
 wire isAddrMain;
@@ -181,28 +185,28 @@ assign isAddrMain = ((reg_raddr[15:12]==`ADDR_MAIN) && (reg_raddr[7:4]==4'd0)) ?
 //   See Constants.v for details
 //     addr[15:12]  main | hub | prom | prom_qla | eth | firewire | dallas | databuf | waveform
 // reg_rwait indicates when reg_rdata is valid
-//   0 --> one sysclk after reg_raddr set (e.g., register read)
-//   1 --> two sysclks after reg_raddr set (e.g., reading from memory)
+//   0 --> same sysclk as reg_raddr (e.g., register read)
+//   1 --> one sysclk after reg_raddr set (e.g., reading from memory)
 // For ADDR_ETH, set reg_rwait=1 (worst-case) even though it could be 0 in some cases
 assign {reg_rdata, reg_rwait} =
-                   (reg_raddr[15:12]==`ADDR_HUB) ? {reg_rdata_hub, reg_rwait_hub} :
-                   (reg_raddr[15:12]==`ADDR_PROM) ? {reg_rdata_prom, 1'b0} :
-                   (reg_raddr[15:12]==`ADDR_ETH) ? {reg_rdata_eth|reg_rdata_ksz, 1'b1} :
-                   (reg_raddr[15:12]==`ADDR_FW) ? {reg_rdata_fw, 1'b1} :
-                   isAddrMain ? {reg_rdata_chan0, 1'b0} : {reg_rdata_ext, reg_rwait_ext};
+                   ((reg_raddr[15:12]==`ADDR_HUB) ? {reg_rdata_hub, reg_rwait_hub} :
+                    (reg_raddr[15:12]==`ADDR_PROM) ? {reg_rdata_prom, 1'b0} :
+                    (reg_raddr[15:12]==`ADDR_ETH) ? {reg_rdata_eth|reg_rdata_ksz, 1'b1} :
+                    (reg_raddr[15:12]==`ADDR_FW) ? {reg_rdata_fw, 1'b1} :
+                    isAddrMain ? {reg_rdata_chan0 | reg_rdata_chan0_ext, reg_rwait_chan0} :
+                    {32'd0, 1'b0}) | {reg_rdata_ext, reg_rwait_ext};
 
 // Data for channel 0 (board registers) is distributed across several FPGA modules, as well
-// as coming from the external board (e.g., QLA). In the following, we mux these together
-// and then provide it as input to BoardRegs, which muxes a few additional registers,
-// and provides the final result as reg_rdata_chan0, which is muxed to reg_rdata above.
+// as coming from the external board (e.g., QLA).
 // It is not necessary to check isAddrMain in the following because it is done above.
+// Also, reg_rwait = 0 for all of these.
 wire[31:0] reg_rdata_chan0_ext;
 assign reg_rdata_chan0_ext =
                    (reg_raddr[3:0]==`REG_PROMSTAT) ? prom_status :
                    (reg_raddr[3:0]==`REG_PROMRES) ? prom_result :
                    (reg_raddr[3:0]==`REG_IPADDR) ? ip_address :
                    (reg_raddr[3:0]==`REG_ETHSTAT) ? Eth_Result :
-                   reg_rdata_ext;
+                   32'd0;
 
 // Generate reg_rvalid
 ReadDataValid rdata_valid
@@ -216,8 +220,11 @@ ReadDataValid rdata_valid
 //********************* Write Bus Arbitration *************************************
 // Firewire gets bus when requested, and has it when system is idle
 
-assign fw_grant_write_bus = fw_req_write_bus | (~eth_req_write_bus);
-assign eth_grant_write_bus = (~fw_req_write_bus) & eth_req_write_bus;
+always @(posedge sysclk)
+begin
+    fw_grant_write_bus <= fw_req_write_bus | (~eth_req_write_bus);
+    eth_grant_write_bus <= (~fw_req_write_bus) & eth_req_write_bus;
+end
 
 always @(*)
 begin
@@ -564,9 +571,9 @@ BoardRegs chan0(
     .reg_raddr(reg_raddr),
     .reg_waddr(reg_waddr),
     .reg_rdata(reg_rdata_chan0),
+    .reg_rwait(reg_rwait_chan0),
     .reg_wdata(reg_wdata),
     .reg_wen(reg_wen),
-    .reg_rdata_ext(reg_rdata_chan0_ext),
 
     .wdog_period_led(wdog_period_led),
     .wdog_period_status(wdog_period_status),

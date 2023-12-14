@@ -134,6 +134,7 @@ wire[31:0] reg_rdata_prom;     // reg_rdata_prom is for block reads from PROM
 wire[31:0] reg_rdata_chan0;    // for reads from board registers
 
 wire reg_rwait;                // read wait state
+wire reg_rwait_chan0;
 
 wire isAddrMain;
 assign isAddrMain = ((reg_raddr[15:12]==`ADDR_MAIN) && (reg_raddr[7:4]==4'd0)) ? 1'b1 : 1'b0;
@@ -142,25 +143,25 @@ assign isAddrMain = ((reg_raddr[15:12]==`ADDR_MAIN) && (reg_raddr[7:4]==4'd0)) ?
 //   See Constants.v for details
 //     addr[15:12]  main | hub | prom | prom_qla | eth | firewire | dallas | databuf | waveform
 // reg_rwait indicates when reg_rdata is valid
-//   0 --> one sysclk after reg_raddr set (e.g., register read)
-//   1 --> two sysclks after reg_raddr set (e.g., reading from memory)
+//   0 --> same sysclk as reg_raddr (e.g., register read)
+//   1 --> one sysclk after reg_raddr set (e.g., reading from memory)
 assign {reg_rdata, reg_rwait} =
-                   (reg_raddr[15:12]==`ADDR_HUB) ? {reg_rdata_hub, reg_rwait_hub} :
-                   (reg_raddr[15:12]==`ADDR_PROM) ? {reg_rdata_prom, 1'b0} :
-                   isAddrMain ? {reg_rdata_chan0, 1'b0} : {reg_rdata_ext, reg_rwait_ext};
+                   ((reg_raddr[15:12]==`ADDR_HUB) ? {reg_rdata_hub, reg_rwait_hub} :
+                    (reg_raddr[15:12]==`ADDR_PROM) ? {reg_rdata_prom, 1'b0} :
+                    isAddrMain ? {reg_rdata_chan0 | reg_rdata_chan0_ext, reg_rwait_chan0} :
+                    {32'd0, 1'b0}) | {reg_rdata_ext, reg_rwait_ext};
 
 // Data for channel 0 (board registers) is distributed across several FPGA modules, as well
-// as coming from the external board (e.g., QLA). In the following, we mux these together
-// and then provide it as input to BoardRegs, which muxes a few additional registers,
-// and provides the final result as reg_rdata_chan0, which is muxed to reg_rdata above.
+// as coming from the external board (e.g., QLA).
 // It is not necessary to check isAddrMain in the following because it is done above.
+// Also, reg_rwait = 0 for all of these.
 wire[31:0] reg_rdata_chan0_ext;
 assign reg_rdata_chan0_ext =
                    (reg_raddr[3:0]==`REG_PROMSTAT) ? prom_status :
                    (reg_raddr[3:0]==`REG_PROMRES) ? prom_result :
                    (reg_raddr[3:0]==`REG_IPADDR) ? ip_address :
                    (reg_raddr[3:0]==`REG_ETHSTAT) ? Eth_Result :
-                   reg_rdata_ext;
+                   32'd0;
 
 // --------------------------------------------------------------------------
 // hub register module
@@ -270,9 +271,9 @@ BoardRegs chan0(
     .reg_raddr(reg_raddr),
     .reg_waddr(reg_waddr),
     .reg_rdata(reg_rdata_chan0),
+    .reg_rwait(reg_rwait_chan0),
     .reg_wdata(reg_wdata),
     .reg_wen(reg_wen),
-    .reg_rdata_ext(reg_rdata_chan0_ext),
 
     .wdog_period_led(wdog_period_led),
     .wdog_period_status(wdog_period_status),

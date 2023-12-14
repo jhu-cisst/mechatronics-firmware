@@ -189,6 +189,7 @@ assign io_extra[3] = 1'bz; // dSIB INT
 
 wire[31:0] reg_rdata_prom_qla; // reads from QLA prom
 wire[31:0] reg_rdata_chan0;    // 'channel 0' is a special axis that contains various board I/Os
+wire reg_rwait_chan0;
 wire[31:0] reg_rdata_motor_control;
 reg[31:0] reg_rdata_main;
 reg[31:0] reg_rdata_board_specific;
@@ -203,7 +204,7 @@ always @(*) begin
         `ADDR_MOTOR_CONTROL: {reg_rdata, reg_rwait} = {reg_rdata_motor_control, 1'b0};
         `ADDR_ESPM: {reg_rdata, reg_rwait} = {reg_espm_bram, 1'b0};
         `ADDR_BOARD_SPECIFIC: {reg_rdata, reg_rwait} = {reg_rdata_board_specific, 1'b0};
-        `ADDR_MAIN: {reg_rdata, reg_rwait} = (reg_raddr[7:4]==4'd0) ? {reg_rdata_chan0, 1'b0} : {reg_rdata_main, 1'b0};
+        `ADDR_MAIN: {reg_rdata, reg_rwait} = (reg_raddr[7:4]==4'd0) ? {reg_rdata_chan0, reg_rwait_chan0} : {reg_rdata_main, 1'b0};
         default: {reg_rdata, reg_rwait} = {32'b0, 1'b0};
     endcase
 end
@@ -365,6 +366,7 @@ BoardRegsDRAC chan0(
     .reg_raddr(reg_raddr),
     .reg_waddr(reg_waddr),
     .reg_rdata(reg_rdata_chan0),
+    .reg_rwait(reg_rwait_chan0),
     .reg_wdata(reg_wdata),
     .reg_wen(reg_wen),
     .reg_status(reg_status),
@@ -512,7 +514,7 @@ reg espm_comm_wdt_fault;
 assign espm_comm_good = ~espm_comm_wdt_fault;
 reg [18:0] espm_comm_wdt_clkdiv;
 always @(posedge sysclk) begin
-    espm_comm_wdt_clkdiv = espm_comm_wdt_clkdiv + 'd1;
+    espm_comm_wdt_clkdiv = espm_comm_wdt_clkdiv + 19'd1;
     if (espm_comm_wdt_clkdiv == 'd0) begin // 10 ms
         crc_good_count_prev <= crc_good_count[9:0];
         espm_comm_wdt_fault <= crc_good_count[9:0] == crc_good_count_prev;
@@ -860,7 +862,7 @@ QLA25AA128 prom_qla(
     .prom_miso(IO1[1]),
     .prom_sclk(qla_prom_sclk),
     .prom_cs(IO1[4]),
-    .other_busy('b0),
+    .other_busy(1'b0),
     .this_busy(qla_prom_busy)
 );
 

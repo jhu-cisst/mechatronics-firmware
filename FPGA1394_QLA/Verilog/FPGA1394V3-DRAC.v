@@ -256,11 +256,11 @@ ODDR #(
 ) adc_sck_oddr (
    .Q(SCLK_ADC),   // 1-bit DDR output
    .C(adc_sck),   // 1-bit clock input
-   .CE('b1), // 1-bit clock enable input
-   .D1('b1), // 1-bit data input (positive edge)
-   .D2('b0), // 1-bit data input (negative edge)
-   .R('b0),   // 1-bit reset
-   .S('b0)    // 1-bit set
+   .CE(1'b1), // 1-bit clock enable input
+   .D1(1'b1), // 1-bit data input (positive edge)
+   .D2(1'b0), // 1-bit data input (negative edge)
+   .R(1'b0),   // 1-bit reset
+   .S(1'b0)    // 1-bit set
 );
 
 ODDR #(
@@ -270,11 +270,11 @@ ODDR #(
 ) lvds_tx_oddr (
    .Q(LVDS_TCLK),   // 1-bit DDR output
    .C(lvds_tx_clk),   // 1-bit clock input
-   .CE('b1), // 1-bit clock enable input
-   .D1('b1), // 1-bit data input (positive edge)
-   .D2('b0), // 1-bit data input (negative edge)
-   .R('b0),   // 1-bit reset
-   .S('b0)    // 1-bit set
+   .CE(1'b1), // 1-bit clock enable input
+   .D1(1'b1), // 1-bit data input (positive edge)
+   .D2(1'b0), // 1-bit data input (negative edge)
+   .R(1'b0),   // 1-bit reset
+   .S(1'b0)    // 1-bit set
 );
 
 endmodule

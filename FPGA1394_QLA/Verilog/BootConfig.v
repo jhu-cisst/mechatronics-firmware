@@ -67,7 +67,7 @@ wire[31:0] reg_rdata_chan0;      // 'channel 0' is a special axis that contains 
 // Mux routing read data based on read address
 //   See Constants.v for details
 assign reg_rdata = (reg_raddr[15:12]==`ADDR_PROM_QLA) ? (reg_rdata_prom) :
-                   (reg_raddr[15:12]==`ADDR_MAIN) ? (reg_rdata_chan0) : 32'd0;
+                   ((reg_raddr[15:12]==`ADDR_MAIN) && (reg_raddr[7:4] == 4'd0)) ? (reg_rdata_chan0) : 32'd0;
 
 // No wait-states for reg_rdata
 assign reg_rwait = 1'b0;

@@ -51,6 +51,6 @@ endgenerate
 
 // reg_raddr_in[5:0] handles up to 64 quadlets. A more elegant solution is to
 // define and use a clogb2 function.
-assign reg_raddr_out = blk_rt_rd ? {8'd0, addr_map[reg_raddr_in[5:0]]} : reg_raddr_in;
+assign reg_raddr_out = { reg_raddr_in[15:8], (blk_rt_rd ? addr_map[reg_raddr_in[5:0]] : reg_raddr_in[7:0]) };
 
 endmodule

@@ -268,6 +268,7 @@ wire[31:0] reg_rdata_prom_qla1;  // reads from QLA 1 prom
 wire[31:0] reg_rdata_prom_qla2;  // reads from QLA 2 prom
 wire[31:0] reg_rdata_ds;         // for DS2505 memory access
 wire[31:0] reg_rdata_chan0;      // 'channel 0' is a special axis that contains various board I/Os
+wire       reg_rwait_chan0;      // 'channel 0' read wait state
 reg[31:0]  reg_rdata_ioexp;      // reads from MAX7317 I/O expander (QLA 1.5+)
 wire[31:0] reg_rdata_ioexp_1;    // reads from MAX7317 I/O expander (QLA 1.5+)
 wire[31:0] reg_rdata_ioexp_2;    // reads from MAX7317 I/O expander (QLA 1.5+)
@@ -293,14 +294,16 @@ end
 //   See Constants.v for details
 //     addr[15:12]  main | hub | prom | prom_qla | eth | firewire | dallas | waveform
 // reg_rwait indicates when reg_rdata is valid
-//   0 --> one sysclk after reg_raddr set (e.g., register read)
-//   1 --> two sysclks after reg_raddr set (e.g., reading from memory)
+//   0 --> same sysclk as reg_raddr (e.g., register read)
+//   1 --> one sysclk after reg_raddr set (e.g., reading from memory)
 assign {reg_rdata, reg_rwait} =
                    (reg_raddr[15:12]==`ADDR_PROM_QLA) ? {reg_rdata_prom_qla, 1'b0} :
                    (reg_raddr[15:12]==`ADDR_DS) ? {reg_rdata_ds, 1'b0} :
                    (reg_raddr[15:12]==`ADDR_WAVEFORM) ? {reg_rtable, 1'b1} :
-                   (reg_raddr[7:4]!=4'd0) ? {reg_rd[reg_raddr[3:0]], 1'b0} :
-                   (reg_raddr[3:0]==`REG_IO_EXP) ? {reg_rdata_ioexp, 1'b0} : {reg_rdata_chan0, 1'b0};
+                   ((reg_raddr[15:12]==`ADDR_MAIN) && (reg_raddr[7:4]!=4'd0)) ? {reg_rd[reg_raddr[3:0]], 1'b0} :
+                   ((reg_raddr[15:12]==`ADDR_MAIN) && (reg_raddr[3:0]==`REG_IO_EXP)) ? {reg_rdata_ioexp, 1'b0} :
+                   (reg_raddr[15:12]==`ADDR_MAIN) ? {reg_rdata_chan0, reg_rwait_chan0} :
+                   {32'd0, 1'b0};
 
 // Unused channel offsets
 assign reg_rd[`OFF_UNUSED_02] = 32'd0;
@@ -507,29 +510,52 @@ assign Q2_disable[2] = amp_disable_pin[6];
 assign Q2_disable[3] = amp_disable_pin[7];
 assign Q2_disable[4] = amp_disable_pin[8];
 
+// Write to global status register
+wire reg_waddr_status;
+assign reg_waddr_status = ((reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[7:4] == 4'd0) &&
+                           (reg_waddr[3:0]==`REG_STATUS)) ? 1'd1 : 1'd0;
+
 // Check for non-zero channel number (reg_waddr[7:4]) to ignore write to global register.
 // It would be even better to check that channel number is 1-4.
 wire reg_waddr_dac;
 assign reg_waddr_dac = ((reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[7:4] != 4'd0) &&
                         (reg_waddr[3:0]==`OFF_DAC_CTRL)) ? 1'd1 : 1'd0;
 
-// Following handles case where a single DAC is updated (e.g., via a quadlet write),
-// since reg_wen and blk_wen are asserted at the same time.
-wire dac_update_single;
-assign dac_update_single = reg_wen&reg_wdata[31];
+// Following indicates whether at least one DAC has been updated (via a block write)
+// since the last write.
+reg dac_update;
 
-wire dac_update_block;    // Any DAC was updated in WriteRtData
+// Following indicates whether DAC value is valid (bit 31 set), assuming
+// reg_waddr_dac is 1. This will work for either a block write or a single quadlet
+// write because in both cases reg_wen is set.
+wire dac_valid;
+assign dac_valid = reg_wen & reg_wdata[31];
+
 wire dac_busy;
 reg  cur_cmd_req;
 reg  cur_cmd_updated;
 
 always @(posedge(sysclk))
 begin
-    if (reg_waddr_dac&blk_wen&(dac_update_block|dac_update_single)) begin
-        cur_cmd_req <= dac_busy;
-        cur_cmd_updated <= ~dac_busy;
+    // We check both reg_waddr_dac and reg_waddr_status because in a block write, the last
+    // write is to the status/control register.
+    if (reg_waddr_dac | reg_waddr_status) begin
+        // For block write, dac_update will be set if any DAC was valid prior to blk_wen
+        // For quadlet write, need to check (dac_valid&reg_waddr_dac) because blk_wen and
+        // reg_wen occur at the same time
+        if (blk_wen) begin
+            dac_update <= 1'b0;
+            if (dac_update|(dac_valid&reg_waddr_dac)) begin
+                cur_cmd_req <= dac_busy;
+                cur_cmd_updated <= ~dac_busy;
+            end
+        end
+        else if (dac_valid) begin
+            // This condition is only possible for block write
+            dac_update <= 1'b1;
+        end
     end
-    else if (cur_cmd_req&(~dac_busy)) begin
+    if (cur_cmd_req&(~dac_busy)) begin
         cur_cmd_req <= 0;
         cur_cmd_updated <= 1;
     end
@@ -969,6 +995,7 @@ BoardRegsDQLA chan0(
     .reg_raddr(reg_raddr),
     .reg_waddr(reg_waddr),
     .reg_rdata(reg_rdata_chan0),
+    .reg_rwait(reg_rwait_chan0),
     .reg_wdata(reg_wdata),
     .reg_wen(reg_wen),
     .ds_status(ds_status),

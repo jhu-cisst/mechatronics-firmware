@@ -76,25 +76,29 @@ module QLA(
 wire[31:0] reg_rdata_prom_qla; // reads from QLA prom
 wire[31:0] reg_rdata_ds;       // for DS2505 memory access
 wire[31:0] reg_rdata_chan0;    // 'channel 0' is a special axis that contains various board I/Os
+wire reg_rwait_chan0;          // 'channel 0' read wait state
 wire[31:0] reg_rdata_ioexp;    // reads from MAX7317 I/O expander (QLA 1.5+)
 
 // Mux routing read data based on read address
 //   See Constants.v for details
 //     addr[15:12]  main | hub | prom | prom_qla | eth | firewire | dallas | databuf | waveform
 // reg_rwait indicates when reg_rdata is valid
-//   0 --> one sysclk after reg_raddr set (e.g., register read)
-//   1 --> two sysclks after reg_raddr set (e.g., reading from memory)
+//   0 --> same sysclk as reg_raddr (e.g., register read)
+//   1 --> one sysclk after reg_raddr set (e.g., reading from memory)
 assign {reg_rdata, reg_rwait} =
                    (reg_raddr[15:12]==`ADDR_PROM_QLA) ? {reg_rdata_prom_qla, 1'b0} :
                    (reg_raddr[15:12]==`ADDR_DS) ? {reg_rdata_ds, 1'b0} :
                    (reg_raddr[15:12]==`ADDR_DATA_BUF) ? {reg_rdata_databuf, reg_rwait_databuf} :
                    (reg_raddr[15:12]==`ADDR_WAVEFORM) ? {reg_rtable, 1'b1} :
-                   (reg_raddr[7:4]!=4'd0) ? {reg_rd[reg_raddr[3:0]], 1'b0} :
-                   (reg_raddr[3:0]==`REG_IO_EXP) ? {reg_rdata_ioexp, 1'b0} : {reg_rdata_chan0, 1'b0};
+                   ((reg_raddr[15:12]==`ADDR_MAIN) && (reg_raddr[7:4]!=4'd0)) ? {reg_rd[reg_raddr[3:0]], 1'b0} :
+                   ((reg_raddr[15:12]==`ADDR_MAIN) && (reg_raddr[3:0]==`REG_IO_EXP)) ? {reg_rdata_ioexp, 1'b0} :
+                   (reg_raddr[15:12]==`ADDR_MAIN) ? {reg_rdata_chan0, reg_rwait_chan0} :
+                   {32'd0, 1'b0};
 
 // Unused channel offsets
 assign reg_rd[`OFF_UNUSED_02] = 32'd0;
 assign reg_rd[`OFF_UNUSED_03] = 32'd0;
+assign reg_rd[`OFF_UNUSED_13] = 32'd0;
 assign reg_rd[`OFF_UNUSED_14] = 32'd0;
 assign reg_rd[`OFF_UNUSED_15] = 32'd0;
 
@@ -596,6 +600,7 @@ BoardRegsQLA chan0(
     .reg_raddr(reg_raddr),
     .reg_waddr(reg_waddr),
     .reg_rdata(reg_rdata_chan0),
+    .reg_rwait(reg_rwait_chan0),
     .reg_wdata(reg_wdata),
     .reg_wen(reg_wen),
     .ds_status(ds_status),
