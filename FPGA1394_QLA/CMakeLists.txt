@@ -51,6 +51,7 @@ set (VERILOG_SOURCE_COMMON "${VERILOG_SOURCE_DIR}/ClkDiv.v"
                            "${VERILOG_SOURCE_DIR}/Constants.v"
                            "${VERILOG_BINARY_DIR}/Versions.v"
                            "${VERILOG_SOURCE_DIR}/ReadAddressTranslation.v"
+                           "${VERILOG_SOURCE_DIR}/WriteAddressTranslation.v"
 			   "${VERILOG_SOURCE_DIR}/ReadDataValid.v")
 
 add_custom_command (OUTPUT "${VERILOG_BINARY_DIR}/Versions-New.v"
