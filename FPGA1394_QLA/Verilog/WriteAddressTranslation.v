@@ -34,7 +34,6 @@ module WriteAddressTranslation
     input  wire      board_equal     // whether board_id matched reg_wdata[11:8]
 );
 
-reg blk_rt_wr_prev;       // For finding rising edge of blk_rt_wr
 reg[7:0] RtStart;         // Starting address of current RT write block
 reg[7:0] RtLen;           // Number of quadlets in current RT write block
 reg isLocal;              // Whether this data block is for the current board
@@ -46,13 +45,12 @@ wire isPowerCtrl;         // Whether power control quadlet
 
 assign isThisHeader = (reg_waddr_in == RtStart) ? 1'b1 : 1'b0;
 assign isNextHeader = (reg_waddr_in == RtStart+RtLen) ? 1'b1 : 1'b0;
-assign isHead = isThisHeader | isNextHeader;
+assign isHeader = isThisHeader | isNextHeader;
 assign isPowerCtrl = (reg_waddr_in == RtStart+RtLen-8'd1) ? 1'b1 : 1'b0;
 
 always @(posedge sysclk)
 begin
-    blk_rt_wr_prev <= blk_rt_wr;
-    if (blk_rt_wr & (~blk_rt_wr_prev)) begin
+    if (~blk_rt_wr) begin
         RtStart <= 8'd0;
         RtLen <= 8'd0;
     end

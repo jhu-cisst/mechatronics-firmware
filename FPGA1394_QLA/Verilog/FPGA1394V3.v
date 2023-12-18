@@ -70,11 +70,11 @@ module FPGA1394V3
 
     // Read/Write bus
     output wire[15:0] reg_raddr,
-    output reg[15:0]  reg_waddr,
+    output wire[15:0] reg_waddr,
     input wire[31:0]  reg_rdata_ext,
     output reg[31:0]  reg_wdata,
     input wire reg_rwait_ext,
-    output reg reg_wen,
+    output wire reg_wen,
     output reg blk_wen,
     output reg blk_wstart,
     output wire req_blk_rt_rd,    // request for real-time block read
@@ -122,6 +122,9 @@ assign reset_phy = 1'b1;
     wire fw_blk_rt_rd;          // real-time block read from FireWire
     wire eth_blk_rt_rd;         // real-time block read from Ethernet
     wire ps_blk_rt_rd;          // real-time block read from PS EMIO
+    wire fw_blk_rt_wr;          // real-time block write from FireWire
+    wire eth_blk_rt_wr;         // real-time block write from Ethernet
+    wire ps_blk_rt_wr;          // real-time block write from PS EMIO
     wire[15:0] fw_reg_raddr;    // 16-bit reg read address from FireWire
     wire[15:0] eth_reg_raddr;   // 16-bit reg read address from Ethernet
     wire[15:0] ps_reg_raddr;    // 16-bit reg read address from PS EMIO
@@ -181,7 +184,7 @@ assign blk_rt_rd = ps_grant_read_bus ? ps_blk_rt_rd :
 assign req_blk_rt_rd = fw_req_blk_rt_rd | eth_req_blk_rt_rd | ps_req_blk_rt_rd;
 
 //*********************** Read Address Translation *******************************
-
+//
 // Read bus address translation (to support real-time block read).
 // This could instead be instantiated in the either the FPGAV1 or QLA modules
 // (FPGAV1 module would need NUM_MOTORS and NUM_ENCODERS).
@@ -261,31 +264,59 @@ begin
    ps_grant_write_bus <= (~fw_req_write_bus) & (~eth_grant_write_bus) & ps_req_write_bus;
 end
 
+reg[15:0] host_reg_waddr;
+reg host_reg_wen;
+reg blk_rt_wr;             // real-time block write
+
 // Multiplexing of write bus between PS, FW and ETH
 always @(*)
 begin
    if (eth_grant_write_bus) begin
-      reg_wen = eth_reg_wen;
+      host_reg_wen = eth_reg_wen;
       blk_wen = eth_blk_wen;
       blk_wstart = eth_blk_wstart;
-      reg_waddr = eth_reg_waddr;
+      host_reg_waddr = eth_reg_waddr;
       reg_wdata = eth_reg_wdata;
+      blk_rt_wr = eth_blk_rt_wr;
    end
    else if (ps_grant_write_bus) begin
-      reg_wen = ps_reg_wen;
+      host_reg_wen = ps_reg_wen;
       blk_wen = ps_blk_wen;
       blk_wstart = ps_blk_wstart;
-      reg_waddr = ps_reg_waddr;
+      host_reg_waddr = ps_reg_waddr;
       reg_wdata = ps_reg_wdata;
+      blk_rt_wr = ps_blk_rt_wr;
    end
    else begin
-      reg_wen = fw_reg_wen;
+      host_reg_wen = fw_reg_wen;
       blk_wen = fw_blk_wen;
       blk_wstart = fw_blk_wstart;
-      reg_waddr = fw_reg_waddr;
+      host_reg_waddr = fw_reg_waddr;
       reg_wdata = fw_reg_wdata;
+      blk_rt_wr = fw_blk_rt_wr;
    end
 end
+
+//*********************** Write Address Translation *******************************
+//
+// Write bus address translation (to support real-time block write).
+
+wire board_equal;
+assign board_equal = (reg_wdata[11:8] == board_id) ? 1'b1 : 1'b0;
+
+WriteAddressTranslation WriteAddr
+(
+    .sysclk(sysclk),
+    .reg_waddr_in(host_reg_waddr[7:0]),
+    .reg_wen_in(host_reg_wen),
+    .reg_waddr_out(reg_waddr[7:0]),
+    .reg_wen_out(reg_wen),
+    .blk_rt_wr(blk_rt_wr),
+    .reg_wdata_lsb(reg_wdata[7:0]),
+    .board_equal(board_equal)
+);
+
+assign reg_waddr[15:8] = host_reg_waddr[15:8];
 
 //***************************************************************************
 
@@ -353,8 +384,9 @@ phy(
     .reg_wen(fw_reg_wen),       // out: reg write signal
     .blk_wen(fw_blk_wen),       // out: block write signal
     .blk_wstart(fw_blk_wstart), // out: block write is starting
-    .blk_rt_rd(fw_blk_rt_rd),   // out: real-time block read in process
     .req_blk_rt_rd(fw_req_blk_rt_rd),  // out: real-time block read request
+    .blk_rt_rd(fw_blk_rt_rd),   // out: real-time block read in process
+    .blk_rt_wr(fw_blk_rt_wr),   // out: real-time block write in process
 
     .reg_raddr(fw_reg_raddr),  // out: register address
     .reg_waddr(fw_reg_waddr),  // out: register address
@@ -752,6 +784,7 @@ EthernetTransfers(
     .blk_wen(eth_blk_wen),             // out: blk write enable
     .blk_wstart(eth_blk_wstart),       // out: blk write start
     .blk_rt_rd(eth_blk_rt_rd),         // out: real-time block read in process
+    .blk_rt_wr(eth_blk_rt_wr),         // out: real-time block write in process
     .req_blk_rt_rd(eth_req_blk_rt_rd), // out: real-time block read request
     .req_write_bus(eth_req_write_bus), // out: request write bus
     .grant_write_bus(eth_grant_write_bus), // in: write bus grant

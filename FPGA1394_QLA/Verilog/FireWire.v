@@ -202,6 +202,7 @@ module PhyLinkInterface
     output reg blk_wstart,       // block write is starting
     output reg  req_blk_rt_rd,   // request to start real-time block read
     output wire blk_rt_rd,       // real-time block read in process
+    output wire blk_rt_wr,       // real-time block write in process
 
     // register access
     output reg[15:0] reg_raddr,   // read address to external register file
@@ -321,11 +322,7 @@ module PhyLinkInterface
     reg[15:0] reg_dlen;           // block data length
     reg[47:0] rx_addr_full;       // full 48-bit
 
-    // real-time read stuff
     reg data_block;               // flag for block write data being received
-    reg dac_local;                // Indicates that DAC entries in block write are for this board_id
-    reg[7:0] RtCnt;               // Counter for real-time block quadlets
-    reg[7:0] RtLen;               // Number of quadlets in the RT write block for current board
 
     wire addrMainRead;
     wire addrMainWrite;
@@ -341,6 +338,9 @@ module PhyLinkInterface
     // For reading the timestamp
     reg[31:0] timestamp_latched;
     reg[31:0] timestamp_prev;
+
+    // Following signal indicates whether real-time block write is in process
+    assign blk_rt_wr = (req_write_bus & addrMainWrite & data_block);
 
     // It is a ROM read (or write) when the upper 36 bits are ffff f0000.
     // This covers addresses from ffff f000 0000 to ffff f000 0fff, which includes
@@ -718,6 +718,8 @@ begin
                 `CTL_PHY_STAT: begin
                     st_buff <= {st_buff[13:0], data2b};  // shift in 2 new bits
                     stcount <= stcount + 2'd2;     // count transferred bits
+                    // request write bus just in case `SZ_REG_STAT (see below)
+                    req_write_bus <= (stcount == `SZ_REG_STAT-16'd2) ? 1'b1 : 1'b0;
                     state <= ST_STATUS;            // loop in this state
                 end
                 // -------------------------------------------------------------
@@ -817,49 +819,10 @@ begin
                         if (count[4:0] == 0) begin
                             // Clear write started signal
                             blk_wstart <= 0;
-
-                            // main address: special case
-                            if (addrMainWrite) begin
-                                // Real-time block write.
-                                // Starting with Rev 8, the first entry is a header that specifies which
-                                // board is being addressed. If this is a sequential block write, it
-                                // addresses this board and we rely on the host PC to send a Rev 8 packet.
-                                // Similarly, if a broadcast write (to multiple boards), we can assume
-                                // that the host PC will only use broadcast write if all boards are Rev 8+.
-                                // The header will also specify the number of motors being addressed
-                                // (4 for QLA and 10 for dRAC). The last quadlet is for power control.
-                                // The protocol uses 8 bits for the length (RtLen), even though currently
-                                // the largest block write is 12 quadlets (for dRAC).
-                                if ((RtCnt == 8'h0) || (RtCnt == RtLen)) begin
-                                    RtLen <= buffer[7:0];
-                                    RtCnt <= 8'h1;
-                                    dac_local <= (buffer[11:8] == board_id) ? 1'b1 : 1'b0;
-                                    reg_waddr[7:0] <= { 4'd0, `OFF_DAC_CTRL };
-                                    reg_wen <= 0;
-                                end
-                                else begin
-                                    RtCnt <= RtCnt + 8'h1;
-                                    if (RtCnt == RtLen-1) begin
-                                        reg_waddr[7:0] <= { 4'd0, `REG_STATUS };  // Power control
-                                        reg_wdata <= { 12'd0, buffer[19:0] };
-                                    end
-                                    else begin
-                                        reg_waddr[7:4] <= reg_waddr[7:4] + 4'd1;  // DAC
-                                        reg_wdata <= buffer;
-                                    end
-                                    reg_wen <= rx_active & dac_local;
-                                end
-                            end
-                            // other space
-                            else begin
-                                // block write
-                                //    1 - hub regs
-                                //    2 - prom (M25P16)
-                                //    3 - prom (25AA128)
-                                reg_waddr[11:0] <= reg_waddr[11:0] + 1'b1;
-                                reg_wdata <= buffer;    // latch data to regs
-                                reg_wen <= rx_active;   // only save value's when device is targeted
-                            end
+                            // Increment address
+                            reg_waddr[11:0] <= reg_waddr[11:0] + 12'b1;
+                            reg_wdata <= buffer;    // latch data to regs
+                            reg_wen <= rx_active;   // only save values when device is targeted
                         end
                         else begin
                             reg_wen <= 0;
@@ -951,10 +914,8 @@ begin
                             reg_waddr <= buffer[15:0];
                             crc_comp <= ~crc_in;          // computed crc for quadlet read
 
-                            // Request write bus for block write, except for ADDR_MAIN because that
-                            // will be handled later by WriteRtBlock.
-                            if ((buffer[15:12] != `ADDR_MAIN) && (rx_tcode == `TC_BWRITE))
-                                req_write_bus <= 1'b1;
+                            // Request write bus for block write
+                            req_write_bus <= (rx_tcode == `TC_BWRITE) ? 1'b1 : 1'b0;
 
                             // broadcast read request    (trick: NOT standard !!!)
                             // rx_dest == 0 is an asynchronous quadlet write; it is sent to node 0, but processed
@@ -1022,8 +983,9 @@ begin
                             blk_wstart <= (rx_tcode==`TC_BWRITE) ? 1'b1 : 1'b0;
 
                             if (addrMainWrite) begin
-                                // main is special, ignore address in 1394 packet
-                                RtCnt <= 8'd0;
+                                // real-time block write: ignore address in 1394 packet
+                                // Set to fff so that first increment causes it to become 0
+                                reg_waddr[11:0] <= 12'hfff;
                             end
                             else begin
                                 // block write to hub, prom, prom_qla

@@ -75,6 +75,7 @@ module EthernetIO
     output reg       blk_wstart,
     output reg       req_blk_rt_rd,    // request to start real-time block read
     output wire      blk_rt_rd,        // real-time block read
+    output wire      blk_rt_wr,        // real-time block write
     output wire      req_write_bus,
     input wire       grant_write_bus,
 
@@ -830,6 +831,9 @@ assign blk_rt_rd = addrMain & blockRead & req_read_bus;
 wire timestamp_rd;
 assign timestamp_rd = (blk_rt_rd && (reg_raddr[7:0] == 8'd0)) ? 1'd1 : 1'd0;
 
+// Following signal indicates whether real-time block write
+assign blk_rt_wr = bwAddrMain & req_write_bus;
+
 assign isRebootCmd = (addrMain && (fw_dest_offset[11:0] == 12'd0) && quadWrite
                       && (fw_quadlet_data[21:20] == 2'b11)) ? 1'd1 : 1'd0;
 
@@ -873,16 +877,6 @@ reg recvTransition;     // Transition to next state
 reg[5:0] recvCnt;       // Index into PacketBuffer
 reg[9:0] rfw_count;     // Counts words in FireWire packets (max is 1024 words, or 2048 bytes)
 reg[5:0] rebootCnt;     // Counter used to delay reboot command (could reuse recvCnt)
-
-// Registers for processing of the real-time block write, which consists of one or more
-// groups of 5 quadlets, where the first 4 quadlets are DAC values and the 5th quadlet is
-// for power control. For the sequential write protocol, the block should only contain one
-// group of 5 quadlets, whereas for the broadcast write protocol, it will contain a group
-// of 5 quadlets for each board, where the targeted board ID is encoded in bits 27:24.
-reg doRtBlock;         // Indicates that we are processing a real-time block write
-reg dac_local;         // Indicates that DAC entries in block write are for this board_id
-reg[7:0] RtCnt;        // Counter for real-time block quadlets
-reg[7:0] RtLen;        // Number of quadlets in the RT write block being processed
 
 assign responseRequired = ((FireWirePacketFresh && (quadRead || blockRead) && (isLocal || sendExtra))
                           || sendARP || isEcho) ? 1'b1 : 1'b0;
@@ -929,11 +923,10 @@ begin
    ST_RECEIVE_DMA_IDLE:
    begin
       mem_wen <= 0;
-      doRtBlock <= 0;
       req_blk_rt_rd <= 1'b0;
       rfw_count <= 10'd0;
       bwStart <= 9'd0;
-      bwLen <= 9'h1ff;      // Large value to avoid spurious writeRequestTrigger
+      bwLen <= 9'd0;
       recvCnt <= 6'd0;
       nextRecvState <= ST_RECEIVE_DMA_IDLE;
       recvBusy <= 0;
@@ -1109,20 +1102,11 @@ begin
             writeRequestQuad <= isLocal&(~isRemote);
          end
          else if ((rfw_count == 10'd9) && blockWrite) begin
-            if (addrMain) begin
-               doRtBlock <= isLocal;
-               RtCnt <= 8'd0;
-               // bwStart and bwLen will be set later, since just a subset of the data
-               // will be sent for a broadcast block write.
-            end
-            else begin
-               bwStart <= 9'd5;
-               bwLen <= block_data_length[10:2];
-            end
+            bwStart <= 9'd5;
+            bwLen <= block_data_length[10:2];
          end
          else if (rfw_count == maxCountFW) begin
             nextRecvState <= ST_RECEIVE_DMA_WAIT;  // was ST_RECEIVE_DMA_FRAME_CRC;
-            doRtBlock <= 0;
             if (isLocal) begin
                // Latch timestamp if a block read from ADDR_MAIN or a broadcast read request
                // (quadlet write to ADDR_HUB).
@@ -1164,30 +1148,6 @@ begin
             host_fw_addr <= fw_src_id;
          end
 
-         if (doRtBlock&rfw_count[0]) begin
-            // Real-time block write.
-            // Starting with Rev 8, the first entry is a header that specifies which
-            // board is being addressed. If this is a sequential block write, it
-            // addresses this board and we rely on the host PC to send a Rev 8 packet.
-            // Similarly, if a broadcast write (to multiple boards), we can assume
-            // that the host PC will only use broadcast write if all boards are Rev 8+.
-            // The header will also specify the number of motors being addressed
-            // (4 for QLA and 10 for dRAC). The last quadlet is for power control.
-            // The protocol uses 8 bits for the length (RtLen), even though currently
-            // the largest block write is 12 quadlets (for dRAC).
-            if ((RtCnt == 8'h0) || (RtCnt == RtLen)) begin
-               RtLen <= FireWireQuadlet[7:0];
-               RtCnt <= 8'h1;
-               dac_local <= (FireWireQuadlet[11:8] == board_id) ? 1'b1 : 1'b0;
-            end
-            else begin
-               RtCnt <= RtCnt + 8'd1;
-               if (dac_local && (RtCnt == 8'h1)) begin
-                   bwStart <= rfw_count[9:1];        // Start offset for block write
-                   bwLen <= { 1'd0, (RtLen-8'd1)};   // Length for block write (-1 for header)
-               end
-            end
-         end
       end
    end
 
@@ -1659,7 +1619,8 @@ begin
          bwAddrMain <= addrMain;
          if (addrMain) begin
              // real-time block write
-             reg_waddr[15:0] <= { `ADDR_MAIN, 8'd0, `OFF_DAC_CTRL };
+             // Set to fff so that first increment causes it to become 0
+             reg_waddr[15:0] <= { `ADDR_MAIN, 12'hfff };
          end
          else begin
              // other block write
@@ -1689,20 +1650,8 @@ begin
    begin
       if (grant_write_bus) begin
          local_raddr <= local_raddr + 9'd1;
-         if (bwAddrMain) begin
-             if (local_raddr == (bwEnd - 9'd1)) begin
-                 reg_waddr[7:0] <= { 4'd0, `REG_STATUS };  // Power control
-                 reg_wdata <= {12'd0, mem_rdata[19:0] };
-             end
-             else begin
-                 reg_waddr[7:4] <= reg_waddr[7:4] + 4'd1;  // DAC
-                 reg_wdata <= mem_rdata;
-             end
-         end
-         else begin
-             reg_waddr[11:0] <= reg_waddr[11:0] + 12'd1;
-             reg_wdata <= mem_rdata;
-         end
+         reg_waddr[11:0] <= reg_waddr[11:0] + 12'd1;
+         reg_wdata <= mem_rdata;
          reg_wen <= 1;
          bwState <= BW_WRITE_GAP;
       end
