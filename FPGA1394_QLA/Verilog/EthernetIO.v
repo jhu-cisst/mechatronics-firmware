@@ -69,8 +69,8 @@ module EthernetIO
     input wire       grant_read_bus,   // 1 -> read bus granted
     input wire       reg_rvalid,       // 1 -> reg_rdata should be valid
     output reg[31:0] reg_wdata,
-    output reg[15:0] reg_waddr,
-    output reg       reg_wen,
+    output wire[15:0] eth_reg_waddr,
+    output wire      eth_reg_wen,
     output reg       blk_wen,
     output reg       blk_wstart,
     output reg       req_blk_rt_rd,    // request to start real-time block read
@@ -825,8 +825,35 @@ assign blockWrite = (fw_tcode == `TC_BWRITE) ? 1'd1 : 1'd0;
 
 assign addrMain = (fw_dest_offset[15:12] == `ADDR_MAIN) ? 1'd1 : 1'd0;
 
-// Following signal indicates whether real-time block read
+// For local use
+reg[15:0] reg_waddr;
+reg reg_wen;
+
+//*********************** Write Address Translation *******************************
+//
+// Write bus address translation (to support real-time block write).
+
+// Following signal indicates whether real-time block write is in process
 assign blk_rt_rd = addrMain & blockRead & req_read_bus;
+
+wire board_equal;
+assign board_equal = (reg_wdata[11:8] == board_id) ? 1'b1 : 1'b0;
+
+WriteAddressTranslation EthWriteAddr
+(
+    .sysclk(sysclk),
+    .reg_waddr_in(reg_waddr[7:0]),
+    .reg_wen_in(reg_wen),
+    .reg_waddr_out(eth_reg_waddr[7:0]),
+    .reg_wen_out(eth_reg_wen),
+    .blk_rt_wr(blk_rt_wr),
+    .reg_wdata_lsb(reg_wdata[7:0]),
+    .board_equal(board_equal)
+);
+
+assign eth_reg_waddr[15:8] = reg_waddr[15:8];
+
+//*********************************************************************************
 
 wire timestamp_rd;
 assign timestamp_rd = (blk_rt_rd && (reg_raddr[7:0] == 8'd0)) ? 1'd1 : 1'd0;

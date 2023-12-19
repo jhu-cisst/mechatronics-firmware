@@ -158,30 +158,11 @@ assign reg_rdata_chan0_ext =
 //******************************* Write Bus **************************************
 // No arbitration since only Firewire interface
 
+assign reg_wen = fw_reg_wen;
 assign blk_wen = fw_blk_wen;
 assign blk_wstart = fw_blk_wstart;
+assign reg_waddr = fw_reg_waddr;
 assign reg_wdata = fw_reg_wdata;
-
-//*********************** Write Address Translation *******************************
-//
-// Write bus address translation (to support real-time block write).
-
-wire board_equal;
-assign board_equal = (reg_wdata[11:8] == board_id) ? 1'b1 : 1'b0;
-
-WriteAddressTranslation WriteAddr
-(
-    .sysclk(sysclk),
-    .reg_waddr_in(fw_reg_waddr[7:0]),
-    .reg_wen_in(fw_reg_wen),
-    .reg_waddr_out(reg_waddr[7:0]),
-    .reg_wen_out(reg_wen),
-    .blk_rt_wr(fw_blk_rt_wr),
-    .reg_wdata_lsb(reg_wdata[7:0]),
-    .board_equal(board_equal)
-);
-
-assign reg_waddr[15:8] = fw_reg_waddr[15:8];
 
 // --------------------------------------------------------------------------
 // hub register module
@@ -222,7 +203,7 @@ phy(
     .ctl_ext(ctl),           // bi: phy ctl lines
     .data_ext(data),         // bi: phy data lines
     
-    .reg_wen(fw_reg_wen),       // out: reg write signal
+    .fw_reg_wen(fw_reg_wen),    // out: reg write signal
     .blk_wen(fw_blk_wen),       // out: block write signal
     .blk_wstart(fw_blk_wstart), // out: block write is starting
     .req_blk_rt_rd(fw_req_blk_rt_rd),  // out: real-time block read request
@@ -230,7 +211,7 @@ phy(
     .blk_rt_wr(fw_blk_rt_wr),   // out: real-time block write in process
 
     .reg_raddr(fw_reg_raddr),  // out: register address
-    .reg_waddr(fw_reg_waddr),  // out: register address
+    .fw_reg_waddr(fw_reg_waddr),  // out: register address
     .reg_rdata(reg_rdata),     // in:  read data to external register
     .reg_wdata(fw_reg_wdata),  // out: write data to external register
 

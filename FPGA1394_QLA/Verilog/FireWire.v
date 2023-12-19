@@ -197,7 +197,7 @@ module PhyLinkInterface
     inout[7:0] data_ext,         // data bus
     
     // act on received packets
-    output reg reg_wen,          // register write signal
+    output wire fw_reg_wen,      // register write signal
     output reg blk_wen,          // block write signal
     output reg blk_wstart,       // block write is starting
     output reg  req_blk_rt_rd,   // request to start real-time block read
@@ -206,7 +206,7 @@ module PhyLinkInterface
 
     // register access
     output reg[15:0] reg_raddr,   // read address to external register file
-    output reg[15:0] reg_waddr,   // write address to external register file
+    output wire[15:0] fw_reg_waddr, // write address to external register file
     input wire[31:0] reg_rdata,   // read data from external register file
     output reg[31:0] reg_wdata,   // write data to external register file
 
@@ -324,6 +324,10 @@ module PhyLinkInterface
 
     reg data_block;               // flag for block write data being received
 
+    // For local use
+    reg[15:0] reg_waddr;
+    reg reg_wen;
+
     wire addrMainRead;
     wire addrMainWrite;
     assign addrMainRead  = (reg_raddr[15:12] == `ADDR_MAIN) ? 1'd1 : 1'd0;
@@ -339,8 +343,31 @@ module PhyLinkInterface
     reg[31:0] timestamp_latched;
     reg[31:0] timestamp_prev;
 
-    // Following signal indicates whether real-time block write is in process
-    assign blk_rt_wr = (req_write_bus & addrMainWrite & data_block);
+//*********************** Write Address Translation *******************************
+//
+// Write bus address translation (to support real-time block write).
+
+// Following signal indicates whether real-time block write is in process
+assign blk_rt_wr = (req_write_bus & addrMainWrite & data_block);
+
+wire board_equal;
+assign board_equal = (reg_wdata[11:8] == board_id) ? 1'b1 : 1'b0;
+
+WriteAddressTranslation FwWriteAddr
+(
+    .sysclk(sysclk),
+    .reg_waddr_in(reg_waddr[7:0]),
+    .reg_wen_in(reg_wen),
+    .reg_waddr_out(fw_reg_waddr[7:0]),
+    .reg_wen_out(fw_reg_wen),
+    .blk_rt_wr(blk_rt_wr),
+    .reg_wdata_lsb(reg_wdata[7:0]),
+    .board_equal(board_equal)
+);
+
+assign fw_reg_waddr[15:8] = reg_waddr[15:8];
+
+//*********************************************************************************
 
     // It is a ROM read (or write) when the upper 36 bits are ffff f0000.
     // This covers addresses from ffff f000 0000 to ffff f000 0fff, which includes
