@@ -7,6 +7,43 @@
  *
  * This module handles the PS EMIO bus interface.
  *
+ * Basic operation is as follows:
+ *
+ *   Quadlet Read:
+ *       1) Write 16-bit address (reg_addr)
+ *       2) Assert req_bus
+ *       3) Wait for op_done
+ *       4) Read 32-bit data (reg_data)
+ *       5) Deassert req_bus
+ *
+ *   Quadlet Write:
+ *       1) Write address (reg_addr) and data (reg_data)
+ *       2) Assert req_bus
+ *       3) Wait for op_done
+ *       4) Deassert req_bus
+ *
+ *   Block Read: (NOTE 1)
+ *       1) Write 16-bit address (reg_addr)
+ *       2) Assert req_bus and blk_start
+ *       3) Wait for op_done
+ *       4) Read data (reg_data)
+ *       5) Repeat above until last quadlet (assert blk_end for last quadlet)
+ *       6) Deassert req_bus
+ *
+ *   Block Write: (NOTE 2)
+ *       1) Write address (reg_addr) and data (reg_data)
+ *       2) Assert req_bus and blk_start
+ *       3) Wait for op_done
+ *       4) Repeat above until last quadlet (assert blk_end for last quadlet)
+ *       5) Deassert req_bus
+ *
+ *   NOTES:
+ *       1) For block read, PS must assert blk_start for all quadlets, except the last.
+ *          For last quadlet, PS should deassert blk_start and/or assert blk_end.
+ *       2) For block write, PS is only required to assert blk_start for first quadlet,
+ *          but it can optionally be asserted for all remaining quadlets. PS must assert
+ *          blk_end with last quadlet.
+ *
  * Revision history
  *
  *     12/12/23     Peter Kazanzides    Initial revision
@@ -15,147 +52,271 @@
 module EmioBus
 (
     input wire        sysclk,           // system clock
+    input wire[3:0]   board_id,
 
     output wire[63:0] emio_ps_in,       // EMIO input to PS
     input  wire[63:0] emio_ps_out,      // EMIO output from PS
     input  wire[63:0] emio_ps_tri,      // EMIO tristate from PS (1 -> input to PS, 0 -> output from PS)
 
-    output wire[15:0] reg_raddr,
+    output reg[15:0]  reg_raddr,
     input  wire[31:0] reg_rdata,
     input  wire       reg_rvalid,       // reg_rdata should be valid
     output reg        req_read_bus,     // request read bus (sysclk domain)
     input  wire       grant_read_bus,   // read bus granted
-    output wire[15:0] reg_waddr,
-    output wire[31:0] reg_wdata,
-    output reg        reg_wen,
+    output wire[15:0] reg_waddr_out,
+    output reg[31:0]  reg_wdata,
+    output wire       reg_wen_out,
     output reg        blk_wen,
     output reg        blk_wstart,
-    output wire       req_blk_rt_rd,    // request to start real-time block read
-    output wire       blk_rt_rd,        // real-time block read
+    output reg        req_blk_rt_rd,    // request to start real-time block read
+    output reg        blk_rt_rd,        // real-time block read
+    output reg        blk_rt_wr,        // real-time block write
     output reg        req_write_bus,    // request write bus (sysclk domain)
     input  wire       grant_write_bus   // write bus granted
 );
 
-reg[31:0] ps_reg_rdata;                 // emio[31:0]
+// For local use
+reg[15:0] reg_waddr;
+reg reg_wen;
+
+reg[31:0]  reg_rdata_latched;
 wire[15:0] ps_reg_addr;
-   
-// Following are not synchronized with sysclk, but should be stable
-// since they are not used until the read or write bus is granted.
-assign ps_reg_addr = emio_ps_out[47:32]; // emio[47:32]
-assign reg_raddr = ps_reg_addr;
-assign reg_waddr = ps_reg_addr;
-assign reg_wdata = emio_ps_out[31:0];    // emio[31:0]
-assign ps_reg_wen = emio_ps_out[50];     // emio[50] (not used)
-assign ps_blk_wstart = emio_ps_out[51];  // emio[51]
-assign ps_blk_wen = emio_ps_out[52];     // emio[52]
-
-assign req_blk_rt_rd = 1'b0;    // TEMP
-assign blk_rt_rd = 1'b0;        // TEMP
-
+wire[31:0] ps_reg_wdata;
 wire ps_req_bus;
+
+// Following are not synchronized with sysclk, but should be stable
+// since they are not used until the read or write bus is granted
+// (some are synchronized with sysclk below).
+assign ps_reg_wdata = emio_ps_out[31:0]; // emio[31:0]
+assign ps_reg_addr = emio_ps_out[47:32]; // emio[47:32]
 assign ps_req_bus = emio_ps_out[48];     // emio[48]
+assign ps_reg_wen = emio_ps_out[50];     // emio[50] (not used)
+assign ps_blk_start = emio_ps_out[51];   // emio[51]
+assign ps_blk_end = emio_ps_out[52];     // emio[52]
 
-reg  ps_read_done;                       // emio[49]
-reg  ps_write_done;                      // emio[49]
+// Following are synchronized with sysclk
+reg[15:0] ps_reg_addr_latched;
+reg ps_blk_start_latched;
+reg ps_blk_end_latched;
+
+reg  ps_op_done;                         // emio[49]
 wire ps_write;                           // emio[53]
-
-wire ps_req_read_bus;
-wire ps_req_write_bus;
 
 // It is a write when no data lines are tristate; otherwise, we assume a read
 assign ps_write = (emio_ps_tri[31:0] == 32'd0) ? 1'b1 : 1'b0;
-
-assign ps_req_read_bus = ps_req_bus & (~ps_write);
-assign ps_req_write_bus = ps_req_bus & ps_write;
 
 assign emio_ps_in = {4'd1,                                            // Version 1
                      5'd0,                                            // Unused
                      (ps_write ? grant_write_bus : grant_read_bus),   // [54]
                      ps_write,                                        // [53]
-                     ps_blk_wen, ps_blk_wstart, ps_reg_wen,           // [52:50]
-                     (ps_write ? ps_write_done : ps_read_done),       // [49]
+                     ps_blk_end, ps_blk_start, ps_reg_wen,            // [52:50]
+                     ps_op_done,                                      // [49]
                      ps_req_bus, ps_reg_addr,                         // [48] [47:32]
-                     (ps_write ? reg_wdata : ps_reg_rdata) };         // [31:0]
+                     (ps_write ? ps_reg_wdata : reg_rdata_latched) }; // [31:0]
 
-//**************************** PS EMIO Read *************************************
+//*********************** Write Address Translation *******************************
+//
+// Write bus address translation (to support real-time block write).
 
-// For synchronizing ps_req_read_bus with sysclk and generating triggers
+wire board_equal;
+assign board_equal = (reg_wdata[11:8] == board_id) ? 1'b1 : 1'b0;
+
+WriteAddressTranslation PsWriteAddr
+(
+    .sysclk(sysclk),
+    .reg_waddr_in(reg_waddr[7:0]),
+    .reg_wen_in(reg_wen),
+    .reg_waddr_out(reg_waddr_out[7:0]),
+    .reg_wen_out(reg_wen_out),
+    .blk_rt_wr(blk_rt_wr),
+    .reg_wdata_lsb(reg_wdata[7:0]),
+    .board_equal(board_equal)
+);
+
+assign reg_waddr_out[15:8] = reg_waddr[15:8];
+
+//*************************** PS EMIO Read/Write ************************************
+
+localparam[2:0]
+   ST_IDLE = 3'd0,
+   ST_READ = 3'd1,
+   ST_WRITE_QUAD = 3'd2,
+   ST_WRITE_BLOCK_START = 3'd3,
+   ST_WRITE_BLOCK_DATA = 3'd4,
+   ST_WRITE_FINISH = 3'd5;
+
+reg[2:0] state;
+initial state = ST_IDLE;
+
+// For synchronizing ps_req_bus with sysclk and generating triggers
 // on the rising and falling edges.
-reg ps_req_read_bus_1;
-reg ps_req_read_bus_2;
+reg ps_req_bus_1;
+reg ps_req_bus_2;
+
+reg[1:0] blk_cnt;         // for block write timing
+reg first_quad;           // first quadlet
+
+wire addrMain;
+assign addrMain = (ps_reg_addr_latched[15:12] == `ADDR_MAIN) ? 1'b1 : 1'b0;
+
+wire raddr_diff;          // indicates read address changed
+assign raddr_diff = (reg_raddr == ps_reg_addr_latched) ? 1'b0 : 1'b1;
+
+wire waddr_diff;          // indicates write address changed
+assign waddr_diff = (reg_waddr == ps_reg_addr_latched) ? 1'b0 : 1'b1;
 
 always @(posedge sysclk)
 begin
-    // Synchronize req_read_bus with sysclk
-    ps_req_read_bus_1 <= ps_req_read_bus;
-    ps_req_read_bus_2 <= ps_req_read_bus_1;
+    // Synchronize ps_req_bus with sysclk
+    ps_req_bus_1 <= ps_req_bus;
+    ps_req_bus_2 <= ps_req_bus_1;
 
-    if (ps_req_read_bus_1 & (~ps_req_read_bus_2)) begin
-        // Request read bus on rising edge of ps_req_read_bus
-        req_read_bus <= 1'b1;
+    // Synchronize read/write address with sysclk
+    ps_reg_addr_latched <= ps_reg_addr;
+    // Synchronize blk_start with sysclk
+    ps_blk_start_latched <= ps_blk_start;
+    // Synchronize blk_end with sysclk
+    ps_blk_end_latched <= ps_blk_end;
+
+    // req_blk_rt_rd is asserted for just one sysclk
+    req_blk_rt_rd <= 1'b0;
+
+    if ((~ps_req_bus_1) & ps_req_bus_2) begin
+        // Falling edge of ps_req_bus causes system to transition to ST_IDLE,
+        // which provides a way for the PS to abort a bus transfer.
+        // Note that ST_READ and ST_WRITE_FINISH also rely on this state transition.
+        state <= ST_IDLE;
     end
-    // Latch reg_rdata when we get the bus and data is valid
-    if (req_read_bus & grant_read_bus & reg_rvalid) begin
-        ps_reg_rdata <= reg_rdata;
-        ps_read_done <= 1'b1;
-        req_read_bus <= 1'b0;
-    end
-    if ((~ps_req_read_bus_1) & ps_req_read_bus_2) begin
-        // Clear ps_read_done on falling edge of ps_req_read_bus
-        ps_read_done <= 1'b0;
-        req_read_bus <= 1'b0;
-    end
-end
 
-//**************************** PS EMIO Write ***********************************
+    case (state)
 
-// For synchronizing ps_req_write_bus with sysclk and generating triggers
-// on the rising and falling edges.
-reg ps_req_write_bus_1;
-reg ps_req_write_bus_2;
-reg is_block;             // indicates block write
-
-always @(posedge sysclk)
-begin
-    // Synchronize req_write_bus with sysclk
-    ps_req_write_bus_1 <= ps_req_write_bus;
-    ps_req_write_bus_2 <= ps_req_write_bus_1;
-
-    if (ps_req_write_bus_1 & (~ps_req_write_bus_2)) begin
-        // Request write bus on rising edge of ps_req_write_bus
-        req_write_bus <= 1'b1;
+    ST_IDLE:
+    begin
+        ps_op_done <= 1'b0;
         reg_wen <= 1'b0;
         blk_wen <= 1'b0;
         blk_wstart <= 1'b0;
-        is_block <= ps_blk_wstart;
-        ps_write_done <= 1'b0;
-    end   
-    // Write is done when we get the bus
-    if (grant_write_bus & (~ps_write_done)) begin
-        if (~is_block) begin
-            // Quadlet write
-            if (~reg_wen) begin
-                reg_wen <= 1'b1;
-                blk_wen <= 1'b1;
+        blk_cnt <= 2'd0;
+        // Wait for rising edge of ps_req_bus
+        if (ps_req_bus_1 & (~ps_req_bus_2)) begin
+            first_quad <= 1'b1;
+            if (~ps_write) begin
+                // Request read bus on rising edge of ps_req_bus
+                req_read_bus <= 1'b1;
+                reg_raddr <= ps_reg_addr_latched;
+                // Set req_blk_rt_rd if real-time block read
+                req_blk_rt_rd <= ps_blk_start_latched & addrMain;
+                blk_rt_rd <= ps_blk_start_latched & addrMain;
+                state <= ST_READ;
             end
             else begin
-                reg_wen <= 1'b0;
-                ps_write_done <= 1'b1;
-                req_write_bus <= 1'b0;
+                // Request write bus on rising edge of ps_req_bus
+                req_write_bus <= 1'b1;
+                reg_waddr <= ps_reg_addr_latched;
+                reg_wdata <= ps_reg_wdata;
+                blk_rt_wr <= ps_blk_start_latched & addrMain;
+                // Set req_blk_rt_rd if write to Hub register 800
+                req_blk_rt_rd <= (ps_reg_addr_latched == {`ADDR_HUB, 12'h800 }) ? 1'b1 : 1'b0;
+                state <= ps_blk_start_latched ? ST_WRITE_BLOCK_START : ST_WRITE_QUAD;
             end
         end
         else begin
-            // TODO: block write
-            ps_write_done <= 1'b1;
+            // Relinquish control of any busses
+            req_read_bus <= 1'b0;
             req_write_bus <= 1'b0;
         end
     end
-    if ((~ps_req_write_bus_1) & ps_req_write_bus_2) begin
-        // Clear ps_write_done on falling edge of ps_req_write_bus
-        ps_write_done <= 1'b0;
-        // Clear req_write_bus (just in case)
-        req_write_bus <= 1'b0;
+
+    ST_READ:
+    begin
+        // Latch reg_rdata when we get the bus and data is valid
+        if (req_read_bus & grant_read_bus) begin
+            if (raddr_diff) begin
+                // Latch new address (for block read)
+                reg_raddr <= ps_reg_addr_latched;
+                ps_op_done <= 1'b0;
+            end
+            else if (reg_rvalid) begin
+                reg_rdata_latched <= reg_rdata;
+                ps_op_done <= 1'b1;
+                req_read_bus <= ps_blk_start_latched & (~ps_blk_end_latched);
+            end
+        end
+        // Will stay in this state until falling edge of ps_req_bus
+        // causes transition to ST_IDLE.
     end
+
+    ST_WRITE_QUAD:
+    begin
+        if (req_write_bus & grant_write_bus) begin
+            // reg_waddr and reg_wdata already set
+            reg_wen <= 1'b1;
+            blk_wen <= 1'b1;
+            state <= ST_WRITE_FINISH;
+        end
+    end
+
+    ST_WRITE_BLOCK_START:
+    begin
+        if (req_write_bus & grant_write_bus) begin
+            blk_wstart <= 1'b1;
+            blk_cnt <= blk_cnt + 2'd1;
+            // blk_cnt will be 2'd0 when this state exits
+            if (blk_cnt == 2'd3)
+                state <= ST_WRITE_BLOCK_DATA;
+        end
+        else begin
+            // Reset block counter in case block write was interrupted
+            // (i.e., by losing bus access)
+            blk_cnt <= 3'd0;
+        end
+    end
+
+    ST_WRITE_BLOCK_DATA:
+    begin
+        if (req_write_bus & grant_write_bus) begin
+            blk_wstart <= 1'b0;
+            if ((blk_cnt == 2'd0) && (first_quad | waddr_diff)) begin
+                // New data available
+                reg_waddr <= ps_reg_addr_latched;
+                reg_wdata <= ps_reg_wdata;
+                reg_wen <= 1'b1;
+                first_quad <= 1'b0;
+                // Here, ps_op_done indicates that next quadlet should be
+                // provided. We assume the rising edge of ps_op_done will
+                // be detected on the PS.
+                ps_op_done <= ~ps_blk_end_latched;
+                blk_cnt <= 2'd1;
+            end
+            else begin
+                reg_wen <= 1'b0;
+                ps_op_done <= 1'b0;
+                blk_cnt <= blk_cnt + 2'd1;
+                if ((blk_cnt == 2'd3) && ps_blk_end_latched) begin
+                    blk_wen <= 1'b1;
+                    state <= ST_WRITE_FINISH;
+                end
+            end
+        end
+        else begin
+            // Reset block counter in case block write was interrupted
+            // (i.e., by losing bus access)
+            blk_cnt <= 3'd0;
+        end
+    end
+
+    ST_WRITE_FINISH:
+    begin
+        reg_wen <= 1'b0;
+        blk_wen <= 1'b0;
+        req_write_bus <= 1'b0;
+        ps_op_done <= 1'b1;
+        // Will stay in this state until falling edge of ps_req_bus
+        // causes transition to ST_IDLE.
+    end
+
+    endcase
+
 end
 
 endmodule

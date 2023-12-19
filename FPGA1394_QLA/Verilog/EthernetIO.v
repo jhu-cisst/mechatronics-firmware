@@ -926,6 +926,9 @@ begin
       eth_send_fw_req <= 0;
    end
 
+   // req_blk_rt_rd is asserted for just one sysclk
+   req_blk_rt_rd <= 1'b0;
+
    if (resetActive|clearErrors) begin
       numPacketError <= 8'd0;
       ethFrameError <= 0;
@@ -950,7 +953,6 @@ begin
    ST_RECEIVE_DMA_IDLE:
    begin
       mem_wen <= 0;
-      req_blk_rt_rd <= 1'b0;
       rfw_count <= 10'd0;
       bwStart <= 9'd0;
       bwLen <= 9'd0;

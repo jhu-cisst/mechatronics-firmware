@@ -675,6 +675,9 @@ begin
     end
 `endif
 
+    // req_blk_rt_rd is asserted for just one sysclk
+    req_blk_rt_rd <= 1'b0;
+
     // phy-link state machine
     case (state)
 
@@ -687,7 +690,6 @@ begin
             blk_wstart <= 0;                       // block write not started
             reg_wen <= 1'b0;                       // no register write events
             blk_wen <= 0;                          // no block write events
-            req_blk_rt_rd <= 1'b1;                 // no request for real-time block read
             req_write_bus <= 1'b0;                 // do not request write bus
             req_read_bus <= 1'b0;                  // do not request read bus
             crc_tx <= 0;                           // not in a transmit state
