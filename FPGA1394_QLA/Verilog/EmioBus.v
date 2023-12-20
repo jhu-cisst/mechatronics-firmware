@@ -72,7 +72,9 @@ module EmioBus
     output reg        blk_rt_rd,        // real-time block read
     output reg        blk_rt_wr,        // real-time block write
     output reg        req_write_bus,    // request write bus (sysclk domain)
-    input  wire       grant_write_bus   // write bus granted
+    input  wire       grant_write_bus,  // write bus granted
+
+    input wire[31:0]  timestamp         // external timestamp
 );
 
 // For local use
@@ -99,8 +101,16 @@ reg[15:0] ps_reg_addr_latched;
 reg ps_blk_start_latched;
 reg ps_blk_end_latched;
 
-reg  ps_op_done;                         // emio[49]
+wire ps_op_done;                         // emio[49]
 wire ps_write;                           // emio[53]
+
+reg  reg_op_done;
+
+wire ps_addr_match;
+assign ps_addr_match = ((~ps_write && (ps_reg_addr == reg_raddr)) ||
+                        ( ps_write && (ps_reg_addr == reg_waddr))) ? 1'b1 : 1'b0;
+
+assign ps_op_done = reg_op_done & ps_addr_match;
 
 // It is a write when no data lines are tristate; otherwise, we assume a read
 assign ps_write = (emio_ps_tri[31:0] == 32'd0) ? 1'b1 : 1'b0;
@@ -159,6 +169,16 @@ reg first_quad;           // first quadlet
 wire addrMain;
 assign addrMain = (ps_reg_addr_latched[15:12] == `ADDR_MAIN) ? 1'b1 : 1'b0;
 
+wire addrHubReg;
+assign addrHubReg = (ps_reg_addr_latched == {`ADDR_HUB, 12'h800 }) ? 1'b1 : 1'b0;
+
+wire timestamp_rd;
+assign timestamp_rd = (blk_rt_rd && (reg_raddr[7:0] == 8'd0)) ? 1'd1 : 1'd0;
+
+// For reading the timestamp
+reg[31:0] timestamp_latched;
+reg[31:0] timestamp_prev;
+
 wire raddr_diff;          // indicates read address changed
 assign raddr_diff = (reg_raddr == ps_reg_addr_latched) ? 1'b0 : 1'b1;
 
@@ -192,7 +212,7 @@ begin
 
     ST_IDLE:
     begin
-        ps_op_done <= 1'b0;
+        reg_op_done <= 1'b0;
         reg_wen <= 1'b0;
         blk_wen <= 1'b0;
         blk_wstart <= 1'b0;
@@ -200,12 +220,18 @@ begin
         // Wait for rising edge of ps_req_bus
         if (ps_req_bus_1 & (~ps_req_bus_2)) begin
             first_quad <= 1'b1;
+            if ((~ps_write & ps_blk_start_latched & addrMain) ||
+                (ps_write & addrHubReg)) begin
+                // Set req_blk_rt_rd if real-time block read or
+                // if write to Hub register 800
+                req_blk_rt_rd <= 1'b1;
+                timestamp_latched <= (timestamp-timestamp_prev)-32'd1;
+                timestamp_prev <= timestamp;
+            end
             if (~ps_write) begin
                 // Request read bus on rising edge of ps_req_bus
                 req_read_bus <= 1'b1;
                 reg_raddr <= ps_reg_addr_latched;
-                // Set req_blk_rt_rd if real-time block read
-                req_blk_rt_rd <= ps_blk_start_latched & addrMain;
                 blk_rt_rd <= ps_blk_start_latched & addrMain;
                 state <= ST_READ;
             end
@@ -215,8 +241,6 @@ begin
                 reg_waddr <= ps_reg_addr_latched;
                 reg_wdata <= ps_reg_wdata;
                 blk_rt_wr <= ps_blk_start_latched & addrMain;
-                // Set req_blk_rt_rd if write to Hub register 800
-                req_blk_rt_rd <= (ps_reg_addr_latched == {`ADDR_HUB, 12'h800 }) ? 1'b1 : 1'b0;
                 state <= ps_blk_start_latched ? ST_WRITE_BLOCK_START : ST_WRITE_QUAD;
             end
         end
@@ -234,11 +258,11 @@ begin
             if (raddr_diff) begin
                 // Latch new address (for block read)
                 reg_raddr <= ps_reg_addr_latched;
-                ps_op_done <= 1'b0;
+                reg_op_done <= 1'b0;
             end
             else if (reg_rvalid) begin
-                reg_rdata_latched <= reg_rdata;
-                ps_op_done <= 1'b1;
+                reg_rdata_latched <= timestamp_rd ? timestamp_latched : reg_rdata;
+                reg_op_done <= 1'b1;
                 req_read_bus <= ps_blk_start_latched & (~ps_blk_end_latched);
             end
         end
@@ -276,22 +300,21 @@ begin
     begin
         if (req_write_bus & grant_write_bus) begin
             blk_wstart <= 1'b0;
-            if ((blk_cnt == 2'd0) && (first_quad | waddr_diff)) begin
+            blk_cnt <= blk_cnt + 2'd1;
+            if (first_quad) begin
+                first_quad <= 1'b0;
+                reg_wen <= 1'b1;
+            end
+            else if ((blk_cnt == 2'd0) && waddr_diff) begin
                 // New data available
                 reg_waddr <= ps_reg_addr_latched;
                 reg_wdata <= ps_reg_wdata;
                 reg_wen <= 1'b1;
-                first_quad <= 1'b0;
-                // Here, ps_op_done indicates that next quadlet should be
-                // provided. We assume the rising edge of ps_op_done will
-                // be detected on the PS.
-                ps_op_done <= ~ps_blk_end_latched;
-                blk_cnt <= 2'd1;
+                reg_op_done <= 1'b0;
             end
             else begin
                 reg_wen <= 1'b0;
-                ps_op_done <= 1'b0;
-                blk_cnt <= blk_cnt + 2'd1;
+                reg_op_done <= ~ps_blk_end_latched;
                 if ((blk_cnt == 2'd3) && ps_blk_end_latched) begin
                     blk_wen <= 1'b1;
                     state <= ST_WRITE_FINISH;
@@ -310,7 +333,7 @@ begin
         reg_wen <= 1'b0;
         blk_wen <= 1'b0;
         req_write_bus <= 1'b0;
-        ps_op_done <= 1'b1;
+        reg_op_done <= 1'b1;
         // Will stay in this state until falling edge of ps_req_bus
         // causes transition to ST_IDLE.
     end

@@ -1001,7 +1001,9 @@ EmioBus PS_EMIO(
     .req_blk_rt_rd(ps_req_blk_rt_rd),
     .blk_rt_rd(ps_blk_rt_rd),
     .req_write_bus(ps_req_write_bus),
-    .grant_write_bus(ps_grant_write_bus)
+    .grant_write_bus(ps_grant_write_bus),
+
+    .timestamp(timestamp)
 );
 
 // *** BEGIN: TEST code for PS clocks
