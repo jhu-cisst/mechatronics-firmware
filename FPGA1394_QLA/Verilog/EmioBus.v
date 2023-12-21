@@ -58,12 +58,12 @@ module EmioBus
     input  wire[63:0] emio_ps_out,      // EMIO output from PS
     input  wire[63:0] emio_ps_tri,      // EMIO tristate from PS (1 -> input to PS, 0 -> output from PS)
 
-    output reg[15:0]  reg_raddr,
+    output wire[15:0] reg_raddr,
     input  wire[31:0] reg_rdata,
     input  wire       reg_rvalid,       // reg_rdata should be valid
     output reg        req_read_bus,     // request read bus (sysclk domain)
     input  wire       grant_read_bus,   // read bus granted
-    output wire[15:0] reg_waddr_out,
+    output wire[15:0] reg_waddr,
     output reg[31:0]  reg_wdata,
     output wire       reg_wen_out,
     output reg        blk_wen,
@@ -78,8 +78,11 @@ module EmioBus
 );
 
 // For local use
-reg[15:0] reg_waddr;
+reg[15:0] reg_addr;         // Either the read or write address
 reg reg_wen;
+reg reg_rvalid_latched;
+
+assign reg_raddr = reg_addr;
 
 reg[31:0]  reg_rdata_latched;
 wire[15:0] ps_reg_addr;
@@ -106,11 +109,33 @@ wire ps_write;                           // emio[53]
 
 reg  reg_op_done;
 
-wire ps_addr_match;
-assign ps_addr_match = ((~ps_write && (ps_reg_addr == reg_raddr)) ||
-                        ( ps_write && (ps_reg_addr == reg_waddr))) ? 1'b1 : 1'b0;
+// There are three address registers:
+//   ps_reg_addr          output from PS (not sync with sysclk)
+//   ps_reg_addr_latched  latched version of ps_reg_addr
+//   reg_addr             latched version of ps_reg_addr_latched, used externally
+//
+// Note that this module drives both the read and write address register (reg_raddr and
+// reg_waddr), which is fine since reading and writing never occur at the same time.
+//
+// For block read or write, we need to detect when the address has incremented.
+//
+// When masking ps_op_done, we need all addresses to be equal (see addr_same below).
 
-assign ps_op_done = reg_op_done & ps_addr_match;
+wire ps_addr_equal;
+wire reg_addr_equal;
+wire reg_addr_incr;
+assign ps_addr_equal = (ps_reg_addr == ps_reg_addr_latched) ? 1'b1 : 1'b0;
+assign reg_addr_equal = (ps_reg_addr_latched == reg_addr) ? 1'b1 : 1'b0;
+assign reg_addr_incr = (ps_reg_addr_latched == (reg_addr+16'd1)) ? 1'b1 : 1'b0;
+
+wire addr_next;
+// Could also check ps_addr_equal, but not necessary
+assign addr_next = reg_addr_incr;
+
+wire addr_same;
+assign addr_same =  reg_addr_equal & ps_addr_equal;
+
+assign ps_op_done = reg_op_done & addr_same;
 
 // It is a write when no data lines are tristate; otherwise, we assume a read
 assign ps_write = (emio_ps_tri[31:0] == 32'd0) ? 1'b1 : 1'b0;
@@ -134,16 +159,16 @@ assign board_equal = (reg_wdata[11:8] == board_id) ? 1'b1 : 1'b0;
 WriteAddressTranslation PsWriteAddr
 (
     .sysclk(sysclk),
-    .reg_waddr_in(reg_waddr[7:0]),
+    .reg_waddr_in(reg_addr[7:0]),
     .reg_wen_in(reg_wen),
-    .reg_waddr_out(reg_waddr_out[7:0]),
+    .reg_waddr_out(reg_waddr[7:0]),
     .reg_wen_out(reg_wen_out),
     .blk_rt_wr(blk_rt_wr),
     .reg_wdata_lsb(reg_wdata[7:0]),
     .board_equal(board_equal)
 );
 
-assign reg_waddr_out[15:8] = reg_waddr[15:8];
+assign reg_waddr[15:8] = reg_addr[15:8];
 
 //*************************** PS EMIO Read/Write ************************************
 
@@ -164,6 +189,7 @@ reg ps_req_bus_1;
 reg ps_req_bus_2;
 
 reg req_read_bus_next;
+reg reg_wen_next;
 reg reg_op_done_next;
 
 reg[1:0] blk_cnt;         // for block write timing
@@ -176,17 +202,11 @@ wire addrHubReg;
 assign addrHubReg = (ps_reg_addr_latched == {`ADDR_HUB, 12'h800 }) ? 1'b1 : 1'b0;
 
 wire timestamp_rd;
-assign timestamp_rd = (blk_rt_rd && (reg_raddr[7:0] == 8'd0)) ? 1'd1 : 1'd0;
+assign timestamp_rd = (blk_rt_rd && (reg_addr[7:0] == 8'd0)) ? 1'd1 : 1'd0;
 
 // For reading the timestamp
 reg[31:0] timestamp_latched;
 reg[31:0] timestamp_prev;
-
-wire raddr_diff;          // indicates read address changed
-assign raddr_diff = (reg_raddr == ps_reg_addr_latched) ? 1'b0 : 1'b1;
-
-wire waddr_diff;          // indicates write address changed
-assign waddr_diff = (reg_waddr == ps_reg_addr_latched) ? 1'b0 : 1'b1;
 
 always @(posedge sysclk)
 begin
@@ -200,6 +220,8 @@ begin
     ps_blk_start_latched <= ps_blk_start;
     // Synchronize blk_end with sysclk
     ps_blk_end_latched <= ps_blk_end;
+
+    reg_rvalid_latched <= reg_rvalid;
 
     // req_blk_rt_rd is asserted for just one sysclk
     req_blk_rt_rd <= 1'b0;
@@ -235,14 +257,14 @@ begin
                 // Request read bus on rising edge of ps_req_bus
                 req_read_bus <= 1'b1;
                 req_read_bus_next <= ps_blk_start_latched & (~ps_blk_end_latched);
-                reg_raddr <= ps_reg_addr_latched;
+                reg_addr <= ps_reg_addr_latched;
                 blk_rt_rd <= ps_blk_start_latched & addrMain;
                 state <= ST_READ;
             end
             else begin
                 // Request write bus on rising edge of ps_req_bus
                 req_write_bus <= 1'b1;
-                reg_waddr <= ps_reg_addr_latched;
+                reg_addr <= ps_reg_addr_latched;
                 reg_wdata <= ps_reg_wdata;
                 blk_rt_wr <= ps_blk_start_latched & addrMain;
                 state <= ps_blk_start_latched ? ST_WRITE_BLOCK_START : ST_WRITE_QUAD;
@@ -259,13 +281,13 @@ begin
     begin
         // Latch reg_rdata when we get the bus and data is valid
         if (req_read_bus & grant_read_bus) begin
-            if (raddr_diff) begin
-                // Latch new address (for block read)
-                reg_raddr <= ps_reg_addr_latched;
+            if (addr_next) begin
+                // Latch next address (for block read)
+                reg_addr <= ps_reg_addr_latched;
                 reg_op_done <= 1'b0;
                 req_read_bus_next <= ps_blk_start_latched & (~ps_blk_end_latched);
             end
-            else if (reg_rvalid) begin
+            else if (reg_rvalid & reg_rvalid_latched) begin
                 reg_rdata_latched <= timestamp_rd ? timestamp_latched : reg_rdata;
                 reg_op_done <= 1'b1;
                 req_read_bus <= req_read_bus_next;
@@ -278,7 +300,7 @@ begin
     ST_WRITE_QUAD:
     begin
         if (req_write_bus & grant_write_bus) begin
-            // reg_waddr and reg_wdata already set
+            // reg_waddr (reg_addr) and reg_wdata already set
             reg_wen <= 1'b1;
             blk_wen <= 1'b1;
             state <= ST_WRITE_FINISH;
@@ -308,21 +330,24 @@ begin
             if (first_quad) begin
                 first_quad <= 1'b0;
                 reg_wen <= 1'b1;
+                reg_wen_next <= 1'b0;
                 reg_op_done_next <= ~ps_blk_end_latched;
                 blk_cnt <= 2'd1;
             end
-            else if (waddr_diff) begin
+            else if (addr_next) begin
                 // New data available
-                reg_waddr <= ps_reg_addr_latched;
+                reg_addr <= ps_reg_addr_latched;
                 reg_wdata <= ps_reg_wdata;
-                reg_wen <= 1'b1;
+                reg_wen <= 1'b0;
+                reg_wen_next <= 1'b1;
                 reg_op_done <= 1'b0;
                 reg_op_done_next <= ~ps_blk_end_latched;
-                blk_cnt <= 2'd1;
+                blk_cnt <= 2'd0;
             end
             else begin
-                reg_wen <= 1'b0;
-                reg_op_done <= reg_op_done_next;
+                reg_wen <= reg_wen_next;
+                reg_wen_next <= 1'b0;
+                reg_op_done <= reg_op_done_next & (~reg_wen_next);
                 blk_cnt <= blk_cnt + 2'd1;
                 if ((blk_cnt == 2'd3) && ~reg_op_done_next) begin
                     blk_wen <= 1'b1;

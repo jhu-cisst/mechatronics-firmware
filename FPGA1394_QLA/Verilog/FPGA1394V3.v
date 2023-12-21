@@ -993,7 +993,7 @@ EmioBus PS_EMIO(
     .reg_rvalid(reg_rvalid),
     .req_read_bus(ps_req_read_bus),
     .grant_read_bus(ps_grant_read_bus),
-    .reg_waddr_out(ps_reg_waddr),
+    .reg_waddr(ps_reg_waddr),
     .reg_wdata(ps_reg_wdata),
     .reg_wen_out(ps_reg_wen),
     .blk_wen(ps_blk_wen),
