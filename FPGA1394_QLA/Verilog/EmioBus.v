@@ -27,14 +27,18 @@
  *       2) Assert req_bus and blk_start
  *       3) Wait for op_done
  *       4) Read data (reg_data)
- *       5) Repeat above until last quadlet (assert blk_end for last quadlet)
+ *       5) Repeat above until last quadlet (assert blk_end for last quadlet);
+ *          note that it is only necessary to write the least-significant bit
+ *          of the address, since addresses are assumed to be sequential
  *       6) Deassert req_bus
  *
  *   Block Write: (NOTE 2)
  *       1) Write address (reg_addr) and data (reg_data)
  *       2) Assert req_bus and blk_start
  *       3) Wait for op_done
- *       4) Repeat above until last quadlet (assert blk_end for last quadlet)
+ *       4) Repeat above until last quadlet (assert blk_end for last quadlet);
+ *          note that it is only necessary to write the least-significant bit
+ *          of the address, since addresses are assumed to be sequential
  *       5) Deassert req_bus
  *
  *   NOTES:
@@ -79,10 +83,19 @@ module EmioBus
 
 // For local use
 reg[15:0] reg_addr;         // Either the read or write address
+// reg_addr_lsb contains the least-significant bit of reg_addr. In most cases, this
+// is equal to reg_addr[0], but it could be different if the host issues a real-time
+// block write to a non-zero starting address. In this case, the firmware forces the
+//  starting address to be 0.
+reg reg_addr_lsb;
 reg reg_wen;
 reg reg_rvalid_latched;
 
 assign reg_raddr = reg_addr;
+
+// The next address (increment by 1)
+wire[11:0] reg_addr_next;
+assign reg_addr_next = reg_addr + 12'd1;
 
 reg[31:0]  reg_rdata_latched;
 wire[15:0] ps_reg_addr;
@@ -113,27 +126,35 @@ reg  reg_op_done;
 //   ps_reg_addr          output from PS (not sync with sysclk)
 //   ps_reg_addr_latched  latched version of ps_reg_addr
 //   reg_addr             latched version of ps_reg_addr_latched, used externally
+//                        (might be changed for real-time block write)
 //
 // Note that this module drives both the read and write address register (reg_raddr and
 // reg_waddr), which is fine since reading and writing never occur at the same time.
 //
-// For block read or write, we need to detect when the address has incremented.
+// For block read or write, we need to detect when the address has incremented, which
+// we do by checking the least-significant bit.
 //
 // When masking ps_op_done, we need all addresses to be equal (see addr_same below).
+//
+// This implementation will also handle the case where reg_addr has been changed,
+// for example, to force the real-time block write to start at address 0.
+// This is done by incrementing reg_addr whenever the PS writes a new address, rather
+// than using the address written by the PS. As a consequence, it is not necessary
+// for the PS to write the full 16-bit address -- only the least-significant bit
+// is required.
 
 wire ps_addr_equal;
-wire reg_addr_equal;
-wire reg_addr_incr;
+wire reg_addr_lsb_equal;
 assign ps_addr_equal = (ps_reg_addr == ps_reg_addr_latched) ? 1'b1 : 1'b0;
-assign reg_addr_equal = (ps_reg_addr_latched == reg_addr) ? 1'b1 : 1'b0;
-assign reg_addr_incr = (ps_reg_addr_latched == (reg_addr+16'd1)) ? 1'b1 : 1'b0;
+assign reg_addr_lsb_equal = (ps_reg_addr_latched[0] == reg_addr_lsb) ? 1'b1 : 1'b0;
 
+// addr_next indicates when the next address has been written by the PS.
+// It is only necessary for the PS to write the least-significant bit.
 wire addr_next;
-// Could also check ps_addr_equal, but not necessary
-assign addr_next = reg_addr_incr;
+assign addr_next = ~reg_addr_lsb_equal;
 
 wire addr_same;
-assign addr_same =  reg_addr_equal & ps_addr_equal;
+assign addr_same =  reg_addr_lsb_equal & ps_addr_equal;
 
 assign ps_op_done = reg_op_done & addr_same;
 
@@ -258,15 +279,22 @@ begin
                 req_read_bus <= 1'b1;
                 req_read_bus_next <= ps_blk_start_latched & (~ps_blk_end_latched);
                 reg_addr <= ps_reg_addr_latched;
+                // Save least-sigificant bit, since block read will check for changes
+                reg_addr_lsb <= ps_reg_addr_latched[0];
                 blk_rt_rd <= ps_blk_start_latched & addrMain;
                 state <= ST_READ;
             end
             else begin
                 // Request write bus on rising edge of ps_req_bus
                 req_write_bus <= 1'b1;
-                reg_addr <= ps_reg_addr_latched;
-                reg_wdata <= ps_reg_wdata;
+                // For consistency with Firewire/Ethernet, real-time block write
+                // always starts at address 0.
+                reg_addr[15:12] <= ps_reg_addr_latched[15:12];
+                reg_addr[11:0] <= (ps_blk_start_latched & addrMain) ? 12'd0 : ps_reg_addr_latched[11:0];
+                // Save least-sigificant bit, since block write will check for changes
+                reg_addr_lsb <= ps_reg_addr_latched[0];
                 blk_rt_wr <= ps_blk_start_latched & addrMain;
+                reg_wdata <= ps_reg_wdata;
                 state <= ps_blk_start_latched ? ST_WRITE_BLOCK_START : ST_WRITE_QUAD;
             end
         end
@@ -283,7 +311,8 @@ begin
         if (req_read_bus & grant_read_bus) begin
             if (addr_next) begin
                 // Latch next address (for block read)
-                reg_addr <= ps_reg_addr_latched;
+                reg_addr[11:0] <= reg_addr_next;
+                reg_addr_lsb <= ps_reg_addr_latched[0];
                 reg_op_done <= 1'b0;
                 req_read_bus_next <= ps_blk_start_latched & (~ps_blk_end_latched);
             end
@@ -336,7 +365,8 @@ begin
             end
             else if (addr_next) begin
                 // New data available
-                reg_addr <= ps_reg_addr_latched;
+                reg_addr[11:0] <= reg_addr_next;
+                reg_addr_lsb <= ps_reg_addr_latched[0];
                 reg_wdata <= ps_reg_wdata;
                 reg_wen <= 1'b0;
                 reg_wen_next <= 1'b1;
