@@ -163,6 +163,9 @@ initial state = ST_IDLE;
 reg ps_req_bus_1;
 reg ps_req_bus_2;
 
+reg req_read_bus_next;
+reg reg_op_done_next;
+
 reg[1:0] blk_cnt;         // for block write timing
 reg first_quad;           // first quadlet
 
@@ -231,6 +234,7 @@ begin
             if (~ps_write) begin
                 // Request read bus on rising edge of ps_req_bus
                 req_read_bus <= 1'b1;
+                req_read_bus_next <= ps_blk_start_latched & (~ps_blk_end_latched);
                 reg_raddr <= ps_reg_addr_latched;
                 blk_rt_rd <= ps_blk_start_latched & addrMain;
                 state <= ST_READ;
@@ -259,11 +263,12 @@ begin
                 // Latch new address (for block read)
                 reg_raddr <= ps_reg_addr_latched;
                 reg_op_done <= 1'b0;
+                req_read_bus_next <= ps_blk_start_latched & (~ps_blk_end_latched);
             end
             else if (reg_rvalid) begin
                 reg_rdata_latched <= timestamp_rd ? timestamp_latched : reg_rdata;
                 reg_op_done <= 1'b1;
-                req_read_bus <= ps_blk_start_latched & (~ps_blk_end_latched);
+                req_read_bus <= req_read_bus_next;
             end
         end
         // Will stay in this state until falling edge of ps_req_bus
@@ -300,22 +305,26 @@ begin
     begin
         if (req_write_bus & grant_write_bus) begin
             blk_wstart <= 1'b0;
-            blk_cnt <= blk_cnt + 2'd1;
             if (first_quad) begin
                 first_quad <= 1'b0;
                 reg_wen <= 1'b1;
+                reg_op_done_next <= ~ps_blk_end_latched;
+                blk_cnt <= 2'd1;
             end
-            else if ((blk_cnt == 2'd0) && waddr_diff) begin
+            else if (waddr_diff) begin
                 // New data available
                 reg_waddr <= ps_reg_addr_latched;
                 reg_wdata <= ps_reg_wdata;
                 reg_wen <= 1'b1;
                 reg_op_done <= 1'b0;
+                reg_op_done_next <= ~ps_blk_end_latched;
+                blk_cnt <= 2'd1;
             end
             else begin
                 reg_wen <= 1'b0;
-                reg_op_done <= ~ps_blk_end_latched;
-                if ((blk_cnt == 2'd3) && ps_blk_end_latched) begin
+                reg_op_done <= reg_op_done_next;
+                blk_cnt <= blk_cnt + 2'd1;
+                if ((blk_cnt == 2'd3) && ~reg_op_done_next) begin
                     blk_wen <= 1'b1;
                     state <= ST_WRITE_FINISH;
                 end
