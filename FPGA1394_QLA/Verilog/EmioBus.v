@@ -93,10 +93,6 @@ reg reg_rvalid_latched;
 
 assign reg_raddr = reg_addr;
 
-// The next address (increment by 1)
-wire[11:0] reg_addr_next;
-assign reg_addr_next = reg_addr + 12'd1;
-
 reg[31:0]  reg_rdata_latched;
 wire[15:0] ps_reg_addr;
 wire[31:0] ps_reg_wdata;
@@ -311,7 +307,7 @@ begin
         if (req_read_bus & grant_read_bus) begin
             if (addr_next) begin
                 // Latch next address (for block read)
-                reg_addr[11:0] <= reg_addr_next;
+                reg_addr[11:0] <= reg_addr[11:0] + 12'd1;
                 reg_addr_lsb <= ps_reg_addr_latched[0];
                 reg_op_done <= 1'b0;
                 req_read_bus_next <= ps_blk_start_latched & (~ps_blk_end_latched);
@@ -365,7 +361,7 @@ begin
             end
             else if (addr_next) begin
                 // New data available
-                reg_addr[11:0] <= reg_addr_next;
+                reg_addr[11:0] <= reg_addr[11:0] + 12'd1;
                 reg_addr_lsb <= ps_reg_addr_latched[0];
                 reg_wdata <= ps_reg_wdata;
                 reg_wen <= 1'b0;
