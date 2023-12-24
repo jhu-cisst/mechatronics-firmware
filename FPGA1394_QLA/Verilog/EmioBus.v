@@ -97,6 +97,11 @@ reg[31:0]  reg_rdata_latched;
 wire[15:0] ps_reg_addr;
 wire[31:0] ps_reg_wdata;
 wire ps_req_bus;
+// The PS should set ps_addr_lsb the same as ps_reg_addr[0], but we have a separate
+// line for this due to limitations of libgpiod on Linux; specifically, we would have
+// to release all 16 address lines in order to request the 1 (lsb) address line, which
+// adds significant overhead. Therefore, we instead use a separate line.
+wire ps_addr_lsb;
 
 // Following are not synchronized with sysclk, but should be stable
 // since they are not used until the read or write bus is granted
@@ -107,9 +112,11 @@ assign ps_req_bus = emio_ps_out[48];     // emio[48]
 assign ps_reg_wen = emio_ps_out[50];     // emio[50] (not used)
 assign ps_blk_start = emio_ps_out[51];   // emio[51]
 assign ps_blk_end = emio_ps_out[52];     // emio[52]
+assign ps_addr_lsb = emio_ps_out[55];    // emio[55]
 
 // Following are synchronized with sysclk
 reg[15:0] ps_reg_addr_latched;
+reg ps_addr_lsb_latched;
 reg ps_blk_start_latched;
 reg ps_blk_end_latched;
 
@@ -142,7 +149,7 @@ reg  reg_op_done;
 wire ps_addr_equal;
 wire reg_addr_lsb_equal;
 assign ps_addr_equal = (ps_reg_addr == ps_reg_addr_latched) ? 1'b1 : 1'b0;
-assign reg_addr_lsb_equal = (ps_reg_addr_latched[0] == reg_addr_lsb) ? 1'b1 : 1'b0;
+assign reg_addr_lsb_equal = (ps_addr_lsb_latched == reg_addr_lsb) ? 1'b1 : 1'b0;
 
 // addr_next indicates when the next address has been written by the PS.
 // It is only necessary for the PS to write the least-significant bit.
@@ -158,7 +165,8 @@ assign ps_op_done = reg_op_done & addr_same;
 assign ps_write = (emio_ps_tri[31:0] == 32'd0) ? 1'b1 : 1'b0;
 
 assign emio_ps_in = {4'd1,                                            // Version 1
-                     5'd0,                                            // Unused
+                     4'd0,                                            // Unused
+                     ps_addr_lsb,                                     // [55]
                      (ps_write ? grant_write_bus : grant_read_bus),   // [54]
                      ps_write,                                        // [53]
                      ps_blk_end, ps_blk_start, ps_reg_wen,            // [52:50]
@@ -233,6 +241,7 @@ begin
 
     // Synchronize read/write address with sysclk
     ps_reg_addr_latched <= ps_reg_addr;
+    ps_addr_lsb_latched <= ps_addr_lsb;
     // Synchronize blk_start with sysclk
     ps_blk_start_latched <= ps_blk_start;
     // Synchronize blk_end with sysclk
@@ -276,7 +285,7 @@ begin
                 req_read_bus_next <= ps_blk_start_latched & (~ps_blk_end_latched);
                 reg_addr <= ps_reg_addr_latched;
                 // Save least-sigificant bit, since block read will check for changes
-                reg_addr_lsb <= ps_reg_addr_latched[0];
+                reg_addr_lsb <= ps_addr_lsb_latched;
                 blk_rt_rd <= ps_blk_start_latched & addrMain;
                 state <= ST_READ;
             end
@@ -288,7 +297,7 @@ begin
                 reg_addr[15:12] <= ps_reg_addr_latched[15:12];
                 reg_addr[11:0] <= (ps_blk_start_latched & addrMain) ? 12'd0 : ps_reg_addr_latched[11:0];
                 // Save least-sigificant bit, since block write will check for changes
-                reg_addr_lsb <= ps_reg_addr_latched[0];
+                reg_addr_lsb <= ps_addr_lsb_latched;
                 blk_rt_wr <= ps_blk_start_latched & addrMain;
                 reg_wdata <= ps_reg_wdata;
                 state <= ps_blk_start_latched ? ST_WRITE_BLOCK_START : ST_WRITE_QUAD;
@@ -308,7 +317,7 @@ begin
             if (addr_next) begin
                 // Latch next address (for block read)
                 reg_addr[11:0] <= reg_addr[11:0] + 12'd1;
-                reg_addr_lsb <= ps_reg_addr_latched[0];
+                reg_addr_lsb <= ps_addr_lsb_latched;
                 reg_op_done <= 1'b0;
                 req_read_bus_next <= ps_blk_start_latched & (~ps_blk_end_latched);
             end
@@ -362,7 +371,7 @@ begin
             else if (addr_next) begin
                 // New data available
                 reg_addr[11:0] <= reg_addr[11:0] + 12'd1;
-                reg_addr_lsb <= ps_reg_addr_latched[0];
+                reg_addr_lsb <= ps_addr_lsb_latched;
                 reg_wdata <= ps_reg_wdata;
                 reg_wen <= 1'b0;
                 reg_wen_next <= 1'b1;
