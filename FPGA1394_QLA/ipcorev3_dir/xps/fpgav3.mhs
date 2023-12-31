@@ -78,6 +78,8 @@
  PORT processing_system7_0_ENET1_GMII_RX_DV_pin = net_processing_system7_0_ENET1_GMII_RX_DV_pin, DIR = I
  PORT processing_system7_0_ENET1_GMII_RX_ER_pin = net_processing_system7_0_ENET1_GMII_RX_ER_pin, DIR = I
  PORT processing_system7_0_ENET1_GMII_RXD_pin = net_processing_system7_0_ENET1_GMII_RXD_pin, DIR = I, VEC = [7:0]
+ PORT processing_system7_0_RESETn_PHY_0_pin = processing_system7_0_FCLK_RESET0_N_0, DIR = O, SIGIS = RST
+ PORT processing_system7_0_RESETn_PHY_1_pin = processing_system7_0_FCLK_RESET0_N_0, DIR = O, SIGIS = RST
 
 
 BEGIN processing_system7
@@ -174,6 +176,7 @@ BEGIN processing_system7
  PORT ENET1_GMII_RX_CLK = gmii_to_rgmii_2_gmii_rx_clk
  PORT ENET1_MDIO_I = net_processing_system7_0_ENET1_MDIO_I_pin
  PORT ENET1_GMII_RX_DV = gmii_to_rgmii_2_gmii_rx_dv
+ PORT FCLK_RESET0_N = processing_system7_0_FCLK_RESET0_N_0
 END
 
 BEGIN gmii_to_rgmii

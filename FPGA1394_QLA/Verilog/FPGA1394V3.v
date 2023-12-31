@@ -423,11 +423,15 @@ PhyRequest phyreq(
 wire clk200_ok;    // Whether the 200 MHz clock (from PS) seems to be running
 assign LED = clk200_ok;
 
-// Ethernet reset (to PHY) and  interrupt (from PHY)
-wire Eth_RSTn[1:2];
-assign E1_RSTn = Eth_RSTn[1];
-assign E2_RSTn = Eth_RSTn[2];
+wire ps_eth_enable[1:2];   // 1 -> Zynq PS has access to Ethernet
 
+// Ethernet reset (to PHY)
+wire Eth_RSTn[1:2];        // Reset signal from PL (FPGA)
+wire PS_Eth_RSTn[1:2];     // Reset signal from PS (ARM)
+assign E1_RSTn = Eth_RSTn[1] & ~(ps_eth_enable[1]&(~PS_Eth_RSTn[1]));
+assign E2_RSTn = Eth_RSTn[2] & ~(ps_eth_enable[2]&(~PS_Eth_RSTn[2]));
+
+// Ethernet interrupt (from PHY)
 wire Eth_IRQn[1:2];
 assign Eth_IRQn[1] = E1_IRQn;
 assign Eth_IRQn[2] = E2_IRQn;
@@ -493,7 +497,6 @@ wire[1:0]  clock_speed[1:2];
 wire[1:0]  speed_mode[1:2];
 wire       tx_req_rt[1:2];
 wire       tx_grant_rt[1:2];
-wire       ps_eth_enable[1:2];
 
 wire       mdio_o_rt[1:2];      // OUT from RTL8211F module
 wire       mdio_o_ps[1:2];      // OUT from Zynq PS
@@ -967,7 +970,10 @@ fpgav3 zynq_ps7(
     .processing_system7_0_ENET1_MDIO_MDC_pin(mdio_clk_ps[2]),
     .processing_system7_0_ENET1_MDIO_I_pin(mdio_i[2]&ps_eth_enable[2]),
     .processing_system7_0_ENET1_MDIO_O_pin(mdio_o_ps[2]),
-    .processing_system7_0_ENET1_MDIO_T_pin(mdio_t_ps[2])
+    .processing_system7_0_ENET1_MDIO_T_pin(mdio_t_ps[2]),
+
+    .processing_system7_0_RESETn_PHY_0_pin(PS_Eth_RSTn[1]),
+    .processing_system7_0_RESETn_PHY_1_pin(PS_Eth_RSTn[2])
 );
 
 // Ethernet Rx/Tx Routing
