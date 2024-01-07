@@ -43,32 +43,48 @@ assign regValue[13] = 16'h0000;    // MACR
 assign regValue[14] = 16'h0000;    // MAADR
 assign regValue[15] = 16'h2000;    // GBESR: 1GB full-duplex capable
 
-reg[15:0] replyData;
-assign mdio_i = replyData[15];
+// State machine
+localparam[1:0]
+    ST_MDIO_IDLE = 2'd0,
+    ST_MDIO_RECV_DATA = 2'd1,
+    ST_MDIO_SAVE_DATA = 2'd2;
 
-// State machine (only 3 for now, but more expected)
-localparam[2:0]
-    ST_MDIO_IDLE = 3'd0,
-    ST_MDIO_RECV_DATA = 3'd1,
-    ST_MDIO_SAVE_DATA = 3'd2;
-
-reg[2:0] mdioState;
+reg[1:0] mdioState;
 initial mdioState = ST_MDIO_IDLE;
 
 reg[4:0] cnt;         // 5-bit counter (0-31)
 
+assign mdio_i = replyData[~cnt];
+
 reg[31:0] mdio_data;  // save MDIO data
 
 wire mdio_st_ok;      // ST bit pattern (01) detected
-wire[1:0] mdio_rw;     // OP indicates Read (10) or Write (01)
-wire[4:0] phyAddr;     // PHY address (1 or 8)
-wire[4:0] regAddr;     // Register address
+wire[1:0] mdio_rw;    // OP indicates Read (10) or Write (01)
+wire[4:0] phyAddr;    // PHY address (1 or 8)
+wire[4:0] regAddr;    // Register address
 assign mdio_st_ok = (mdio_data[31:30] == 2'b01) ? 1'b1 : 1'b0;
 assign mdio_rw = mdio_data[29:28];
 assign phyAddr = mdio_data[27:23];
 assign regAddr = mdio_data[22:18];
 
-reg[4:0] regNew;      // Register not yet supported (for debugging)
+wire isRegStandard;    // 1 -> standard GMII register (0-15)
+wire isRegNew;         // 1 -> not a standard GMII register (not yet supported)
+assign isRegStandard = ((phyAddr == 1) && (~regAddr[4])) ? 1'b1 : 1'b0;
+assign isRegNew = ((phyAddr == 1) && regAddr[4]) ? 1'b1 : 1'b0;
+reg[4:0] regNew;       // Register not yet supported (for debugging)
+
+// Data to write to host via mdio_i.
+// Note that this data should only be used for the last 17 or 18 bits during
+// an MDIO register read, where bits 17:16 correspond to the turnaround time (TA)
+// and bits 15:0 correspond to the register data. It should not hurt to write
+// it all the time, since the tri-state control from the host (mdio_t) should
+// prevent it from interfering during a register write.
+wire[31:0] replyData;
+assign replyData[31:16] = 16'd0;
+assign replyData[15:0] = (phyAddr == 8) ? 16'h0040 :
+                         isRegStandard ? regValue[regAddr[3:0]] :
+                         16'd0;    // Unknown register (see regNew)
+
 reg doRead;           // 1 -> read from mdio_i (more reliable than checking mdio_t)
 
 wire isRead;
@@ -78,15 +94,11 @@ assign isWrite = (mdio_rw == 2'b01) ? 1'b1 : 1'b0;
 
 // Debug address space: 4xb0-4xbf
 reg[31:0] DebugData[0:15];
-reg[3:0]  debug_cnt;  // 4-bit counter (0-15)
+reg[3:0] debugCnt;
 
 reg[3:0] preamble_err_cnt;
 
-reg[15:0] regWriteMask;
-reg[15:0] regReadMask;
-
 assign reg_rdata = (reg_raddr[7:4] == 4'hb) ? DebugData[reg_raddr[3:0]] :
-                   (reg_raddr[7:0] == 8'hae) ? { regWriteMask, regReadMask } :
                    (reg_raddr[7:0] == 8'haf) ? { 3'd0, regNew,
                                                  3'd0, phyAddr,
                                                  3'd0, regAddr,
@@ -100,7 +112,6 @@ begin
 
     ST_MDIO_IDLE:
         begin
-            replyData <= 16'd0;   // MSB drives mdio_i
             doRead <= 1'b0;
             if (mdio_t) begin
                 cnt <= 5'd0;
@@ -120,43 +131,28 @@ begin
     ST_MDIO_RECV_DATA:
         begin
             cnt <= cnt + 5'd1;
-            replyData <= { replyData[14:0], 1'b0 };  // Drives mdio_i
             mdio_data[~cnt] <= doRead ? mdio_i : mdio_o;
 
-            if (cnt == 5'd15) begin
-                // Set replyData for read (note that it will be ignored if
-                // the current command is a write)
+            if (cnt == 5'd15)
                 doRead <= isRead;
-                if (phyAddr == 1) begin           // Physical PHY
-                    if (regAddr[4] == 0) begin    // Standard register 0-15
-                        replyData <= regValue[regAddr[3:0]];
-                        // For debugging
-                        if (isRead)
-                            regReadMask[regAddr[3:0]] <= 1'b1;
-                        else if (isWrite)
-                            regWriteMask[regAddr[3:0]] <= 1'b1;
-                    end
-                    else begin
-                        regNew <= regAddr;        // Need to handle this register
-                    end
-                end
-                else if (phyAddr == 8) begin      // gmii-to-rgmii PHY
-                    replyData <= 16'h0040;        //   - 1GB link (regAddr==16)
-                end
-            end
-            else if (cnt == 5'd31) begin
+            else if (cnt == 5'd31)
                 mdioState <= ST_MDIO_SAVE_DATA;
-            end
         end
 
     ST_MDIO_SAVE_DATA:
         begin
-           if ((phyAddr != 8) && (regAddr != 0) && (regAddr != 1)) begin
-               DebugData[debug_cnt] <= mdio_data;
-               debug_cnt <= debug_cnt + 4'd1;
-           end
-           mdioState <= ST_MDIO_IDLE;
+            // For debugging
+            DebugData[debugCnt] <= mdio_data;
+            debugCnt <= debugCnt + 4'd1;
+            if (isRegNew) begin
+                regNew <= regAddr;        // Need to handle this register
+            end
+            mdioState <= ST_MDIO_IDLE;
         end
+
+    default:
+        // Could note this as an error
+        mdioState <= ST_MDIO_IDLE;
 
     endcase
 
