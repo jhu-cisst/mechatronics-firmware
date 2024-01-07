@@ -115,7 +115,8 @@ reg[7:0] send_first_byte_in;   // for error checking
 
 reg send_fifo_flush;   // 1 -> flush packet due to fifo overflow
 
-assign send_fifo_din = {send_word[7:0], send_word[15:8]};
+reg[15:0] send_word_latched;
+assign send_fifo_din = {send_word_latched[7:0], send_word_latched[15:8]};
 
 assign send_info_din = { send_fifo_flush, 7'd0, send_first_byte_in, responseByteCount };
 
@@ -326,6 +327,7 @@ begin
             sendCtrl <= {sendCtrl[1:0], sendCtrl[2] };
             if (sendValid) begin
                 send_wr_en[curPort] <= ~(send_fifo_full[curPort]|send_fifo_flush);
+                send_word_latched <= send_word;
                 if (send_fifo_full[curPort]) begin
                     send_fifo_flush <= 1'b1;
                     send_fifo_overflow[curPort] <= 1'b1;
