@@ -205,6 +205,7 @@ reg[31:0]  reg_rdata_prom;     // reg_rdata_prom is for block reads from PROM
 wire[31:0] reg_rdata_eth;      // for eth memory access (EthernetIO)
 wire[31:0] reg_rdata_rtl;      // for eth memory access (RTL8211F)
 wire[31:0] reg_rdata_eswrt;    // for eth memory access (EthSwitchRt)
+wire[31:0] reg_rdata_vp;       // for eth memory access (VirtualPhy)
 wire[31:0] reg_rdata_fw;       // for fw memory access
 wire[31:0] reg_rdata_chan0;    // for reads from board registers
 
@@ -225,7 +226,7 @@ assign isAddrMain = ((reg_raddr[15:12]==`ADDR_MAIN) && (reg_raddr[7:4]==4'd0)) ?
 assign {reg_rdata, reg_rwait} =
                    ((reg_raddr[15:12]==`ADDR_HUB) ? {reg_rdata_hub, reg_rwait_hub} :
                     (reg_raddr[15:12]==`ADDR_PROM) ? {reg_rdata_prom, 1'b0} :
-                    (reg_raddr[15:12]==`ADDR_ETH) ? {reg_rdata_eth|reg_rdata_rtl|reg_rdata_eswrt, 1'b1} :
+                    (reg_raddr[15:12]==`ADDR_ETH) ? {reg_rdata_eth|reg_rdata_rtl|reg_rdata_eswrt|reg_rdata_vp, 1'b1} :
                     (reg_raddr[15:12]==`ADDR_FW) ? {reg_rdata_fw, 1'b1} :
                     isAddrMain ? {reg_rdata_chan0 | reg_rdata_chan0_ext, reg_rwait_chan0} :
                     {32'd0, 1'b0}) | {reg_rdata_ext, reg_rwait_ext};
@@ -501,6 +502,7 @@ wire       tx_grant_rt[1:2];
 wire       mdio_o_rt[1:2];      // OUT from RTL8211F module
 wire       mdio_o_ps[1:2];      // OUT from Zynq PS
 wire       mdio_o[1:2];         // IN to GMII core (or PHY)
+wire       mdio_i_ps[1:2];      // IN to Zynz PS, OUT from VirtualPhy
 wire       mdio_i[1:2];         // IN to RTL8211F module, OUT from GMII core (or PHY)
 wire       mdio_t_rt[1:2];      // OUT from RTL8211F module (tristate control)
 wire       mdio_t_ps[1:2];      // OUT from Zynq PS (tristate control)
@@ -674,6 +676,19 @@ for (k = 1; k <= 2; k = k + 1) begin : eth_loop
 
 end
 endgenerate
+
+VirtualPhy VPhy(
+    .mdio_i(mdio_i_ps[1]),   // mdio_i to PS
+    .mdio_o(mdio_o_ps[1]),   // mdio_o from PS
+    .mdio_t(mdio_t_ps[1]),   // mdio_t from PS
+    .mdc(mdio_clk_ps[1]),    // mdc (clock) from PS
+
+    // For debugging
+    .reg_raddr(reg_raddr),      // read address
+    .reg_rdata(reg_rdata_vp)    // register read data
+);
+
+assign mdio_i_ps[2] = mdio_i[2];
 
 EthSwitchRt eth_switch_rt(
     .clk(sysclk),
@@ -933,7 +948,7 @@ fpgav3 zynq_ps7(
     .processing_system7_0_ENET0_GMII_TX_CLK_pin(gmii_tx_clk[1]&ps_eth_enable[1]),
     .processing_system7_0_ENET0_GMII_TXD_pin(gmii_txd_ps[1]),
     .processing_system7_0_ENET0_MDIO_MDC_pin(mdio_clk_ps[1]),
-    .processing_system7_0_ENET0_MDIO_I_pin(mdio_i[1]&ps_eth_enable[1]),
+    .processing_system7_0_ENET0_MDIO_I_pin(mdio_i_ps[1]),
     .processing_system7_0_ENET0_MDIO_O_pin(mdio_o_ps[1]),
     .processing_system7_0_ENET0_MDIO_T_pin(mdio_t_ps[1]),
 
@@ -968,7 +983,7 @@ fpgav3 zynq_ps7(
     .processing_system7_0_ENET1_GMII_TX_CLK_pin(gmii_tx_clk[2]&ps_eth_enable[2]),
     .processing_system7_0_ENET1_GMII_TXD_pin(gmii_txd_ps[2]),
     .processing_system7_0_ENET1_MDIO_MDC_pin(mdio_clk_ps[2]),
-    .processing_system7_0_ENET1_MDIO_I_pin(mdio_i[2]&ps_eth_enable[2]),
+    .processing_system7_0_ENET1_MDIO_I_pin(mdio_i_ps[2]&ps_eth_enable[2]),
     .processing_system7_0_ENET1_MDIO_O_pin(mdio_o_ps[2]),
     .processing_system7_0_ENET1_MDIO_T_pin(mdio_t_ps[2]),
 

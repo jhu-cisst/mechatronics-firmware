@@ -103,6 +103,7 @@ set (VERILOG_SOURCE_FPGAV3
                          "${VERILOG_SOURCE_DIR}/RTL8211F.v"
                          "${VERILOG_SOURCE_DIR}/EthernetIO.v"
                          "${VERILOG_SOURCE_DIR}/EthSwitchRt.v"
+                         "${VERILOG_SOURCE_DIR}/VirtualPhy.v"
 			 "${VERILOG_SOURCE_DIR}/EmioBus.v"
                          "${IPCOREV3_BINARY_DIR}/hub_mem_gen.v"
                          "${IPCOREV3_BINARY_DIR}/Dual_port_RAM_32X1024.v"
