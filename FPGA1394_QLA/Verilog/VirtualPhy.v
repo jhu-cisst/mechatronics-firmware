@@ -59,10 +59,15 @@ reg[4:0] cnt;         // 5-bit counter (0-31)
 
 reg[31:0] mdio_data;  // save MDIO data
 
-reg mdio_st_ok;       // ST bit pattern (01) detected
-reg[1:0] mdio_rw;     // OP indicates Read (10) or Write (01)
-reg[4:0] phyAddr;     // PHY address (1 or 8)
-reg[4:0] regAddr;     // Register address
+wire mdio_st_ok;      // ST bit pattern (01) detected
+wire[1:0] mdio_rw;     // OP indicates Read (10) or Write (01)
+wire[4:0] phyAddr;     // PHY address (1 or 8)
+wire[4:0] regAddr;     // Register address
+assign mdio_st_ok = (mdio_data[31:30] == 2'b01) ? 1'b1 : 1'b0;
+assign mdio_rw = mdio_data[29:28];
+assign phyAddr = mdio_data[27:23];
+assign regAddr = mdio_data[22:18];
+
 reg[4:0] regNew;      // Register not yet supported (for debugging)
 reg doRead;           // 1 -> read from mdio_i (more reliable than checking mdio_t)
 
@@ -116,49 +121,32 @@ begin
         begin
             cnt <= cnt + 5'd1;
             replyData <= { replyData[14:0], 1'b0 };  // Drives mdio_i
-            mdio_data <= { mdio_data[30:0], (doRead ? mdio_i : mdio_o) };
+            mdio_data[~cnt] <= doRead ? mdio_i : mdio_o;
 
-            case (cnt)
-
-              5'd2:   // First 2 bits (ST) should be 01
-                  mdio_st_ok <= (mdio_data[1:0] == 2'b01) ? 1'b1 : 1'b0;
-
-              5'd4:   // Next 2 bits (OP) indicate Read (10) or Write (01)
-                  mdio_rw <= mdio_data[1:0];
-
-              5'd9:
-                  phyAddr <= mdio_data[4:0];
-
-              5'd14:
-                  regAddr <= mdio_data[4:0];
-
-              5'd15:
-                  begin
-                      // Set replyData for read (note that it will be ignored if
-                      // the current command is a write)
-                      doRead <= isRead;
-                      if (phyAddr == 1) begin           // Physical PHY
-                          if (regAddr[4] == 0) begin    // Standard register 0-15
-                              replyData <= regValue[regAddr[3:0]];
-                              // For debugging
-                              if (isRead)
-                                  regReadMask[regAddr[3:0]] <= 1'b1;
-                              else if (isWrite)
-                                  regWriteMask[regAddr[3:0]] <= 1'b1;
-                          end
-                          else begin
-                              regNew <= regAddr;        // Need to handle this register
-                          end
-                      end
-                      else if (phyAddr == 8) begin      // gmii-to-rgmii PHY
-                          replyData <= 16'h0040;        //   - 1GB link (regAddr==16)
-                      end
-                  end
-
-              5'd31:
-                  mdioState <= ST_MDIO_SAVE_DATA;
-            endcase
-
+            if (cnt == 5'd15) begin
+                // Set replyData for read (note that it will be ignored if
+                // the current command is a write)
+                doRead <= isRead;
+                if (phyAddr == 1) begin           // Physical PHY
+                    if (regAddr[4] == 0) begin    // Standard register 0-15
+                        replyData <= regValue[regAddr[3:0]];
+                        // For debugging
+                        if (isRead)
+                            regReadMask[regAddr[3:0]] <= 1'b1;
+                        else if (isWrite)
+                            regWriteMask[regAddr[3:0]] <= 1'b1;
+                    end
+                    else begin
+                        regNew <= regAddr;        // Need to handle this register
+                    end
+                end
+                else if (phyAddr == 8) begin      // gmii-to-rgmii PHY
+                    replyData <= 16'h0040;        //   - 1GB link (regAddr==16)
+                end
+            end
+            else if (cnt == 5'd31) begin
+                mdioState <= ST_MDIO_SAVE_DATA;
+            end
         end
 
     ST_MDIO_SAVE_DATA:
