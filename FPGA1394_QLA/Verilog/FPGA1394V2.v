@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2011-2023 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2011-2024 ERC CISST, Johns Hopkins University.
  *
  * This module contains common code for FPGA V2 and does not make any assumptions
  * about which board is connected.
@@ -95,10 +95,10 @@ assign ETH_8n = 1;          // 16-bit bus
     wire reboot;                // FPGA reboot request
     wire lreq_trig;             // phy request trigger
     wire fw_lreq_trig;          // phy request trigger from FireWire
-    wire eth_lreq_trig;         // phy request trigger from Ethernet
+    wire reg_lreq_trig;         // phy request trigger from register write
     wire[2:0] lreq_type;        // phy request type
     wire[2:0] fw_lreq_type;     // phy request type from FireWire
-    wire[2:0] eth_lreq_type;    // phy request type from Ethernet
+    wire[2:0] reg_lreq_type;    // phy request type from register write
     wire fw_reg_wen;            // register write signal from FireWire
     wire eth_reg_wen;           // register write signal from Ethernet
     wire fw_blk_wen;            // block write enable from FireWire
@@ -250,11 +250,6 @@ begin
    end
 end
 
-// Following is for debugging; it is a little risky to allow Ethernet to
-// access the FireWire PHY registers without some type of arbitration.
-assign lreq_trig = eth_lreq_trig | fw_lreq_trig;
-assign lreq_type = eth_lreq_trig ? eth_lreq_type : fw_lreq_type;
-
 // --------------------------------------------------------------------------
 // hub register module
 // --------------------------------------------------------------------------
@@ -325,6 +320,8 @@ phy(
 
     .req_read_bus(fw_req_read_bus),    // out: request read bus
     .req_write_bus(fw_req_write_bus),  // out: request read bus
+    .grant_read_bus(fw_grant_read_bus),   // in: read bus grant
+    .grant_write_bus(fw_grant_write_bus), // in: write bus grant
 
     .eth_send_fw_req(eth_send_fw_req), // in: send req from eth
     .eth_send_fw_ack(eth_send_fw_ack), // out: ack send req to eth
@@ -357,6 +354,15 @@ phy(
     .timestamp(timestamp)
 );
 
+
+// Special case: register write to FireWire PHY register; this can be from Firewire or Ethernet.
+// In addition to the register write, the Firewire module also makes direct requests, using
+// fw_lreq_trig, fw_lreq_type, and reg_wdata.
+assign reg_lreq_trig = (reg_waddr == { `ADDR_MAIN, 8'h0, `REG_PHYCTRL}) ? reg_wen : 1'b0;
+assign reg_lreq_type = reg_wdata[12] ? `LREQ_REG_WR : `LREQ_REG_RD;
+
+assign lreq_trig = fw_lreq_trig | reg_lreq_trig;
+assign lreq_type = fw_lreq_trig ? fw_lreq_type : reg_lreq_type;
 
 // phy request module
 PhyRequest phyreq(
@@ -496,10 +502,6 @@ EthernetIO EthernetTransfers(
     .req_blk_rt_rd(eth_req_blk_rt_rd), // out: real-time block read request
     .req_write_bus(eth_req_write_bus), // out: request write bus
     .grant_write_bus(eth_grant_write_bus), // in: write bus grant
-
-    // Low-level Firewire PHY access
-    .lreq_trig(eth_lreq_trig),   // out: phy request trigger
-    .lreq_type(eth_lreq_type),   // out: phy request type
 
     // Interface to FireWire module (for sending packets via FireWire)
     .eth_send_fw_req(eth_send_fw_req), // out: req to send fw pkt

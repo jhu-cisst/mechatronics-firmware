@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2008-2023 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2008-2024 ERC CISST, Johns Hopkins University.
  *
  * This module implements the FireWire link layer state machine, which defines
  * the operation of the phy-link interface.  The state machine is triggered on
@@ -212,6 +212,8 @@ module PhyLinkInterface
 
     output reg req_read_bus,      // request read bus (reg_raddr, reg_rdata)
     output reg req_write_bus,     // request write bus (reg_waddr, reg_wdata)
+    input wire grant_read_bus,
+    input wire grant_write_bus,
 
 `ifdef HAS_ETHERNET
     // eth/fw interface
@@ -640,9 +642,6 @@ assign crc_8msb = { crc_in[24], crc_in[25], crc_in[26], crc_in[27], crc_in[28], 
 //   initialize, feed back, and latch crc values as necessary
 crc32 mycrc(crc_data, crc_in, crc_2b, crc_4b, crc_8b);
 
-// for phy requests, this bit distinguishes between register read and write
-assign phy_rw = buffer[12];
-
 assign write_trig_reset = ((lreq_type == `LREQ_TX_ISO) && (tx_type == `TX_TYPE_BBC)) ? 1'b1 : 1'b0;
 
 `ifdef HAS_ETHERNET
@@ -747,8 +746,6 @@ begin
                 `CTL_PHY_STAT: begin
                     st_buff <= {st_buff[13:0], data2b};  // shift in 2 new bits
                     stcount <= stcount + 2'd2;     // count transferred bits
-                    // request write bus just in case `SZ_REG_STAT (see below)
-                    req_write_bus <= (stcount == `SZ_REG_STAT-16'd2) ? 1'b1 : 1'b0;
                     state <= ST_STATUS;            // loop in this state
                 end
                 // -------------------------------------------------------------
@@ -756,14 +753,14 @@ begin
                 //
                 `CTL_PHY_IDLE: begin
 
-                    state <= ST_IDLE;              // go back to idle state
-
                     if (stcount == `SZ_STAT) begin
                         // update bus reset bit
                         fw_bus_reset <= st_buff[`BUS_RESET_START];
+                        state <= ST_IDLE;              // go back to idle state
                     end
                     // save phy register into register file
                     else if (stcount == `SZ_REG_STAT) begin
+                        req_write_bus <= 1'b1;
                         reg_waddr <= { `ADDR_MAIN, 4'd0, 4'd0, `REG_PHYDATA };
                         reg_wdata <= { 16'd0, st_buff };
                         reg_wen <= 1;
@@ -772,6 +769,11 @@ begin
                             node_id <= st_buff[7:2];
                         // update bus reset bit
                         fw_bus_reset <= st_buff[12+`BUS_RESET_START];
+                        if (grant_write_bus)
+                            state <= ST_IDLE;          // go back to idle state
+                    end
+                    else begin
+                        state <= ST_IDLE;              // go back to idle state
                     end
                 end
 
@@ -978,16 +980,6 @@ begin
                             if (rx_tcode != `TC_QREAD)
                                 crc_comp <= ~crc_in;
 
-                            // trigger phy register request if accessed.
-                            // Support broadcast address because Ethernet initialization requires
-                            // reading of PHY Register 0 so that this module obtains node_id.
-                            if (((rx_dest[5:0] == node_id) || (rx_dest[5:0] == 6'h3f)) &&
-                                (reg_waddr=={`ADDR_MAIN, 8'h0, `REG_PHYCTRL}) && (rx_tcode==`TC_QWRITE))
-                            begin
-                                // check the RW bit to determine access type
-                                lreq_type <= (phy_rw ? `LREQ_REG_WR : `LREQ_REG_RD);
-                                lreq_trig <= 1;
-                            end
 `ifdef HAS_ETHERNET
                             // trigger packet forward if packet is for pc
                             if ((rx_dest[15:0] == eth_fw_addr) && (rx_tcode == `TC_QRESP)) begin

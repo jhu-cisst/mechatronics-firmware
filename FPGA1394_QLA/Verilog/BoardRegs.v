@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2008-2023 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2008-2024 ERC CISST, Johns Hopkins University.
  *
  * This module contains a register file dedicated to general board parameters.
  * Separate register files are maintained for each I/O channel (SpiCtrl).
@@ -50,7 +50,7 @@ module BoardRegs
     //
 
     // Interface to Firewire PHY. The host PC writes phy_ctrl, which is
-    // actually processed in Firewire.v or EthernetIO.v. The data saved here
+    // actually processed elsewhere (see reg_lreq_trig). The data saved here
     // is only for readback purposes.
     // The Firewire.v module actually issues the write to store the value
     // in phy_data, which can then be read by the host PC.

@@ -3,7 +3,7 @@
 
 /*******************************************************************************    
  *
- * Copyright(C) 2014-2023 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2014-2024 ERC CISST, Johns Hopkins University.
  *
  * This module implements the higher-level (network layer) Ethernet I/O, which
  * interfaces to the link layer for the KSZ8851 MAC/PHY chip (FPGA V2) or the
@@ -76,12 +76,8 @@ module EthernetIO
     output reg       req_blk_rt_rd,    // request to start real-time block read
     output wire      blk_rt_rd,        // real-time block read
     output wire      blk_rt_wr,        // real-time block write
-    output wire      req_write_bus,
+    output reg       req_write_bus,
     input wire       grant_write_bus,
-
-    // Low-level Firewire PHY access
-    output reg lreq_trig,         // trigger signal for a FireWire phy request
-    output reg[2:0] lreq_type,    // type of request to give to the FireWire phy
 
     // Interface to FireWire module (for sending packets via FireWire)
     output reg eth_send_fw_req,   // request to send firewire packet
@@ -129,11 +125,6 @@ module EthernetIO
 );
 
 `define send_word_swapped {send_word[7:0], send_word[15:8]}
-
-// TEMP for V2 (should figure out why eth_write_en still needed)
-reg eth_write_en;
-reg eth_req_write_reg;
-assign req_write_bus = eth_write_en | eth_req_write_reg;
 
 // Error flags
 reg ethFrameError;     // 1 -> Frame is not Raw, IPv4 or ARP
@@ -594,7 +585,8 @@ reg[7:0] numPacketError;     // Number of packet errors (Frame, IPv4 or UDP erro
 wire is_ip_unassigned;
 assign is_ip_unassigned = (ip_address == IP_UNASSIGNED) ? 1'd1 : 1'd0;
 
-// Request a local write to be performed (quadWrite or blockWrite)
+// Request a local write to be performed (quadWrite or blockWrite);
+// these requests are cleared when grant_write_bus is asserted
 reg writeRequestBlock;
 reg writeRequestQuad;
 
@@ -914,11 +906,11 @@ begin
    dataValid <= recvReady;           // 1 clock after recvReady
    recvTransition <= dataValid;      // 1 clock after dataValid
 
-   if (writeRequestQuad && eth_write_en) begin
+   if (writeRequestQuad & grant_write_bus) begin
       writeRequestQuad <= 1'd0;
    end
 
-   if (writeRequestBlock && eth_write_en) begin
+   if (writeRequestBlock & grant_write_bus) begin
       writeRequestBlock <= 1'd0;
    end
 
@@ -961,7 +953,6 @@ begin
       recvBusy <= 0;
       writeRequestQuad <= 1'b0;
       writeRequestBlock <= 1'b0;
-      eth_req_write_reg <= 1'b0;
       eth_send_fw_req <= 0;
 
       if (resetActive|clearErrors) begin
@@ -1148,7 +1139,7 @@ begin
                if (blockWrite) begin
                   // writeRequestBlock should have been set earlier (using writeRequestTrigger) for all
                   // local block writes (even broadcast). We expect write to still be active.
-                  bw_err <= ~eth_write_en;
+                  bw_err <= ~req_write_bus;
                   // Number of quadlets left to write to registers; should be greater than 1,
                   // otherwise the register writer may have overtaken the Ethernet reader.
                   bw_left <= bwEnd - local_raddr;
@@ -1169,7 +1160,6 @@ begin
 
          if (rfw_count == writeRequestTrigger) begin
             writeRequestBlock <= blockWrite&isLocal;
-            eth_req_write_reg <= blockWrite&isLocal;
          end
          if ((rfw_count == fwRequestTrigger) && isRemote) begin
             eth_send_fw_req <= 1'b1;
@@ -1202,7 +1192,6 @@ begin
          else begin
             // If any other broadcast quadlet write (local and remote),
             // write it to the hardware now.
-            eth_req_write_reg <= quadWrite&isLocal;
             writeRequestQuad <= quadWrite&isLocal;
             recvState <= ST_RECEIVE_DMA_IDLE;
          end
@@ -1215,7 +1204,6 @@ begin
       // make sure Firewire packet has been transmitted
       rebootCnt <= rebootCnt + 6'd1;
       if (rebootCnt == 6'h3f) begin
-         eth_req_write_reg <= 1'b1;
          writeRequestQuad <= 1'b1;
          recvState <= ST_RECEIVE_DMA_IDLE;
       end
@@ -1440,19 +1428,15 @@ begin
 
    ST_SEND_DMA_PACKETDATA_QUAD:
    begin
-      if (grant_read_bus&reg_rvalid) begin
-         if (sfw_count[0] == 0) begin
-            `send_word_swapped <= reg_rdata[31:16];
-            if (sendTransition) sfw_count[0] <= 1;
-         end
-         else begin
-            `send_word_swapped <= reg_rdata[15:0];
-            if (sendTransition) sfw_count[0] <= 0;
-            nextSendState <= ST_SEND_DMA_PACKETDATA_CHECKSUM;
-         end
+      //if (grant_read_bus&reg_rvalid) begin
+      if (sfw_count[0] == 0) begin
+         `send_word_swapped <= reg_rdata[31:16];
+         if (sendTransition) sfw_count[0] <= 1;
       end
       else begin
-         // Can note that read was interrupted/delayed
+         `send_word_swapped <= reg_rdata[15:0];
+         if (sendTransition) sfw_count[0] <= 0;
+         nextSendState <= ST_SEND_DMA_PACKETDATA_CHECKSUM;
       end
    end
 
@@ -1468,7 +1452,7 @@ begin
       end
       // TODO
       // if (grant_read_bus&reg_rvalid) begin
-      if (grant_read_bus) begin
+      // if (grant_read_bus) begin
          if (sendTransition) sfw_count <= sfw_count + 10'd1;
          if (sfw_count[0] == 0) begin   // even count (upper word)
             // Since we are not incrementing reg_raddr, writing to SDReg does not need
@@ -1487,10 +1471,6 @@ begin
             if ((sfw_count[9:1] + 8'd1) == block_data_length[10:2])
                nextSendState <= ST_SEND_DMA_PACKETDATA_CHECKSUM;
          end
-      end
-      else begin
-         // Can note that read was interrupted/delayed
-      end
    end
 
    ST_SEND_DMA_PACKETDATA_CHECKSUM:
@@ -1616,67 +1596,63 @@ reg bwAddrMain;        // 1 -> real-time block write
 always @(posedge sysclk)
 begin
 
-   bwCnt <= (bwState == BW_IDLE)  ? 2'd0 :
-            (bwState == BW_WRITE) ? 2'd1 :
-                                    (bwCnt + 2'd1);
-
    case (bwState)
 
    BW_IDLE:
    begin
+      bwCnt <= 2'd0;
       if (writeRequestQuad) begin
+         req_write_bus <= 1'b1;
          reg_waddr <= fw_dest_offset;
          reg_wdata <= fw_quadlet_data;
-         // Special case: write to FireWire PHY register
-         if (addrMain && (fw_dest_offset[11:0] == {8'h0, `REG_PHYCTRL})) begin
-            // check the RW bit to determine access type (bit 12, after byte-swap)
-            lreq_type <= (fw_quadlet_data[12] ? `LREQ_REG_WR : `LREQ_REG_RD);
-            lreq_trig <= 1;
-         end
-         eth_write_en <= 1;
          reg_wen <= 1;
          blk_wen <= 1;
+         // Stay in this state until we get the write bus (grant_write_bus),
+         // which clears writeRequestQuad.
       end
       else if (writeRequestBlock) begin
-         bw_active <= 1;
-         eth_write_en <= 1;
-         // Assert blk_wstart for 80 ns before starting local block write
-         // (same timing as in Firewire module).
-         blk_wstart <= 1;
-         bwState <= BW_WSTART;
+         req_write_bus <= 1'b1;
          local_raddr <= bwStart;
          bwAddrMain <= addrMain;
-         if (addrMain) begin
-             // real-time block write
-             // Set to fff so that first increment causes it to become 0
-             reg_waddr[15:0] <= { `ADDR_MAIN, 12'hfff };
-         end
-         else begin
-             // other block write
-             reg_waddr[15:12] <= fw_dest_offset[15:12];
-             reg_waddr[11:0] <= fw_dest_offset[11:0] - 12'd1;
+         // Assert blk_wstart for 80 ns before starting local block write
+         // (same timing as in Firewire module).
+         // Note that timing can vary if the Ethernet module loses the bus
+         // (i.e., is pre-empted by the Firewire module)
+         blk_wstart <= 1;
+         reg_waddr[15:12] <= fw_dest_offset[15:12];
+         // Subtract 1 from the address so that the first increment produces the correct
+         // starting address. For the real-time block write, we set it to fff so that
+         // the first increment causes it to become 0.
+         reg_waddr[11:0] <= addrMain ? 12'hfff : (fw_dest_offset[11:0] - 12'd1);
+         if (grant_write_bus) begin
+            bw_active <= 1;
+            bwState <= BW_WSTART;
          end
       end
       else begin
          bw_active <= 0;
-         eth_write_en <= 0;
+         req_write_bus <= 0;
          reg_wen <= 0;    // Clean up from quadlet/block writes
          blk_wen <= 0;
          blk_wstart <= 0;
-         lreq_trig <= 0;      // Clear lreq_trig in case it was set
       end
    end
 
    BW_WSTART:
    begin
       if (bwCnt == 2'd3) begin
-         blk_wstart <= 0;
-         bwState <= BW_WRITE;
+         blk_wstart <= 1'b0;
+         // Stay in this state until we get the write bus
+         if (grant_write_bus)
+            bwState <= BW_WRITE;
       end
+      else
+         bwCnt <= bwCnt + 2'd1;
    end
 
    BW_WRITE:
    begin
+      bwCnt <= 2'd1;
       if (grant_write_bus) begin
          local_raddr <= local_raddr + 9'd1;
          reg_waddr[11:0] <= reg_waddr[11:0] + 12'd1;
@@ -1691,11 +1667,12 @@ begin
       // hold reg_wen low for 60 nsec (3 cycles)
       reg_wen <= 1'b0;
       if (bwCnt == 2'd3) begin
-         if (local_raddr == bwEnd)
-            bwState <= BW_BLK_WEN;
-         else
-            bwState <= BW_WRITE;
+         // Stay in this state until we get the write bus
+         if (grant_write_bus)
+            bwState <= (local_raddr == bwEnd) ? BW_BLK_WEN : BW_WRITE;
       end
+      else
+         bwCnt <= bwCnt + 2'd1;
    end
 
    BW_BLK_WEN:
@@ -1704,8 +1681,11 @@ begin
       // Wait 60 nsec before asserting blk_wen
       if (bwCnt == 2'd3) begin
          blk_wen <= 1'b1;
-         bwState <= BW_IDLE;
+         if (grant_write_bus)
+            bwState <= BW_IDLE;
       end
+      else
+         bwCnt <= bwCnt + 2'd1;
    end
 
    default:
