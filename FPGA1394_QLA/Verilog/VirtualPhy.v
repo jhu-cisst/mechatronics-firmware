@@ -25,11 +25,13 @@ module VirtualPhy(
 );
 
 // Default register values (obtained by reading RTL8211F when cable connnected)
+// Changed PHYID1 and PHYID2 to use JHU LCSR CID (FA:61:0E), so that Linux will use
+// Generic PHY driver rather than RealTek RTL8211F driver.
 wire [15:0] regValue[0:15];
 assign regValue[0]  = 16'h1040;    // BMCR: 1GB link
 assign regValue[1]  = 16'h79ad;    // BMSR: AN complete, link on
-assign regValue[2]  = 16'h001c;    // PHYID1 (RTL8211F)
-assign regValue[3]  = 16'hc916;    // PHYID2 (RTL8211F)
+assign regValue[2]  = 16'h017e;    // PHYID1 (JHU LCSR)
+assign regValue[3]  = 16'h1800;    // PHYID2 (JHU LCSR)
 assign regValue[4]  = 16'h09e1;    // ANAR
 assign regValue[5]  = 16'hcde1;    // ANLPAR
 assign regValue[6]  = 16'h006f;    // ANER
