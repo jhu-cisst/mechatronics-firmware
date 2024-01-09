@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2022-2023 Johns Hopkins University.
+ * Copyright(C) 2022-2024 Johns Hopkins University.
  *
  * Module: RTL8211F
  *
@@ -102,7 +102,7 @@ initial RSTn = 1'b1;
 
 initial MDIO_T = 1'b1;
 
-initial ps_eth_enable = 1'b0;
+initial ps_eth_enable = 1'b1;
 
 assign TxErr = 1'b0;
 
