@@ -884,7 +884,8 @@ localparam[2:0]
     ST_RECEIVE_DMA_FIREWIRE_PACKET = 3'd2,
     ST_RECEIVE_DMA_ICMP_DATA = 3'd3,
     ST_RECEIVE_DMA_WAIT = 3'd4,
-    ST_RECEIVE_DMA_REBOOT = 3'd5;
+    ST_RECEIVE_DMA_REBOOT = 3'd5,
+    ST_RECEIVE_DMA_WRITE_WAIT = 3'd6;
 
 reg[2:0] recvState = ST_RECEIVE_DMA_IDLE;
 reg[2:0] nextRecvState = ST_RECEIVE_DMA_IDLE;
@@ -980,15 +981,9 @@ begin
             nextRecvState <= ST_RECEIVE_DMA_IDLE;
          end
          else if ((recvCnt == ID_ARP_End) && isARP) begin
-            // Update IP address in response to valid ARP packet.
-            // Note: this feature (setting IP address based on ARP packet received) will
-            //       be removed in the future, since it is better to set the IP address
-            //       by a broadcast write to register `REG_IPADDR (11).
-            if (isARPValid && is_ip_unassigned) begin
-               // If our IP address not yet set, update it
-               ReplyBuffer[ID_Rep_IPv4_Address0] <= PacketBuffer[ID_ARP_fpgaIP0];
-               ReplyBuffer[ID_Rep_IPv4_Address1] <= PacketBuffer[ID_ARP_fpgaIP1];
-            end
+`ifdef HAS_DEBUG_DATA
+            numARP <= numARP + 8'd1;
+`endif
             nextRecvState <= ST_RECEIVE_DMA_IDLE;
          end
          else if ((recvCnt == ID_IPv4_End) && isIPv4) begin
@@ -1001,8 +996,8 @@ begin
                if (is_ip_unassigned && (IPv4_fpgaIP[31:24] != 8'hff)) begin
                   // This case can occur when the host PC already has an ARP
                   // cache entry for this board, in which case we just assign
-                  //  the IP address, as long as it is not a broadcast address
-                  //  (we only check whether the last byte is 255).
+                  // the IP address, as long as it is not a broadcast address
+                  // (we only check whether the last byte is 255).
                   ReplyBuffer[ID_Rep_IPv4_Address0] <= PacketBuffer[ID_IPv4_destIP0];
                   ReplyBuffer[ID_Rep_IPv4_Address1] <= PacketBuffer[ID_IPv4_destIP1];
                end
@@ -1048,8 +1043,12 @@ begin
    begin
       if (recvTransition) rfw_count <= rfw_count + 10'd1;
       // rfw_count is in words, icmp_data_length is in bytes
-      if (rfw_count[9:0] == icmp_data_length[10:1])
+      if (rfw_count[9:0] == icmp_data_length[10:1]) begin
+`ifdef HAS_DEBUG_DATA
+         if (recvTransition) numICMP <= numICMP + 8'd1;
+`endif
          nextRecvState <= ST_RECEIVE_DMA_IDLE;   // was ST_RECEIVE_DMA_FRAME_CRC;
+      end
       else
          nextRecvState <= ST_RECEIVE_DMA_ICMP_DATA;
       // For now, read ICMP data into FireWirePacket memory (fw_packet). If memory resources available,
@@ -1180,8 +1179,6 @@ begin
 `ifdef HAS_DEBUG_DATA
          // Increment counters
          numIPv4 <= numIPv4 + {9'd0, isIPv4};
-         numARP <= numARP + {7'd0, isARP};
-         numICMP <= numICMP + {7'd0, isICMP};
          numUDP <= numUDP + {9'd0, isUDP};
 `endif
          if (isRebootCmd&isRemote&isLocal) begin
@@ -1192,8 +1189,10 @@ begin
          else begin
             // If any other broadcast quadlet write (local and remote),
             // write it to the hardware now.
-            writeRequestQuad <= quadWrite&isLocal;
-            recvState <= ST_RECEIVE_DMA_IDLE;
+            writeRequestQuad <= quadWrite&isRemote&isLocal;
+            // Wait for any pending writes to start (including any previously
+            // requested quadlet or block writes)
+            recvState <= ST_RECEIVE_DMA_WRITE_WAIT;
          end
       end
    end
@@ -1205,8 +1204,18 @@ begin
       rebootCnt <= rebootCnt + 6'd1;
       if (rebootCnt == 6'h3f) begin
          writeRequestQuad <= 1'b1;
-         recvState <= ST_RECEIVE_DMA_IDLE;
+         recvState <= ST_RECEIVE_DMA_WRITE_WAIT;
       end
+   end
+
+   ST_RECEIVE_DMA_WRITE_WAIT:
+   begin
+      // Wait until writeRequestQuad and writeRequestBlock are both 0;
+      // otherwise, IDLE state will clear them. This could be a problem
+      // if the bwState loop has not yet received grant_write_bus.
+      // Alternatively, could remove clear from IDLE state.
+      if (~(writeRequestQuad|writeRequestBlock))
+        recvState <= ST_RECEIVE_DMA_IDLE;
    end
 
    default:
