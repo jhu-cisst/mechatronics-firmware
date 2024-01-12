@@ -567,12 +567,10 @@ begin
             tx_underflow <= 1'b0;
             send_nbytes <= send_info_dout[15:0];
             send_first_byte_out <= send_info_dout[23:16];
-            if (send_info_dout[31]) begin
-                send_info_rd_en <= 1'b1;
-                txState <= ST_TX_PREAMBLE;
-                // If the MSB is set, we flush the packet (TxEn=0)
-                TxEn <= ~send_info_dout[31];
-            end
+            send_info_rd_en <= 1'b1;
+            txState <= ST_TX_PREAMBLE;
+            // If the MSB is set, we flush the packet (TxEn=0)
+            TxEn <= ~send_info_dout[31];
         end
     end
 
