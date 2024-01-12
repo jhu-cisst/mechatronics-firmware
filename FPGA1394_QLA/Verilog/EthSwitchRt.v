@@ -23,12 +23,7 @@ module EthSwitchRt
     input  wire[15:0] reg_raddr,      // read address
     output wire[31:0] reg_rdata,      // register read data
 
-    // Interface to RTL8211F
-    input wire initOK,
     input wire resetActive,
-    input wire[1:0] clock_speed,
-    input wire[1:0] speed_mode,
-
     input wire clearErrors,           // Clear error flags
 
     // GMII Interface
@@ -68,7 +63,7 @@ module EthSwitchRt
     output wire eth_InternalError     // Internal error (to EthernetIO)
 );
 
-initial curPort = 1'b1;
+initial curPort = 1'b0;   // TODO: No longer relevant
 
 //**************** TEMP ***********************
 
@@ -779,7 +774,7 @@ begin
             bw_wait <= bw_wait + 10'd1;
 `endif
         end
-        else if (initOK & sendReq & (~send_fifo_full)) begin
+        else if (sendReq & (~send_fifo_full)) begin
             // forward packet from FireWire
             // Note: This will forward it via the currently active port.
             // To support simultaneous use of ports 0 and 1, it would be best
@@ -790,7 +785,7 @@ begin
             sendRequest <= 1;
             state <= ST_SEND_WAIT;
         end
-        else if (initOK & (~recv_info_fifo_empty)) begin
+        else if (~recv_info_fifo_empty) begin
             // Number of words; following will also work for an odd number of bytes,
             // even though number of bytes should always be even.
             rxPktWords <= (recv_info_dout[11:0]+12'd1)>>1;
@@ -1004,9 +999,9 @@ assign DebugDataRTL[1] = { RxErr_1, recv_preamble_error_1, recv_fifo_reset_1, re
                         1'd0, tx_underflow_1, send_fifo_full, send_fifo_empty_1,          // 23:20
                         send_info_fifo_empty, 1'd0, send_fifo_error_1, recv_ipv4_1,       // 19:16
                         recv_ipv4_err_1, recv_udp_1, 1'd0, 1'd0,                          // 15:12
-                        isUnicast_1, isMulticast_1, isBroadcast_1, initOK,                // 11:8
+                        isUnicast_1, isMulticast_1, isBroadcast_1, 1'b1,                  // 11:8
                         txStateError_1, rxStateError_1, 6'd0 };
-assign DebugDataRTL[2] = {  speed_mode, clock_speed, 1'b0, state, 1'b0, txState_1, 1'b0, rxState_1, 8'd0, 8'd0 };
+assign DebugDataRTL[2] = {   2'd0,       2'd0, 1'b0, state, 1'b0, txState_1, 1'b0, rxState_1, 8'd0, 8'd0 };
                         //      2,          2,               3            3,                3
 assign DebugDataRTL[3] = recv_crc_in_1;
 assign DebugDataRTL[4] = { numRxDropped_1, 8'd0, send_first_byte_out_1, numTxSent_1 };

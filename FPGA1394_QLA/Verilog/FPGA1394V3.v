@@ -431,12 +431,9 @@ PhyRequest phyreq(
 wire clk200_ok;    // Whether the 200 MHz clock (from PS) seems to be running
 assign LED = clk200_ok;
 
-wire ps_eth_enable[1:2];   // 1 -> Zynq PS has access to Ethernet
-
 // Ethernet reset (to PHY)
 wire Eth_RSTn[1:2];        // Reset signal from PL (FPGA)
-wire PS_Eth_RSTn;          // Reset signal from PS (ARM)
-assign E1_RSTn = Eth_RSTn[1] & ~(ps_eth_enable[1]&(~PS_Eth_RSTn));
+assign E1_RSTn = Eth_RSTn[1];
 assign E2_RSTn = Eth_RSTn[2];
 
 // Ethernet interrupt (from PHY)
@@ -487,22 +484,86 @@ assign E2_RxD[3:0] = resetActive_e[2] ? 4'b1011 : 4'bzzzz;
 //    rt -> signals between gmii_to_rgmii core and RTL8211F (i.e., FPGA)
 //    ps -> signals between gmii_to_rgmii core and Zynq PS
 
-wire [7:0] gmii_txd_rt;
-wire[7:0]  gmii_txd_ps;
-wire[7:0]  gmii_txd[1:2];
-wire       gmii_tx_en_rt;
-wire       gmii_tx_en_ps;
-wire       gmii_tx_en[1:2];
+wire[7:0]  gmii_txd[1:4];
+wire       gmii_tx_en[1:4];
 wire       gmii_tx_clk[1:2];
-wire       gmii_tx_err_rt;
-wire       gmii_tx_err_ps;
-wire       gmii_tx_err[1:2];
-wire[7:0]  gmii_rxd[1:2];
-wire       gmii_rx_dv[1:2];
-wire       gmii_rx_er[1:2];
-wire       gmii_rx_clk[1:2];
+wire       gmii_tx_clk3_src;    // tx_clk[3] at data source
+wire       gmii_tx_clk3_dest;   // tx_clk[3] at data destination
+wire       gmii_tx_clk4_src;    // tx_clk[4] at data source
+wire       gmii_tx_clk4_dest;   // tx_clk[4] at data destination
+wire       gmii_tx_err[1:4];
+wire[7:0]  gmii_rxd[1:4];
+wire       gmii_rx_dv[1:4];
+wire       gmii_rx_err[1:4];
+wire       gmii_rx_clk[1:3];
+wire       gmii_rx_clk4_src;    // rx_clk[4] at data source
+wire       gmii_rx_clk4_dest;   // rx_clk[4] at data destination
+
 wire[1:0]  clock_speed[1:2];
 wire[1:0]  speed_mode[1:2];
+
+// Ethernet 4-port switch
+EthSwitch eth_switch (
+
+    // Port0: Eth1
+    .P0_Active(1'b1),                // Port0 active (e.g., link on)
+    .P0_RxClk(gmii_rx_clk[1]),       // Port0 receive clock
+    .P0_RxValid(gmii_rx_dv[1]),      // Port0 receive data valid
+    .P0_RxD(gmii_rxd[1]),            // Port0 receive data
+    .P0_RxErr(gmii_rx_err[1]),       // Port0 receive error
+    .P0_RxWait(1'b0),                // Port0 wait for receive packet to be queued
+    .P0_TxClk(gmii_tx_clk[1]),       // Port0 transmit clock
+    .P0_TxEn(gmii_tx_en[1]),         // Port0 transmit data valid
+    .P0_TxD(gmii_txd[1]),            // Port0 transmit data
+    .P0_TxErr(gmii_tx_err[1]),       // Port0 transmit error
+    .P0_TxReady(1'b1),               // Port0 client ready for data
+    .P0_TxWait(1'b0),                // Port0 wait for transmit packet to be queued
+
+    // Port1: Eth2
+    .P1_Active(1'b1),                // Port1 active (e.g., link on)
+    .P1_RxClk(gmii_rx_clk[2]),       // Port1 receive clock
+    .P1_RxValid(gmii_rx_dv[2]),      // Port1 receive data valid
+    .P1_RxD(gmii_rxd[2]),            // Port1 receive data
+    .P1_RxErr(gmii_rx_err[2]),       // Port1 receive error
+    .P1_RxWait(1'b0),                // Port1 wait for receive packet to be queued
+    .P1_TxClk(gmii_tx_clk[2]),       // Port1 transmit clock
+    .P1_TxEn(gmii_tx_en[2]),         // Port1 transmit data valid
+    .P1_TxD(gmii_txd[2]),            // Port1 transmit data
+    .P1_TxErr(gmii_tx_err[2]),       // Port1 transmit error
+    .P1_TxReady(1'b1),               // Port1 client ready for data
+    .P1_TxWait(1'b0),                // Port1 wait for transmit packet to be queued
+
+    // Port2: PS
+    .P2_Active(1'b1),                // Port2 active (e.g., link on)
+    .P2_RxClk(gmii_rx_clk[3]),       // Port2 receive clock
+    .P2_RxValid(gmii_rx_dv[3]),      // Port2 receive data valid
+    .P2_RxD(gmii_rxd[3]),            // Port2 receive data
+    .P2_RxErr(gmii_rx_err[3]),       // Port2 receive error
+    .P2_RxWait(1'b0),                // Port2 wait for receive packet to be queued
+    .P2_TxClk(gmii_tx_clk3_src),     // Port2 transmit clock
+    .P2_TxEn(gmii_tx_en[3]),         // Port2 transmit data valid
+    .P2_TxD(gmii_txd[3]),            // Port2 transmit data
+    .P2_TxErr(gmii_tx_err[3]),       // Port2 transmit error
+    .P2_TxReady(1'b1),               // Port2 client ready for data
+    .P2_TxWait(1'b0),                // Port2 wait for transmit packet to be queued
+
+    // Port3: RT
+    .P3_Active(1'b1),                // Port3 active (e.g., link on)
+    .P3_RxClk(gmii_rx_clk4_dest),    // Port3 receive clock
+    .P3_RxValid(gmii_rx_dv[4]),      // Port3 receive data valid
+    .P3_RxD(gmii_rxd[4]),            // Port3 receive data
+    .P3_RxErr(gmii_rx_err[4]),       // Port3 receive error
+    .P3_RxWait(1'b0),                // Port3 wait for receive packet to be queued
+    .P3_TxClk(gmii_tx_clk4_src),     // Port3 transmit clock
+    .P3_TxEn(gmii_tx_en[4]),         // Port3 transmit data valid
+    .P3_TxD(gmii_txd[4]),            // Port3 transmit data
+    .P3_TxErr(gmii_tx_err[4]),       // Port3 transmit error
+    .P3_TxReady(1'b1),               // Port3 client ready for data
+    .P3_TxWait(1'b0)                 // Port3 wait for transmit packet to be queued
+
+);
+
+// MDIO signals
 
 wire       mdio_o_rt[1:2];      // OUT from RTL8211F module
 wire       mdio_o_ps;           // OUT from Zynq PS
@@ -550,13 +611,6 @@ assign reg_rdata_rtl = (reg_raddr[11:8] == 4'd1) ? reg_rdata_rtl_e[1] :
 wire eth_ctrl_wen;
 assign eth_ctrl_wen = (reg_waddr == {`ADDR_MAIN, 8'h0, `REG_ETHSTAT}) ? reg_wen : 1'b0;
 
-assign gmii_txd[1] = gmii_txd_ps;
-assign gmii_tx_en[1] = gmii_tx_en_ps;
-assign gmii_tx_err[1] = gmii_tx_err_ps;
-assign gmii_txd[2] = gmii_txd_rt;
-assign gmii_tx_en[2] = gmii_tx_en_rt;
-assign gmii_tx_err[2] = gmii_tx_err_rt;
-
 genvar k;
 generate
 for (k = 1; k <= 2; k = k + 1) begin : eth_loop
@@ -590,8 +644,6 @@ for (k = 1; k <= 2; k = k + 1) begin : eth_loop
         .clock_speed(clock_speed[k]),
         .speed_mode(speed_mode[k]),
 
-        .ps_eth_enable(ps_eth_enable[k]),
-
         // Feedback bits
         .eth_status(eth_status_phy[k]),        // Ethernet status bits
         .hasIRQ(hasIRQ_e[k]),                  // Whether IRQ is connected (FPGA V3.1+)
@@ -602,6 +654,8 @@ for (k = 1; k <= 2; k = k + 1) begin : eth_loop
         .clearErrors(rt_clear_errors[k])                 // request to clear errors
     );
 
+    // TODO: Update this comment
+    //
     // MDIO Signal routing
     //
     // MDIO_I:  Output from gmii_to_rgmii core, input to PS and PL ethernet
@@ -631,6 +685,9 @@ for (k = 1; k <= 2; k = k + 1) begin : eth_loop
 end
 endgenerate
 
+// TODO: Add this to VirtualPhy
+wire PS_Eth_RSTn;            // Reset signal from PS (ARM)
+
 VirtualPhy VPhy(
     .mdio_i(mdio_i_ps),      // mdio_i to PS
     .mdio_o(mdio_o_ps),      // mdio_o from PS
@@ -642,30 +699,59 @@ VirtualPhy VPhy(
     .reg_rdata(reg_rdata_vp)    // register read data
 );
 
-EthSwitchRt eth_switch_rt(
+// Provide 125 MHz clock for gmii_rx_clk[3:4] and gmii_tx_clk[3:4]
+// Would be easier to have PS generate a 125 MHz clock and then
+// invert it for the second clock. One advantage of the following
+// approach is that there should be less skew between the clocks,
+// though perhaps that does not matter.
+
+wire clk_250MHz;
+
+reg clk_125A;
+reg clk_125B;
+initial clk_125A = 1'b0;
+initial clk_125B = 1'b1;
+// Could use BUFG for clocks, though perhaps not needed since
+// the fanout is low.
+
+always @(posedge clk_250MHz)
+begin
+   clk_125A <= ~clk_125A;
+   clk_125B <= ~clk_125B;
+end
+
+assign gmii_rx_clk[3] = clk_125A;
+
+assign gmii_tx_clk3_src = clk_125B;
+assign gmii_tx_clk3_dest = clk_125A;
+
+assign gmii_rx_clk4_src = clk_125A;
+assign gmii_rx_clk4_dest = clk_125B;
+
+assign gmii_tx_clk4_src = clk_125B;
+assign gmii_tx_clk4_dest = clk_125A;
+
+EthSwitchRt eth_rt_interface(
     .clk(sysclk),
     .board_id(board_id),      // in:  board id
 
     .reg_raddr(reg_raddr),
     .reg_rdata(reg_rdata_eswrt),
 
-    // Interface to RTL8211F (x2)
-    .initOK(initOK[2]),
-    .resetActive(resetActive_e[2]),
-    .clock_speed(clock_speed[2]),
-    .speed_mode(speed_mode[2]),
+    // Debugging
+    .resetActive(resetActive_e[1]|resetActive_e[2]),
+    .clearErrors(rt_clear_errors[1]|rt_clear_errors[2]),
 
-    .clearErrors(rt_clear_errors[2]),
+    // Note that Rx and Tx are swapped
+    .RxClk(gmii_tx_clk4_dest), // Rx Clk
+    .RxValid(gmii_tx_en[4]),   // Rx Valid
+    .RxD(gmii_txd[4]),         // Rx Data
+    .RxErr(gmii_tx_err[4]),    // Rx Error
 
-    .RxClk(gmii_rx_clk[2]),   // Rx Clk
-    .RxValid(gmii_rx_dv[2]),  // Rx Valid
-    .RxD(gmii_rxd[2]),        // Rx Data
-    .RxErr(gmii_rx_er[2]),    // Rx Error
-
-    .TxClk(gmii_tx_clk[2]),   // Tx Clk
-    .TxEn(gmii_tx_en_rt),     // Tx Enable
-    .TxD(gmii_txd_rt),        // Tx Data
-    .TxErr(gmii_tx_err_rt),   // Tx Error
+    .TxClk(gmii_rx_clk4_src),  // Tx Clk
+    .TxEn(gmii_rx_dv[4]),      // Tx Enable
+    .TxD(gmii_rxd[4]),         // Tx Data
+    .TxErr(gmii_rx_err[4]),    // Tx Error
 
     // Interface from Firewire (for sending packets via Ethernet)
     .sendReq(eth_send_req),
@@ -861,6 +947,7 @@ fpgav3 zynq_ps7(
     .processing_system7_0_GPIO_O_pin(emio_ps_out),
     .processing_system7_0_GPIO_T_pin(emio_ps_tri),
     .processing_system7_0_FCLK_CLK0_pin(clk_200MHz),
+    .processing_system7_0_FCLK_CLK1_pin(clk_250MHz),
 
     .gmii_to_rgmii_1_rgmii_txd_pin(E1_TxD),
     .gmii_to_rgmii_1_rgmii_tx_ctl_pin(E1_TxEN),
@@ -870,7 +957,7 @@ fpgav3 zynq_ps7(
     .gmii_to_rgmii_1_rgmii_rxc_pin(E1_RxCLK),
     .gmii_to_rgmii_1_gmii_rxd_pin(gmii_rxd[1]),
     .gmii_to_rgmii_1_gmii_rx_dv_pin(gmii_rx_dv[1]),
-    .gmii_to_rgmii_1_gmii_rx_er_pin(gmii_rx_er[1]),
+    .gmii_to_rgmii_1_gmii_rx_er_pin(gmii_rx_err[1]),
     .gmii_to_rgmii_1_gmii_rx_clk_pin(gmii_rx_clk[1]),
     .gmii_to_rgmii_1_MDIO_MDC_pin(mdio_clk[1]),       // MDIO clock from RTL8211F module or Zynq PS
     .gmii_to_rgmii_1_MDIO_I_pin(mdio_i[1]),           // OUT from GMII core, IN to RTL8211F module or Zynq PS
@@ -884,14 +971,15 @@ fpgav3 zynq_ps7(
     .gmii_to_rgmii_1_clock_speed_pin(clock_speed[1]), // Clock speed (Rx)
     .gmii_to_rgmii_1_speed_mode_pin(speed_mode[1]),   // Speed mode (Tx)
 
-    .processing_system7_0_ENET0_GMII_RX_CLK_pin(gmii_rx_clk[1]),
-    .processing_system7_0_ENET0_GMII_RX_DV_pin(gmii_rx_dv[1]),
-    .processing_system7_0_ENET0_GMII_RX_ER_pin(gmii_rx_er[1]),
-    .processing_system7_0_ENET0_GMII_RXD_pin(gmii_rxd[1]),
-    .processing_system7_0_ENET0_GMII_TX_EN_pin(gmii_tx_en_ps),
-    .processing_system7_0_ENET0_GMII_TX_ER_pin(gmii_tx_err_ps),
-    .processing_system7_0_ENET0_GMII_TX_CLK_pin(gmii_tx_clk[1]),
-    .processing_system7_0_ENET0_GMII_TXD_pin(gmii_txd_ps),
+    // Note that Rx and Tx are swapped
+    .processing_system7_0_ENET0_GMII_RX_CLK_pin(gmii_tx_clk3_dest),
+    .processing_system7_0_ENET0_GMII_RX_DV_pin(gmii_tx_en[3]),
+    .processing_system7_0_ENET0_GMII_RX_ER_pin(gmii_tx_err[3]),
+    .processing_system7_0_ENET0_GMII_RXD_pin(gmii_txd[3]),
+    .processing_system7_0_ENET0_GMII_TX_EN_pin(gmii_rx_dv[3]),
+    .processing_system7_0_ENET0_GMII_TX_ER_pin(gmii_rx_err[3]),
+    .processing_system7_0_ENET0_GMII_TX_CLK_pin(gmii_rx_clk[3]),
+    .processing_system7_0_ENET0_GMII_TXD_pin(gmii_rxd[3]),
     .processing_system7_0_ENET0_MDIO_MDC_pin(mdio_clk_ps),
     .processing_system7_0_ENET0_MDIO_I_pin(mdio_i_ps),
     .processing_system7_0_ENET0_MDIO_O_pin(mdio_o_ps),
@@ -905,7 +993,7 @@ fpgav3 zynq_ps7(
     .gmii_to_rgmii_2_rgmii_rxc_pin(E2_RxCLK),
     .gmii_to_rgmii_2_gmii_rxd_pin(gmii_rxd[2]),
     .gmii_to_rgmii_2_gmii_rx_dv_pin(gmii_rx_dv[2]),
-    .gmii_to_rgmii_2_gmii_rx_er_pin(gmii_rx_er[2]),
+    .gmii_to_rgmii_2_gmii_rx_er_pin(gmii_rx_err[2]),
     .gmii_to_rgmii_2_gmii_rx_clk_pin(gmii_rx_clk[2]),
     .gmii_to_rgmii_2_MDIO_MDC_pin(mdio_clk[2]),       // MDIO clock from RTL8211F module
     .gmii_to_rgmii_2_MDIO_I_pin(mdio_i[2]),           // OUT from GMII core, IN to RTL8211F module
@@ -922,15 +1010,6 @@ fpgav3 zynq_ps7(
     .processing_system7_0_RESETn_PHY_0_pin(PS_Eth_RSTn)
 );
 
-// Ethernet Rx/Tx Routing
-//
-// Rx (receive) -- all GMII signals output from gmii_to_rgmii core, input to both PS and PL ethernet
-//
-// Tx (transmit)
-//    tx_clk: output from gmii_to_rgmii core, input to both PS and PL ethernet
-//    txd:    output from PS and PL ethernet, mux input to gmii_to_rgmii core
-//    tx_en:  output from PS and PL ethernet, mux input to gmii_to_rgmii core
-//    tx_err: output from PS and PL ethernet, mux input to gmii_to_rgmii core
 
 EmioBus PS_EMIO(
     .sysclk(sysclk),

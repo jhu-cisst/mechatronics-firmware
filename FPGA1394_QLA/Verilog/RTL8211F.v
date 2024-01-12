@@ -54,8 +54,6 @@ module RTL8211F
     input wire[1:0] clock_speed,   // Detected clock speed (Rx)
     input wire[1:0] speed_mode,    // Speed mode (Tx)
 
-    output reg ps_eth_enable,      // 1 -> Enable PS access to Ethernet
-
     // Feedback bits
     output wire[7:0] eth_status,      // Ethernet status bits
     output reg hasIRQ,                // 1 -> PHY IRQn available (FPGA V3.1+)
@@ -69,8 +67,6 @@ module RTL8211F
 initial RSTn = 1'b1;
 
 initial MDIO_T = 1'b1;
-
-initial ps_eth_enable = 1'b1;
 
 // ----------------------------------------------------------------------------
 // MDIO (management) interface
@@ -343,7 +339,6 @@ begin
         IRQn_disable <= validChannel&reg_wdata[27]&reg_wdata[BIT_OFFSET+6];
         IRQ_sw <= validChannel&reg_wdata[28]&reg_wdata[BIT_OFFSET+5];
         clearErrors <= validChannel&reg_wdata[28]&reg_wdata[BIT_OFFSET+4];
-        ps_eth_enable <= validChannel&reg_wdata[25]&reg_wdata[BIT_OFFSET];
     end
     else begin
         clearErrors <= 0;
@@ -486,7 +481,7 @@ end
 
 // Ethernet status bits for this port
 //assign eth_status = { initOK, hasIRQ, linkOK, linkSpeed, recv_fifo_error, send_fifo_overflow, ps_eth_enable };
-assign eth_status = { initOK, hasIRQ, linkOK, linkSpeed, 1'b0, 1'b0, ps_eth_enable };
+assign eth_status = { initOK, hasIRQ, linkOK, linkSpeed, 1'b0, 1'b0, 1'b1 };
 
 assign reg_rdata = (reg_raddr[7:0] == 8'ha0) ? mdio_result : 32'd0;
 

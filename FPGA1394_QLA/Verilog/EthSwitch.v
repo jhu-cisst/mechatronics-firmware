@@ -18,56 +18,75 @@
 
 module EthSwitch
 (
+    input wire P0_Active,       // Port0 active (e.g., link on)
+
     input wire P0_RxClk,        // Port0 receive clock
     input wire P0_RxValid,      // Port0 receive data valid
     input wire[7:0] P0_RxD,     // Port0 receive data
-    input wire[1:0] P0_RxSt,    // Port0 receive status [last, first]
+    input wire P0_RxErr,        // Port0 receive error
     input wire P0_RxWait,       // Port0 wait for receive packet to be queued
 
     input wire P0_TxClk,        // Port0 transmit clock
-    input wire P0_TxReady,      // Port0 client ready for data
+    output wire P0_TxEn,        // Port0 transmit data valid
     output wire[7:0] P0_TxD,    // Port0 transmit data
-    output wire[1:0] P0_TxSt,   // Port0 transmit status [last, first]
+    output wire P0_TxErr,       // Port0 transmit error
+    input wire P0_TxReady,      // Port0 client ready for data
     input wire P0_TxWait,       // Port0 wait for transmit packet to be queued
+
+    input wire P1_Active,       // Port1 active (e.g., link on)
 
     input wire P1_RxClk,        // Port1 receive clock
     input wire P1_RxValid,      // Port1 receive data valid
     input wire[7:0] P1_RxD,     // Port1 receive data
-    input wire[1:0] P1_RxSt,    // Port1 receive status [last, first]
+    input wire P1_RxErr,        // Port1 receive error
     input wire P1_RxWait,       // Port1 wait for receive packet to be queued
 
     input wire P1_TxClk,        // Port1 transmit clock
-    input wire P1_TxReady,      // Port1 client ready for data
+    output wire P1_TxEn,        // Port1 transmit data valid
     output wire[7:0] P1_TxD,    // Port1 transmit data
-    output wire[1:0] P1_TxSt,   // Port1 transmit status [last, first]
+    output wire P1_TxErr,       // Port1 transmit error
+    input wire P1_TxReady,      // Port1 client ready for data
     input wire P1_TxWait,       // Port1 wait for transmit packet to be queued
+
+    input wire P2_Active,       // Port2 active (e.g., link on)
 
     input wire P2_RxClk,        // Port2 receive clock
     input wire P2_RxValid,      // Port2 receive data valid
     input wire[7:0] P2_RxD,     // Port2 receive data
-    input wire[1:0] P2_RxSt,    // Port2 receive status [last, first]
+    input wire P2_RxErr,        // Port2 receive error
     input wire P2_RxWait,       // Port2 wait for receive packet to be queued
 
     input wire P2_TxClk,        // Port2 transmit clock
-    input wire P2_TxReady,      // Port2 client ready for data
+    output wire P2_TxEn,        // Port2 transmit data valid
     output wire[7:0] P2_TxD,    // Port2 transmit data
-    output wire[1:0] P2_TxSt,   // Port2 transmit status [last, first]
+    output wire P2_TxErr,       // Port2 transmit error
+    input wire P2_TxReady,      // Port2 client ready for data
     input wire P2_TxWait,       // Port2 wait for transmit packet to be queued
+
+    input wire P3_Active,       // Port3 active (e.g., link on)
 
     input wire P3_RxClk,        // Port3 receive clock
     input wire P3_RxValid,      // Port3 receive data valid
     input wire[7:0] P3_RxD,     // Port3 receive data
-    input wire[1:0] P3_RxSt,    // Port3 receive status [last, first]
+    input wire P3_RxErr,        // Port3 receive error
     input wire P3_RxWait,       // Port3 wait for receive packet to be queued
 
     input wire P3_TxClk,        // Port3 transmit clock
-    input wire P3_TxReady,      // Port3 client ready for data
+    output wire P3_TxEn,        // Port3 transmit data valid
     output wire[7:0] P3_TxD,    // Port3 transmit data
-    output wire[1:0] P3_TxSt,   // Port3 transmit status [last, first]
+    output wire P3_TxErr,       // Port3 transmit error
+    input wire P3_TxReady,      // Port3 client ready for data
     input wire P3_TxWait        // Port3 wait for transmit packet to be queued
 );
 
 // Create arrays from input parameters
+
+wire PortActive[0:3];
+assign PortActive[0] = P0_Active;
+assign PortActive[1] = P1_Active;
+assign PortActive[2] = P2_Active;
+assign PortActive[3] = P3_Active;
+
 wire RxClk[0:3];
 assign RxClk[0] = P0_RxClk;
 assign RxClk[1] = P1_RxClk;
@@ -86,11 +105,13 @@ assign RxD[1] = P1_RxD;
 assign RxD[2] = P2_RxD;
 assign RxD[3] = P3_RxD;
 
-wire[7:0] RxSt[0:3];
-assign RxSt[0] = P0_RxSt;
-assign RxSt[1] = P1_RxSt;
-assign RxSt[2] = P2_RxSt;
-assign RxSt[3] = P3_RxSt;
+wire RxErr[0:3];
+assign RxErr[0] = P0_RxErr;
+assign RxErr[1] = P1_RxErr;
+assign RxErr[2] = P2_RxErr;
+assign RxErr[3] = P3_RxErr;
+
+wire[1:0] RxSt[0:3];
 
 wire RxWait[0:3];
 assign RxWait[0] = P0_RxWait;
@@ -104,11 +125,11 @@ assign TxClk[1] = P1_TxClk;
 assign TxClk[2] = P2_TxClk;
 assign TxClk[3] = P3_TxClk;
 
-wire TxReady[0:3];
-assign TxReady[0] = P0_TxReady;
-assign TxReady[1] = P1_TxReady;
-assign TxReady[2] = P2_TxReady;
-assign TxReady[3] = P3_TxReady;
+wire TxEn[0:3];
+assign P0_TxEn = TxEn[0];
+assign P1_TxEn = TxEn[1];
+assign P2_TxEn = TxEn[2];
+assign P3_TxEn = TxEn[3];
 
 wire[7:0] TxD[0:3];
 assign P0_TxD = TxD[0];
@@ -116,11 +137,19 @@ assign P1_TxD = TxD[1];
 assign P2_TxD = TxD[2];
 assign P3_TxD = TxD[3];
 
-wire[7:0] TxSt[0:3];
-assign P0_TxSt = TxSt[0];
-assign P1_TxSt = TxSt[1];
-assign P2_TxSt = TxSt[2];
-assign P3_TxSt = TxSt[3];
+wire TxErr[0:3];
+assign P0_TxErr = TxErr[0];
+assign P1_TxErr = TxErr[1];
+assign P2_TxErr = TxErr[2];
+assign P3_TxErr = TxErr[3];
+
+wire[1:0] TxSt[0:3];
+
+wire TxReady[0:3];
+assign TxReady[0] = P0_TxReady;
+assign TxReady[1] = P1_TxReady;
+assign TxReady[2] = P2_TxReady;
+assign TxReady[3] = P3_TxReady;
 
 wire TxWait[0:3];
 assign TxWait[0] = P0_TxWait;
@@ -129,19 +158,27 @@ assign TxWait[2] = P2_TxWait;
 assign TxWait[3] = P3_TxWait;
 
 // Convention: signal[in][out]
+// Note that diagonal elements (e.g., fifo_reset[i][i]) are not used
 wire fifo_reset[0:3][0:3];
 wire fifo_full[0:3][0:3];
 wire fifo_empty[0:3][0:3];
 
-wire[7:0] RxD_Int[0:3];    // RxD output of internal Rx FIFO (2 bytes long)
-wire[1:0] RxSt_Int[0:3];   // RxSt output of internal Rx FIFO (2 bytes long)
+wire[7:0] RxD_Int[0:3];    // RxD output of internal Rx FIFO
 wire Fifo_Int_valid[0:3];  // Whether internal Rx FIFO has valid data
 
 reg[1:0] TxInput[0:3];       // Index of current (or most recent) active input port
 reg FifoActive[0:3][0:3];    // Whether the switch FIFO is active
 
-reg[7:0] TxD_Switch[0:3][0:3];   // 8-bit switch output
-reg[1:0] TxSt_Switch[0:3];
+wire[7:0] TxD_Switch[0:3][0:3];   // 8-bit switch output
+wire[1:0] TxSt_Switch[0:3][0:3];
+
+// Following just for Ethernet ports
+reg[15:0] PortForwardFpga[0:1];
+
+wire[47:8] FPGA_RT_MAC;
+wire[47:8] FPGA_PS_MAC;
+assign FPGA_RT_MAC = 40'hfa610e1394;
+assign FPGA_PS_MAC = 40'hfa610e0300;
 
 // Variables for generate block
 genvar in;
@@ -151,62 +188,35 @@ generate
 
 for (in = 0; in < 4; in = in + 1) begin : fifo__int_loop
 
-  reg[2:0] RxCnt;        // Counts first 8 bytes
-  reg DestMacValid;
-  reg[23:0] DestMacReg;
-  wire[7:0] DestMacLsb;
-  wire[23:0] DestMac;       // TODO -- use this
-  assign DestMac = DestMacValid ? DestMacReg : {DestMacReg[23:8], DestMacLsb};
-  reg[23:0] SrcMac;   // TODO: use SrcMac for Forwarding Database
+  reg[3:0] RxCnt;
+  reg[47:0] DestMac;
+  reg[47:0] SrcMac;
 
-  // The internal FIFO has 2 bytes and allows us to look at the first 3 bytes
-  // (destination MAC address) before deciding whether to forward to the output port.
-  reg[7:0] RxD_Fifo[0:1];
-  reg[1:0] RxSt_Fifo[0:1];
-  reg      Valid_Fifo[0:1];
-
-  assign RxD_Int[in] = RxD_Fifo[1];
-  assign RxSt_Int[in] = RxSt_Fifo[1];
-  assign Fifo_Int_valid[in] = Valid_Fifo[1];
-
-  assign DestMacLsb = RxD[in];
+  reg RxValid_1;
+  reg RxValid_2;
+  reg[7:0] RxD_1;
+  reg RxErr_1;
 
   always @(posedge RxClk[in])
   begin
-      RxD_Fifo[0] <= RxD[in];
-      RxD_Fifo[1] <= RxD_Fifo[0];
-      RxSt_Fifo[0] <= RxSt[in];
-      RxSt_Fifo[1] <= RxSt_Fifo[0];
-      Valid_Fifo[0] <= RxValid[in];
-      Valid_Fifo[1] <= Valid_Fifo[0];
-      if (RxValid[in]) begin
-          if (RxSt[in] == 2'b01) begin
-              // First byte of packet
-              RxCnt <= 3'd1;
-              DestMacReg[23:16] <= RxD[in];
-          end
-          else if (RxSt[in] == 2'b10) begin
-              // Last byte of packet
-              RxCnt <= 3'd0;
-          end
-          else if (RxSt[in] == 2'b00) begin
-              RxCnt <= (RxCnt == 3'd7) ? 3'd7 : (RxCnt + 3'd1);
-              case (RxCnt)
-                3'd1: DestMacReg[15:8] <= RxD[in];
-                3'd2: begin
-                      DestMacReg[7:0] <= RxD[in];
-                      DestMacValid <= 1'b1;
-                      end
-                3'd3: SrcMacReg[23:16] <= RxD[in];
-                3'd4: SrcMacReg[15:8] <= RxD[in];
-                3'd5: SrcMacReg[7:0] <= RxD[in];
-              endcase
-          end
-      end
-      else begin
-          DestMacValid <= 1'b0;
-      end
+      RxValid_1 <= RxValid[in];
+      RxValid_2 <= RxValid_1;
+      RxD_1 <= RxD[in];
+      RxErr_1 <= RxErr[in];
   end
+
+  wire isFirstByte;
+  wire isLastByte;
+  assign isFirstByte = RxValid_1&(~RxValid_2);
+  assign isLastByte = (~RxValid[in])&RxValid_1;
+
+  // TODO: Add input FIFO
+  assign RxD_Int[in] = RxD_1;
+  assign RxSt[in] = isFirstByte ? 2'b01 :
+                    isLastByte ? 2'b10 :
+                    RxErr_1 ? 2'b11 : 2'b00;
+  assign Fifo_Int_valid[in] = RxValid_1;
+
 end
 
 for (in = 0; in < 4; in = in+1) begin : fifo_loop_in
@@ -216,12 +226,14 @@ for (in = 0; in < 4; in = in+1) begin : fifo_loop_in
         wire RxFwd;         // Whether to forward packet from port "in" to port "out"
         // TODO: Add forwarding database (for now, just floods all ports)
         assign RxFwd = Fifo_Int_valid[in];
+        // TODO: Implement FIFO reset (if desired)
+        assign fifo_reset[in][out%4] = 1'b0;
 
         fifo_10x8192 Fifo(
             .rst(fifo_reset[in][out%4]),
             .wr_clk(RxClk[in]),
             .wr_en(RxFwd),
-            .din({RxSt_Int[in], RxD_Int[in]}),
+            .din({RxSt[in], RxD_Int[in]}),
             .rd_clk(TxClk[out%4]),
             .rd_en(FifoActive[in][out%4] & TxReady[out%4]),
             .dout({TxSt_Switch[in][out%4], TxD_Switch[in][out%4]}),
@@ -233,14 +245,14 @@ end
 
 for (out = 0; out < 4; out = out + 1) begin : fifo_loop_mux
 
-    wire curInput;
+    wire[1:0] curInput;
     assign curInput = TxInput[out];
 
     // A simple round-robin scheduler
     always @(posedge TxClk[out])
     begin
         if (FifoActive[curInput][out]) begin
-            if (fifo_empty[curInput][out] || (TxSt_Switch[curInput][out] == 2'b10)) begin
+            if (fifo_empty[curInput][out] || (TxSt[out] == 2'b10)) begin
                 // If last byte (or fifo_empty, which should not happen)
                 FifoActive[curInput][out] <= 1'b0;
             end
@@ -257,6 +269,8 @@ for (out = 0; out < 4; out = out + 1) begin : fifo_loop_mux
 
     assign TxSt[out] = TxSt_Switch[curInput][out];
     assign TxD[out] = TxD_Switch[curInput][out];
+    assign TxErr[out] = (TxSt[out] == 2'b11) ? 1'b1 : 1'b0;
+    assign TxEn[out] = FifoActive[curInput][out] & TxReady[out];
 end
 
 endgenerate
