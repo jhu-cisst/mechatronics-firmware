@@ -66,20 +66,8 @@
  PORT gmii_to_rgmii_2_speed_mode_pin = gmii_to_rgmii_2_speed_mode, DIR = O, VEC = [1:0]
  PORT gmii_to_rgmii_2_gmii_rx_clk_pin = gmii_to_rgmii_2_gmii_rx_clk, DIR = O, SIGIS = CLK
  PORT gmii_to_rgmii_2_gmii_rx_er_pin = gmii_to_rgmii_2_gmii_rx_er, DIR = O
- PORT processing_system7_0_ENET1_GMII_TX_EN_pin = processing_system7_0_ENET1_GMII_TX_EN, DIR = O
- PORT processing_system7_0_ENET1_GMII_TX_ER_pin = processing_system7_0_ENET1_GMII_TX_ER, DIR = O
- PORT processing_system7_0_ENET1_MDIO_MDC_pin = processing_system7_0_ENET1_MDIO_MDC, DIR = O
- PORT processing_system7_0_ENET1_MDIO_O_pin = processing_system7_0_ENET1_MDIO_O, DIR = O
- PORT processing_system7_0_ENET1_MDIO_T_pin = processing_system7_0_ENET1_MDIO_T, DIR = O
- PORT processing_system7_0_ENET1_GMII_TXD_pin = processing_system7_0_ENET1_GMII_TXD, DIR = O, VEC = [7:0]
- PORT processing_system7_0_ENET1_GMII_RX_CLK_pin = net_processing_system7_0_ENET1_GMII_RX_CLK_pin, DIR = I, SIGIS = CLK
- PORT processing_system7_0_ENET1_MDIO_I_pin = net_processing_system7_0_ENET1_MDIO_I_pin, DIR = I
- PORT processing_system7_0_ENET1_GMII_TX_CLK_pin = net_processing_system7_0_ENET1_GMII_TX_CLK_pin, DIR = I, SIGIS = CLK
- PORT processing_system7_0_ENET1_GMII_RX_DV_pin = net_processing_system7_0_ENET1_GMII_RX_DV_pin, DIR = I
- PORT processing_system7_0_ENET1_GMII_RX_ER_pin = net_processing_system7_0_ENET1_GMII_RX_ER_pin, DIR = I
- PORT processing_system7_0_ENET1_GMII_RXD_pin = net_processing_system7_0_ENET1_GMII_RXD_pin, DIR = I, VEC = [7:0]
  PORT processing_system7_0_RESETn_PHY_0_pin = processing_system7_0_FCLK_RESET0_N_0, DIR = O, SIGIS = RST
- PORT processing_system7_0_RESETn_PHY_1_pin = processing_system7_0_FCLK_RESET0_N_0, DIR = O, SIGIS = RST
+ PORT processing_system7_0_FCLK_CLK1_pin = processing_system7_0_FCLK_CLK1, DIR = O, SIGIS = CLK, CLK_FREQ = 250000000
 
 
 BEGIN processing_system7
@@ -89,7 +77,7 @@ BEGIN processing_system7
  PARAMETER C_EN_EMIO_CAN0 = 0
  PARAMETER C_EN_EMIO_CAN1 = 0
  PARAMETER C_EN_EMIO_ENET0 = 1
- PARAMETER C_EN_EMIO_ENET1 = 1
+ PARAMETER C_EN_EMIO_ENET1 = 0
  PARAMETER C_EN_EMIO_I2C0 = 0
  PARAMETER C_EN_EMIO_I2C1 = 0
  PARAMETER C_EN_EMIO_PJTAG = 0
@@ -117,7 +105,7 @@ BEGIN processing_system7
  PARAMETER C_EN_CAN0 = 0
  PARAMETER C_EN_CAN1 = 0
  PARAMETER C_EN_ENET0 = 1
- PARAMETER C_EN_ENET1 = 1
+ PARAMETER C_EN_ENET1 = 0
  PARAMETER C_EN_I2C0 = 0
  PARAMETER C_EN_I2C1 = 0
  PARAMETER C_EN_PJTAG = 0
@@ -138,8 +126,8 @@ BEGIN processing_system7
  PARAMETER C_EN_DDR = 1
  PARAMETER C_EN_GPIO = 1
  PARAMETER C_FCLK_CLK0_FREQ = 200000000
- PARAMETER C_FCLK_CLK1_FREQ = 25000000
- PARAMETER C_FCLK_CLK2_FREQ = 2500000
+ PARAMETER C_FCLK_CLK1_FREQ = 250000000
+ PARAMETER C_FCLK_CLK2_FREQ = 50000000
  PARAMETER C_FCLK_CLK3_FREQ = 50000000
  PARAMETER C_USE_FABRIC_INTERRUPT = 1
  PORT MIO = processing_system7_0_MIO
@@ -164,18 +152,6 @@ BEGIN processing_system7
  PORT ENET0_MDIO_I = net_processing_system7_0_ENET0_MDIO_I_pin
  PORT ENET0_MDIO_O = processing_system7_0_ENET0_MDIO_O
  PORT ENET0_MDIO_T = processing_system7_0_ENET0_MDIO_T
- PORT ENET1_GMII_TX_CLK = net_processing_system7_0_ENET1_GMII_TX_CLK_pin
- PORT ENET1_GMII_RX_ER = gmii_to_rgmii_2_gmii_rx_er
- PORT ENET1_GMII_RXD = gmii_to_rgmii_2_gmii_rxd
- PORT ENET1_GMII_TX_EN = processing_system7_0_ENET1_GMII_TX_EN
- PORT ENET1_GMII_TX_ER = processing_system7_0_ENET1_GMII_TX_ER
- PORT ENET1_MDIO_MDC = processing_system7_0_ENET1_MDIO_MDC
- PORT ENET1_MDIO_O = processing_system7_0_ENET1_MDIO_O
- PORT ENET1_MDIO_T = processing_system7_0_ENET1_MDIO_T
- PORT ENET1_GMII_TXD = processing_system7_0_ENET1_GMII_TXD
- PORT ENET1_GMII_RX_CLK = gmii_to_rgmii_2_gmii_rx_clk
- PORT ENET1_MDIO_I = net_processing_system7_0_ENET1_MDIO_I_pin
- PORT ENET1_GMII_RX_DV = gmii_to_rgmii_2_gmii_rx_dv
  PORT FCLK_RESET0_N = processing_system7_0_FCLK_RESET0_N_0
 END
 

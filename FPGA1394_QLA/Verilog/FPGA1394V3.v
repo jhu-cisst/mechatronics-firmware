@@ -507,16 +507,16 @@ wire       tx_req_rt[1:2];
 wire       tx_grant_rt[1:2];
 
 wire       mdio_o_rt[1:2];      // OUT from RTL8211F module
-wire       mdio_o_ps[1:2];      // OUT from Zynq PS
+wire       mdio_o_ps;           // OUT from Zynq PS
 wire       mdio_o[1:2];         // IN to GMII core (or PHY)
-wire       mdio_i_ps[1:2];      // IN to Zynz PS, OUT from VirtualPhy
+wire       mdio_i_ps;           // IN to Zynz PS, OUT from VirtualPhy
 wire       mdio_i[1:2];         // IN to RTL8211F module, OUT from GMII core (or PHY)
 wire       mdio_t_rt[1:2];      // OUT from RTL8211F module (tristate control)
-wire       mdio_t_ps[1:2];      // OUT from Zynq PS (tristate control)
+wire       mdio_t_ps;           // OUT from Zynq PS (tristate control)
 wire       mdio_t[1:2];         // OUT from RTL8211F module (tristate control)
 wire       mdio_busy_rt[1:2];   // OUT from RTL8211F module (MDIO busy)
 wire       mdio_clk_rt[1:2];    // OUT from RTL8211F module, IN to GMII core (or PHY)
-wire       mdio_clk_ps[1:2];    // OUT from Zynq PS
+wire       mdio_clk_ps;         // OUT from Zynq PS
 wire       mdio_clk[1:2];       // IN to GMII core (or PHY)
 
 // Wires between RTL8211F and EthSwitchRt
@@ -677,25 +677,23 @@ for (k = 1; k <= 2; k = k + 1) begin : eth_loop
     //   - PS has MDIO access by default (if ps_eth_enable); RT (PL) gets access when needed.
     //   - Right now, there is no check for collisions on the MDIO bus.
     //   - The PL and PS MDIO clocks are not synchronized.
-    assign mdio_clk[k] = (mdio_busy_rt[k]|(~ps_eth_enable[k])) ? mdio_clk_rt[k] : mdio_clk_ps[k];
-    assign mdio_o[k] = (mdio_busy_rt[k]|(~ps_eth_enable[k])) ? mdio_o_rt[k] : mdio_o_ps[k];
-    assign mdio_t[k] = (mdio_busy_rt[k]|(~ps_eth_enable[k])) ? mdio_t_rt[k] : mdio_t_ps[k];
+    assign mdio_clk[k] = mdio_clk_rt[k];
+    assign mdio_o[k] = mdio_o_rt[k];
+    assign mdio_t[k] = mdio_t_rt[k];
 
 end
 endgenerate
 
 VirtualPhy VPhy(
-    .mdio_i(mdio_i_ps[1]),   // mdio_i to PS
-    .mdio_o(mdio_o_ps[1]),   // mdio_o from PS
-    .mdio_t(mdio_t_ps[1]),   // mdio_t from PS
-    .mdc(mdio_clk_ps[1]),    // mdc (clock) from PS
+    .mdio_i(mdio_i_ps),      // mdio_i to PS
+    .mdio_o(mdio_o_ps),      // mdio_o from PS
+    .mdio_t(mdio_t_ps),      // mdio_t from PS
+    .mdc(mdio_clk_ps),       // mdc (clock) from PS
 
     // For debugging
     .reg_raddr(reg_raddr),      // read address
     .reg_rdata(reg_rdata_vp)    // register read data
 );
-
-assign mdio_i_ps[2] = mdio_i[2];
 
 EthSwitchRt eth_switch_rt(
     .clk(sysclk),
@@ -950,10 +948,10 @@ fpgav3 zynq_ps7(
     .processing_system7_0_ENET0_GMII_TX_ER_pin(gmii_tx_err_ps[1]),
     .processing_system7_0_ENET0_GMII_TX_CLK_pin(gmii_tx_clk[1]&ps_eth_enable[1]),
     .processing_system7_0_ENET0_GMII_TXD_pin(gmii_txd_ps[1]),
-    .processing_system7_0_ENET0_MDIO_MDC_pin(mdio_clk_ps[1]),
-    .processing_system7_0_ENET0_MDIO_I_pin(mdio_i_ps[1]),
-    .processing_system7_0_ENET0_MDIO_O_pin(mdio_o_ps[1]),
-    .processing_system7_0_ENET0_MDIO_T_pin(mdio_t_ps[1]),
+    .processing_system7_0_ENET0_MDIO_MDC_pin(mdio_clk_ps),
+    .processing_system7_0_ENET0_MDIO_I_pin(mdio_i_ps),
+    .processing_system7_0_ENET0_MDIO_O_pin(mdio_o_ps),
+    .processing_system7_0_ENET0_MDIO_T_pin(mdio_t_ps),
 
     .gmii_to_rgmii_2_rgmii_txd_pin(E2_TxD),
     .gmii_to_rgmii_2_rgmii_tx_ctl_pin(E2_TxEN),
@@ -977,22 +975,10 @@ fpgav3 zynq_ps7(
     .gmii_to_rgmii_2_clock_speed_pin(clock_speed[2]), // Clock speed (Rx)
     .gmii_to_rgmii_2_speed_mode_pin(speed_mode[2]),   // Speed mode (Tx)
 
-    .processing_system7_0_ENET1_GMII_RX_CLK_pin(gmii_rx_clk[2]&ps_eth_enable[2]),
-    .processing_system7_0_ENET1_GMII_RX_DV_pin(gmii_rx_dv[2]&ps_eth_enable[2]),
-    .processing_system7_0_ENET1_GMII_RX_ER_pin(gmii_rx_er[2]&ps_eth_enable[2]),
-    .processing_system7_0_ENET1_GMII_RXD_pin(gmii_rxd[2]),
-    .processing_system7_0_ENET1_GMII_TX_EN_pin(gmii_tx_en_ps[2]),
-    .processing_system7_0_ENET1_GMII_TX_ER_pin(gmii_tx_err_ps[2]),
-    .processing_system7_0_ENET1_GMII_TX_CLK_pin(gmii_tx_clk[2]&ps_eth_enable[2]),
-    .processing_system7_0_ENET1_GMII_TXD_pin(gmii_txd_ps[2]),
-    .processing_system7_0_ENET1_MDIO_MDC_pin(mdio_clk_ps[2]),
-    .processing_system7_0_ENET1_MDIO_I_pin(mdio_i_ps[2]&ps_eth_enable[2]),
-    .processing_system7_0_ENET1_MDIO_O_pin(mdio_o_ps[2]),
-    .processing_system7_0_ENET1_MDIO_T_pin(mdio_t_ps[2]),
-
-    .processing_system7_0_RESETn_PHY_0_pin(PS_Eth_RSTn[1]),
-    .processing_system7_0_RESETn_PHY_1_pin(PS_Eth_RSTn[2])
+    .processing_system7_0_RESETn_PHY_0_pin(PS_Eth_RSTn[1])
 );
+
+assign PS_Eth_RSTn[2] = 1'b1;
 
 // Ethernet Rx/Tx Routing
 //
