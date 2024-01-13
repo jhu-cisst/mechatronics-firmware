@@ -76,7 +76,11 @@ module EthSwitch
     output wire[7:0] P3_TxD,    // Port3 transmit data
     output wire P3_TxErr,       // Port3 transmit error
     input wire P3_TxReady,      // Port3 client ready for data
-    input wire P3_TxWait        // Port3 wait for transmit packet to be queued
+    input wire P3_TxWait,       // Port3 wait for transmit packet to be queued
+
+    // For external monitoring
+    input wire[15:0] reg_raddr,
+    output wire[31:0] reg_rdata
 );
 
 // Create arrays from input parameters
@@ -180,6 +184,12 @@ wire[47:8] FPGA_PS_MAC;
 assign FPGA_RT_MAC = 40'hfa610e1394;
 assign FPGA_PS_MAC = 40'hfa610e0300;
 
+// Debugging
+`ifdef HAS_DEBUG_DATA
+reg[15:0] NumPacketRecv[0:3];
+reg[15:0] NumPacketSent[0:3];
+`endif
+
 // Variables for generate block
 genvar in;
 genvar out;
@@ -197,18 +207,22 @@ for (in = 0; in < 4; in = in + 1) begin : fifo__int_loop
   reg[7:0] RxD_1;
   reg RxErr_1;
 
+  wire isFirstByte;
+  wire isLastByte;
+  assign isFirstByte = RxValid_1&(~RxValid_2);
+  assign isLastByte = (~RxValid[in])&RxValid_1;
+
   always @(posedge RxClk[in])
   begin
       RxValid_1 <= RxValid[in];
       RxValid_2 <= RxValid_1;
       RxD_1 <= RxD[in];
       RxErr_1 <= RxErr[in];
+`ifdef HAS_DEBUG_DATA
+      if (isLastByte)
+          NumPacketRecv[in] <= NumPacketRecv[in] + 16'd1;
+`endif
   end
-
-  wire isFirstByte;
-  wire isLastByte;
-  assign isFirstByte = RxValid_1&(~RxValid_2);
-  assign isLastByte = (~RxValid[in])&RxValid_1;
 
   // TODO: Add input FIFO
   assign RxD_Int[in] = RxD_1;
@@ -255,6 +269,9 @@ for (out = 0; out < 4; out = out + 1) begin : fifo_loop_mux
             if (fifo_empty[curInput][out] || (TxSt[out] == 2'b10)) begin
                 // If last byte (or fifo_empty, which should not happen)
                 FifoActive[curInput][out] <= 1'b0;
+`ifdef HAS_DEBUG_DATA
+               NumPacketSent[out] <= NumPacketSent[out] + 16'd1;
+`endif
             end
         end
         else if (~fifo_empty[(out+1)%4][out]) begin
@@ -265,6 +282,10 @@ for (out = 0; out < 4; out = out + 1) begin : fifo_loop_mux
             TxInput[out] <= (out+2)%4;
             FifoActive[(out+2)%4][out] <= 1'b1;
         end
+        else if (~fifo_empty[(out+3)%4][out]) begin
+            TxInput[out] <= (out+3)%4;
+            FifoActive[(out+3)%4][out] <= 1'b1;
+        end
     end
 
     assign TxSt[out] = TxSt_Switch[curInput][out];
@@ -274,5 +295,31 @@ for (out = 0; out < 4; out = out + 1) begin : fifo_loop_mux
 end
 
 endgenerate
+
+`ifdef HAS_DEBUG_DATA
+wire[15:0] fifo_active_bits;
+
+genvar i;
+generate
+for (i = 0; i < 16; i = i +1) begin : fifo_active_loop
+    assign fifo_active_bits[i] = FifoActive[i/4][i%4];
+end
+endgenerate
+
+wire[31:0] DebugData[0:7];      // Could increase to [0:15]
+assign DebugData[0]  = 32'd0;
+assign DebugData[1]  = { NumPacketSent[0], NumPacketRecv[0] };
+assign DebugData[2]  = { NumPacketSent[1], NumPacketRecv[1] };
+assign DebugData[3]  = { NumPacketSent[2], NumPacketRecv[2] };
+assign DebugData[4]  = { NumPacketSent[3], NumPacketRecv[3] };
+assign DebugData[5]  = { 16'd0, fifo_active_bits };
+assign DebugData[6]  = 32'd0;
+assign DebugData[7]  = 32'd0;
+
+// address a0 used in RTL8211F.v; address af used in VirtualPhy.v
+assign reg_rdata = (reg_raddr[7:4] == 4'ha) ? DebugData[reg_raddr[2:0]] : 32'd0;
+`else
+assign reg_rdata = 32'd0;
+`endif
 
 endmodule

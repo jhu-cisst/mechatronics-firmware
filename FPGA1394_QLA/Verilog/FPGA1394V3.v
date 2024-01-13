@@ -204,6 +204,7 @@ wire[31:0] reg_rdata_hub;      // reg_rdata_hub is for hub memory
 reg[31:0]  reg_rdata_prom;     // reg_rdata_prom is for block reads from PROM
 wire[31:0] reg_rdata_eth;      // for eth memory access (EthernetIO)
 wire[31:0] reg_rdata_rtl;      // for eth memory access (RTL8211F)
+wire[31:0] reg_rdata_esw;      // for eth memory access (EthSwitch)
 wire[31:0] reg_rdata_eswrt;    // for eth memory access (EthSwitchRt)
 wire[31:0] reg_rdata_vp;       // for eth memory access (VirtualPhy)
 wire[31:0] reg_rdata_fw;       // for fw memory access
@@ -226,7 +227,7 @@ assign isAddrMain = ((reg_raddr[15:12]==`ADDR_MAIN) && (reg_raddr[7:4]==4'd0)) ?
 assign {reg_rdata, reg_rwait} =
                    ((reg_raddr[15:12]==`ADDR_HUB) ? {reg_rdata_hub, reg_rwait_hub} :
                     (reg_raddr[15:12]==`ADDR_PROM) ? {reg_rdata_prom, 1'b0} :
-                    (reg_raddr[15:12]==`ADDR_ETH) ? {reg_rdata_eth|reg_rdata_rtl|reg_rdata_eswrt|reg_rdata_vp, 1'b1} :
+                    (reg_raddr[15:12]==`ADDR_ETH) ? {reg_rdata_eth|reg_rdata_rtl|reg_rdata_eswrt|reg_rdata_vp|reg_rdata_esw, 1'b1} :
                     (reg_raddr[15:12]==`ADDR_FW) ? {reg_rdata_fw, 1'b1} :
                     isAddrMain ? {reg_rdata_chan0 | reg_rdata_chan0_ext, reg_rwait_chan0} :
                     {32'd0, 1'b0}) | {reg_rdata_ext, reg_rwait_ext};
@@ -559,8 +560,11 @@ EthSwitch eth_switch (
     .P3_TxD(gmii_txd[4]),            // Port3 transmit data
     .P3_TxErr(gmii_tx_err[4]),       // Port3 transmit error
     .P3_TxReady(1'b1),               // Port3 client ready for data
-    .P3_TxWait(1'b0)                 // Port3 wait for transmit packet to be queued
+    .P3_TxWait(1'b0),                // Port3 wait for transmit packet to be queued
 
+    // For debugging
+    .reg_raddr(reg_raddr),           // read address
+    .reg_rdata(reg_rdata_esw)        // register read data
 );
 
 // MDIO signals
