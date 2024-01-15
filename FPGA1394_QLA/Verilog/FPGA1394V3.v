@@ -507,7 +507,7 @@ wire[1:0]  speed_mode[1:2];
 EthSwitch eth_switch (
 
     // Port0: Eth1
-    .P0_Active(1'b1),                // Port0 active (e.g., link on)
+    .P0_Active(eth_active[1]),       // Port0 active (e.g., link on)
     .P0_RxClk(gmii_rx_clk[1]),       // Port0 receive clock
     .P0_RxValid(gmii_rx_dv[1]),      // Port0 receive data valid
     .P0_RxD(gmii_rxd[1]),            // Port0 receive data
@@ -521,7 +521,7 @@ EthSwitch eth_switch (
     .P0_TxWait(1'b0),                // Port0 wait for transmit packet to be queued
 
     // Port1: Eth2
-    .P1_Active(1'b1),                // Port1 active (e.g., link on)
+    .P1_Active(eth_active[2]),       // Port1 active (e.g., link on)
     .P1_RxClk(gmii_rx_clk[2]),       // Port1 receive clock
     .P1_RxValid(gmii_rx_dv[2]),      // Port1 receive data valid
     .P1_RxD(gmii_rxd[2]),            // Port1 receive data
@@ -581,6 +581,9 @@ wire       mdio_busy_rt[1:2];   // OUT from RTL8211F module (MDIO busy)
 wire       mdio_clk_rt[1:2];    // OUT from RTL8211F module, IN to GMII core (or PHY)
 wire       mdio_clk_ps;         // OUT from Zynq PS
 wire       mdio_clk[1:2];       // IN to GMII core (or PHY)
+
+wire       eth_active[1:2];     // Whether link is on
+wire[1:0]  link_speed[1:2];     // Link speed
 
 // Wires between RTL8211F and EthSwitchRt
 wire       initOK[1:2];
@@ -644,6 +647,9 @@ for (k = 1; k <= 2; k = k + 1) begin : eth_loop
         .MDIO_O(mdio_o_rt[k]),    // OUT from RTL8211F module, IN to GMII core
         .MDIO_T(mdio_t_rt[k]),    // Tristate signal from RTL8211F module
         .mdioBusy(mdio_busy_rt[k]), // OUT from RTL8211F module
+
+        .linkOK(eth_active[k]),
+        .linkSpeed(link_speed[k]),
 
         .clock_speed(clock_speed[k]),
         .speed_mode(speed_mode[k]),

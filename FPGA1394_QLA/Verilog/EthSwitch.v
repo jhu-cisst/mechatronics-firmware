@@ -162,8 +162,7 @@ assign TxWait[2] = P2_TxWait;
 assign TxWait[3] = P3_TxWait;
 
 // Convention: signal[in][out]
-// Note that diagonal elements (e.g., fifo_reset[i][i]) are not used
-wire fifo_reset[0:3][0:3];
+// Note that diagonal elements (e.g., fifo_full[i][i]) are not used
 wire fifo_full[0:3][0:3];
 wire fifo_empty[0:3][0:3];
 
@@ -234,17 +233,21 @@ for (in = 0; in < 4; in = in + 1) begin : fifo__int_loop
 end
 
 for (in = 0; in < 4; in = in+1) begin : fifo_loop_in
+
+  // Diagonal elements are not used, so initialize them to avoid warnings
+  assign fifo_full[in][in] = 1'b0;
+  assign fifo_empty[in][in] = 1'b1;
+  assign TxSt_Switch[in][in] = 2'd0;
+  assign TxD_Switch[in][in] = 8'd0;
+
   for (out = in+1; out < in+4; out = out+1) begin : fifo_loop_out
 
         //********* Port in (Rx) to Port out (Tx) *****************
         wire RxFwd;         // Whether to forward packet from port "in" to port "out"
-        // TODO: Add forwarding database (for now, just floods all ports)
-        assign RxFwd = Fifo_Int_valid[in];
-        // TODO: Implement FIFO reset (if desired)
-        assign fifo_reset[in][out%4] = 1'b0;
+        // TODO: Add forwarding database (for now, just floods all active ports)
+        assign RxFwd = Fifo_Int_valid[in] & PortActive[out%4];
 
         fifo_10x8192 Fifo(
-            .rst(fifo_reset[in][out%4]),
             .wr_clk(RxClk[in]),
             .wr_en(RxFwd),
             .din({RxSt[in], RxD_Int[in]}),
@@ -298,11 +301,15 @@ endgenerate
 
 `ifdef HAS_DEBUG_DATA
 wire[15:0] fifo_active_bits;
+wire[15:0] fifo_empty_bits;
+wire[15:0] fifo_full_bits;
 
 genvar i;
 generate
 for (i = 0; i < 16; i = i +1) begin : fifo_active_loop
     assign fifo_active_bits[i] = FifoActive[i/4][i%4];
+    assign fifo_empty_bits[i] = fifo_empty[i/4][i%4];
+    assign fifo_full_bits[i] = fifo_full[i/4][i%4];
 end
 endgenerate
 
@@ -313,7 +320,7 @@ assign DebugData[2]  = { NumPacketSent[1], NumPacketRecv[1] };
 assign DebugData[3]  = { NumPacketSent[2], NumPacketRecv[2] };
 assign DebugData[4]  = { NumPacketSent[3], NumPacketRecv[3] };
 assign DebugData[5]  = { 16'd0, fifo_active_bits };
-assign DebugData[6]  = 32'd0;
+assign DebugData[6]  = { fifo_full_bits, fifo_empty_bits };
 assign DebugData[7]  = 32'd0;
 
 // address a0 used in RTL8211F.v; address af used in VirtualPhy.v
