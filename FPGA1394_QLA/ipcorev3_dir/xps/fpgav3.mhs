@@ -140,10 +140,10 @@ BEGIN processing_system7
  PORT FCLK_CLK0 = processing_system7_0_FCLK_CLK0
  PORT FCLK_CLK1 = processing_system7_0_FCLK_CLK1
  PORT FCLK_CLK2 = processing_system7_0_FCLK_CLK2
- PORT ENET0_GMII_RX_DV = gmii_to_rgmii_1_gmii_rx_dv
- PORT ENET0_GMII_RX_ER = gmii_to_rgmii_1_gmii_rx_er
- PORT ENET0_GMII_RXD = gmii_to_rgmii_1_gmii_rxd
- PORT ENET0_GMII_RX_CLK = gmii_to_rgmii_1_gmii_rx_clk
+ PORT ENET0_GMII_RX_DV = processing_system7_0_ENET0_GMII_RX_DV
+ PORT ENET0_GMII_RX_ER = processing_system7_0_ENET0_GMII_RX_ER
+ PORT ENET0_GMII_RXD = processing_system7_0_ENET0_GMII_RXD
+ PORT ENET0_GMII_RX_CLK = processing_system7_0_ENET0_GMII_RX_CLK
  PORT ENET0_GMII_TX_EN = processing_system7_0_ENET0_GMII_TX_EN
  PORT ENET0_GMII_TX_ER = processing_system7_0_ENET0_GMII_TX_ER
  PORT ENET0_GMII_TX_CLK = net_processing_system7_0_ENET0_GMII_TX_CLK_pin
