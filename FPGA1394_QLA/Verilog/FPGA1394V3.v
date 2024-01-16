@@ -709,6 +709,8 @@ VirtualPhy VPhy(
     .reg_rdata(reg_rdata_vp)    // register read data
 );
 
+`ifdef CLOCK_250
+
 // Provide 125 MHz clock for gmii_rx_clk[3:4] and gmii_tx_clk[3:4]
 // Would be easier to have PS generate a 125 MHz clock and then
 // invert it for the second clock. One advantage of the following
@@ -729,6 +731,16 @@ begin
    clk_125A <= ~clk_125A;
    clk_125B <= ~clk_125B;
 end
+
+`else
+
+// TEMP: 250 MHz clock not working, so using Eth1 Rx clock
+wire clk_125A;
+wire clk_125B;
+assign clk_125A = gmii_rx_clk[1];
+assign clk_125B = ~gmii_rx_clk[1];
+
+`endif
 
 assign gmii_rx_clk[3] = clk_125A;
 
