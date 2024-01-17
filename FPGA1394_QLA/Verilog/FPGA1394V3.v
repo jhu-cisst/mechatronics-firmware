@@ -503,64 +503,64 @@ wire       gmii_rx_clk4_dest;   // rx_clk[4] at data destination
 wire[1:0]  clock_speed[1:2];
 wire[1:0]  speed_mode[1:2];
 
+wire eth_fast[1:2];             // Whether Eth1, Eth2 are fast (1 GB)
+assign eth_fast[1] = link_speed[1][1]&(~link_speed[1][0]);   // 2'b10 --> 1 GB
+assign eth_fast[2] = link_speed[2][1]&(~link_speed[2][0]);   // 2'b10 --> 1 GB
+
 // Ethernet 4-port switch
 EthSwitch eth_switch (
 
     // Port0: Eth1
     .P0_Active(eth_active[1]),       // Port0 active (e.g., link on)
+    .P0_Ready(eth_active[1]),        // Port0 client ready for data
+    .P0_Fast(eth_fast[1]),           // Port0 speed
     .P0_RxClk(gmii_rx_clk[1]),       // Port0 receive clock
     .P0_RxValid(gmii_rx_dv[1]),      // Port0 receive data valid
     .P0_RxD(gmii_rxd[1]),            // Port0 receive data
     .P0_RxErr(gmii_rx_err[1]),       // Port0 receive error
-    .P0_RxWait(1'b0),                // Port0 wait for receive packet to be queued
     .P0_TxClk(gmii_tx_clk[1]),       // Port0 transmit clock
     .P0_TxEn(gmii_tx_en[1]),         // Port0 transmit data valid
     .P0_TxD(gmii_txd[1]),            // Port0 transmit data
     .P0_TxErr(gmii_tx_err[1]),       // Port0 transmit error
-    .P0_TxReady(1'b1),               // Port0 client ready for data
-    .P0_TxWait(1'b0),                // Port0 wait for transmit packet to be queued
 
     // Port1: Eth2
     .P1_Active(eth_active[2]),       // Port1 active (e.g., link on)
+    .P1_Ready(eth_active[2]),        // Port1 client ready for data
+    .P1_Fast(eth_fast[2]),           // Port1 speed
     .P1_RxClk(gmii_rx_clk[2]),       // Port1 receive clock
     .P1_RxValid(gmii_rx_dv[2]),      // Port1 receive data valid
     .P1_RxD(gmii_rxd[2]),            // Port1 receive data
     .P1_RxErr(gmii_rx_err[2]),       // Port1 receive error
-    .P1_RxWait(1'b0),                // Port1 wait for receive packet to be queued
     .P1_TxClk(gmii_tx_clk[2]),       // Port1 transmit clock
     .P1_TxEn(gmii_tx_en[2]),         // Port1 transmit data valid
     .P1_TxD(gmii_txd[2]),            // Port1 transmit data
     .P1_TxErr(gmii_tx_err[2]),       // Port1 transmit error
-    .P1_TxReady(1'b1),               // Port1 client ready for data
-    .P1_TxWait(1'b0),                // Port1 wait for transmit packet to be queued
 
     // Port2: PS
     .P2_Active(1'b1),                // Port2 active (e.g., link on)
+    .P2_Ready(1'b1),                 // Port2 client ready for data
+    .P2_Fast(1'b1),                  // Port2 always fast (1 GB)
     .P2_RxClk(gmii_rx_clk[3]),       // Port2 receive clock
     .P2_RxValid(gmii_rx_dv[3]),      // Port2 receive data valid
     .P2_RxD(gmii_rxd[3]),            // Port2 receive data
     .P2_RxErr(gmii_rx_err[3]),       // Port2 receive error
-    .P2_RxWait(1'b0),                // Port2 wait for receive packet to be queued
     .P2_TxClk(gmii_tx_clk3_src),     // Port2 transmit clock
     .P2_TxEn(gmii_tx_en[3]),         // Port2 transmit data valid
     .P2_TxD(gmii_txd[3]),            // Port2 transmit data
     .P2_TxErr(gmii_tx_err[3]),       // Port2 transmit error
-    .P2_TxReady(1'b1),               // Port2 client ready for data
-    .P2_TxWait(1'b0),                // Port2 wait for transmit packet to be queued
 
     // Port3: RT
     .P3_Active(1'b1),                // Port3 active (e.g., link on)
+    .P3_Ready(1'b1),                 // Port3 client ready for data
+    .P3_Fast(1'b0),                  // Port3 currently slow
     .P3_RxClk(gmii_rx_clk4_dest),    // Port3 receive clock
     .P3_RxValid(gmii_rx_dv[4]),      // Port3 receive data valid
     .P3_RxD(gmii_rxd[4]),            // Port3 receive data
     .P3_RxErr(gmii_rx_err[4]),       // Port3 receive error
-    .P3_RxWait(1'b0),                // Port3 wait for receive packet to be queued
     .P3_TxClk(gmii_tx_clk4_src),     // Port3 transmit clock
     .P3_TxEn(gmii_tx_en[4]),         // Port3 transmit data valid
     .P3_TxD(gmii_txd[4]),            // Port3 transmit data
     .P3_TxErr(gmii_tx_err[4]),       // Port3 transmit error
-    .P3_TxReady(1'b1),               // Port3 client ready for data
-    .P3_TxWait(1'b0),                // Port3 wait for transmit packet to be queued
 
     // For debugging
     .reg_raddr(reg_raddr),           // read address
