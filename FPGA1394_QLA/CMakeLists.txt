@@ -102,7 +102,7 @@ set (VERILOG_SOURCE_FPGAV3
                          "${VERILOG_SOURCE_DIR}/FPGA1394V3.v"
                          "${VERILOG_SOURCE_DIR}/RTL8211F.v"
                          "${VERILOG_SOURCE_DIR}/EthernetIO.v"
-                         "${VERILOG_SOURCE_DIR}/EthSwitchRt.v"
+                         "${VERILOG_SOURCE_DIR}/EthRtInterface.v"
                          "${VERILOG_SOURCE_DIR}/EthSwitch.v"
                          "${VERILOG_SOURCE_DIR}/VirtualPhy.v"
 			 "${VERILOG_SOURCE_DIR}/EmioBus.v"

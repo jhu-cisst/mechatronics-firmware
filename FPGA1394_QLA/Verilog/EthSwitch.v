@@ -258,7 +258,8 @@ wire[47:0] DestMac[0:3];
 // 1 --> DestMac[in] matches MacAddrPrimary[out]
 wire MacAddrPrimaryMatch[0:3][0:3];
 
-wire CrcError[0:3];
+wire CrcError[0:3];     // Frame CRC error
+reg  IPv4Error[0:3];    // IPv4 Header checksum error
 
 // Debugging
 `ifdef HAS_DEBUG_DATA
@@ -266,6 +267,7 @@ reg[15:0] NumPacketRecv[0:3];
 reg[15:0] NumPacketSent[0:3];
 reg[7:0]  NumCrcErrorIn[0:3];
 reg[7:0]  NumCrcErrorOut[0:3];
+reg[7:0]  NumIPv4ErrorIn[0:3];
 reg[7:0]  TxInfoReg[0:3];
 // Following indicate whether a packet has been dropped or truncated
 // due to a full FIFO.
@@ -300,7 +302,7 @@ for (in = 0; in < 4; in = in + 1) begin : fifo__int_loop
   // Note that this is only valid after the entire packet has been processed.
   assign CrcError[in] = (recv_crc_in != 32'h7bdd04c7) ? 1'b0 : 1'b1;
 
-  reg[3:0] rxCnt;
+  reg[4:0] rxCnt;    // Counts 0-31 (need to count to 19 for UDP header)
 
   // Basic FIFO for first 14 bytes (8-byte preamble + 6-byte Dest MAC)
   // Implemented as vectors.
@@ -324,6 +326,13 @@ for (in = 0; in < 4; in = in + 1) begin : fifo__int_loop
   assign SrcMac  = { frame_header[`ETH_Src_MAC],   frame_header[`ETH_Src_MAC+1],
                      frame_header[`ETH_Src_MAC+2], frame_header[`ETH_Src_MAC+3],
                      frame_header[`ETH_Src_MAC+4], frame_header[`ETH_Src_MAC+5] };
+
+  // Ethernet frame length/type and IPv4 protocol are used to compute checksums.
+  wire[15:0] recv_length;   // Ethernet frame length/type (0x0800 is IPv4)
+  assign recv_length = {frame_header[`ETH_Frame_Length], frame_header[`ETH_Frame_Length+1]};
+  wire recv_ipv4;
+  assign recv_ipv4 = (recv_length == 16'h0800) ? 1'b1 : 1'b0;
+  reg[16:0] recv_ipv4_cksum;   // Used to verify IPv4 header checksum
 
   assign MacAddrPrimaryMatch[in][in] = 1'b0;   // Should not happen, unless loop
   assign MacAddrPrimaryMatch[in][(in+1)%4] = (DestMac[in] == MacAddrPrimary[(in+1)%4]) ? 1'b1 : 1'b0;
@@ -363,15 +372,17 @@ for (in = 0; in < 4; in = in + 1) begin : fifo__int_loop
       begin
           if (RxValid[in]) begin
               // Currently, no error checking on preamble
-              rxCnt <= rxCnt + 4'd1;
+              // (could check rxCnt)
+              rxCnt <= rxCnt + 5'd1;
               if (RxD[in] == 8'hd5) begin
                   rxState <= ST_RX_FRAME_HEADER;
-                  rxCnt <= 4'd0;
+                  rxCnt <= 5'd0;
                   recv_crc_in <= 32'hffffffff;    // Initialize CRC
+                  IPv4Error[in] <= 1'b0;
               end
           end
           else begin
-              rxCnt <= 4'd0;
+              rxCnt <= 5'd0;
           end
       end
 
@@ -379,10 +390,10 @@ for (in = 0; in < 4; in = in + 1) begin : fifo__int_loop
       begin
           // Save first 14 bytes
           if (RxValid[in]) begin
-              rxCnt <= rxCnt + 4'd1;
+              rxCnt <= rxCnt + 5'd1;
               recv_crc_in <= recv_crc_8b;
-              frame_header[rxCnt] <= RxD[in];
-              if (rxCnt == 4'd13) begin
+              frame_header[rxCnt[3:0]] <= RxD[in];
+              if (rxCnt == 5'd13) begin
                   if ((in == INDEX_ETH1) || (in == INDEX_ETH2)) begin
                       MacAddrHost[in] <= SrcMac;
                       // If the upper 24-bits of SrcMac match LCSR_CID, then
@@ -392,11 +403,12 @@ for (in = 0; in < 4; in = in + 1) begin : fifo__int_loop
                       if (SrcMac[47:24] == LCSR_CID)
                           PortForwardFpga[in][SrcMac[3:0]] <= 1'b1;
                   end
+                  rxCnt <= 5'd0;
                   rxState <= ST_RX_FRAME_DATA;
               end
           end
           else begin
-              rxCnt <= 4'd0;
+              rxCnt <= 5'd0;
               rxState <= ST_RX_IDLE;
           end
       end
@@ -405,14 +417,28 @@ for (in = 0; in < 4; in = in + 1) begin : fifo__int_loop
       begin
           if (RxValid[in]) begin
               recv_crc_in <= recv_crc_8b;
+              if (rxCnt != 5'd31)
+                  rxCnt <= rxCnt + 5'd1;
+
+              // IPv4 header checksum. Note that the carry bit is added to the sum.
+              if (rxCnt == (`ETH_IPv4_Begin-`ETH_Frame_End))
+                  recv_ipv4_cksum <= {1'b0, RxD[in], 8'd0};
+              else if (rxCnt == (`ETH_IPv4_End-`ETH_Frame_End))
+                  IPv4Error[in] <= ((recv_ipv4_cksum == 17'h0ffff) || (recv_ipv4_cksum == 17'h1fffe)) ? 1'b0 : recv_ipv4;
+              else if (~rxCnt[0])
+                  recv_ipv4_cksum <= {1'b0, recv_ipv4_cksum[15:0]} + {RxD[in], 7'd0, recv_ipv4_cksum[16]};
+              else
+                  recv_ipv4_cksum <= recv_ipv4_cksum + { 9'd0, RxD[in] };
           end
           else begin
 `ifdef HAS_DEBUG_DATA
               NumPacketRecv[in] <= NumPacketRecv[in] + 16'd1;
               if (CrcError[in])
                   NumCrcErrorIn[in] <= NumCrcErrorIn[in] + 8'd1;
+              if (IPv4Error[in])
+                  NumIPv4ErrorIn[in] <= NumIPv4ErrorIn[in] + 8'd1;
 `endif
-              rxCnt <= 4'd0;
+              rxCnt <= 5'd0;
               rxState <= ST_RX_IDLE;
           end
       end
@@ -442,6 +468,7 @@ for (in = 0; in < 4; in = in+1) begin : fifo_loop_in
   assign fifo_info_empty[in][in] = 1'b1;
   assign TxSt_Switch[in][in] = 2'd0;
   assign TxD_Switch[in][in] = 8'd0;
+  assign TxInfo_Switch[in][in] = 3'd0;
   assign dataAvail[in][in] = 1'b0;
   wire isBroadcast;
   assign isBroadcast = (DestMac[in] == BroadcastMAC) ? 1'b1 : 1'b0;
@@ -515,7 +542,7 @@ for (in = 0; in < 4; in = in+1) begin : fifo_loop_in
           .rst(1'b0),
           .wr_clk(RxClk[in]),
           .wr_en(write_info & (~fifo_info_full[in][out%4])),
-          .din({ 30'd0, fifo_overflow, CrcError[in] }),
+          .din({ 29'd0, fifo_overflow, IPv4Error[in], CrcError[in] }),
           .rd_clk(TxClk[out%4]),
           .rd_en(FifoActive[in][out%4] & isLastByteOut),
           .dout(packet_info_out),
@@ -684,7 +711,7 @@ assign DebugData[9]   = { TxInfoReg[3], TxInfoReg[2], TxInfoReg[1], TxInfoReg[0]
 assign DebugData[10]  = MacAddrHost[0][47:16];
 assign DebugData[11]  = MacAddrHost[1][47:16];
 assign DebugData[12]  = { packet_truncated_bits, packet_dropped_bits };
-assign DebugData[13]  = 32'd0;
+assign DebugData[13]  = { NumIPv4ErrorIn[3], NumIPv4ErrorIn[2], NumIPv4ErrorIn[1], NumIPv4ErrorIn[0] };
 assign DebugData[14]  = 32'd0;
 assign DebugData[15]  = 32'd0;   // Must be 0
 

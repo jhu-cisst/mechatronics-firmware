@@ -490,8 +490,7 @@ wire       gmii_tx_en[1:4];
 wire       gmii_tx_clk[1:2];
 wire       gmii_tx_clk3_src;    // tx_clk[3] at data source
 wire       gmii_tx_clk3_dest;   // tx_clk[3] at data destination
-wire       gmii_tx_clk4_src;    // tx_clk[4] at data source
-wire       gmii_tx_clk4_dest;   // tx_clk[4] at data destination
+wire       gmii_tx_clk4;        // tx_clk[4] at data source
 wire       gmii_tx_err[1:4];
 wire[7:0]  gmii_rxd[1:4];
 wire       gmii_rx_dv[1:4];
@@ -562,7 +561,7 @@ EthSwitch eth_switch (
     .P3_RxValid(gmii_rx_dv[4]),      // Port3 receive data valid
     .P3_RxD(gmii_rxd[4]),            // Port3 receive data
     .P3_RxErr(gmii_rx_err[4]),       // Port3 receive error
-    .P3_TxClk(gmii_tx_clk4_src),     // Port3 transmit clock
+    .P3_TxClk(gmii_tx_clk4),         // Port3 transmit clock
     .P3_TxEn(gmii_tx_en[4]),         // Port3 transmit data valid
     .P3_TxD(gmii_txd[4]),            // Port3 transmit data
     .P3_TxErr(gmii_tx_err[4]),       // Port3 transmit error
@@ -756,10 +755,7 @@ assign gmii_tx_clk3_dest = clk_125A;
 assign gmii_rx_clk4_src = clk_125A;
 assign gmii_rx_clk4_dest = clk_125B;
 
-assign gmii_tx_clk4_src = clk_125B;
-assign gmii_tx_clk4_dest = clk_125A;
-
-EthSwitchRt eth_rt_interface(
+EthRtInterface eth_rti(
     .clk(sysclk),
     .board_id(board_id),      // in:  board id
 
@@ -773,7 +769,7 @@ EthSwitchRt eth_rt_interface(
     .PortReady(ready_rt),
 
     // Note that Rx and Tx are swapped
-    .RxClk(gmii_tx_clk4_dest), // Rx Clk
+    .RxClk(gmii_tx_clk4),      // Rx Clk
     .RxValid(gmii_tx_en[4]),   // Rx Valid
     .RxD(gmii_txd[4]),         // Rx Data
     .RxErr(gmii_tx_err[4]),    // Rx Error
