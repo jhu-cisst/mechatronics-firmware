@@ -80,6 +80,8 @@ module EthSwitch
     output wire P3_TxErr,       // Port3 transmit error
     output wire[3:0] P3_TxInfo, // Port3 transmit packet info
 
+    input wire[3:0] board_id,   // Board id (used for MAC addresses)
+
     // For external monitoring
     input wire[15:0] reg_raddr,
     output wire[31:0] reg_rdata
@@ -195,15 +197,64 @@ wire[1:0] TxSt_Switch[0:3][0:3];
 wire[2:0] TxInfo_Switch[0:3][0:3];
 
 // Following just for Ethernet ports
+//    PortForwardFpga[port-num][board-id]:
+//        1 --> FPGA board is accessible via port-num (i.e., Eth1 or Eth2 received
+//              a packet with the corresponding SrcMac address
+//        0 --> Not known whether FPGA board is accessible via port-num
 reg[15:0] PortForwardFpga[INDEX_ETH1:INDEX_ETH2];
 
-wire[47:8] FPGA_RT_MAC;
-wire[47:8] FPGA_PS_MAC;
-assign FPGA_RT_MAC = 40'hfa610e1394;
-assign FPGA_PS_MAC = 40'hfa610e0300;
+// Consolidated forwarding information for each FPGA board id
+//    PortForwardFpgaAction[board-id][port-num]
+//      1 -> forward packets for board-id on port-num
+//      0 -> do not forward packets for board-id on port-num
+wire[15:0] PortForwardFpgaAction[0:3];
+
+genvar bd;
+generate
+for (bd = 0; bd < 16; bd = bd + 1) begin : bd_loop
+  wire isCurBoard;
+  assign isCurBoard = (board_id == bd) ? 1'b1 : 1'b0;
+  wire isNoPort;
+  assign isNoPort = ~(PortForwardFpga[INDEX_ETH1][bd]|PortForwardFpga[INDEX_ETH2][bd]|isCurBoard);
+  assign PortForwardFpgaAction[INDEX_ETH1][bd] = PortForwardFpga[INDEX_ETH1][bd]|isNoPort;
+  assign PortForwardFpgaAction[INDEX_ETH2][bd] = PortForwardFpga[INDEX_ETH2][bd]|isNoPort;
+  assign PortForwardFpgaAction[INDEX_PS][bd] = isCurBoard;
+  assign PortForwardFpgaAction[INDEX_RT][bd] = isCurBoard;
+end
+endgenerate
+
+// Ethernet broadcast MAC address
+localparam[47:0] BroadcastMAC = 48'hFFFFFFFFFFFF;
+
+// FPGA MAC addresses contain the LCSR Company ID (CID) as the first 24-bits,
+// followed by 16-bits for the RT or PS interface, followed by 8-bits for the board-id.
+localparam[23:0] LCSR_CID    = 24'hfa610e;
+localparam[15:0] FPGA_RT_MAC = 16'h1394;
+localparam[15:0] FPGA_PS_MAC = 16'h0300;
+// Lowest 8-bits contain board-id
+
+// FPGA multicast MAC address. Currently, only used for RT, but implementation supports
+// it for PS (or any other middle 16-bits), since we only check for a match on
+// LCSR_CID_MULTICAST and the lower 8-bits (8'hff).
+localparam[23:0] LCSR_CID_MULTICAST = LCSR_CID | 24'h010000;
 
 // For saving MAC address of host (on Eth1 or Eth2)
 reg[47:0] MacAddrHost[INDEX_ETH1:INDEX_ETH2];
+initial MacAddrHost[INDEX_ETH1] = BroadcastMAC;
+initial MacAddrHost[INDEX_ETH2] = BroadcastMAC;
+
+// Primary MAC address to use for routing (indexed by out-port)
+wire[47:0] MacAddrPrimary[0:3];
+assign MacAddrPrimary[INDEX_ETH1] = MacAddrHost[INDEX_ETH1];
+assign MacAddrPrimary[INDEX_ETH2] = MacAddrHost[INDEX_ETH2];
+assign MacAddrPrimary[INDEX_PS] = { LCSR_CID, FPGA_PS_MAC, 4'd0, board_id };
+assign MacAddrPrimary[INDEX_RT] = { LCSR_CID, FPGA_RT_MAC, 4'd0, board_id };
+
+// Destination address of current packet on each in-port
+wire[47:0] DestMac[0:3];
+
+// 1 --> DestMac[in] matches MacAddrPrimary[out]
+wire MacAddrPrimaryMatch[0:3][0:3];
 
 wire CrcError[0:3];
 
@@ -259,15 +310,19 @@ for (in = 0; in < 4; in = in + 1) begin : fifo__int_loop
 
   // First 14 bytes of Ethernet frame (not including preamble)
   reg[7:0] frame_header[0:13];
-  wire[47:0] DestMac;
   wire[47:0] SrcMac;
 
-  assign DestMac = { frame_header[`ETH_Dest_MAC],   frame_header[`ETH_Dest_MAC+1],
-                     frame_header[`ETH_Dest_MAC+2], frame_header[`ETH_Dest_MAC+3],
-                     frame_header[`ETH_Dest_MAC+4], frame_header[`ETH_Dest_MAC+5] };
+  assign DestMac[in] = { frame_header[`ETH_Dest_MAC],   frame_header[`ETH_Dest_MAC+1],
+                         frame_header[`ETH_Dest_MAC+2], frame_header[`ETH_Dest_MAC+3],
+                         frame_header[`ETH_Dest_MAC+4], frame_header[`ETH_Dest_MAC+5] };
   assign SrcMac  = { frame_header[`ETH_Src_MAC],   frame_header[`ETH_Src_MAC+1],
                      frame_header[`ETH_Src_MAC+2], frame_header[`ETH_Src_MAC+3],
                      frame_header[`ETH_Src_MAC+4], frame_header[`ETH_Src_MAC+5] };
+
+  assign MacAddrPrimaryMatch[in][in] = 1'b0;   // Should not happen, unless loop
+  assign MacAddrPrimaryMatch[in][(in+1)%4] = (DestMac[in] == MacAddrPrimary[(in+1)%4]) ? 1'b1 : 1'b0;
+  assign MacAddrPrimaryMatch[in][(in+2)%4] = (DestMac[in] == MacAddrPrimary[(in+2)%4]) ? 1'b1 : 1'b0;
+  assign MacAddrPrimaryMatch[in][(in+3)%4] = (DestMac[in] == MacAddrPrimary[(in+3)%4]) ? 1'b1 : 1'b0;
 
   localparam
       ST_RX_IDLE          = 2'd0,
@@ -281,6 +336,14 @@ for (in = 0; in < 4; in = in + 1) begin : fifo__int_loop
       RxD_Fifo <= { RxD_Fifo[103:0], RxD[in] };
       RxValid_Fifo <= { RxValid_Fifo[13:0], RxValid[in] };
       RxErr_Fifo <= { RxErr_Fifo[12:0], RxErr[in] };
+
+      if ((in == INDEX_ETH1) || (in == INDEX_ETH2)) begin
+          // If Eth1 or Eth2 not active, reset forwarding database
+          if (~PortActive[in]) begin
+              MacAddrHost[in] <= BroadcastMAC;
+              PortForwardFpga[in] <= 16'd0;
+          end
+      end
 
       case (rxState)
 
@@ -308,8 +371,15 @@ for (in = 0; in < 4; in = in + 1) begin : fifo__int_loop
               recv_crc_in <= recv_crc_8b;
               frame_header[rxCnt] <= RxD[in];
               if (rxCnt == 4'd13) begin
-                  if ((in == INDEX_ETH1) || (in == INDEX_ETH2))
+                  if ((in == INDEX_ETH1) || (in == INDEX_ETH2)) begin
                       MacAddrHost[in] <= SrcMac;
+                      // If the upper 24-bits of SrcMac match LCSR_CID, then
+                      // there is an FPGA board accessible via that port.
+                      // For this purpose, it does not matter whether the middle
+                      // 16-bits are FPGA_RT_MAC or FPGA_PS_MAC.
+                      if (SrcMac[47:24] == LCSR_CID)
+                          PortForwardFpga[in][SrcMac[3:0]] <= 1'b1;
+                  end
                   rxState <= ST_RX_FRAME_DATA;
               end
           end
@@ -361,53 +431,74 @@ for (in = 0; in < 4; in = in+1) begin : fifo_loop_in
   assign TxSt_Switch[in][in] = 2'd0;
   assign TxD_Switch[in][in] = 8'd0;
   assign dataAvail[in][in] = 1'b0;
+  wire isBroadcast;
+  assign isBroadcast = (DestMac[in] == BroadcastMAC) ? 1'b1 : 1'b0;
+  wire isMulticast;
+  assign isMulticast = (DestMac[in][47:24] == LCSR_CID_MULTICAST) && (DestMac[in][7:0] == 8'hff) ? 1'b1 : 1'b0;
+
+  wire isLastByteIn;
+  assign isLastByteIn = (RxSt[in] == 2'b10) ? 1'b1 : 1'b0;
+  // Delay by 1 clock so that CRC is computed
+  reg isLastByteIn_Latched;
+  always @(posedge RxClk[in])
+  begin
+      isLastByteIn_Latched <= isLastByteIn;
+  end
 
   for (out = in+1; out < in+4; out = out+1) begin : fifo_loop_out
 
-        //********* Port in (Rx) to Port out (Tx) *****************
-        wire RxFwd;         // Whether to forward packet from port "in" to port "out"
-        // TODO: Add forwarding database (for now, just floods all active ports)
-        assign RxFwd = RxValid_Int[in] & PortActive[out%4];
-        wire isLastByteIn;
-        assign isLastByteIn = (RxSt[in] == 2'b10) ? 1'b1 : 1'b0;
-        wire isLastByteOut;
-        assign isLastByteOut = (TxSt_Switch[in][out%4] == 2'b10) ? 1'b1 : 1'b0;
+      //********* Port in (Rx) to Port out (Tx) *****************
+      wire isPrimaryMatch;
+      assign isPrimaryMatch = MacAddrPrimaryMatch[in][out%4];
+      wire RxFwd;         // Whether to forward packet from port "in" to port "out"
+      if (((out%4) == INDEX_ETH1) || ((out%4) == INDEX_ETH2)) begin
+          wire isFpgaMatch;
+          assign isFpgaMatch = (DestMac[in][47:24] == LCSR_CID) ?
+                               PortForwardFpgaAction[DestMac[in][3:0]][out%4] : 1'b0;
+          wire isNoPrimaryMatch;
+          assign isNoPrimaryMatch = ~(MacAddrPrimaryMatch[in][(in+1)%4] | MacAddrPrimaryMatch[in][(in+2)%4] |
+                                      MacAddrPrimaryMatch[in][(in+3)%4]);
+          wire  isNoMatch;
+          assign isNoMatch = isNoPrimaryMatch & (~isFpgaMatch);
+          assign RxFwd = RxValid_Int[in] & PortActive[out%4] &
+                         (isBroadcast|isMulticast|isPrimaryMatch|isFpgaMatch|isNoMatch);
+      end
+      else begin
+          assign RxFwd = RxValid_Int[in] & PortActive[out%4] & (isBroadcast|isMulticast|isPrimaryMatch);
+      end
+      wire isLastByteOut;
+      assign isLastByteOut = (TxSt_Switch[in][out%4] == 2'b10) ? 1'b1 : 1'b0;
 
-        fifo_10x8192 Fifo(
-            .wr_clk(RxClk[in]),
-            .wr_en(RxFwd),
-            .din({RxSt[in], RxD_Int[in]}),
-            .rd_clk(TxClk[out%4]),
-            .rd_en(FifoActive[in][out%4] & PortReady[out%4]),
-            .dout({TxSt_Switch[in][out%4], TxD_Switch[in][out%4]}),
-            .full(fifo_full[in][out%4]),
-            .empty(fifo_empty[in][out%4])
-        );
+      fifo_10x8192 Fifo(
+          .wr_clk(RxClk[in]),
+          .wr_en(RxFwd),
+          .din({RxSt[in], RxD_Int[in]}),
+          .rd_clk(TxClk[out%4]),
+          .rd_en(FifoActive[in][out%4] & PortReady[out%4]),
+          .dout({TxSt_Switch[in][out%4], TxD_Switch[in][out%4]}),
+          .full(fifo_full[in][out%4]),
+          .empty(fifo_empty[in][out%4])
+      );
 
-        wire [31:0] packet_info_out;
-        assign TxInfo_Switch[in][out%4] = packet_info_out[2:0];
+      wire [31:0] packet_info_out;
+      assign TxInfo_Switch[in][out%4] = packet_info_out[2:0];
 
-        // Delay by 1 clock so that CRC is computed
-        reg isLastByteIn_Latched;
-        always @(posedge RxClk[in])
-        begin
-            isLastByteIn_Latched <= isLastByteIn;
-        end
+      // Needs to be first-word fall-through
+      // For now, 32-bits, but will be regenerated with a much smaller width
+      fifo_32x32 Fifo_Info(
+          .rst(1'b0),
+          .wr_clk(RxClk[in]),
+          .wr_en(isLastByteIn_Latched),
+          .din({ 31'd0, CrcError[in] }),          // TODO: fifo_overflow, fifo_info_overflow
+          .rd_clk(TxClk[out%4]),
+          .rd_en(FifoActive[in][out%4] & isLastByteOut),
+          .dout(packet_info_out),
+          .full(fifo_info_full[in][out%4]),
+          .empty(fifo_info_empty[in][out%4])
+      );
 
-        // Needs to be first-word fall-through
-        fifo_32x32 Fifo_Info(
-            .wr_clk(RxClk[in]),
-            .wr_en(isLastByteIn_Latched),
-            .din({ 31'd0, CrcError[in] }),          // TODO: fifo_overflow, fifo_info_overflow
-            .rd_clk(TxClk[out%4]),
-            .rd_en(FifoActive[in][out%4] & isLastByteOut),
-            .dout(packet_info_out),
-            .full(fifo_info_full[in][out%4]),
-            .empty(fifo_info_empty[in][out%4])
-        );
-
-        // Data is available immediately for a fast in-port, or when the packet has been queued for a slow in-port
-        assign dataAvail[in][out%4] = (PortFast[in]&(~fifo_empty[in][out%4])) | ((~PortFast[in])&(~fifo_info_empty[in][out%4]));
+      // Data is available immediately for a fast in-port, or when the packet has been queued for a slow in-port
+      assign dataAvail[in][out%4] = (PortFast[in]&(~fifo_empty[in][out%4])) | ((~PortFast[in])&(~fifo_info_empty[in][out%4]));
   end
 end
 
@@ -415,6 +506,8 @@ for (out = 0; out < 4; out = out + 1) begin : fifo_loop_mux
 
     wire[1:0] curInput;
     assign curInput = TxInput[out];
+    // Number of clocks to wait before processing next packet from same in-port.
+    reg[1:0] waitCnt;
 
     // A simple round-robin scheduler
     always @(posedge TxClk[out])
@@ -423,6 +516,7 @@ for (out = 0; out < 4; out = out + 1) begin : fifo_loop_mux
             if (fifo_empty[curInput][out] || (TxSt[out] == 2'b10)) begin
                 // If last byte (or fifo_empty, which should not happen)
                 FifoActive[curInput][out] <= 1'b0;
+                waitCnt <= 2'd3;
 `ifdef HAS_DEBUG_DATA
                TxInfoReg[out] <= { 2'd0, curInput, TxInfo[out] };
                if (TxInfo[out][0])
@@ -444,9 +538,14 @@ for (out = 0; out < 4; out = out + 1) begin : fifo_loop_mux
             FifoActive[(curInput+3)%4][out] <= 1'b1;
         end
         else if (dataAvail[curInput][out]) begin
-            // Following already set
-            // TxInput[out] <= curInput;
-            FifoActive[curInput][out] <= 1'b1;
+            if (waitCnt == 2'd0) begin
+                // Following already set
+                // TxInput[out] <= curInput;
+                FifoActive[curInput][out] <= 1'b1;
+            end
+            else begin
+                waitCnt <= waitCnt - 2'd1;
+            end
         end
     end
 

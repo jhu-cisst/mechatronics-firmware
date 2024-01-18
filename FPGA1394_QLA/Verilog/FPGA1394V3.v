@@ -562,6 +562,8 @@ EthSwitch eth_switch (
     .P3_TxD(gmii_txd[4]),            // Port3 transmit data
     .P3_TxErr(gmii_tx_err[4]),       // Port3 transmit error
 
+    .board_id(board_id),             // Board ID (for MAC addresses)
+
     // For debugging
     .reg_raddr(reg_raddr),           // read address
     .reg_rdata(reg_rdata_esw)        // register read data
