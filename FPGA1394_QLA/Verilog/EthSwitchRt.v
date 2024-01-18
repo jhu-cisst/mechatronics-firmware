@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2023 Johns Hopkins University.
+ * Copyright(C) 2023-2024 Johns Hopkins University.
  *
  * Module: EthSwitchRt
  *
@@ -25,6 +25,8 @@ module EthSwitchRt
 
     input wire resetActive,
     input wire clearErrors,           // Clear error flags
+
+    output wire PortReady,         // 1 -> ready to receive input data
 
     // GMII Interface
     input wire RxClk,              // Rx Clk
@@ -64,6 +66,8 @@ module EthSwitchRt
 );
 
 initial curPort = 1'b0;   // TODO: No longer relevant
+
+assign PortReady = 1'b1;  // TODO
 
 //**************** TEMP ***********************
 

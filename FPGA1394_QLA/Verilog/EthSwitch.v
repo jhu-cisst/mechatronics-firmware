@@ -82,6 +82,8 @@ module EthSwitch
 
     input wire[3:0] board_id,   // Board id (used for MAC addresses)
 
+    input wire clearErrors,
+
     // For external monitoring
     input wire[15:0] reg_raddr,
     output wire[31:0] reg_rdata
@@ -265,6 +267,10 @@ reg[15:0] NumPacketSent[0:3];
 reg[7:0]  NumCrcErrorIn[0:3];
 reg[7:0]  NumCrcErrorOut[0:3];
 reg[7:0]  TxInfoReg[0:3];
+// Following indicate whether a packet has been dropped or truncated
+// due to a full FIFO.
+reg       PacketDropped[0:3][0:3];
+reg       PacketTruncated[0:3][0:3];
 `endif
 
 // Variables for generate block
@@ -344,6 +350,12 @@ for (in = 0; in < 4; in = in + 1) begin : fifo__int_loop
               PortForwardFpga[in] <= 16'd0;
           end
       end
+
+`ifdef HAS_DEBUG_DATA
+      if (clearErrors) begin
+          NumCrcErrorIn[in] <= 8'd0;
+      end
+`endif
 
       case (rxState)
 
@@ -436,14 +448,10 @@ for (in = 0; in < 4; in = in+1) begin : fifo_loop_in
   wire isMulticast;
   assign isMulticast = (DestMac[in][47:24] == LCSR_CID_MULTICAST) && (DestMac[in][7:0] == 8'hff) ? 1'b1 : 1'b0;
 
+  wire isFirstByteIn;
+  assign isFirstByteIn = (RxSt[in] == 2'b01) ? 1'b1 : 1'b0;
   wire isLastByteIn;
   assign isLastByteIn = (RxSt[in] == 2'b10) ? 1'b1 : 1'b0;
-  // Delay by 1 clock so that CRC is computed
-  reg isLastByteIn_Latched;
-  always @(posedge RxClk[in])
-  begin
-      isLastByteIn_Latched <= isLastByteIn;
-  end
 
   for (out = in+1; out < in+4; out = out+1) begin : fifo_loop_out
 
@@ -466,13 +474,30 @@ for (in = 0; in < 4; in = in+1) begin : fifo_loop_in
       else begin
           assign RxFwd = RxValid_Int[in] & PortActive[out%4] & (isBroadcast|isMulticast|isPrimaryMatch);
       end
+
       wire isLastByteOut;
       assign isLastByteOut = (TxSt_Switch[in][out%4] == 2'b10) ? 1'b1 : 1'b0;
 
+      // fifo_overflow indicates that we could not write due to a full FIFO
+      reg  fifo_overflow;
+      // fifo_not_ready indicates that the FIFO is either full, or still recovering from a prior full condition
+      // (i.e., waiting to write the last byte or the info).
+      wire fifo_not_ready;
+      // force_last_byte is used to make sure a valid "last byte" flag (TxSt) is written to the FIFO so
+      // that the port clients can assume that all packets (even truncated ones) have a last byte indicator.
+      reg  force_last_byte;
+      // drop_packet is set if the FIFO is full (or recovering from a FIFO full condition), when we
+      // get the first byte; this ensures that the entire packet is dropped.
+      reg  drop_packet;
+      // fifo_write controls whether data is written to the FIFO. If the FIFO is not ready (including due to overflow),
+      // we stop storing the packet, unless force_last_byte is set.
+      wire fifo_write;
+      assign fifo_write = ((RxFwd & (~fifo_not_ready)) | force_last_byte) & (~drop_packet);
+
       fifo_10x8192 Fifo(
           .wr_clk(RxClk[in]),
-          .wr_en(RxFwd),
-          .din({RxSt[in], RxD_Int[in]}),
+          .wr_en(fifo_write),
+          .din({(force_last_byte ? 2'b10 : RxSt[in]), RxD_Int[in]}),
           .rd_clk(TxClk[out%4]),
           .rd_en(FifoActive[in][out%4] & PortReady[out%4]),
           .dout({TxSt_Switch[in][out%4], TxD_Switch[in][out%4]}),
@@ -482,20 +507,80 @@ for (in = 0; in < 4; in = in+1) begin : fifo_loop_in
 
       wire [31:0] packet_info_out;
       assign TxInfo_Switch[in][out%4] = packet_info_out[2:0];
+      reg write_info;
 
       // Needs to be first-word fall-through
       // For now, 32-bits, but will be regenerated with a much smaller width
       fifo_32x32 Fifo_Info(
           .rst(1'b0),
           .wr_clk(RxClk[in]),
-          .wr_en(isLastByteIn_Latched),
-          .din({ 31'd0, CrcError[in] }),          // TODO: fifo_overflow, fifo_info_overflow
+          .wr_en(write_info & (~fifo_info_full[in][out%4])),
+          .din({ 30'd0, fifo_overflow, CrcError[in] }),
           .rd_clk(TxClk[out%4]),
           .rd_en(FifoActive[in][out%4] & isLastByteOut),
           .dout(packet_info_out),
           .full(fifo_info_full[in][out%4]),
           .empty(fifo_info_empty[in][out%4])
       );
+
+      reg fifo_info_overflow;
+      assign fifo_not_ready = fifo_full[in][out%4] | fifo_overflow | fifo_info_overflow;
+
+      always @(posedge RxClk[in])
+      begin
+
+`ifdef HAS_DEBUG_DATA
+          if (clearErrors) begin
+              PacketDropped[in][out%4] <= 1'b0;
+              PacketTruncated[in][out%4] <= 1'b0;
+          end
+`endif
+
+          // Make sure write_info is only asserted for one clock cycle
+          write_info <= 1'b0;
+
+          // Check for FIFO overflow
+          if (RxFwd) begin
+              if (isFirstByteIn)
+                  drop_packet <= fifo_not_ready;
+              if (fifo_full[in][out%4])
+                  fifo_overflow <= 1'b1;
+              if (isLastByteIn) begin
+                  if (fifo_info_full[in][out%4])
+                      fifo_info_overflow <= 1'b1;
+                  else
+                      write_info <= 1'b1;
+              end
+          end
+          else if (fifo_overflow) begin
+              // If there was an overflow, wait to store last byte
+              if (~fifo_full[in][out%4]) begin
+                  force_last_byte <= 1'b1;
+              end
+              else if (force_last_byte) begin
+`ifdef HAS_DEBUG_DATA
+                  PacketTruncated[in][out%4] <= 1'b1;
+`endif
+                  force_last_byte <= 1'b0;
+                  fifo_overflow <= 1'b0;
+                  if (~fifo_info_overflow)
+                      write_info <= 1'b1;
+              end
+          end
+          else if (fifo_info_overflow) begin
+             if (~fifo_info_full[in][out%4]) begin
+                 write_info <= 1'b1;
+                 fifo_info_overflow <= 1'b0;
+              end
+          end
+          else begin
+`ifdef HAS_DEBUG_DATA
+              if (drop_packet)
+                  PacketDropped[in][out%4] <= 1'b1;
+`endif
+              drop_packet <= 1'b0;
+          end
+      end
 
       // Data is available immediately for a fast in-port, or when the packet has been queued for a slow in-port
       assign dataAvail[in][out%4] = (PortFast[in]&(~fifo_empty[in][out%4])) | ((~PortFast[in])&(~fifo_info_empty[in][out%4]));
@@ -512,6 +597,13 @@ for (out = 0; out < 4; out = out + 1) begin : fifo_loop_mux
     // A simple round-robin scheduler
     always @(posedge TxClk[out])
     begin
+
+`ifdef HAS_DEBUG_DATA
+        if (clearErrors) begin
+            NumCrcErrorOut[out] <= 8'd0;
+        end
+`endif
+
         if (FifoActive[curInput][out]) begin
             if (fifo_empty[curInput][out] || (TxSt[out] == 2'b10)) begin
                 // If last byte (or fifo_empty, which should not happen)
@@ -564,6 +656,8 @@ endgenerate
 wire[15:0] fifo_active_bits;
 wire[15:0] fifo_empty_bits;
 wire[15:0] fifo_full_bits;
+wire[15:0] packet_dropped_bits;
+wire[15:0] packet_truncated_bits;
 
 genvar i;
 generate
@@ -571,6 +665,8 @@ for (i = 0; i < 16; i = i +1) begin : fifo_active_loop
     assign fifo_active_bits[i] = FifoActive[i/4][i%4];
     assign fifo_empty_bits[i] = fifo_empty[i/4][i%4];
     assign fifo_full_bits[i] = fifo_full[i/4][i%4];
+    assign packet_dropped_bits[i] = PacketDropped[i/4][i%4];
+    assign packet_truncated_bits[i] = PacketTruncated[i/4][i%4];
 end
 endgenerate
 
@@ -587,7 +683,7 @@ assign DebugData[8]   = { NumCrcErrorOut[3], NumCrcErrorOut[2], NumCrcErrorOut[1
 assign DebugData[9]   = { TxInfoReg[3], TxInfoReg[2], TxInfoReg[1], TxInfoReg[0] };
 assign DebugData[10]  = MacAddrHost[0][47:16];
 assign DebugData[11]  = MacAddrHost[1][47:16];
-assign DebugData[12]  = 32'd0;
+assign DebugData[12]  = { packet_truncated_bits, packet_dropped_bits };
 assign DebugData[13]  = 32'd0;
 assign DebugData[14]  = 32'd0;
 assign DebugData[15]  = 32'd0;   // Must be 0

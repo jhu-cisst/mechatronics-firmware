@@ -507,6 +507,11 @@ wire eth_fast[1:2];             // Whether Eth1, Eth2 are fast (1 GB)
 assign eth_fast[1] = link_speed[1][1]&(~link_speed[1][0]);   // 2'b10 --> 1 GB
 assign eth_fast[2] = link_speed[2][1]&(~link_speed[2][0]);   // 2'b10 --> 1 GB
 
+wire       eth_active[1:2];     // Whether link is on
+wire[1:0]  link_speed[1:2];     // Link speed
+
+wire       ready_rt;            // Whether RT ready for input data
+
 // Ethernet 4-port switch
 EthSwitch eth_switch (
 
@@ -551,7 +556,7 @@ EthSwitch eth_switch (
 
     // Port3: RT
     .P3_Active(1'b1),                // Port3 active (e.g., link on)
-    .P3_Ready(1'b1),                 // Port3 client ready for data
+    .P3_Ready(ready_rt),             // Port3 client ready for data
     .P3_Fast(1'b0),                  // Port3 currently slow
     .P3_RxClk(gmii_rx_clk4_dest),    // Port3 receive clock
     .P3_RxValid(gmii_rx_dv[4]),      // Port3 receive data valid
@@ -563,6 +568,8 @@ EthSwitch eth_switch (
     .P3_TxErr(gmii_tx_err[4]),       // Port3 transmit error
 
     .board_id(board_id),             // Board ID (for MAC addresses)
+
+    .clearErrors(rt_clear_errors[1]|rt_clear_errors[2]),
 
     // For debugging
     .reg_raddr(reg_raddr),           // read address
@@ -583,9 +590,6 @@ wire       mdio_busy_rt[1:2];   // OUT from RTL8211F module (MDIO busy)
 wire       mdio_clk_rt[1:2];    // OUT from RTL8211F module, IN to GMII core (or PHY)
 wire       mdio_clk_ps;         // OUT from Zynq PS
 wire       mdio_clk[1:2];       // IN to GMII core (or PHY)
-
-wire       eth_active[1:2];     // Whether link is on
-wire[1:0]  link_speed[1:2];     // Link speed
 
 // Wires between RTL8211F and EthSwitchRt
 wire       initOK[1:2];
@@ -765,6 +769,8 @@ EthSwitchRt eth_rt_interface(
     // Debugging
     .resetActive(resetActive_e[1]|resetActive_e[2]),
     .clearErrors(rt_clear_errors[1]|rt_clear_errors[2]),
+
+    .PortReady(ready_rt),
 
     // Note that Rx and Tx are swapped
     .RxClk(gmii_tx_clk4_dest), // Rx Clk
