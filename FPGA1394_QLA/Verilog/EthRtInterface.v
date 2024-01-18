@@ -30,7 +30,7 @@ module EthRtInterface
     input wire resetActive,
     input wire clearErrors,           // Clear error flags
 
-    output reg PortReady,          // 1 -> ready to receive input data
+    output wire PortReady,         // 1 -> ready to receive input data
 
     // GMII Interface
     output wire RxClk,             // Rx Clk
@@ -70,8 +70,6 @@ module EthRtInterface
 );
 
 initial curPort = 1'b0;   // TODO: No longer relevant
-
-initial PortReady = 1'b1;  // TODO
 
 //**************** TEMP ***********************
 
@@ -146,37 +144,38 @@ assign isBroadcast = (destMac == fpgaBroadcastMAC) ? 1'b1 : 1'b0;
 wire isForThis;
 assign isForThis = isUnicast|isMulticast|isBroadcast;
 
-// Whether to flush packet
-wire recv_flush;
-
 `ifdef HAS_DEBUG_DATA
 reg[7:0] numRxDropped;   // Number of irrelevant or erroneous packets dropped by Rx loop
 `endif
 
+assign RxClk = ~clk;
+
+reg rxDone;
+
 // For now, very slow
 reg[4:0] rxCtrl = 5'b00001;
-assign RxClk = rxCtrl[0];
-wire latchData;
-assign latchData = rxCtrl[1];
-assign recvReady = (rxState == ST_RX_FRAME) ? rxCtrl[2] : 1'b0;
+wire  portReady;
+assign portReady = rxCtrl[0];
+assign recvReady = (rxState == ST_RX_FRAME) ? rxCtrl[1] : 1'b0;
 wire recvTransition;
 assign recvTransition = rxCtrl[4];
 
 always @(posedge clk)
 begin
 
-    rxCtrl <= {rxCtrl[3:0], rxCtrl[4] };
-
     // Following state machine similar to one in EthSwitch.v
     case (rxState)
 
     ST_RX_IDLE:
     begin
+        rxDone <= 1'b0;
+        rxCtrl <= 5'b00001;
         if (RxValid) begin
             recvRequest <= 1'b1;
             // Currently, no error checking on preamble
             recv_nbytes <= 12'd0;
-            if (recvTransition && (RxD == 8'hd5)) begin
+            if (RxD == 8'hd5) begin
+                rxCtrl <= 5'b00010;
                 rxState <= ST_RX_FRAME;
             end
         end
@@ -184,9 +183,10 @@ begin
 
     ST_RX_FRAME:
     begin
-        if (RxValid) begin
-            recvRequest <= 1'b0;
-            if (latchData) begin
+        recvRequest <= 1'b0;
+        rxCtrl <= { rxCtrl[3:0], rxCtrl[4] };
+        if (recvReady) begin
+            if (RxValid) begin
                 if (recv_nbytes[0])
                     recv_word[7:0] <= RxD;
                 else
@@ -197,16 +197,19 @@ begin
                     frame_header[recv_nbytes[3:0]] <= RxD;
                 end
             end
-
-            if (recvTransition)
-                recv_nbytes <= recv_nbytes + 12'd1;
-        end
-        else begin
-            // If an odd number of bytes, pad with 0
-            if (recv_nbytes[0]) begin
-                recv_word[7:0] <= 8'd0;
+            else begin
+                // End of packet
+                // If an odd number of bytes, pad with 0
+                if (recv_nbytes[0]) begin
+                    recv_word[7:0] <= 8'd0;
+                end
+                rxDone <= 1'b1;
             end
-            if (recvTransition)
+        end
+
+        if (recvTransition) begin
+            recv_nbytes <= recv_nbytes + 12'd1;
+            if (rxDone)
                 rxState <= ST_RX_IDLE;
         end
     end

@@ -184,8 +184,12 @@ wire[1:0] TxSt[0:3];
 // Note that diagonal elements (e.g., fifo_full[i][i]) are not used
 wire fifo_full[0:3][0:3];
 wire fifo_empty[0:3][0:3];
+wire fifo_valid[0:3][0:3];
+wire fifo_underflow[0:3][0:3];
 wire fifo_info_full[0:3][0:3];
 wire fifo_info_empty[0:3][0:3];
+
+reg  fifo_underflow_latched[0:3][0:3];
 
 wire[7:0] RxD_Int[0:3];      // RxD output of internal Rx FIFO
 wire      RxValid_Int[0:3];  // Whether internal Rx FIFO has valid data
@@ -464,6 +468,8 @@ for (in = 0; in < 4; in = in+1) begin : fifo_loop_in
   // Diagonal elements are not used, so initialize them to avoid warnings
   assign fifo_full[in][in] = 1'b0;
   assign fifo_empty[in][in] = 1'b1;
+  assign fifo_valid[in][in] = 1'b0;
+  assign fifo_underflow[in][in] = 1'b0;
   assign fifo_info_full[in][in] = 1'b0;
   assign fifo_info_empty[in][in] = 1'b1;
   assign TxSt_Switch[in][in] = 2'd0;
@@ -522,12 +528,15 @@ for (in = 0; in < 4; in = in+1) begin : fifo_loop_in
       assign fifo_write = ((RxFwd & (~fifo_not_ready)) | force_last_byte) & (~drop_packet);
 
       fifo_10x8192 Fifo(
+          .rst(PortActive[out%4]),
           .wr_clk(RxClk[in]),
           .wr_en(fifo_write),
           .din({(force_last_byte ? 2'b10 : RxSt[in]), RxD_Int[in]}),
           .rd_clk(TxClk[out%4]),
           .rd_en(FifoActive[in][out%4] & PortReady[out%4]),
           .dout({TxSt_Switch[in][out%4], TxD_Switch[in][out%4]}),
+          .valid(fifo_valid[in][out%4]),
+          .underflow(fifo_underflow[in][out%4]),
           .full(fifo_full[in][out%4]),
           .empty(fifo_empty[in][out%4])
       );
@@ -539,12 +548,12 @@ for (in = 0; in < 4; in = in+1) begin : fifo_loop_in
       // Needs to be first-word fall-through
       // For now, 32-bits, but will be regenerated with a much smaller width
       fifo_32x32 Fifo_Info(
-          .rst(1'b0),
+          .rst(PortActive[out%4]),
           .wr_clk(RxClk[in]),
           .wr_en(write_info & (~fifo_info_full[in][out%4])),
           .din({ 29'd0, fifo_overflow, IPv4Error[in], CrcError[in] }),
           .rd_clk(TxClk[out%4]),
-          .rd_en(FifoActive[in][out%4] & isLastByteOut),
+          .rd_en(FifoActive[in][out%4] & PortReady[out%4] & isLastByteOut),
           .dout(packet_info_out),
           .full(fifo_info_full[in][out%4]),
           .empty(fifo_info_empty[in][out%4])
@@ -621,23 +630,35 @@ for (out = 0; out < 4; out = out + 1) begin : fifo_loop_mux
     // Number of clocks to wait before processing next packet from same in-port.
     reg[1:0] waitCnt;
 
+    reg PortReady_Latched;
+
     // A simple round-robin scheduler
     always @(posedge TxClk[out])
     begin
 
-`ifdef HAS_DEBUG_DATA
         if (clearErrors) begin
+`ifdef HAS_DEBUG_DATA
             NumCrcErrorOut[out] <= 8'd0;
-        end
 `endif
+            fifo_underflow_latched[0][out] <= 1'b0;
+            fifo_underflow_latched[1][out] <= 1'b0;
+            fifo_underflow_latched[2][out] <= 1'b0;
+            fifo_underflow_latched[3][out] <= 1'b0;
+        end
 
+        PortReady_Latched <= PortReady[out];
         if (FifoActive[curInput][out]) begin
-            if (fifo_empty[curInput][out] || (TxSt[out] == 2'b10)) begin
-                // If last byte (or fifo_empty, which should not happen)
+            if (fifo_underflow[curInput][out]) begin
+                // Should not happen, so we set this "sticky" bit to indicate
+                // that it has occurred.
+                fifo_underflow_latched[curInput][out] <= 1'b1;
+            end
+            if (PortReady_Latched && (fifo_empty[curInput][out] || (TxSt[out] == 2'b10))) begin
+                // If last byte (or fifo_empty, which should not happen except on last byte)
                 FifoActive[curInput][out] <= 1'b0;
                 waitCnt <= 2'd3;
 `ifdef HAS_DEBUG_DATA
-               TxInfoReg[out] <= { 2'd0, curInput, TxInfo[out] };
+               TxInfoReg[out] <= { TxSt[out], curInput, TxInfo[out] };
                if (TxInfo[out][0])
                    NumCrcErrorOut[out] <= NumCrcErrorOut[out] + 8'd1;
                NumPacketSent[out] <= NumPacketSent[out] + 16'd1;
@@ -670,8 +691,8 @@ for (out = 0; out < 4; out = out + 1) begin : fifo_loop_mux
 
     assign TxSt[out] = TxSt_Switch[curInput][out];
     assign TxD[out] = TxD_Switch[curInput][out];
-    assign TxErr[out] = (TxSt[out] == 2'b11) ? 1'b1 : 1'b0;
-    assign TxEn[out] = FifoActive[curInput][out] & PortReady[out];
+    assign TxErr[out] = (fifo_underflow[curInput][out] || (TxSt[out] == 2'b11)) ? 1'b1 : 1'b0;
+    assign TxEn[out] = fifo_valid[curInput][out];
     // MSB is 1 to indicate that rest of bits are valid
     assign TxInfo[out] = { (FifoActive[curInput][out]&(~fifo_info_empty[curInput][out])),
                            TxInfo_Switch[curInput][out] };
@@ -683,6 +704,7 @@ endgenerate
 wire[15:0] fifo_active_bits;
 wire[15:0] fifo_empty_bits;
 wire[15:0] fifo_full_bits;
+wire[15:0] fifo_underflow_bits;
 wire[15:0] packet_dropped_bits;
 wire[15:0] packet_truncated_bits;
 
@@ -692,6 +714,7 @@ for (i = 0; i < 16; i = i +1) begin : fifo_active_loop
     assign fifo_active_bits[i] = FifoActive[i/4][i%4];
     assign fifo_empty_bits[i] = fifo_empty[i/4][i%4];
     assign fifo_full_bits[i] = fifo_full[i/4][i%4];
+    assign fifo_underflow_bits[i] = fifo_underflow_latched[i/4][i%4];
     assign packet_dropped_bits[i] = PacketDropped[i/4][i%4];
     assign packet_truncated_bits[i] = PacketTruncated[i/4][i%4];
 end
@@ -703,7 +726,7 @@ assign DebugData[1]   = { NumPacketSent[0], NumPacketRecv[0] };
 assign DebugData[2]   = { NumPacketSent[1], NumPacketRecv[1] };
 assign DebugData[3]   = { NumPacketSent[2], NumPacketRecv[2] };
 assign DebugData[4]   = { NumPacketSent[3], NumPacketRecv[3] };
-assign DebugData[5]   = { 16'd0, fifo_active_bits };
+assign DebugData[5]   = { fifo_underflow_bits, fifo_active_bits };
 assign DebugData[6]   = { fifo_full_bits, fifo_empty_bits };
 assign DebugData[7]   = { NumCrcErrorIn[3], NumCrcErrorIn[2], NumCrcErrorIn[1], NumCrcErrorIn[0] };
 assign DebugData[8]   = { NumCrcErrorOut[3], NumCrcErrorOut[2], NumCrcErrorOut[1], NumCrcErrorOut[0] };
