@@ -269,7 +269,7 @@ reg  IPv4Error[0:3];    // IPv4 Header checksum error
 `ifdef HAS_DEBUG_DATA
 reg[15:0] NumPacketRecv[0:3];
 reg[15:0] NumPacketSent[0:3];
-reg[8:0]  NumPacketFwd[0:1][0:3];
+reg[7:0]  NumPacketFwd[0:1][0:3];
 reg[7:0]  NumCrcErrorIn[0:3];
 reg[7:0]  NumCrcErrorOut[0:3];
 reg[7:0]  NumIPv4ErrorIn[0:3];
@@ -527,6 +527,12 @@ for (in = 0; in < 4; in = in+1) begin : fifo_loop_in
       // we stop storing the packet, unless force_last_byte is set.
       wire fifo_write;
       assign fifo_write = ((RxFwd & (~fifo_not_ready)) | force_last_byte) & (~drop_packet);
+      // force_first_byte is used to make sure the first byte is read, even if TxSt still indicates that the
+      // last byte (from the previous packet) has been read.
+      reg force_first_byte;
+      // fifo_read controls whether data is read from the FIFO.
+      wire fifo_read;
+      assign fifo_read = FifoActive[in][out%4] & PortReady[out%4] & ((~isLastByteOut)|force_first_byte);
 
       fifo_10x8192 Fifo(
           .rst(PortActive[out%4]),
@@ -534,7 +540,7 @@ for (in = 0; in < 4; in = in+1) begin : fifo_loop_in
           .wr_en(fifo_write),
           .din({(force_last_byte ? 2'b10 : RxSt[in]), RxD_Int[in]}),
           .rd_clk(TxClk[out%4]),
-          .rd_en(FifoActive[in][out%4] & PortReady[out%4]),
+          .rd_en(fifo_read),
           .dout({TxSt_Switch[in][out%4], TxD_Switch[in][out%4]}),
           .valid(fifo_valid[in][out%4]),
           .underflow(fifo_underflow[in][out%4]),
@@ -626,6 +632,14 @@ for (in = 0; in < 4; in = in+1) begin : fifo_loop_in
 `endif
               drop_packet <= 1'b0;
           end
+      end
+
+      always @(posedge TxClk[out%4])
+      begin
+          if (~FifoActive[in][out%4])
+              force_first_byte <= 1'b1;
+          else if (~isLastByteOut)
+              force_first_byte <= 1'b0;
       end
 
       // Data is available immediately for a fast in-port, or when the packet has been queued for a slow in-port
