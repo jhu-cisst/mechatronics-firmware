@@ -269,6 +269,7 @@ reg  IPv4Error[0:3];    // IPv4 Header checksum error
 `ifdef HAS_DEBUG_DATA
 reg[15:0] NumPacketRecv[0:3];
 reg[15:0] NumPacketSent[0:3];
+reg[8:0]  NumPacketFwd[0:1][0:3];
 reg[7:0]  NumCrcErrorIn[0:3];
 reg[7:0]  NumCrcErrorOut[0:3];
 reg[7:0]  NumIPv4ErrorIn[0:3];
@@ -560,7 +561,8 @@ for (in = 0; in < 4; in = in+1) begin : fifo_loop_in
       );
 
       reg fifo_info_overflow;
-      assign fifo_not_ready = fifo_full[in][out%4] | fifo_overflow | fifo_info_overflow;
+      //assign fifo_not_ready = fifo_full[in][out%4] | fifo_overflow | fifo_info_overflow;
+      assign fifo_not_ready = 1'b0;  // TODO
 
       always @(posedge RxClk[in])
       begin
@@ -574,6 +576,14 @@ for (in = 0; in < 4; in = in+1) begin : fifo_loop_in
 
           // Make sure write_info is only asserted for one clock cycle
           write_info <= 1'b0;
+
+`ifdef HAS_DEBUG_DATA
+          if ((in == INDEX_ETH1) || (in == INDEX_ETH2)) begin
+              if (isFirstByteIn & RxFwd) begin
+                  NumPacketFwd[in][out%4] <= NumPacketFwd[in][out%4] + 8'd1;
+              end
+          end
+`endif
 
           // Check for FIFO overflow
           if (RxFwd) begin
@@ -590,10 +600,7 @@ for (in = 0; in < 4; in = in+1) begin : fifo_loop_in
           end
           else if (fifo_overflow) begin
               // If there was an overflow, wait to store last byte
-              if (~fifo_full[in][out%4]) begin
-                  force_last_byte <= 1'b1;
-              end
-              else if (force_last_byte) begin
+              if (force_last_byte) begin
 `ifdef HAS_DEBUG_DATA
                   PacketTruncated[in][out%4] <= 1'b1;
 `endif
@@ -601,6 +608,9 @@ for (in = 0; in < 4; in = in+1) begin : fifo_loop_in
                   fifo_overflow <= 1'b0;
                   if (~fifo_info_overflow)
                       write_info <= 1'b1;
+              end
+              else if (~fifo_full[in][out%4]) begin
+                  force_last_byte <= 1'b1;
               end
           end
           else if (fifo_info_overflow) begin
@@ -665,26 +675,28 @@ for (out = 0; out < 4; out = out + 1) begin : fifo_loop_mux
 `endif
             end
         end
-        else if (dataAvail[(curInput+1)%4][out]) begin
-            TxInput[out] <= (curInput+1)%4;
-            FifoActive[(curInput+1)%4][out] <= 1'b1;
-        end
-        else if (dataAvail[(curInput+2)%4][out]) begin
-            TxInput[out] <= (curInput+2)%4;
-            FifoActive[(curInput+2)%4][out] <= 1'b1;
-        end
-        else if (dataAvail[(curInput+3)%4][out]) begin
-            TxInput[out] <= (curInput+3)%4;
-            FifoActive[(curInput+3)%4][out] <= 1'b1;
-        end
-        else if (dataAvail[curInput][out]) begin
-            if (waitCnt == 2'd0) begin
-                // Following already set
-                // TxInput[out] <= curInput;
-                FifoActive[curInput][out] <= 1'b1;
+        else if (PortReady[out]) begin
+            if (dataAvail[(curInput+1)%4][out]) begin
+                TxInput[out] <= (curInput+1)%4;
+                FifoActive[(curInput+1)%4][out] <= 1'b1;
             end
-            else begin
-                waitCnt <= waitCnt - 2'd1;
+            else if (dataAvail[(curInput+2)%4][out]) begin
+                TxInput[out] <= (curInput+2)%4;
+                FifoActive[(curInput+2)%4][out] <= 1'b1;
+            end
+            else if (dataAvail[(curInput+3)%4][out]) begin
+                TxInput[out] <= (curInput+3)%4;
+                FifoActive[(curInput+3)%4][out] <= 1'b1;
+            end
+            else if (dataAvail[curInput][out]) begin
+                if (waitCnt == 2'd0) begin
+                    // Following already set
+                    // TxInput[out] <= curInput;
+                    FifoActive[curInput][out] <= 1'b1;
+                end
+                else begin
+                    waitCnt <= waitCnt - 2'd1;
+                end
             end
         end
     end
@@ -735,7 +747,7 @@ assign DebugData[10]  = MacAddrHost[0][47:16];
 assign DebugData[11]  = MacAddrHost[1][47:16];
 assign DebugData[12]  = { packet_truncated_bits, packet_dropped_bits };
 assign DebugData[13]  = { NumIPv4ErrorIn[3], NumIPv4ErrorIn[2], NumIPv4ErrorIn[1], NumIPv4ErrorIn[0] };
-assign DebugData[14]  = 32'd0;
+assign DebugData[14]  = { NumPacketFwd[0][3], NumPacketFwd[0][2], NumPacketFwd[0][1], NumPacketFwd[0][0] };
 assign DebugData[15]  = 32'd0;   // Must be 0
 
 // address a0 used in RTL8211F.v; address af used in VirtualPhy.v

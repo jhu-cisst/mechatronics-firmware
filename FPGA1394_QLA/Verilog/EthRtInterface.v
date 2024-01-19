@@ -154,8 +154,7 @@ reg rxDone;
 
 // For now, very slow
 reg[4:0] rxCtrl = 5'b00001;
-wire  portReady;
-assign portReady = rxCtrl[0];
+assign PortReady = rxCtrl[0];
 assign recvReady = (rxState == ST_RX_FRAME) ? rxCtrl[1] : 1'b0;
 wire recvTransition;
 assign recvTransition = rxCtrl[4];
