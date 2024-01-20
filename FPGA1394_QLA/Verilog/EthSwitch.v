@@ -747,7 +747,7 @@ end
 endgenerate
 
 wire[31:0] DebugData[0:15];
-assign DebugData[0]   = 32'd0;   // Must be 0
+assign DebugData[0]  = "0WSE";  // ESW0 byte-swapped
 assign DebugData[1]   = { NumPacketSent[0], NumPacketRecv[0] };
 assign DebugData[2]   = { NumPacketSent[1], NumPacketRecv[1] };
 assign DebugData[3]   = { NumPacketSent[2], NumPacketRecv[2] };
@@ -762,10 +762,10 @@ assign DebugData[11]  = MacAddrHost[1][47:16];
 assign DebugData[12]  = { packet_truncated_bits, packet_dropped_bits };
 assign DebugData[13]  = { NumIPv4ErrorIn[3], NumIPv4ErrorIn[2], NumIPv4ErrorIn[1], NumIPv4ErrorIn[0] };
 assign DebugData[14]  = { NumPacketFwd[0][3], NumPacketFwd[0][2], NumPacketFwd[0][1], NumPacketFwd[0][0] };
-assign DebugData[15]  = 32'd0;   // Must be 0
+assign DebugData[15]  = 32'd0;
 
-// address a0 used in RTL8211F.v; address af used in VirtualPhy.v
-assign reg_rdata = (reg_raddr[7:4] == 4'ha) ? DebugData[reg_raddr[3:0]] : 32'd0;
+// Debug data: 4090-40bf (currently, only 40a0-40af used)
+assign reg_rdata = (reg_raddr[11:4] == 8'h0a) ? DebugData[reg_raddr[3:0]] : 32'd0;
 `else
 assign reg_rdata = 32'd0;
 `endif

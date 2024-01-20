@@ -95,7 +95,8 @@ wire isWrite;
 assign isRead = (mdio_rw == 2'b10) ? 1'b1 : 1'b0;
 assign isWrite = (mdio_rw == 2'b01) ? 1'b1 : 1'b0;
 
-// Debug address space: 4xb0-4xbf
+// Debug address space: 43a0-43af and 43b0-43bf
+//    (43a0-43ae not used)
 reg[31:0] DebugData[0:15];
 reg[3:0] debugCnt;
 

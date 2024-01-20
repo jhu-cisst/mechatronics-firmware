@@ -203,10 +203,11 @@ wire[31:0] reg_rdata;
 wire[31:0] reg_rdata_hub;      // reg_rdata_hub is for hub memory
 reg[31:0]  reg_rdata_prom;     // reg_rdata_prom is for block reads from PROM
 wire[31:0] reg_rdata_eth;      // for eth memory access (EthernetIO)
-wire[31:0] reg_rdata_rtl;      // for eth memory access (RTL8211F)
+wire[31:0] reg_rdata_eth_ll;   // for eth memory access (Low-level: see below)
+wire[31:0] reg_rdata_rtl[1:2]; // for eth memory access (low-level: RTL8211F)
+wire[31:0] reg_rdata_rti;      // for eth memory access (low-level: EthRtInterface)
+wire[31:0] reg_rdata_vp;       // for eth memory access (low-level: VirtualPhy)
 wire[31:0] reg_rdata_esw;      // for eth memory access (EthSwitch)
-wire[31:0] reg_rdata_eswrt;    // for eth memory access (EthSwitchRt)
-wire[31:0] reg_rdata_vp;       // for eth memory access (VirtualPhy)
 wire[31:0] reg_rdata_fw;       // for fw memory access
 wire[31:0] reg_rdata_chan0;    // for reads from board registers
 
@@ -227,7 +228,7 @@ assign isAddrMain = ((reg_raddr[15:12]==`ADDR_MAIN) && (reg_raddr[7:4]==4'd0)) ?
 assign {reg_rdata, reg_rwait} =
                    ((reg_raddr[15:12]==`ADDR_HUB) ? {reg_rdata_hub, reg_rwait_hub} :
                     (reg_raddr[15:12]==`ADDR_PROM) ? {reg_rdata_prom, 1'b0} :
-                    (reg_raddr[15:12]==`ADDR_ETH) ? {reg_rdata_eth|reg_rdata_rtl|reg_rdata_eswrt|reg_rdata_vp|reg_rdata_esw, 1'b1} :
+                    (reg_raddr[15:12]==`ADDR_ETH) ? {reg_rdata_eth|reg_rdata_eth_ll|reg_rdata_esw, 1'b1} :
                     (reg_raddr[15:12]==`ADDR_FW) ? {reg_rdata_fw, 1'b1} :
                     isAddrMain ? {reg_rdata_chan0 | reg_rdata_chan0_ext, reg_rwait_chan0} :
                     {32'd0, 1'b0}) | {reg_rdata_ext, reg_rwait_ext};
@@ -614,10 +615,11 @@ wire eth_bw_active;             // Indicates that block write module is active
 wire eth_InternalError;         // Error summary bit to EthernetIO
 wire[5:0] eth_ioErrors;         // Error bits from EthernetIO
 
-wire[31:0] reg_rdata_rtl_e[1:2];
-assign reg_rdata_rtl = (reg_raddr[11:8] == 4'd1) ? reg_rdata_rtl_e[1] :
-                       (reg_raddr[11:8] == 4'd2) ? reg_rdata_rtl_e[2] :
-                       32'd0;
+assign reg_rdata_eth_ll = (reg_raddr[11:8] == 4'd1) ? reg_rdata_rtl[1] :   // Eth1 RTL8211F
+                          (reg_raddr[11:8] == 4'd2) ? reg_rdata_rtl[2] :   // Eth2 RTL8211F
+                          (reg_raddr[11:8] == 4'd3) ? reg_rdata_vp :       // Virtual PHY
+                          (reg_raddr[11:8] == 4'd4) ? reg_rdata_rti :      // EthRtInterface
+                          32'd0;
 
 // Write to Ethernet control register
 wire eth_ctrl_wen;
@@ -638,7 +640,7 @@ for (k = 1; k <= 2; k = k + 1) begin : eth_loop
 
         .reg_raddr(reg_raddr),    // in:  read address
         .reg_waddr(reg_waddr),    // in:  write address
-        .reg_rdata(reg_rdata_rtl_e[k]), // out: read data
+        .reg_rdata(reg_rdata_rtl[k]), // out: read data
         .reg_wdata(reg_wdata),    // in:  write data
         .reg_wen(reg_wen_eth),    // in:  write enable
         .reg_wen_ctrl(eth_ctrl_wen),  // in: write enable to Ethernet control register
@@ -760,7 +762,7 @@ EthRtInterface eth_rti(
     .board_id(board_id),      // in:  board id
 
     .reg_raddr(reg_raddr),
-    .reg_rdata(reg_rdata_eswrt),
+    .reg_rdata(reg_rdata_rti),
 
     // Debugging
     .resetActive(resetActive_e[1]|resetActive_e[2]),
