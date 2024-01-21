@@ -30,7 +30,7 @@ module EthRtInterface
     input wire resetActive,
     input wire clearErrors,           // Clear error flags
 
-    output wire PortReady,         // 1 -> ready to receive input data
+    output reg PortReady,          // 1 -> ready to receive input data
 
     // GMII Interface
     output wire RxClk,             // Rx Clk
@@ -53,7 +53,7 @@ module EthRtInterface
     // Ethernet receive
     output reg recvRequest,           // Request EthernetIO to start receiving
     input wire recvBusy,              // From EthernetIO
-    output wire recvReady,            // Indicates that recv_word is valid
+    output reg recvReady,             // Indicates that recv_word is valid
     output reg[15:0] recv_word,       // Word received via Ethernet (`SDSwapped for KSZ8851)
     // Ethernet send
     output reg sendRequest,           // Request EthernetIO to start providing data to be sent
@@ -113,103 +113,88 @@ localparam
 
 reg rxState;
 
+reg[1:0] waitCnt;
+
 reg[11:0] recv_nbytes;    // Number of bytes received (not including preamble)
 
-// First 16 bytes of Ethernet frame
-reg[7:0] frame_header[0:15];
 
-// First 44 bits of FPGA MAC address (last 4 bits is board_id)
-localparam[43:0] fpgaMAC44 = 44'hFA610E13940;
-
-// FPGA multicast MAC address
-localparam[47:0] fpgaMulticastMAC = 48'hFB610E1394FF;
-
-// FPGA broadcast MAC address
-localparam[47:0] fpgaBroadcastMAC = 48'hFFFFFFFFFFFF;
-
-// Destination MAC address
-wire[47:0] destMac;
-assign destMac = { frame_header[`ETH_Dest_MAC],   frame_header[`ETH_Dest_MAC+1],
-                   frame_header[`ETH_Dest_MAC+2], frame_header[`ETH_Dest_MAC+3],
-                   frame_header[`ETH_Dest_MAC+4], frame_header[`ETH_Dest_MAC+5] };
-
-wire isUnicast;
-assign isUnicast = (destMac == {fpgaMAC44, board_id}) ? 1'b1 : 1'b0;
-wire isMulticast;
-assign isMulticast = (destMac == fpgaMulticastMAC) ? 1'b1 : 1'b0;
-wire isBroadcast;
-assign isBroadcast = (destMac == fpgaBroadcastMAC) ? 1'b1 : 1'b0;
-
-// Whether Ethernet frame should be handled by this board
-wire isForThis;
-assign isForThis = isUnicast|isMulticast|isBroadcast;
+reg recvNotReady;         // 1 -> EthernetIO not ready (error)
 
 `ifdef HAS_DEBUG_DATA
-reg[7:0] numRxDropped;   // Number of irrelevant or erroneous packets dropped by Rx loop
+reg[7:0] numRecv;
 `endif
 
-assign RxClk = ~clk;
-
-reg rxDone;
-
-// For now, very slow
-reg[4:0] rxCtrl = 5'b00001;
-assign PortReady = rxCtrl[0];
-assign recvReady = (rxState == ST_RX_FRAME) ? rxCtrl[1] : 1'b0;
-wire recvTransition;
-assign recvTransition = rxCtrl[4];
+assign RxClk = clk;
 
 always @(posedge clk)
 begin
+
+    if (clearErrors) begin
+        recvNotReady <= 1'b0;
+    end
 
     // Following state machine similar to one in EthSwitch.v
     case (rxState)
 
     ST_RX_IDLE:
     begin
-        rxDone <= 1'b0;
-        rxCtrl <= 5'b00001;
+        PortReady <= 1'b1;
+        recvReady <= 1'b0;
         if (RxValid) begin
             recvRequest <= 1'b1;
             // Currently, no error checking on preamble
-            recv_nbytes <= 12'd0;
             if (RxD == 8'hd5) begin
-                rxCtrl <= 5'b00010;
+                recv_nbytes <= 12'd0;
+                if (~recvBusy) recvNotReady <= 1'b1;
                 rxState <= ST_RX_FRAME;
+                // Leave PortReady set so that first byte
+                // is read on next clock
+`ifdef HAS_DEBUG_DATA
+                numRecv <= numRecv + 8'd1;
+`endif
             end
         end
     end
 
     ST_RX_FRAME:
     begin
-        recvRequest <= 1'b0;
-        rxCtrl <= { rxCtrl[3:0], rxCtrl[4] };
-        if (recvReady) begin
-            if (RxValid) begin
-                if (recv_nbytes[0])
-                    recv_word[7:0] <= RxD;
-                else
-                    recv_word[15:8] <= RxD;
-
-                if (recv_nbytes[11:4] == 8'd0) begin
-                    // Save first 16 bytes (Ethernet header is 14 bytes)
-                    frame_header[recv_nbytes[3:0]] <= RxD;
-                end
+        if (RxValid) begin
+            recvRequest <= 1'b0;
+            // If PortReady is 0, setting it to 1 will cause RxValid to be
+            // asserted 2 clocks later (1 clock for PortReady to be set,
+            // and 1 clock for FIFO to generate RxValid).
+            // Note that EthernetIO sets recvBusy when it is processing the
+            // packet, so if recvBusy is 0, it means we can flush the rest
+            // of the packet.
+            recv_nbytes <= recv_nbytes + 12'd1;
+            if (~recv_nbytes[0]) begin   // even byte
+                recv_word[15:8] <= RxD;
+                PortReady <= ~recvBusy;
             end
-            else begin
-                // End of packet
-                // If an odd number of bytes, pad with 0
-                if (recv_nbytes[0]) begin
-                    recv_word[7:0] <= 8'd0;
-                end
-                rxDone <= 1'b1;
+            else begin                   // odd byte
+                recv_word[7:0] <= RxD;
+                waitCnt <= recvBusy ? 2'd3 : 2'd0;
+                recvReady <= recvBusy;
             end
         end
-
-        if (recvTransition) begin
-            recv_nbytes <= recv_nbytes + 12'd1;
-            if (rxDone)
+        else begin
+            recvReady <= 1'b0;
+            waitCnt <= waitCnt - 2'd1;
+            if (waitCnt == 2'd2)
+                PortReady <= 1'b1;
+            else if (waitCnt == 2'd0) begin
+                // If we get here, it means that the packet is finished
+                // (i.e., RxValid was not asserted 2 clocks after PortReady).
+                // If an odd number of bytes, pad with 0 and set recvReady
+                // so that EthernetIO processes last byte.
+                // We do not have to worry about the next packet starting
+                // right away due to the 12-byte interpacket gap (IPG).
+                if (recv_nbytes[0]) begin
+                    recv_word[7:0] <= 8'd0;
+                    recvReady <= recvBusy;
+                end
                 rxState <= ST_RX_IDLE;
+            end
         end
     end
 
@@ -345,59 +330,14 @@ begin
    endcase
 end
 
-`ifdef IGNORE // HAS_DEBUG_DATA
-wire[31:0] DebugData[0:7];
-assign DebugData[0] = "2GBD";  // DBG2 byte-swapped
-assign DebugData[1] = { curPort, curPacketValid, sendRequest, send_ipv4,    // 31:28
-                        send_fifo_overflow, 1'b0, recv_fifo_error, 1'b0,    // 27:24
-                        24'd0 };
-assign DebugData[2] = { recv_first_byte, recv_first_byte_out, 4'd0, rxPktWords };   // 8, 8, 12
-assign DebugData[3] = { numPacketSent, numPacketFlushed, numPacketValid };  // 8, 8, 16
-assign DebugData[4] = { 6'd0, bw_wait, 4'd0, last_responseBC };
-assign DebugData[5] = { timeSend, timeReceive };
-assign DebugData[6] = { recv_fifo_error_cnt, recvFlushCnt, 4'd0, last_sendCnt };
-assign DebugData[7] = 32'd0;
-`endif
+`ifdef HAS_DEBUG_DATA
+wire[31:0] DebugData[0:3];
+assign DebugData[0] = "3GBD";   // DBG3 byte-swapped
+assign DebugData[1] = { 4'd0, recvNotReady, rxState, recvReady, PortReady, numRecv, 4'd0, recv_nbytes};
+assign DebugData[2] = 32'd0;
+assign DebugData[3] = 32'd0;
 
-// -----------------------------------------------
-// Debug data
-// -----------------------------------------------
-
-`ifdef IGNORE // HAS_DEBUG_DATA
-wire[31:0] DebugDataRTL[0:7];
-assign DebugDataRTL[0] = "2GBD";  // DBG2 byte-swapped
-assign DebugDataRTL[1] = { RxErr_1, recv_preamble_error_1, recv_fifo_reset_1, recv_fifo_full_1,   // 31:28
-                        recv_fifo_empty, recv_info_fifo_empty, 2'd0,                      // 27:24
-                        1'd0, tx_underflow_1, send_fifo_full, send_fifo_empty_1,          // 23:20
-                        send_info_fifo_empty, 1'd0, send_fifo_error_1, recv_ipv4_1,       // 19:16
-                        recv_ipv4_err_1, recv_udp_1, 1'd0, 1'd0,                          // 15:12
-                        isUnicast_1, isMulticast_1, isBroadcast_1, 1'b1,                  // 11:8
-                        txStateError_1, rxStateError_1, 6'd0 };
-assign DebugDataRTL[2] = {   2'd0,       2'd0, 1'b0, state, 1'b0, txState_1, 1'b0, rxState_1, 8'd0, 8'd0 };
-                        //      2,          2,               3            3,                3
-assign DebugDataRTL[3] = recv_crc_in_1;
-assign DebugDataRTL[4] = { numRxDropped_1, 8'd0, send_first_byte_out_1, numTxSent_1 };
-assign DebugDataRTL[5] = send_crc_in_1;
-assign DebugDataRTL[6] = 32'd0;
-assign DebugDataRTL[7] = 32'd0;
-`endif
-
-// Following data is accessible via block read from address `ADDR_ETH (0x4000),
-// where x is the Ethernet channel (1 or 2).
-// Note that some data is provided by this module (EthSwitchRt) whereas most is provided
-// by other modules (EthernetIO).
-//    4x00 - 4x7f (128 quadlets) FireWire packet (first 128 quadlets only)
-//    4080 - 408f (16 quadlets)  EthernetIO Debug data
-//    4090 - 4097 (8 quadlets)   Low-level (e.g., RTL8211F) Debug data
-//    4098 - 409f (8 quadlets)   Low-level (e.g., EthSwitchRt) Debug data
-//    4xa0        (1 quadlet)    MDIO feedback (data read from management interface)
-//    4xa1 - 4xbf (31 quadlets)  Unused
-//    4xc0 - 4xdf (32 quadlets)  PacketBuffer/ReplyBuffer (64 words)
-//    4xe0 - 4xff (32 quadlets)  ReplyIndex (64 words)
-
-`ifdef 0 // HAS_DEBUG_DATA
-assign reg_rdata = (reg_raddr[7:3] == {4'h9, 1'b1}) ? DebugData[reg_raddr[2:0]] :
-                   (reg_raddr[7:3] == {4'h9, 1'b0}) ? DebugDataRTL[reg_raddr[2:0]] : 32'd0;
+assign reg_rdata = (reg_raddr[7:4] == 4'ha) ? DebugData[reg_raddr[1:0]] : 32'd0;
 `else
 assign reg_rdata = 32'd0;
 `endif

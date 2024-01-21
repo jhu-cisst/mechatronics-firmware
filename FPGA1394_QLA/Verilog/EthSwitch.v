@@ -651,8 +651,8 @@ for (out = 0; out < 4; out = out + 1) begin : fifo_loop_mux
 
     wire[1:0] curInput;
     assign curInput = TxInput[out];
-    // Number of clocks to wait before processing next packet from same in-port.
-    reg[1:0] waitCnt;
+    // Ethernet specifies a 12-byte interpacket gap (IPG)
+    reg[3:0] waitCnt;
 
     reg PortReady_Latched;
 
@@ -680,7 +680,7 @@ for (out = 0; out < 4; out = out + 1) begin : fifo_loop_mux
             if (PortReady_Latched && (fifo_empty[curInput][out] || (TxSt[out] == 2'b10))) begin
                 // If last byte (or fifo_empty, which should not happen except on last byte)
                 FifoActive[curInput][out] <= 1'b0;
-                waitCnt <= 2'd3;
+                waitCnt <= 4'd12;   // Set up for IPG (interpacket gap)
 `ifdef HAS_DEBUG_DATA
                TxInfoReg[out] <= { TxSt[out], curInput, TxInfo[out] };
                if (TxInfo[out][0])
@@ -688,6 +688,10 @@ for (out = 0; out < 4; out = out + 1) begin : fifo_loop_mux
                NumPacketSent[out] <= NumPacketSent[out] + 16'd1;
 `endif
             end
+        end
+        else if (waitCnt != 4'd0) begin
+            // Interpacket gap (12 bytes)
+            waitCnt <= waitCnt - 4'd1;
         end
         else if (PortReady[out]) begin
             if (dataAvail[(curInput+1)%4][out]) begin
@@ -703,14 +707,9 @@ for (out = 0; out < 4; out = out + 1) begin : fifo_loop_mux
                 FifoActive[(curInput+3)%4][out] <= 1'b1;
             end
             else if (dataAvail[curInput][out]) begin
-                if (waitCnt == 2'd0) begin
-                    // Following already set
-                    // TxInput[out] <= curInput;
-                    FifoActive[curInput][out] <= 1'b1;
-                end
-                else begin
-                    waitCnt <= waitCnt - 2'd1;
-                end
+                // Following already set
+                // TxInput[out] <= curInput;
+                FifoActive[curInput][out] <= 1'b1;
             end
         end
     end
