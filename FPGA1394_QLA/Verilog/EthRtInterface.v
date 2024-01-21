@@ -345,7 +345,7 @@ begin
             else
                 sendValid <= 1'b1;
 
-            if (send_cnt == (responseByteCount-16'd1)) begin
+            if (send_cnt == responseByteCount) begin
                 tx_cnt <= 3'd0;
                 txState <= (padding_cnt == 6'd0) ? ST_TX_CRC : ST_TX_PADDING;
             end

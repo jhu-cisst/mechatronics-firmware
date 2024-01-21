@@ -535,7 +535,7 @@ for (in = 0; in < 4; in = in+1) begin : fifo_loop_in
       assign fifo_read = FifoActive[in][out%4] & PortReady[out%4] & ((~isLastByteOut)|force_first_byte);
 
       fifo_10x8192 Fifo(
-          .rst(PortActive[out%4]),
+          .rst(~PortActive[out%4]),
           .wr_clk(RxClk[in]),
           .wr_en(fifo_write),
           .din({(force_last_byte ? 2'b10 : RxSt[in]), RxD_Int[in]}),
@@ -555,9 +555,9 @@ for (in = 0; in < 4; in = in+1) begin : fifo_loop_in
       // Needs to be first-word fall-through
       // For now, 32-bits, but will be regenerated with a much smaller width
       fifo_32x32 Fifo_Info(
-          .rst(PortActive[out%4]),
+          .rst(~PortActive[out%4]),
           .wr_clk(RxClk[in]),
-          .wr_en(write_info & (~fifo_info_full[in][out%4])),
+          .wr_en(write_info),
           .din({ 29'd0, fifo_overflow, IPv4Error[in], CrcError[in] }),
           .rd_clk(TxClk[out%4]),
           .rd_en(FifoActive[in][out%4] & PortReady[out%4] & isLastByteOut),
