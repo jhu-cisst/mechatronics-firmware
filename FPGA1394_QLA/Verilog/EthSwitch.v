@@ -548,17 +548,16 @@ for (in = 0; in < 4; in = in+1) begin : fifo_loop_in
           .empty(fifo_empty[in][out%4])
       );
 
-      wire [31:0] packet_info_out;
+      // Fifo_Info is 4-bits wide, but we currently only use 3 of them
+      wire[3:0] packet_info_out;
       assign TxInfo_Switch[in][out%4] = packet_info_out[2:0];
       reg write_info;
 
-      // Needs to be first-word fall-through
-      // For now, 32-bits, but will be regenerated with a much smaller width
-      fifo_32x32 Fifo_Info(
+      fifo_4x32 Fifo_Info(
           .rst(~PortActive[out%4]),
           .wr_clk(RxClk[in]),
           .wr_en(write_info),
-          .din({ 29'd0, fifo_overflow, IPv4Error[in], CrcError[in] }),
+          .din({ 1'b0, fifo_overflow, IPv4Error[in], CrcError[in] }),
           .rd_clk(TxClk[out%4]),
           .rd_en(FifoActive[in][out%4] & PortReady[out%4] & isLastByteOut),
           .dout(packet_info_out),
@@ -642,7 +641,7 @@ for (in = 0; in < 4; in = in+1) begin : fifo_loop_in
               force_first_byte <= 1'b0;
       end
 
-      // Data is available immediately for a fast in-port, or when the packet has been queued for a slow in-port
+      // Data is available immediately for a fast in-port, or when the packet has been queued by a slow in-port
       assign dataAvail[in][out%4] = (PortFast[in]&(~fifo_empty[in][out%4])) | ((~PortFast[in])&(~fifo_info_empty[in][out%4]));
   end
 end
@@ -682,10 +681,10 @@ for (out = 0; out < 4; out = out + 1) begin : fifo_loop_mux
                 FifoActive[curInput][out] <= 1'b0;
                 waitCnt <= 4'd12;   // Set up for IPG (interpacket gap)
 `ifdef HAS_DEBUG_DATA
-               TxInfoReg[out] <= { TxSt[out], curInput, TxInfo[out] };
-               if (TxInfo[out][0])
-                   NumCrcErrorOut[out] <= NumCrcErrorOut[out] + 8'd1;
-               NumPacketSent[out] <= NumPacketSent[out] + 16'd1;
+                TxInfoReg[out] <= { TxSt[out], curInput, TxInfo[out] };
+                if (TxInfo[out][0])
+                    NumCrcErrorOut[out] <= NumCrcErrorOut[out] + 8'd1;
+                NumPacketSent[out] <= NumPacketSent[out] + 16'd1;
 `endif
             end
         end
