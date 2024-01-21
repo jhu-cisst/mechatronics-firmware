@@ -22,7 +22,6 @@
 module EthRtInterface
 (
     input  wire clk,                  // input clock
-    input  wire[3:0] board_id,        // board id
 
     input  wire[15:0] reg_raddr,      // read address
     output wire[31:0] reg_rdata,      // register read data
@@ -38,7 +37,7 @@ module EthRtInterface
     input wire[7:0] RxD,           // Rx Data
     input wire RxErr,              // Rx Error
 
-    input wire TxClk,              // Tx Clk
+    output wire TxClk,             // Tx Clk
     output reg TxEn,               // Tx Enable
     output reg[7:0] TxD,           // Tx Data
     output wire TxErr,             // Tx Error
@@ -58,7 +57,7 @@ module EthRtInterface
     // Ethernet send
     output reg sendRequest,           // Request EthernetIO to start providing data to be sent
     input wire sendBusy,              // From EthernetIO
-    output wire sendReady,            // Request EthernetIO to provide next send_word
+    output reg sendReady,             // Request EthernetIO to provide next send_word
     input wire[15:0] send_word,       // Word to send via Ethernet (SDRegDWR for KSZ8851)
     // Timing measurements (do not include times for Rx/Tx loops, which is consistent with KSZ8851)
     output reg[15:0] timeReceive,     // Time for receiving packet (not including Rx loop in RTL8211F)
@@ -108,15 +107,20 @@ assign ethInternalError = 1'b0;
 // ----------------------------------------------------------------------------
 
 localparam
-    ST_RX_IDLE          = 1'd0,
-    ST_RX_FRAME         = 1'd1;
+    ST_RX_IDLE          = 2'd0,
+    ST_RX_FRAME         = 2'd1,
+    ST_RX_WAIT_SEND     = 2'd2;
 
-reg rxState;
+reg[1:0] rxState = ST_RX_IDLE;
+
+reg rxStateError;
 
 reg[1:0] waitCnt;
 
 reg[11:0] recv_nbytes;    // Number of bytes received (not including preamble)
 
+reg curPacketValid;       // Whether current packet is valid (passed CRC check)
+initial curPacketValid = 1'b1;  // TODO
 
 reg recvNotReady;         // 1 -> EthernetIO not ready (error)
 
@@ -125,13 +129,18 @@ reg[7:0] numRecv;
 `endif
 
 assign RxClk = clk;
+assign TxClk = clk;
 
 always @(posedge clk)
 begin
 
-    if (clearErrors) begin
+    if (resetActive | clearErrors) begin
         recvNotReady <= 1'b0;
+        rxStateError <= 1'b0;
     end
+
+    if (sendBusy)
+        sendRequest <= 1'b0;
 
     // Following state machine similar to one in EthSwitch.v
     case (rxState)
@@ -194,8 +203,32 @@ begin
                     recvReady <= recvBusy;
                 end
                 rxState <= ST_RX_IDLE;
+                if (curPacketValid & responseRequired) begin
+                    if (sendBusy) begin
+                       // Don't accept new packets if send request is pending
+                       PortReady <= 1'b0;
+                       rxState <= ST_RX_WAIT_SEND;
+                    end
+                    else begin
+                       sendRequest <= 1'b1;
+                    end
+                end
             end
         end
+    end
+
+    ST_RX_WAIT_SEND:
+    begin
+        if (~sendBusy) begin
+            sendRequest <= 1'b1;
+            rxState <= ST_RX_IDLE;
+        end
+    end
+
+    default:
+    begin
+        rxStateError <= 1'b1;
+        rxState <= ST_RX_IDLE;
     end
 
     endcase
@@ -218,7 +251,10 @@ localparam[2:0]
     ST_TX_PADDING = 3'd3,
     ST_TX_CRC = 3'd4;
 
-reg[2:0] txState;
+reg[2:0] txState = ST_TX_IDLE;
+
+reg sendValid;    // Data (send_word) from EthernetIO is valid
+reg sendEnable;   // Assert TxEn
 
 // crc registers
 wire[7:0] send_crc_data;    // data into crc module to compute crc on
@@ -231,16 +267,13 @@ wire[31:0] send_crc_8b;     // current crc module output for data width 8
 // initialize, feed back, and latch crc values as necessary
 crc32 send_crc(send_crc_data, send_crc_in, send_crc_2b, send_crc_4b, send_crc_8b);
 
-reg[15:0] send_nbytes;  // Number of bytes to send (not including preamble or CRC), from send_info_fifo
 reg[15:0] send_cnt;     // Counts number of bytes sent (not including preamble or CRC)
 reg[5:0]  padding_cnt;  // Counter used to ensure minimum Ethernet frame size (64)
 reg[2:0]  tx_cnt;       // Counter used for preamble and crc
 
 reg txStateError;       // Invalid state
-reg tx_underflow;       // Attempt to read send_fifo when empty
 
 // Reverse bits for computing CRC
-// TODO: Can we use TxD below?
 wire[7:0] TxRev = { TxD[0], TxD[1], TxD[2], TxD[3],
                     TxD[4], TxD[5], TxD[6], TxD[7] };
 
@@ -252,6 +285,7 @@ reg[7:0]  numTxSent;         // Number of packets sent to host PC
 
 always @(posedge TxClk)
 begin
+
     case (txState)
 
     ST_TX_IDLE:
@@ -262,12 +296,14 @@ begin
         if (resetActive) begin
             txStateError <= 1'b0;
         end
-        // TODO:  txState <= ST_TX_PREAMBLE;
+        if (sendBusy)
+            txState <= ST_TX_PREAMBLE;
     end
 
     ST_TX_PREAMBLE:
     begin
         if (tx_cnt == 3'd7) begin
+            sendReady <= 1'b1;
             txState <= ST_TX_SEND;
             send_crc_in <= 32'hffffffff;    // Initialize CRC
             padding_cnt <= 6'd59;           // Minimum frame size is 64 (-4 for CRC)
@@ -281,18 +317,44 @@ begin
 
     ST_TX_SEND:
     begin
-        TxD <= 8'd0;  // TODO
-        send_crc_in <= send_crc_8b;
-        if (send_cnt == (send_nbytes-16'd1)) begin
-            tx_cnt <= 3'd0;
-            txState <= (padding_cnt == 6'd0) ? ST_TX_CRC : ST_TX_PADDING;
+        if (sendReady) begin
+            sendReady <= 1'b0;
+            sendValid <= 1'b1;
+            TxEn <= 1'b0;
         end
-        else begin
+        else if (sendValid) begin
             send_cnt <= send_cnt + 16'd1;
+            if (~send_cnt[0])
+                TxD <= send_word[7:0];    // even byte
+            else
+                TxD <= send_word[15:8];   // odd byte
+            sendValid <= 1'b0;
+            sendEnable <= 1'b1;
+            TxEn <= 1'b0;
         end
-        if (padding_cnt != 6'd0) begin
-            padding_cnt <= padding_cnt - 6'd1;
+        else if (sendEnable) begin
+            send_crc_in <= send_crc_8b;
+            TxEn <= 1'b1;
+            // If we sent the second byte (originally odd, but now even
+            // due to increment above), then assert sendReady to get
+            // the next word. Otherwise, we assert sendValid.
+            // Not necessary to clear sendEnable, since either sendReady
+            // or sendValid will be set.
+            if (~send_cnt[0])
+                sendReady <= 1'b1;
+            else
+                sendValid <= 1'b1;
+
+            if (send_cnt == (responseByteCount-16'd1)) begin
+                tx_cnt <= 3'd0;
+                txState <= (padding_cnt == 6'd0) ? ST_TX_CRC : ST_TX_PADDING;
+            end
+
+            if (padding_cnt != 6'd0) begin
+                padding_cnt <= padding_cnt - 6'd1;
+            end
         end
+
     end
 
     ST_TX_PADDING:
@@ -333,8 +395,10 @@ end
 `ifdef HAS_DEBUG_DATA
 wire[31:0] DebugData[0:3];
 assign DebugData[0] = "3GBD";   // DBG3 byte-swapped
-assign DebugData[1] = { 4'd0, recvNotReady, rxState, recvReady, PortReady, numRecv, 4'd0, recv_nbytes};
-assign DebugData[2] = 32'd0;
+assign DebugData[1] = { sendBusy, sendRequest, rxState,                      // 31:28
+                        rxStateError, recvNotReady, recvReady, PortReady,    // 27:24
+                        numRecv, 4'd0, recv_nbytes};
+assign DebugData[2] = { 16'd0, 3'd0, txStateError, 1'd0, txState, numTxSent };
 assign DebugData[3] = 32'd0;
 
 assign reg_rdata = (reg_raddr[7:4] == 4'ha) ? DebugData[reg_raddr[1:0]] : 32'd0;

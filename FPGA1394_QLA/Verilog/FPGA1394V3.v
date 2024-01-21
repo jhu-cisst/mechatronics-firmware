@@ -496,9 +496,7 @@ wire       gmii_tx_err[1:4];
 wire[7:0]  gmii_rxd[1:4];
 wire       gmii_rx_dv[1:4];
 wire       gmii_rx_err[1:4];
-wire       gmii_rx_clk[1:3];
-wire       gmii_rx_clk4_src;    // rx_clk[4] at data source
-wire       gmii_rx_clk4_dest;   // rx_clk[4] at data destination
+wire       gmii_rx_clk[1:4];
 
 wire[1:0]  clock_speed[1:2];
 wire[1:0]  speed_mode[1:2];
@@ -558,7 +556,7 @@ EthSwitch eth_switch (
     .P3_Active(1'b1),                // Port3 active (e.g., link on)
     .P3_Ready(ready_rt),             // Port3 client ready for data
     .P3_Fast(1'b0),                  // Port3 currently slow
-    .P3_RxClk(gmii_rx_clk4_dest),    // Port3 receive clock
+    .P3_RxClk(gmii_rx_clk[4]),       // Port3 receive clock
     .P3_RxValid(gmii_rx_dv[4]),      // Port3 receive data valid
     .P3_RxD(gmii_rxd[4]),            // Port3 receive data
     .P3_RxErr(gmii_rx_err[4]),       // Port3 receive error
@@ -754,12 +752,8 @@ assign gmii_rx_clk[3] = clk_125A;
 assign gmii_tx_clk3_src = clk_125B;
 assign gmii_tx_clk3_dest = clk_125A;
 
-assign gmii_rx_clk4_src = clk_125A;
-assign gmii_rx_clk4_dest = clk_125B;
-
 EthRtInterface eth_rti(
     .clk(sysclk),
-    .board_id(board_id),      // in:  board id
 
     .reg_raddr(reg_raddr),
     .reg_rdata(reg_rdata_rti),
@@ -776,7 +770,7 @@ EthRtInterface eth_rti(
     .RxD(gmii_txd[4]),         // Rx Data
     .RxErr(gmii_tx_err[4]),    // Rx Error
 
-    .TxClk(gmii_rx_clk4_src),  // Tx Clk
+    .TxClk(gmii_rx_clk[4]),    // Tx Clk
     .TxEn(gmii_rx_dv[4]),      // Tx Enable
     .TxD(gmii_rxd[4]),         // Tx Data
     .TxErr(gmii_rx_err[4]),    // Tx Error

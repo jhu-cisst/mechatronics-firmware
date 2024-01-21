@@ -732,6 +732,8 @@ wire[15:0] fifo_full_bits;
 wire[15:0] fifo_underflow_bits;
 wire[15:0] packet_dropped_bits;
 wire[15:0] packet_truncated_bits;
+wire[15:0] fifo_info_not_empty_bits;
+wire[15:0] data_avail_bits;
 
 genvar i;
 generate
@@ -742,6 +744,8 @@ for (i = 0; i < 16; i = i +1) begin : fifo_active_loop
     assign fifo_underflow_bits[i] = fifo_underflow_latched[i/4][i%4];
     assign packet_dropped_bits[i] = PacketDropped[i/4][i%4];
     assign packet_truncated_bits[i] = PacketTruncated[i/4][i%4];
+    assign fifo_info_not_empty_bits[i] = ~fifo_info_empty[i/4][i%4];
+    assign data_avail_bits[i] = dataAvail[i/4][i%4];
 end
 endgenerate
 
@@ -761,7 +765,7 @@ assign DebugData[11]  = MacAddrHost[1][47:16];
 assign DebugData[12]  = { packet_truncated_bits, packet_dropped_bits };
 assign DebugData[13]  = { NumIPv4ErrorIn[3], NumIPv4ErrorIn[2], NumIPv4ErrorIn[1], NumIPv4ErrorIn[0] };
 assign DebugData[14]  = { NumPacketFwd[0][3], NumPacketFwd[0][2], NumPacketFwd[0][1], NumPacketFwd[0][0] };
-assign DebugData[15]  = 32'd0;
+assign DebugData[15]  = { fifo_info_not_empty_bits, data_avail_bits };
 
 // Debug data: 4090-40bf (currently, only 40a0-40af used)
 assign reg_rdata = (reg_raddr[11:4] == 8'h0a) ? DebugData[reg_raddr[3:0]] : 32'd0;
