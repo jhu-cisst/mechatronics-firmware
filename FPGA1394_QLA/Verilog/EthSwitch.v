@@ -182,7 +182,8 @@ assign P1_TxErr = TxErr[1];
 assign P2_TxErr = TxErr[2];
 assign P3_TxErr = TxErr[3];
 
-wire[3:0] TxInfo[0:3];
+// Indexed by [out]
+reg[3:0] TxInfo[0:3];
 assign P0_TxInfo = TxInfo[0];
 assign P1_TxInfo = TxInfo[1];
 assign P2_TxInfo = TxInfo[2];
@@ -201,6 +202,10 @@ wire fifo_info_empty[0:3][0:3];
 wire fifo_info_valid[0:3][0:3];
 
 reg  fifo_underflow_latched[0:3][0:3];
+
+// indexed by [out]
+wire fifo_data_read[0:3];
+reg  fifo_info_read[0:3];
 
 wire[7:0] RxD_Int[0:3];      // RxD output of internal Rx FIFO
 wire      RxValid_Int[0:3];  // Whether internal Rx FIFO has valid data
@@ -273,8 +278,14 @@ wire[47:0] DestMac[0:3];
 // 1 --> DestMac[in] matches MacAddrPrimary[out]
 wire MacAddrPrimaryMatch[0:3][0:3];
 
-wire CrcError[0:3];     // Frame CRC error
-reg  IPv4Error[0:3];    // IPv4 Header checksum error
+// Indicates whether CRC error or IPv4 error was detected.
+// The CRC error is latched after the full packet is received, and will only be valid until
+// we start processing the next packet. Fortunately, there should be enough time due to the
+// 12-byte interpacket gap (IPG) and the 8-byte preamble, which is greater than the delay
+// due to the 14-byte internal FIFO.
+// The alternative is to move the CRC computation to the other side of the internal FIFO.
+reg CrcError[0:3];     // Frame CRC error
+reg IPv4Error[0:3];    // IPv4 Header checksum error
 
 // Debugging
 `ifdef HAS_DEBUG_DATA
@@ -320,11 +331,6 @@ for (in = 0; in < 4; in = in + 1) begin : fifo__int_loop
   // This module computes crc continuously, so it is up to the state machine to
   // initialize, feed back, and latch crc values as necessary
   crc32 recv_crc(recv_crc_data, recv_crc_in, recv_crc_2b, recv_crc_4b, recv_crc_8b);
-
-  // The CRC of the packet, including the FCS (CRC) field should equal 32'hc704dd7b.
-  // Due to byte swapping, we check against 32'h7bdd04c7
-  // Note that this is only valid after the entire packet has been processed.
-  assign CrcError[in] = (recv_crc_in != 32'h7bdd04c7) ? 1'b0 : 1'b1;
 
   reg[4:0] rxCnt;    // Counts 0-31 (need to count to 19 for UDP header)
 
@@ -372,9 +378,11 @@ for (in = 0; in < 4; in = in + 1) begin : fifo__int_loop
 
   always @(posedge RxClk[in])
   begin
-      RxD_Fifo <= { RxD_Fifo[103:0], RxD[in] };
-      RxValid_Fifo <= { RxValid_Fifo[13:0], RxValid[in] };
-      RxErr_Fifo <= { RxErr_Fifo[12:0], RxErr[in] };
+      if (DataReady[in]) begin
+          RxD_Fifo <= { RxD_Fifo[103:0], RxD[in] };
+          RxValid_Fifo <= { RxValid_Fifo[13:0], RxValid[in] };
+          RxErr_Fifo <= { RxErr_Fifo[12:0], RxErr[in] };
+      end
 
       if ((in == INDEX_ETH1) || (in == INDEX_ETH2)) begin
           // If Eth1 or Eth2 not active, reset forwarding database
@@ -394,7 +402,7 @@ for (in = 0; in < 4; in = in + 1) begin : fifo__int_loop
 
       ST_RX_IDLE:
       begin
-          if (RxValid[in]) begin
+          if (RxValid[in] & DataReady[in]) begin
               // Currently, no error checking on preamble
               // (could check rxCnt)
               rxCnt <= rxCnt + 5'd1;
@@ -405,7 +413,7 @@ for (in = 0; in < 4; in = in + 1) begin : fifo__int_loop
                   IPv4Error[in] <= 1'b0;
               end
           end
-          else begin
+          else if (~RxValid[in]) begin
               rxCnt <= 5'd0;
           end
       end
@@ -413,7 +421,7 @@ for (in = 0; in < 4; in = in + 1) begin : fifo__int_loop
       ST_RX_FRAME_HEADER:
       begin
           // Save first 14 bytes
-          if (RxValid[in]) begin
+          if (RxValid[in] & DataReady[in]) begin
               rxCnt <= rxCnt + 5'd1;
               recv_crc_in <= recv_crc_8b;
               frame_header[rxCnt[3:0]] <= RxD[in];
@@ -431,7 +439,7 @@ for (in = 0; in < 4; in = in + 1) begin : fifo__int_loop
                   rxState <= ST_RX_FRAME_DATA;
               end
           end
-          else begin
+          else if (~RxValid[in]) begin
               rxCnt <= 5'd0;
               rxState <= ST_RX_IDLE;
           end
@@ -439,7 +447,7 @@ for (in = 0; in < 4; in = in + 1) begin : fifo__int_loop
 
       ST_RX_FRAME_DATA:
       begin
-          if (RxValid[in]) begin
+          if (RxValid[in] & DataReady[in]) begin
               recv_crc_in <= recv_crc_8b;
               if (rxCnt != 5'd31)
                   rxCnt <= rxCnt + 5'd1;
@@ -454,10 +462,14 @@ for (in = 0; in < 4; in = in + 1) begin : fifo__int_loop
               else
                   recv_ipv4_cksum <= recv_ipv4_cksum + { 9'd0, RxD[in] };
           end
-          else begin
+          else if (~RxValid[in]) begin
+              // The CRC of the packet, including the FCS (CRC) field should equal 32'hc704dd7b.
+              // Due to byte swapping, we check against 32'h7bdd04c7
+              //CrcError[in] <= (recv_crc_in == 32'h7bdd04c7) ? 1'b0 : 1'b1;
+              CrcError[in] <= 1'b0;  // TEMP
 `ifdef HAS_DEBUG_DATA
               NumPacketRecv[in] <= NumPacketRecv[in] + 16'd1;
-              if (CrcError[in])
+              if (recv_crc_in != 32'h7bdd04c7)
                   NumCrcErrorIn[in] <= NumCrcErrorIn[in] + 8'd1;
               if (IPv4Error[in])
                   NumIPv4ErrorIn[in] <= NumIPv4ErrorIn[in] + 8'd1;
@@ -529,9 +541,6 @@ for (in = 0; in < 4; in = in+1) begin : fifo_loop_in
           assign RxFwd = RxValid_Int[in] & PortActive[out%4] & (isBroadcast|isMulticast|isPrimaryMatch);
       end
 
-      wire isLastByteOut;
-      assign isLastByteOut = (TxSt_Switch[in][out%4] == 2'b10) ? 1'b1 : 1'b0;
-
       // fifo_overflow indicates that we could not write due to a full FIFO
       reg  fifo_overflow;
       // fifo_not_ready indicates that the FIFO is either full, or still recovering from a prior full condition
@@ -543,24 +552,25 @@ for (in = 0; in < 4; in = in+1) begin : fifo_loop_in
       // drop_packet is set if the FIFO is full (or recovering from a FIFO full condition), when we
       // get the first byte; this ensures that the entire packet is dropped.
       reg  drop_packet;
-      // fifo_write controls whether data is written to the FIFO. If the FIFO is not ready (including due to overflow),
+      // write_fifo controls whether data is written to the FIFO. If the FIFO is not ready (including due to overflow),
       // we stop storing the packet, unless force_last_byte is set.
-      wire fifo_write;
-      assign fifo_write = ((RxFwd & (~fifo_not_ready)) | force_last_byte) & (~drop_packet);
-      // force_first_byte is used to make sure the first byte is read, even if TxSt still indicates that the
-      // last byte (from the previous packet) has been read.
-      reg force_first_byte;
-      // fifo_read controls whether data is read from the FIFO.
-      wire fifo_read;
-      assign fifo_read = FifoActive[in][out%4] & RecvReady[out%4] & ((~isLastByteOut)|force_first_byte);
+      wire write_fifo;
+      assign write_fifo = ((RxFwd & (~fifo_not_ready)) | force_last_byte) & (~drop_packet);
+      // read_fifo controls whether data is read from the FIFO.
+      wire read_fifo;
+      assign read_fifo = FifoActive[in][out%4] & fifo_data_read[out%4];
+      // read_info controls whether data is read from the info FIFO (1 entry per packet).
+      // We can get away with just fifo_info_read[out] because it is gated with FifoActive[in][out].
+      wire read_info;
+      assign read_info = FifoActive[in][out%4] & fifo_info_read[out%4];
 
       fifo_10x8192 Fifo(
           .rst(~PortActive[out%4]),
           .wr_clk(RxClk[in]),
-          .wr_en(fifo_write),
+          .wr_en(write_fifo),
           .din({(force_last_byte ? 2'b10 : RxSt[in]), RxD_Int[in]}),
           .rd_clk(TxClk[out%4]),
-          .rd_en(fifo_read),
+          .rd_en(read_fifo),
           .dout({TxSt_Switch[in][out%4], TxD_Switch[in][out%4]}),
           .valid(fifo_valid[in][out%4]),
           .underflow(fifo_underflow[in][out%4]),
@@ -579,7 +589,7 @@ for (in = 0; in < 4; in = in+1) begin : fifo_loop_in
           .wr_en(write_info),
           .din({ 1'b0, fifo_overflow, IPv4Error[in], CrcError[in] }),
           .rd_clk(TxClk[out%4]),
-          .rd_en(FifoActive[in][out%4] & RecvReady[out%4] & isLastByteOut),
+          .rd_en(read_info),
           .dout(packet_info_out),
           .valid(fifo_info_valid[in][out%4]),
           .full(fifo_info_full[in][out%4]),
@@ -654,14 +664,6 @@ for (in = 0; in < 4; in = in+1) begin : fifo_loop_in
           end
       end
 
-      always @(posedge TxClk[out%4])
-      begin
-          if (~FifoActive[in][out%4])
-              force_first_byte <= 1'b1;
-          else if (~isLastByteOut)
-              force_first_byte <= 1'b0;
-      end
-
       // Data is available immediately for a fast in-port, or when the packet has been queued by a slow in-port
       assign dataAvail[in][out%4] = (PortFast[in]&(~fifo_empty[in][out%4])) | ((~PortFast[in])&(~fifo_info_empty[in][out%4]));
   end
@@ -673,6 +675,18 @@ for (out = 0; out < 4; out = out + 1) begin : fifo_loop_mux
     assign curInput = TxInput[out];
     // Ethernet specifies a 12-byte interpacket gap (IPG)
     reg[3:0] waitCnt;
+
+    assign TxSt[out] = TxSt_Switch[curInput][out];
+
+    wire TxInfoValid;
+    assign TxInfoValid = TxInfo[out][3];
+
+    // force_first_byte is used to make sure the first byte is read, even if TxSt still indicates that the
+    // last byte (from the previous packet) has been read.
+    reg force_first_byte;
+
+    wire isLastByteOut;
+    assign isLastByteOut = (TxSt[out] == 2'b10) ? 1'b1 : 1'b0;
 
     reg RecvReady_Latched;
 
@@ -692,14 +706,39 @@ for (out = 0; out < 4; out = out + 1) begin : fifo_loop_mux
 
         RecvReady_Latched <= RecvReady[out];
 
+        // Stay with current input until (data) FIFO is no longer active (last byte has
+        // been read) and packet info FIFO has been read.
         if (FifoActive[curInput][out]) begin
+
+            // Make sure only asserted for one clock
+            fifo_info_read[out] <= 1'b0;
+
+            // Check whether info FIFO output is valid; if so, TxInfoValid (TxInfo[out][3]) will
+            // be set to 1.
+            if (fifo_info_valid[curInput][out]) begin
+                TxInfo[out] <= { 1'b1, TxInfo_Switch[curInput][out] };
+            end
+            // Check whether there is any data to read from the info FIFO (if not already
+            // read, which is determined by checking TxInfoValid)
+            else if ((~TxInfoValid) & (~fifo_info_empty[curInput][out]) & (~fifo_info_read[out])) begin
+                fifo_info_read[out] <= 1'b1;
+            end
+
             if (fifo_underflow[curInput][out]) begin
                 // Should not happen, so we set this "sticky" bit to indicate
                 // that it has occurred.
                 fifo_underflow_latched[curInput][out] <= 1'b1;
             end
-            if (RecvReady_Latched && (fifo_empty[curInput][out] || (TxSt[out] == 2'b10))) begin
-                // If last byte (or fifo_empty, which should not happen except on last byte)
+
+            if (RecvReady_Latched & (~isLastByteOut))
+                force_first_byte <= 1'b0;
+
+            // Finished if last byte out and TxInfo valid; note that client should
+            // be asserting RecvReady
+            // if (RecvReady_Latched & TxInfoValid &
+            if (RecvReady_Latched &  // TEMP
+               ((isLastByteOut&(~force_first_byte))|fifo_empty[curInput][out])) begin
+                force_first_byte <= 1'b1;
                 FifoActive[curInput][out] <= 1'b0;
                 waitCnt <= 4'd12;   // Set up for IPG (interpacket gap)
 `ifdef HAS_DEBUG_DATA
@@ -709,39 +748,50 @@ for (out = 0; out < 4; out = out + 1) begin : fifo_loop_mux
                 NumPacketSent[out] <= NumPacketSent[out] + 16'd1;
 `endif
             end
+
         end
         else if (waitCnt != 4'd0) begin
             // Interpacket gap (12 bytes)
             waitCnt <= waitCnt - 4'd1;
         end
         else if (RecvReady[out]) begin
+            // In all the cases below, we check if the info FIFO has any data about the packet and,
+            // if so, we assert fifo_info_read
+            //   - for a "slow" in-port, this must be available (see dataAvail)
+            //   - for a "fast" in-port, it could be available (e.g., if another connection was active)
             if (dataAvail[(curInput+1)%4][out]) begin
                 TxInput[out] <= (curInput+1)%4;
                 FifoActive[(curInput+1)%4][out] <= 1'b1;
+                fifo_info_read[out] <= ~fifo_info_empty[(curInput+1)%4][out];
+                TxInfo[out] <= 4'd0;
             end
             else if (dataAvail[(curInput+2)%4][out]) begin
                 TxInput[out] <= (curInput+2)%4;
                 FifoActive[(curInput+2)%4][out] <= 1'b1;
+                fifo_info_read[out] <= ~fifo_info_empty[(curInput+2)%4][out];
+                TxInfo[out] <= 4'd0;
             end
             else if (dataAvail[(curInput+3)%4][out]) begin
                 TxInput[out] <= (curInput+3)%4;
                 FifoActive[(curInput+3)%4][out] <= 1'b1;
+                fifo_info_read[out] <= ~fifo_info_empty[(curInput+3)%4][out];
+                TxInfo[out] <= 4'd0;
             end
             else if (dataAvail[curInput][out]) begin
                 // Following already set
                 // TxInput[out] <= curInput;
                 FifoActive[curInput][out] <= 1'b1;
+                fifo_info_read[out] <= ~fifo_info_empty[curInput][out];
+                TxInfo[out] <= 4'd0;
             end
         end
     end
 
-    assign TxSt[out] = TxSt_Switch[curInput][out];
+    assign fifo_data_read[out] = RecvReady[out] & ((~isLastByteOut)|force_first_byte) & (~fifo_empty[curInput][out]);
+
     assign TxD[out] = TxD_Switch[curInput][out];
-    assign TxErr[out] = (fifo_underflow[curInput][out] || (TxSt[out] == 2'b11)) ? 1'b1 : 1'b0;
+    assign TxErr[out] = (TxSt[out] == 2'b11) ? 1'b1 : 1'b0;
     assign TxEn[out] = fifo_valid[curInput][out];
-    // MSB is 1 to indicate that rest of bits are valid
-    assign TxInfo[out] = { (FifoActive[curInput][out]&(~fifo_info_empty[curInput][out])),
-                           TxInfo_Switch[curInput][out] };
 
 end
 endgenerate
