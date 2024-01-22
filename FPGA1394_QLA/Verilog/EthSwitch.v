@@ -21,8 +21,9 @@
 module EthSwitch
 (
     input wire P0_Active,       // Port0 active (e.g., link on)
-    input wire P0_Ready,        // Port0 ready for data
     input wire P0_Fast,         // Port0 is "fast" (1 GB)
+    input wire P0_DataReady,    // Port0 client data ready
+    input wire P0_RecvReady,    // Port0 client ready to receive data
 
     input wire P0_RxClk,        // Port0 receive clock
     input wire P0_RxValid,      // Port0 receive data valid
@@ -36,8 +37,9 @@ module EthSwitch
     output wire[3:0] P0_TxInfo, // Port0 transmit packet info
 
     input wire P1_Active,       // Port1 active (e.g., link on)
-    input wire P1_Ready,        // Port1 ready for data
     input wire P1_Fast,         // Port1 is "fast" (1 GB)
+    input wire P1_DataReady,    // Port1 client data ready
+    input wire P1_RecvReady,    // Port1 client ready to receive data
 
     input wire P1_RxClk,        // Port1 receive clock
     input wire P1_RxValid,      // Port1 receive data valid
@@ -51,8 +53,9 @@ module EthSwitch
     output wire[3:0] P1_TxInfo, // Port1 transmit packet info
 
     input wire P2_Active,       // Port2 active (e.g., link on)
-    input wire P2_Ready,        // Port2 ready for data
     input wire P2_Fast,         // Port2 is "fast" (1 GB)
+    input wire P2_DataReady,    // Port2 client data ready
+    input wire P2_RecvReady,    // Port2 ready to receive data
 
     input wire P2_RxClk,        // Port2 receive clock
     input wire P2_RxValid,      // Port2 receive data valid
@@ -66,8 +69,9 @@ module EthSwitch
     output wire[3:0] P2_TxInfo, // Port2 transmit packet info
 
     input wire P3_Active,       // Port3 active (e.g., link on)
-    input wire P3_Ready,        // Port3 ready for data
     input wire P3_Fast,         // Port3 is "fast" (1 GB)
+    input wire P3_DataReady,    // Port3 client data ready
+    input wire P3_RecvReady,    // Port3 ready to receive data
 
     input wire P3_RxClk,        // Port3 receive clock
     input wire P3_RxValid,      // Port3 receive data valid
@@ -103,11 +107,17 @@ assign PortActive[1] = P1_Active;
 assign PortActive[2] = P2_Active;
 assign PortActive[3] = P3_Active;
 
-wire PortReady[0:3];
-assign PortReady[0] = P0_Ready;
-assign PortReady[1] = P1_Ready;
-assign PortReady[2] = P2_Ready;
-assign PortReady[3] = P3_Ready;
+wire RecvReady[0:3];
+assign RecvReady[0] = P0_RecvReady;
+assign RecvReady[1] = P1_RecvReady;
+assign RecvReady[2] = P2_RecvReady;
+assign RecvReady[3] = P3_RecvReady;
+
+wire DataReady[0:3];
+assign DataReady[0] = P0_DataReady;
+assign DataReady[1] = P1_DataReady;
+assign DataReady[2] = P2_DataReady;
+assign DataReady[3] = P3_DataReady;
 
 // Queueing rules
 //   - Wait for packet to be queued if in-port (Rx) is slow and out-port (Tx) is fast
@@ -188,6 +198,7 @@ wire fifo_valid[0:3][0:3];
 wire fifo_underflow[0:3][0:3];
 wire fifo_info_full[0:3][0:3];
 wire fifo_info_empty[0:3][0:3];
+wire fifo_info_valid[0:3][0:3];
 
 reg  fifo_underflow_latched[0:3][0:3];
 
@@ -278,6 +289,14 @@ reg[7:0]  TxInfoReg[0:3];
 // due to a full FIFO.
 reg       PacketDropped[0:3][0:3];
 reg       PacketTruncated[0:3][0:3];
+integer k;
+initial begin
+    // Initialize diagonals to avoid some compiler warnings
+    for (k = 0; k < 4; k = k + 1) begin
+        PacketDropped[k][k] = 1'b0;
+        PacketTruncated[k][k] = 1'b0;
+    end
+end
 `endif
 
 // Variables for generate block
@@ -473,6 +492,7 @@ for (in = 0; in < 4; in = in+1) begin : fifo_loop_in
   assign fifo_underflow[in][in] = 1'b0;
   assign fifo_info_full[in][in] = 1'b0;
   assign fifo_info_empty[in][in] = 1'b1;
+  assign fifo_info_valid[in][in] = 1'b0;
   assign TxSt_Switch[in][in] = 2'd0;
   assign TxD_Switch[in][in] = 8'd0;
   assign TxInfo_Switch[in][in] = 3'd0;
@@ -532,7 +552,7 @@ for (in = 0; in < 4; in = in+1) begin : fifo_loop_in
       reg force_first_byte;
       // fifo_read controls whether data is read from the FIFO.
       wire fifo_read;
-      assign fifo_read = FifoActive[in][out%4] & PortReady[out%4] & ((~isLastByteOut)|force_first_byte);
+      assign fifo_read = FifoActive[in][out%4] & RecvReady[out%4] & ((~isLastByteOut)|force_first_byte);
 
       fifo_10x8192 Fifo(
           .rst(~PortActive[out%4]),
@@ -559,8 +579,9 @@ for (in = 0; in < 4; in = in+1) begin : fifo_loop_in
           .wr_en(write_info),
           .din({ 1'b0, fifo_overflow, IPv4Error[in], CrcError[in] }),
           .rd_clk(TxClk[out%4]),
-          .rd_en(FifoActive[in][out%4] & PortReady[out%4] & isLastByteOut),
+          .rd_en(FifoActive[in][out%4] & RecvReady[out%4] & isLastByteOut),
           .dout(packet_info_out),
+          .valid(fifo_info_valid[in][out%4]),
           .full(fifo_info_full[in][out%4]),
           .empty(fifo_info_empty[in][out%4])
       );
@@ -653,7 +674,7 @@ for (out = 0; out < 4; out = out + 1) begin : fifo_loop_mux
     // Ethernet specifies a 12-byte interpacket gap (IPG)
     reg[3:0] waitCnt;
 
-    reg PortReady_Latched;
+    reg RecvReady_Latched;
 
     // A simple round-robin scheduler
     always @(posedge TxClk[out])
@@ -669,14 +690,15 @@ for (out = 0; out < 4; out = out + 1) begin : fifo_loop_mux
             fifo_underflow_latched[3][out] <= 1'b0;
         end
 
-        PortReady_Latched <= PortReady[out];
+        RecvReady_Latched <= RecvReady[out];
+
         if (FifoActive[curInput][out]) begin
             if (fifo_underflow[curInput][out]) begin
                 // Should not happen, so we set this "sticky" bit to indicate
                 // that it has occurred.
                 fifo_underflow_latched[curInput][out] <= 1'b1;
             end
-            if (PortReady_Latched && (fifo_empty[curInput][out] || (TxSt[out] == 2'b10))) begin
+            if (RecvReady_Latched && (fifo_empty[curInput][out] || (TxSt[out] == 2'b10))) begin
                 // If last byte (or fifo_empty, which should not happen except on last byte)
                 FifoActive[curInput][out] <= 1'b0;
                 waitCnt <= 4'd12;   // Set up for IPG (interpacket gap)
@@ -692,7 +714,7 @@ for (out = 0; out < 4; out = out + 1) begin : fifo_loop_mux
             // Interpacket gap (12 bytes)
             waitCnt <= waitCnt - 4'd1;
         end
-        else if (PortReady[out]) begin
+        else if (RecvReady[out]) begin
             if (dataAvail[(curInput+1)%4][out]) begin
                 TxInput[out] <= (curInput+1)%4;
                 FifoActive[(curInput+1)%4][out] <= 1'b1;

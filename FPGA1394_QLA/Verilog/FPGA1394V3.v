@@ -508,15 +508,18 @@ assign eth_fast[2] = link_speed[2][1]&(~link_speed[2][0]);   // 2'b10 --> 1 GB
 wire       eth_active[1:2];     // Whether link is on
 wire[1:0]  link_speed[1:2];     // Link speed
 
-wire       ready_rt;            // Whether RT ready for input data
+wire       recv_ready_rt;       // Whether RT ready for input data from switch
+wire       data_ready_rt;       // Whether RT providing valid data to switch
+wire[3:0]  txinfo_rt;           // Packet information from Ethernet Switch
 
 // Ethernet 4-port switch
 EthSwitch eth_switch (
 
     // Port0: Eth1
     .P0_Active(eth_active[1]),       // Port0 active (e.g., link on)
-    .P0_Ready(eth_active[1]),        // Port0 client ready for data
     .P0_Fast(eth_fast[1]),           // Port0 speed
+    .P0_RecvReady(eth_active[1]),    // Port0 client ready for data
+    .P0_DataReady(1'b1),             // Port0 data always ready with RxValid
     .P0_RxClk(gmii_rx_clk[1]),       // Port0 receive clock
     .P0_RxValid(gmii_rx_dv[1]),      // Port0 receive data valid
     .P0_RxD(gmii_rxd[1]),            // Port0 receive data
@@ -528,8 +531,9 @@ EthSwitch eth_switch (
 
     // Port1: Eth2
     .P1_Active(eth_active[2]),       // Port1 active (e.g., link on)
-    .P1_Ready(eth_active[2]),        // Port1 client ready for data
     .P1_Fast(eth_fast[2]),           // Port1 speed
+    .P1_RecvReady(eth_active[2]),    // Port1 client ready for data
+    .P1_DataReady(1'b1),             // Port1 data always ready with RxValid
     .P1_RxClk(gmii_rx_clk[2]),       // Port1 receive clock
     .P1_RxValid(gmii_rx_dv[2]),      // Port1 receive data valid
     .P1_RxD(gmii_rxd[2]),            // Port1 receive data
@@ -541,8 +545,9 @@ EthSwitch eth_switch (
 
     // Port2: PS
     .P2_Active(1'b1),                // Port2 active (e.g., link on)
-    .P2_Ready(1'b1),                 // Port2 client ready for data
     .P2_Fast(1'b1),                  // Port2 always fast (1 GB)
+    .P2_RecvReady(1'b1),             // Port2 client ready for data
+    .P2_DataReady(1'b1),             // Port2 data always ready with RxValid
     .P2_RxClk(gmii_rx_clk[3]),       // Port2 receive clock
     .P2_RxValid(gmii_rx_dv[3]),      // Port2 receive data valid
     .P2_RxD(gmii_rxd[3]),            // Port2 receive data
@@ -554,8 +559,9 @@ EthSwitch eth_switch (
 
     // Port3: RT
     .P3_Active(1'b1),                // Port3 active (e.g., link on)
-    .P3_Ready(ready_rt),             // Port3 client ready for data
     .P3_Fast(1'b0),                  // Port3 currently slow
+    .P3_RecvReady(recv_ready_rt),    // Port3 client ready for data
+    .P3_DataReady(data_ready_rt),    // Port3 client providing valid data
     .P3_RxClk(gmii_rx_clk[4]),       // Port3 receive clock
     .P3_RxValid(gmii_rx_dv[4]),      // Port3 receive data valid
     .P3_RxD(gmii_rxd[4]),            // Port3 receive data
@@ -564,6 +570,7 @@ EthSwitch eth_switch (
     .P3_TxEn(gmii_tx_en[4]),         // Port3 transmit data valid
     .P3_TxD(gmii_txd[4]),            // Port3 transmit data
     .P3_TxErr(gmii_tx_err[4]),       // Port3 transmit error
+    .P3_TxInfo(txinfo_rt),           // Port3 packet info
 
     .board_id(board_id),             // Board ID (for MAC addresses)
 
@@ -762,7 +769,8 @@ EthRtInterface eth_rti(
     .resetActive(resetActive_e[1]|resetActive_e[2]),
     .clearErrors(rt_clear_errors[1]|rt_clear_errors[2]),
 
-    .PortReady(ready_rt),
+    .PortReady(recv_ready_rt),
+    .DataReady(data_ready_rt),
 
     // Note that Rx and Tx are swapped
     .RxClk(gmii_tx_clk4),      // Rx Clk
@@ -774,6 +782,8 @@ EthRtInterface eth_rti(
     .TxEn(gmii_rx_dv[4]),      // Tx Enable
     .TxD(gmii_rxd[4]),         // Tx Data
     .TxErr(gmii_rx_err[4]),    // Tx Error
+
+    .PacketInfo(txinfo_rt),    // Packet information
 
     // Interface from Firewire (for sending packets via Ethernet)
     .sendReq(eth_send_req),
