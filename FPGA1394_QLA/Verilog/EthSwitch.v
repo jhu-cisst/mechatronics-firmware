@@ -733,8 +733,7 @@ for (out = 0; out < 4; out = out + 1) begin : fifo_loop_mux
 
             // Finished if last byte out and TxInfo valid; note that client should
             // be asserting RecvReady
-            // if (RecvReady_Latched & TxInfoValid &
-            if (RecvReady_Latched &  // TEMP
+            if (RecvReady_Latched & TxInfoValid &
                ((isLastByteOut&(~force_first_byte))|fifo_empty[curInput][out])) begin
                 force_first_byte <= 1'b1;
                 FifoActive[curInput][out] <= 1'b0;
