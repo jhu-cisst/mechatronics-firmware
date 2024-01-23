@@ -464,12 +464,10 @@ for (in = 0; in < 4; in = in + 1) begin : fifo__int_loop
           end
           else if (~RxValid[in]) begin
               // The CRC of the packet, including the FCS (CRC) field should equal 32'hc704dd7b.
-              // Due to byte swapping, we check against 32'h7bdd04c7
-              //CrcError[in] <= (recv_crc_in == 32'h7bdd04c7) ? 1'b0 : 1'b1;
-              CrcError[in] <= 1'b0;  // TEMP
+              CrcError[in] <= (recv_crc_in == 32'hc704dd7b) ? 1'b0 : 1'b1;
 `ifdef HAS_DEBUG_DATA
               NumPacketRecv[in] <= NumPacketRecv[in] + 16'd1;
-              if (recv_crc_in != 32'h7bdd04c7)
+              if (recv_crc_in != 32'hc704dd7b)
                   NumCrcErrorIn[in] <= NumCrcErrorIn[in] + 8'd1;
               if (IPv4Error[in])
                   NumIPv4ErrorIn[in] <= NumIPv4ErrorIn[in] + 8'd1;

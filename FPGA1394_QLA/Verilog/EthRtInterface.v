@@ -307,22 +307,20 @@ begin
     begin
         send_cnt <= 16'd0;
         tx_cnt <= 3'd0;
+        TxEn <= 1'b0;
+        DataReady <= 1'b0;
         if (resetActive) begin
             txStateError <= 1'b0;
         end
         if (sendBusy) begin
-            TxEn <= 1'b1;
-            DataReady <= 1'b1;
             txState <= ST_TX_PREAMBLE;
-        end
-        else begin
-            TxEn <= 1'b0;
-            DataReady <= 1'b0;
         end
     end
 
     ST_TX_PREAMBLE:
     begin
+        TxEn <= 1'b1;
+        DataReady <= 1'b1;
         if (tx_cnt == 3'd7) begin
             sendReady <= 1'b1;
             txState <= ST_TX_SEND;
