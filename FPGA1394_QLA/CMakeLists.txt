@@ -109,7 +109,7 @@ set (VERILOG_SOURCE_FPGAV3
                          "${IPCOREV3_BINARY_DIR}/hub_mem_gen.v"
                          "${IPCOREV3_BINARY_DIR}/Dual_port_RAM_32X1024.v"
                          "${IPCOREV3_BINARY_DIR}/fifo_10x8192.v"
-                         "${IPCOREV3_BINARY_DIR}/fifo_4x32.v"
+                         "${IPCOREV3_BINARY_DIR}/fifo_4x128.v"
                          "${XPSCORE_BINARY_DIR}/hdl/fpgav3.v")
 
 ################### Boards (QLA, DQLA, DRAC) ###########################

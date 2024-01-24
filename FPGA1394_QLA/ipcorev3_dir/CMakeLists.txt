@@ -10,7 +10,7 @@ set (IPCORE_SOURCE_COMMON "${IPCORE_DIR}/hub_mem_gen.xcp"
 
 set (IPCORE_SOURCE ${IPCORE_SOURCE_COMMON}
                    "${CMAKE_CURRENT_SOURCE_DIR}/fifo_10x8192.xcp"
-                   "${CMAKE_CURRENT_SOURCE_DIR}/fifo_4x32.xcp")
+                   "${CMAKE_CURRENT_SOURCE_DIR}/fifo_4x128.xcp")
 
 ise_ipcoregen(TARGET_NAME       "CoreGenV3"
               XCO_SOURCE        ${IPCORE_SOURCE}

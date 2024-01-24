@@ -539,21 +539,19 @@ for (in = 0; in < 4; in = in+1) begin : fifo_loop_in
           assign RxFwd = RxValid_Int[in] & PortActive[out%4] & (isBroadcast|isMulticast|isPrimaryMatch);
       end
 
-      // fifo_overflow indicates that we could not write due to a full FIFO
-      reg  fifo_overflow;
-      // fifo_not_ready indicates that the FIFO is either full, or still recovering from a prior full condition
-      // (i.e., waiting to write the last byte or the info).
-      wire fifo_not_ready;
+      // fifo_overflow indicates that we could not write due to a full FIFO; once that has happened, there
+      // is no reason to continue to write to the FIFO -- we might as well truncate the packet
+      reg fifo_overflow;
       // force_last_byte is used to make sure a valid "last byte" flag (TxSt) is written to the FIFO so
-      // that the port clients can assume that all packets (even truncated ones) have a last byte indicator.
-      reg  force_last_byte;
+      // that the output stage can assume that all packets (even truncated ones) have a last byte indicator.
+      reg force_last_byte;
       // drop_packet is set if the FIFO is full (or recovering from a FIFO full condition), when we
       // get the first byte; this ensures that the entire packet is dropped.
       reg  drop_packet;
       // write_fifo controls whether data is written to the FIFO. If the FIFO is not ready (including due to overflow),
       // we stop storing the packet, unless force_last_byte is set.
       wire write_fifo;
-      assign write_fifo = ((RxFwd & (~fifo_not_ready)) | force_last_byte) & (~drop_packet);
+      assign write_fifo = (~fifo_full[in][out%4]) & (((RxFwd & (~fifo_overflow) & (~drop_packet))) | force_last_byte);
       // read_fifo controls whether data is read from the FIFO.
       wire read_fifo;
       assign read_fifo = FifoActive[in][out%4] & fifo_data_read[out%4];
@@ -577,11 +575,13 @@ for (in = 0; in < 4; in = in+1) begin : fifo_loop_in
       );
 
       // Fifo_Info is 4-bits wide, but we currently only use 3 of them
+      // It has a depth of 128 bytes, which should be enough since the data FIFO (above)
+      // has a depth of 8192 bytes and the minimum Ethernet packet size is 64 bytes.
       wire[3:0] packet_info_out;
       assign TxInfo_Switch[in][out%4] = packet_info_out[2:0];
       reg write_info;
 
-      fifo_4x32 Fifo_Info(
+      fifo_4x128 Fifo_Info(
           .rst(~PortActive[out%4]),
           .wr_clk(RxClk[in]),
           .wr_en(write_info),
@@ -594,10 +594,6 @@ for (in = 0; in < 4; in = in+1) begin : fifo_loop_in
           .empty(fifo_info_empty[in][out%4])
       );
 
-      reg fifo_info_overflow;
-      //assign fifo_not_ready = fifo_full[in][out%4] | fifo_overflow | fifo_info_overflow;
-      assign fifo_not_ready = 1'b0;  // TODO
-
       always @(posedge RxClk[in])
       begin
 
@@ -608,56 +604,37 @@ for (in = 0; in < 4; in = in+1) begin : fifo_loop_in
           end
 `endif
 
-          // Make sure write_info is only asserted for one clock cycle
-          write_info <= 1'b0;
+          // Make sure force_last_byte only asserted for one clock cycle, and only once per packet.
+          // It should only be asserted when the packet was truncated due to fifo_overflow.
+          // Note that asserting force_last_byte causes write_info to be asserted on the next clock,
+          // which then causes fifo_overflow to be cleared on the following clock.
+          force_last_byte <= (~RxFwd) & fifo_overflow & (~fifo_full[in][out%4]) & (~force_last_byte) & (~write_info);
+
+          // write_info should only be asserted for one clock cycle, and only once per packet.
+          // Once it is asserted, we can clear fifo_overflow
+          write_info <= (RxFwd & isLastByteIn & (~fifo_overflow) & (~drop_packet)) | force_last_byte;
+
+          if (write_info) fifo_overflow <= 1'b0;
+
+          if (RxFwd) begin
+              // Drop packet if first byte and either FIFO is full, or if fifo_overflow is set,
+              // which indicates we are still handling a truncated packet
+              if (isFirstByteIn)
+                  drop_packet <= fifo_full[in][out%4] | fifo_info_full[in][out%4] | (fifo_overflow & (~write_info));
+              else if (fifo_full[in][out%4] & (~drop_packet))
+                  fifo_overflow <= 1'b1;
+          end
 
 `ifdef HAS_DEBUG_DATA
+          // Following also counts dropped packets
           if (isFirstByteIn & RxFwd) begin
               NumPacketFwd[in][out%4] <= NumPacketFwd[in][out%4] + 8'd1;
           end
+          if (fifo_overflow)
+              PacketTruncated[in][out%4] <= 1'b1;
+          if (drop_packet)
+              PacketDropped[in][out%4] <= 1'b1;
 `endif
-
-          // Check for FIFO overflow
-          if (RxFwd) begin
-              if (isFirstByteIn)
-                  drop_packet <= fifo_not_ready;
-              if (fifo_full[in][out%4])
-                  fifo_overflow <= 1'b1;
-              if (isLastByteIn) begin
-                  if (fifo_info_full[in][out%4])
-                      fifo_info_overflow <= 1'b1;
-                  else
-                      write_info <= 1'b1;
-              end
-          end
-          else if (fifo_overflow) begin
-              // If there was an overflow, wait to store last byte
-              if (force_last_byte) begin
-`ifdef HAS_DEBUG_DATA
-                  PacketTruncated[in][out%4] <= 1'b1;
-`endif
-                  force_last_byte <= 1'b0;
-                  fifo_overflow <= 1'b0;
-                  if (~fifo_info_overflow)
-                      write_info <= 1'b1;
-              end
-              else if (~fifo_full[in][out%4]) begin
-                  force_last_byte <= 1'b1;
-              end
-          end
-          else if (fifo_info_overflow) begin
-             if (~fifo_info_full[in][out%4]) begin
-                 write_info <= 1'b1;
-                 fifo_info_overflow <= 1'b0;
-              end
-          end
-          else begin
-`ifdef HAS_DEBUG_DATA
-              if (drop_packet)
-                  PacketDropped[in][out%4] <= 1'b1;
-`endif
-              drop_packet <= 1'b0;
-          end
       end
 
       // Data is available immediately for a fast in-port, or when the packet has been queued by a slow in-port
