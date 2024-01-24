@@ -112,8 +112,7 @@ assign ethInternalError = 1'b0;
 localparam
     ST_RX_IDLE          = 2'd0,
     ST_RX_FRAME         = 2'd1,
-    ST_RX_WAIT_INFO     = 2'd2,
-    ST_RX_WAIT_SEND     = 2'd3;
+    ST_RX_WAIT_SEND     = 2'd2;
 
 reg[1:0] rxState = ST_RX_IDLE;
 
@@ -121,15 +120,13 @@ reg[1:0] waitCnt;
 
 reg[11:0] recv_nbytes;    // Number of bytes received (not including preamble)
 
-wire curPacketValid;      // Whether current packet is valid (passed CRC check)
-assign curPacketValid = (PacketInfo == 4'b1000) ? 1'b1 : 1'b0;
+wire curPacketValid;      // Whether current packet is valid
+assign curPacketValid = 1'b1;  // TODO
 
 reg recvNotReady;         // 1 -> EthernetIO not ready (error)
 
 `ifdef HAS_DEBUG_DATA
 reg[7:0] numRecv;
-reg[11:0] recv_nbytes_info;
-reg[3:0] PacketInfo_Latched;
 `endif
 
 assign RxClk = clk;
@@ -162,7 +159,6 @@ begin
                 // Leave PortReady set so that first byte
                 // is read on next clock
 `ifdef HAS_DEBUG_DATA
-                recv_nbytes_info <= 12'd0;
                 numRecv <= numRecv + 8'd1;
 `endif
             end
@@ -191,10 +187,6 @@ begin
             end
         end
         else begin
-`ifdef HAS_DEBUG_DATA
-            if (PacketInfo[3] && (recv_nbytes_info == 12'd0))
-                recv_nbytes_info <= recv_nbytes;
-`endif
             recvReady <= 1'b0;
             waitCnt <= waitCnt - 2'd1;
             if (waitCnt == 2'd2)
@@ -210,29 +202,19 @@ begin
                     recv_word[7:0] <= 8'd0;
                     recvReady <= recvBusy;
                 end
-                rxState <= ST_RX_WAIT_INFO;
-            end
-        end
-    end
-
-    ST_RX_WAIT_INFO:
-    begin
-        if (PacketInfo[3]) begin
-            // curPacketValid is based on PacketInfo
-`ifdef HAS_DEBUG_DATA
-            PacketInfo_Latched <= PacketInfo;
-            if (recv_nbytes_info == 12'd0)
-                recv_nbytes_info <= 12'hfff;
-`endif
-            rxState <= ST_RX_IDLE;
-            if (curPacketValid & responseRequired) begin
-                if (sendBusy) begin
-                    // Don't accept new packets if send request is pending
-                    PortReady <= 1'b0;
-                    rxState <= ST_RX_WAIT_SEND;
+                if (curPacketValid & responseRequired) begin
+                    if (sendBusy) begin
+                        // Don't accept new packets if send request is pending
+                        PortReady <= 1'b0;
+                        rxState <= ST_RX_WAIT_SEND;
+                    end
+                    else begin
+                        sendRequest <= 1'b1;
+                        rxState <= ST_RX_IDLE;
+                    end
                 end
                 else begin
-                    sendRequest <= 1'b1;
+                    rxState <= ST_RX_IDLE;
                 end
             end
         end
@@ -308,7 +290,7 @@ begin
         send_cnt <= 16'd0;
         tx_cnt <= 3'd0;
         TxEn <= 1'b0;
-        DataReady <= 1'b0;
+        DataReady <= 1'b1;
         if (resetActive) begin
             txStateError <= 1'b0;
         end
@@ -320,7 +302,6 @@ begin
     ST_TX_PREAMBLE:
     begin
         TxEn <= 1'b1;
-        DataReady <= 1'b1;
         if (tx_cnt == 3'd7) begin
             sendReady <= 1'b1;
             txState <= ST_TX_SEND;
@@ -417,7 +398,7 @@ assign DebugData[0] = "3GBD";   // DBG3 byte-swapped
 assign DebugData[1] = { sendBusy, sendRequest, rxState,                // 31:28
                         1'd0, recvNotReady, recvReady, PortReady,      // 27:24
                         numRecv, 4'd0, recv_nbytes};
-assign DebugData[2] = { PacketInfo_Latched, recv_nbytes_info, 3'd0, txStateError, 1'd0, txState, numTxSent };
+assign DebugData[2] = { responseByteCount, 3'd0, txStateError, responseRequired, txState, numTxSent };
 assign DebugData[3] = 32'd0;
 
 assign reg_rdata = (reg_raddr[7:4] == 4'ha) ? DebugData[reg_raddr[1:0]] : 32'd0;
