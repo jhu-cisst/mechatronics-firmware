@@ -451,6 +451,8 @@ assign UDP_Length = PacketBuffer[ID_UDP_Length];
 wire isPortValid;
 assign isPortValid = (PacketBuffer[ID_UDP_destPort] == 16'd1394) ? 1'd1 : 1'd0;
 
+reg[15:0] Port_Unknown;
+
 //********************************* ICMP Header ***************************************
 // Data received in ICMP Echo packet (ping)
 // ICMP packet usually has additional data, with length given by IPv4_Length-20-12
@@ -669,7 +671,7 @@ assign DebugData[6]  = { 6'd0, numUDP, 6'd0, numIPv4 };                    // 6,
 assign DebugData[7]  = { 8'd0, numICMP, fw_bus_gen, numARP };              // 8, 8, 8, 8
 assign DebugData[8]  = { 7'd0, bw_left, bw_err, 4'd0, bwState, numPacketError };   // 7, 9, 1, 4, 3, 8
 assign DebugData[9]  = { 7'd0, fw_left, fw_err, 7'd0, fw_wait_cnt };
-assign DebugData[10] = 32'd0;
+assign DebugData[10] = {16'd0, Port_Unknown };
 assign DebugData[11] = 32'd0;
 assign DebugData[12] = 32'd0;
 assign DebugData[13] = 32'd0;
@@ -1006,8 +1008,13 @@ begin
          end
          else if ((recvCnt == ID_UDP_End) && isUDP) begin
             if (!isPortValid) begin
-               ethUDPError <= 1'd1;
-               numPacketError <= numPacketError + 8'd1;
+               // Port 1534 is used by tcf-agent, which is enabled by default in Petalinux;
+               // thus, we just ignore it and do not consider it an unexpected UDP port.
+               if (PacketBuffer[ID_UDP_destPort] != 16'd1534) begin
+                   ethUDPError <= 1'd1;
+                   numPacketError <= numPacketError + 8'd1;
+                   Port_Unknown <= PacketBuffer[ID_UDP_destPort];
+               end
                nextRecvState <= ST_RECEIVE_DMA_IDLE;
             end
             else begin

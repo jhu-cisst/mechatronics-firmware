@@ -325,9 +325,9 @@ begin
         else if (sendValid) begin
             send_cnt <= send_cnt + 16'd1;
             if (~send_cnt[0])
-                TxD <= send_word[7:0];    // even byte
+                TxD <= send_word[15:8];    // even byte
             else
-                TxD <= send_word[15:8];   // odd byte
+                TxD <= send_word[7:0];     // odd byte
             sendValid <= 1'b0;
             sendEnable <= 1'b1;
             DataReady <= 1'b0;

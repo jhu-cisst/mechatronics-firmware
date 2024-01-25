@@ -207,8 +207,9 @@ reg  fifo_underflow_latched[0:3][0:3];
 // indexed by [out]
 wire fifo_data_read[0:3];
 
-wire[7:0] RxD_Int[0:3];      // RxD output of internal Rx FIFO
-wire      RxValid_Int[0:3];  // Whether internal Rx FIFO has valid data
+wire[7:0] RxD_Int[0:3];       // RxD output of internal Rx FIFO
+wire      RxValid_Int[0:3];   // Whether internal Rx FIFO has valid data
+wire      DataReady_Int[0:3]; // Mask for RxValid provided by client
 
 reg FifoActive[0:3][0:3];    // Whether the switch FIFO is active
 
@@ -337,12 +338,13 @@ for (in = 0; in < 4; in = in + 1) begin : fifo__int_loop
   // Note that RxValid_Fifo is 1 bit longer to identify transitions.
   reg[111:0] RxD_Fifo;      // (14*8-1)
   reg[14:0]  RxValid_Fifo;
+  reg[13:0]  DataReady_Fifo;
   reg[13:0]  RxErr_Fifo;
 
   wire isFirstByteIn;
   wire isLastByteIn;
-  assign isFirstByteIn = (~RxValid_Fifo[14])&RxValid_Fifo[13];
-  assign isLastByteIn = RxValid_Fifo[13]&(~RxValid_Fifo[12]);
+  assign isFirstByteIn = (~RxValid_Fifo[14]) & (RxValid_Fifo[13]);
+  assign isLastByteIn = (RxValid_Fifo[13]) & (~RxValid_Fifo[12]);
 
   // First 14 bytes of Ethernet frame (not including preamble)
   reg[7:0] frame_header[0:13];
@@ -376,11 +378,10 @@ for (in = 0; in < 4; in = in + 1) begin : fifo__int_loop
 
   always @(posedge RxClk[in])
   begin
-      if (DataReady[in]) begin
-          RxD_Fifo <= { RxD_Fifo[103:0], RxD[in] };
-          RxValid_Fifo <= { RxValid_Fifo[13:0], RxValid[in] };
-          RxErr_Fifo <= { RxErr_Fifo[12:0], RxErr[in] };
-      end
+      RxD_Fifo <= { RxD_Fifo[103:0], RxD[in] };
+      RxValid_Fifo <= { RxValid_Fifo[13:0], RxValid[in] };
+      DataReady_Fifo <= { DataReady_Fifo[12:0], DataReady[in] };
+      RxErr_Fifo <= { RxErr_Fifo[12:0], RxErr[in] };
 
       if ((in == INDEX_ETH1) || (in == INDEX_ETH2)) begin
           // If Eth1 or Eth2 not active, reset forwarding database
@@ -484,6 +485,7 @@ for (in = 0; in < 4; in = in + 1) begin : fifo__int_loop
 
   assign RxD_Int[in] = RxD_Fifo[111:104];
   assign RxValid_Int[in] = RxValid_Fifo[13];
+  assign DataReady_Int[in] = DataReady_Fifo[13];
 
   assign RxSt[in] = isFirstByteIn ? 2'b01 :
                     isLastByteIn ? 2'b10 :
@@ -548,7 +550,7 @@ for (in = 0; in < 4; in = in+1) begin : fifo_loop_in
       // write_fifo controls whether data is written to the FIFO. If packet was truncated due to fifo_overflow,
       // we stop storing the packet, unless force_last_byte is set.
       wire write_fifo;
-      assign write_fifo = (~fifo_full[in][out%4]) & (~drop_packet) & ((RxFwd & (~fifo_overflow)) | force_last_byte);
+      assign write_fifo = (~fifo_full[in][out%4]) & (~drop_packet) & ((RxFwd & (~fifo_overflow) & DataReady_Int[in]) | force_last_byte);
       // write_info controls when data is written to the info FIFO
       reg write_info;
 
@@ -609,7 +611,7 @@ for (in = 0; in < 4; in = in+1) begin : fifo_loop_in
           if (RxFwd) begin
               // Drop packet if first byte and either FIFO is full or fifo_overflow is set,
               // which indicates we are still handling a truncated packet
-              if (isFirstByteIn) begin
+              if (isFirstByteIn & DataReady_Int[in]) begin
                   if (fifo_full[in][out%4] | fifo_info_full[in][out%4] | fifo_overflow)
                       drop_packet <= 1'b1;
                   else begin
@@ -618,7 +620,7 @@ for (in = 0; in < 4; in = in+1) begin : fifo_loop_in
                           write_info <= 1'b1;
                   end
               end
-              else if (~drop_packet) begin
+              else if ((~drop_packet) & DataReady_Int[in]) begin
                   if (isLastByteIn) begin
                       // Do not need to check if fifo_info_full because we already checked
                       // when processing the first byte (and dropped the packet if full)
@@ -641,7 +643,7 @@ for (in = 0; in < 4; in = in+1) begin : fifo_loop_in
 
 `ifdef HAS_DEBUG_DATA
           // Following also counts dropped packets
-          if (isFirstByteIn & RxFwd) begin
+          if (isFirstByteIn & RxFwd & DataReady_Int[in]) begin
               NumPacketFwd[in][out%4] <= NumPacketFwd[in][out%4] + 8'd1;
           end
           if (fifo_overflow)
