@@ -454,6 +454,7 @@ assign Eth_IRQn[2] = E2_IRQn;
 // Note that the eth_status_io bits are intermingled for backward
 // compatible bit assignments.
 wire eth_port;                   // Current ethernet port (from EthSwitchRt)
+assign eth_port = 1'b0;          // TODO: no longer used
 wire[7:0] eth_status_phy[1:2];   // Status bits for Ethernet ports 1 and 2
 wire[7:0] eth_status_io;         // Status bits from EthernetIO
 assign Eth_Result = { 2'b01, eth_port, eth_status_io[7:3],                   // 31:24
@@ -800,10 +801,10 @@ EthRtInterface eth_rti(
     .sendBusy(eth_sendBusy),          // To KSZ8851
     .sendReady(eth_sendReady),        // Request EthernetIO to provide next send_word
     .send_word(eth_send_word),        // Word to send via Ethernet (SDRegDWR for KSZ8851)
+    .timestamp(timestamp),            // Timestamp input
     .timeReceive(eth_time_recv),      // Time when receive portion finished
     .timeNow(eth_time_now),           // Running time counter since start of packet receive
     .bw_active(eth_bw_active),        // Indicates that block write module is active
-    .curPort(eth_port),               // Current Ethernet port
     .eth_InternalError(eth_InternalError)
 );
 

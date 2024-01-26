@@ -112,7 +112,7 @@ module EthernetIO
     input wire[15:0] recv_word,      // Word received via Ethernet (`SDSwapped for KSZ8851)
     // Ethernet send
     input wire sendRequest,          // Request EthernetIO to get ready to start sending
-    output reg sendBusy,             // To KSZ8851
+    output reg sendBusy,             // To KSZ8851 or EthRtInterface
     input wire sendReady,            // Request EthernetIO to provide next send_word
     output reg[15:0] send_word,      // Word to send via Ethernet (SDRegDWR for KSZ8851)
     // Timing measurements
