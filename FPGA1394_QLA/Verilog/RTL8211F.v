@@ -61,15 +61,14 @@ module RTL8211F
     output wire[7:0] eth_status,      // Ethernet status bits
     output reg hasIRQ,                // 1 -> PHY IRQn available (FPGA V3.1+)
 
-    // Interface to EthSwitch
-    output reg initOK,                // 1 -> Initialization successful
-
     output reg clearErrors            // Clear error flags
 );
 
 initial RSTn = 1'b1;
 
 initial MDIO_T = 1'b1;
+
+reg initOK;                 // 1 -> Initialization successful
 
 // ----------------------------------------------------------------------------
 // MDIO (management) interface

@@ -19,10 +19,20 @@ module VirtualPhy(
     input  wire mdio_t,   // mdio_t from PS
     input  wire mdc,      // mdc (clock) from PS
 
+    input  wire ctrl_wen,         // write to Ethernet control register
+    input  wire[31:0] reg_wdata,  // write data
+
+    output reg  link_on,          // whether link is on
+
     // For debugging
     input  wire[15:0] reg_raddr,   // read address
     output wire[31:0] reg_rdata    // register read data
 );
+
+always @(posedge ctrl_wen)
+begin
+    if (reg_wdata[25]) link_on <= reg_wdata[16];
+end
 
 // Default register values (obtained by reading RTL8211F when cable connnected)
 // Changed PHYID1 and PHYID2 to use JHU LCSR CID (FA:61:0E), so that Linux will use
@@ -30,7 +40,7 @@ module VirtualPhy(
 // PHYID2 also specifies a model number of 1 and a revision of 0.
 wire [15:0] regValue[0:15];
 assign regValue[0]  = 16'h1040;    // BMCR: 1GB link
-assign regValue[1]  = 16'h79ad;    // BMSR: AN complete, link on
+assign regValue[1]  = { 12'h79a, 1'b1, link_on, 2'b01 }; // BMSR: AN complete, link on/off
 assign regValue[2]  = 16'h7e19;    // PHYID1 (JHU LCSR)
 assign regValue[3]  = 16'hc010;    // PHYID2 (JHU LCSR)
 assign regValue[4]  = 16'h09e1;    // ANAR

@@ -33,7 +33,6 @@ module EthRtInterface
     input  wire[15:0] reg_raddr,      // read address
     output wire[31:0] reg_rdata,      // register read data
 
-    input wire resetActive,
     input wire clearErrors,           // Clear error flags
 
     output reg PortReady,          // 1 -> ready to receive input data
@@ -122,7 +121,7 @@ reg[7:0] numRecv;
 always @(posedge clk)
 begin
 
-    if (resetActive | clearErrors) begin
+    if (clearErrors) begin
         recvNotReady <= 1'b0;
     end
 
@@ -290,7 +289,7 @@ begin
         tx_cnt <= 3'd0;
         TxEn <= 1'b0;
         DataReady <= 1'b1;
-        if (resetActive) begin
+        if (clearErrors) begin
             txStateError <= 1'b0;
         end
         if (sendReq) begin
@@ -382,7 +381,7 @@ begin
 end
 
 // Error bit provided to EthernetIO (reported back to PC in ExtraData)
-assign ethInternalError = recvNotReady | txStateError;
+assign eth_InternalError = recvNotReady | txStateError;
 
 `ifdef HAS_DEBUG_DATA
 wire[31:0] DebugData[0:3];

@@ -100,7 +100,7 @@ module EthernetIO
     // Timestamp
     input wire[31:0] timestamp,
 
-    // Interface to KSZ8851 or EthSwitchRt (2 x RTL8211F)
+    // Interface to KSZ8851 or EthRtInterface
     input wire resetActive,          // Indicates that reset is active
     input wire isForward,            // Indicates that FireWire receiver is forwarding to Ethernet
     output wire responseRequired,    // Indicates that the received packet requires a response
@@ -121,7 +121,8 @@ module EthernetIO
     // Feedback bits
     output reg bw_active,            // Indicates that block write module is active
     input wire ethLLError,           // Error summary bit to EthernetIO (from low-level)
-    output wire[7:0] eth_status      // Status feedback
+    output wire[7:0] eth_status,     // Status feedback
+    output reg clearErrors           // Flag set by host to clear error bits and counters
 );
 
 `define send_word_swapped {send_word[7:0], send_word[15:8]}
@@ -196,9 +197,6 @@ reg fwPacketDropped;
 // This is done when a packet is dropped.
 wire sendExtra;
 assign sendExtra = fwPacketDropped;
-
-// Flag set by host to clear error bits and counters
-reg clearErrors;
 
 reg[11:0] txPktWords;  // Num of words sent
 

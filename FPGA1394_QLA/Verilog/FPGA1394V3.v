@@ -453,7 +453,7 @@ assign Eth_IRQn[2] = E2_IRQn;
 //    7:0    (8 bits)  Port 1 status
 // Note that the eth_status_io bits are intermingled for backward
 // compatible bit assignments.
-wire eth_port;                   // Current ethernet port (from EthSwitchRt)
+wire eth_port;                   // Current ethernet port
 assign eth_port = 1'b0;          // TODO: no longer used
 wire[7:0] eth_status_phy[1:2];   // Status bits for Ethernet ports 1 and 2
 wire[7:0] eth_status_io;         // Status bits from EthernetIO
@@ -506,8 +506,12 @@ wire eth_fast[1:2];             // Whether Eth1, Eth2 are fast (1 GB)
 assign eth_fast[1] = link_speed[1][1]&(~link_speed[1][0]);   // 2'b10 --> 1 GB
 assign eth_fast[2] = link_speed[2][1]&(~link_speed[2][0]);   // 2'b10 --> 1 GB
 
-wire       eth_active[1:2];     // Whether link is on
+wire       eth_active[1:2];     // Whether Eth1, Eth2 link is on
+wire       eth_active_ps;       // Whether PS Ethernet enabled
+
 wire[1:0]  link_speed[1:2];     // Link speed
+
+wire       eth_clear_errors;    // Clear EthernetIO and EthRtInterface errors
 
 wire       recv_ready_rt;       // Whether RT ready for input data from switch
 wire       data_ready_rt;       // Whether RT providing valid data to switch
@@ -545,7 +549,7 @@ EthSwitch eth_switch (
     .P1_TxErr(gmii_tx_err[2]),       // Port1 transmit error
 
     // Port2: PS
-    .P2_Active(1'b1),                // Port2 active (e.g., link on)
+    .P2_Active(eth_active_ps),       // Port2 active (e.g., link on)
     .P2_Fast(1'b1),                  // Port2 always fast (1 GB)
     .P2_RecvReady(1'b1),             // Port2 client ready for data
     .P2_DataReady(1'b1),             // Port2 data always ready with RxValid
@@ -575,7 +579,9 @@ EthSwitch eth_switch (
 
     .board_id(board_id),             // Board ID (for MAC addresses)
 
-    .clearErrors(rt_clear_errors[1]|rt_clear_errors[2]),
+    // TODO: Define a separate bit for clearing EthSwitch errors
+    // For now, uses clearErrors from EthernetIO
+    .clearErrors(eth_clear_errors),
 
     // For debugging
     .reg_raddr(reg_raddr),           // read address
@@ -586,24 +592,16 @@ EthSwitch eth_switch (
 
 wire       mdio_o_rt[1:2];      // OUT from RTL8211F module
 wire       mdio_o_ps;           // OUT from Zynq PS
-wire       mdio_o[1:2];         // IN to GMII core (or PHY)
+wire       mdio_i_rt[1:2];      // IN to RTL8211F module, OUT from GMII core
 wire       mdio_i_ps;           // IN to Zynz PS, OUT from VirtualPhy
-wire       mdio_i[1:2];         // IN to RTL8211F module, OUT from GMII core (or PHY)
 wire       mdio_t_rt[1:2];      // OUT from RTL8211F module (tristate control)
 wire       mdio_t_ps;           // OUT from Zynq PS (tristate control)
-wire       mdio_t[1:2];         // OUT from RTL8211F module (tristate control)
 wire       mdio_busy_rt[1:2];   // OUT from RTL8211F module (MDIO busy)
-wire       mdio_clk_rt[1:2];    // OUT from RTL8211F module, IN to GMII core (or PHY)
-wire       mdio_clk_ps;         // OUT from Zynq PS
-wire       mdio_clk[1:2];       // IN to GMII core (or PHY)
-
-// Wires between RTL8211F and EthSwitchRt
-wire       initOK[1:2];
-wire       rt_clear_errors[1:2];
+wire       mdio_clk_rt[1:2];    // OUT from RTL8211F module, IN to GMII core
+wire       mdio_clk_ps;         // OUT from Zynq PS, IN to VirtualPhy
 
 // Wires between EthSwitchRt and EthernetIO
 wire resetActive_e[1:2];        // Ethernet port reset active
-wire eth_resetActive;           // Indicates that Ethernet reset is active
 wire eth_isForward;             // Indicates that FireWire receiver is forwarding to Ethernet
 wire eth_responseRequired;      // Indicates that the received packet requires a response
 wire[15:0] eth_responseByteCount;   // Number of bytes in required response
@@ -656,7 +654,7 @@ for (k = 1; k <= 2; k = k + 1) begin : eth_loop
         .resetActive(resetActive_e[k]),  // Indicates that reset is active
 
         .MDC(mdio_clk_rt[k]),     // Clock to GMII core (and RTL8211F PHY)
-        .MDIO_I(mdio_i[k]),       // IN to RTL8211F module, OUT from GMII core
+        .MDIO_I(mdio_i_rt[k]),    // IN to RTL8211F module, OUT from GMII core
         .MDIO_O(mdio_o_rt[k]),    // OUT from RTL8211F module, IN to GMII core
         .MDIO_T(mdio_t_rt[k]),    // Tristate signal from RTL8211F module
         .mdioBusy(mdio_busy_rt[k]), // OUT from RTL8211F module
@@ -669,41 +667,8 @@ for (k = 1; k <= 2; k = k + 1) begin : eth_loop
 
         // Feedback bits
         .eth_status(eth_status_phy[k]),        // Ethernet status bits
-        .hasIRQ(hasIRQ_e[k]),                  // Whether IRQ is connected (FPGA V3.1+)
-
-        // Interface to EthSwitchRt
-        .initOK(initOK[k]),
-
-        .clearErrors(rt_clear_errors[k])                 // request to clear errors
+        .hasIRQ(hasIRQ_e[k])                   // Whether IRQ is connected (FPGA V3.1+)
     );
-
-    // TODO: Update this comment
-    //
-    // MDIO Signal routing
-    //
-    // MDIO_I:  Output from gmii_to_rgmii core, input to PS and PL ethernet
-    //   Zynq PS: ENETn_MDIO_I (fpgav3.v, input)  \
-    //                                             <--En_MDIO_I-- gmii..n_MDIO_I (fpgav3.v, output)
-    //   Zynq PL: MDIO_I (RTL8211F.v, input)      /
-    //
-    // MDIO_O:  Output from PS and PL ethernet, mux input to gmii_to_rgmii core
-    //   Zynq PS: ENETn_MDIO_O (fpgav3.v, output) --En_mdio_o_ps--> \
-    //                                                               (mux) --mdio_o--> gmii..n_MDIO_O (fpgav3.v, input)
-    //   Zynq PL: MDIO_O (RTL8211F.v, output)     --En_mdio_o_rt--> /
-    //
-    // MDIO_T:  Output from PS and PL ethernet, mux input to gmii_to_rgmii core
-    //   Same routing as MDIO_O
-    //
-    // MDIO_CLK: Output from PS and PL ethernet, mux input to gmii_to_rgmii core
-    //   Same routing as MDIO_O
-    //
-    // MUXes for MDIO_O, MDIO_T and MDIO_CLK
-    //   - PS has MDIO access by default (if ps_eth_enable); RT (PL) gets access when needed.
-    //   - Right now, there is no check for collisions on the MDIO bus.
-    //   - The PL and PS MDIO clocks are not synchronized.
-    assign mdio_clk[k] = mdio_clk_rt[k];
-    assign mdio_o[k] = mdio_o_rt[k];
-    assign mdio_t[k] = mdio_t_rt[k];
 
 end
 endgenerate
@@ -716,6 +681,10 @@ VirtualPhy VPhy(
     .mdio_o(mdio_o_ps),      // mdio_o from PS
     .mdio_t(mdio_t_ps),      // mdio_t from PS
     .mdc(mdio_clk_ps),       // mdc (clock) from PS
+
+    .ctrl_wen(eth_ctrl_wen),
+    .reg_wdata(reg_wdata),
+    .link_on(eth_active_ps),
 
     // For debugging
     .reg_raddr(reg_raddr),      // read address
@@ -766,9 +735,7 @@ EthRtInterface eth_rti(
     .reg_raddr(reg_raddr),
     .reg_rdata(reg_rdata_rti),
 
-    // Debugging
-    .resetActive(resetActive_e[1]|resetActive_e[2]),
-    .clearErrors(rt_clear_errors[1]|rt_clear_errors[2]),
+    .clearErrors(eth_clear_errors),
 
     .PortReady(recv_ready_rt),
     .DataReady(data_ready_rt),
@@ -807,8 +774,6 @@ EthRtInterface eth_rti(
     .bw_active(eth_bw_active),        // Indicates that block write module is active
     .eth_InternalError(eth_InternalError)
 );
-
-assign eth_resetActive = resetActive_e[2];
 
 // address decode for IP address access
 wire   ip_reg_wen;
@@ -871,8 +836,8 @@ EthernetTransfers(
     // Timestamp
     .timestamp(timestamp),
 
-    // Interface to EthSwitchRt
-    .resetActive(eth_resetActive),    // Indicates that reset is active
+    // Interface to EthRtInterface
+    .resetActive(1'b0),               // Indicates that reset is active (not used for FPGA V3)
     .isForward(eth_isForward),        // Indicates that FireWire receiver is forwarding to Ethernet
     .responseRequired(eth_responseRequired),   // Indicates that the received packet requires a response
     .responseByteCount(eth_responseByteCount), // Number of bytes in required response
@@ -888,7 +853,8 @@ EthernetTransfers(
     .timeNow(eth_time_now),           // Running time counter since start of packet receive
     .bw_active(eth_bw_active),        // Indicates that block write module is active
     .ethLLError(eth_InternalError),   // Error summary bit to EthernetIO
-    .eth_status(eth_status_io)        // EthernetIO status register
+    .eth_status(eth_status_io),       // EthernetIO status register
+    .clearErrors(eth_clear_errors)    // Clear Ethernet errors
 );
 
 
@@ -992,15 +958,15 @@ fpgav3 zynq_ps7(
     .gmii_to_rgmii_1_gmii_rx_dv_pin(gmii_rx_dv[1]),
     .gmii_to_rgmii_1_gmii_rx_er_pin(gmii_rx_err[1]),
     .gmii_to_rgmii_1_gmii_rx_clk_pin(gmii_rx_clk[1]),
-    .gmii_to_rgmii_1_MDIO_MDC_pin(mdio_clk[1]),       // MDIO clock from RTL8211F module or Zynq PS
-    .gmii_to_rgmii_1_MDIO_I_pin(mdio_i[1]),           // OUT from GMII core, IN to RTL8211F module or Zynq PS
-    .gmii_to_rgmii_1_MDIO_O_pin(mdio_o[1]),           // IN to GMII core, OUT from RTL8211F module or Zynq PS
-    .gmii_to_rgmii_1_MDIO_T_pin(mdio_t[1]),           // Tristate control from RTL8211F module or Zynq PS
+    .gmii_to_rgmii_1_MDIO_MDC_pin(mdio_clk_rt[1]),    // MDIO clock from RTL8211F module
+    .gmii_to_rgmii_1_MDIO_I_pin(mdio_i_rt[1]),        // OUT from GMII core, IN to RTL8211F module
+    .gmii_to_rgmii_1_MDIO_O_pin(mdio_o_rt[1]),        // IN to GMII core, OUT from RTL8211F module
+    .gmii_to_rgmii_1_MDIO_T_pin(mdio_t_rt[1]),        // Tristate control from RTL8211F module
     .gmii_to_rgmii_1_gmii_txd_pin(gmii_txd[1]),
     .gmii_to_rgmii_1_gmii_tx_en_pin(gmii_tx_en[1]),
     .gmii_to_rgmii_1_gmii_tx_clk_pin(gmii_tx_clk[1]),
     .gmii_to_rgmii_1_gmii_tx_er_pin(gmii_tx_err[1]),
-    .gmii_to_rgmii_1_MDC_pin(E1_MDIO_C),              // MDIO clock from GMII core (derived from mdio_clk[1])
+    .gmii_to_rgmii_1_MDC_pin(E1_MDIO_C),              // MDIO clock from GMII core (derived from mdio_clk_rt[1])
     .gmii_to_rgmii_1_clock_speed_pin(clock_speed[1]), // Clock speed (Rx)
     .gmii_to_rgmii_1_speed_mode_pin(speed_mode[1]),   // Speed mode (Tx)
 
@@ -1028,15 +994,15 @@ fpgav3 zynq_ps7(
     .gmii_to_rgmii_2_gmii_rx_dv_pin(gmii_rx_dv[2]),
     .gmii_to_rgmii_2_gmii_rx_er_pin(gmii_rx_err[2]),
     .gmii_to_rgmii_2_gmii_rx_clk_pin(gmii_rx_clk[2]),
-    .gmii_to_rgmii_2_MDIO_MDC_pin(mdio_clk[2]),       // MDIO clock from RTL8211F module
-    .gmii_to_rgmii_2_MDIO_I_pin(mdio_i[2]),           // OUT from GMII core, IN to RTL8211F module
-    .gmii_to_rgmii_2_MDIO_O_pin(mdio_o[2]),           // IN to GMII core, OUT from RTL8211F module
-    .gmii_to_rgmii_2_MDIO_T_pin(mdio_t[2]),           // Tristate control from RTL8211F module
+    .gmii_to_rgmii_2_MDIO_MDC_pin(mdio_clk_rt[2]),    // MDIO clock from RTL8211F module
+    .gmii_to_rgmii_2_MDIO_I_pin(mdio_i_rt[2]),        // OUT from GMII core, IN to RTL8211F module
+    .gmii_to_rgmii_2_MDIO_O_pin(mdio_o_rt[2]),        // IN to GMII core, OUT from RTL8211F module
+    .gmii_to_rgmii_2_MDIO_T_pin(mdio_t_rt[2]),        // Tristate control from RTL8211F module
     .gmii_to_rgmii_2_gmii_txd_pin(gmii_txd[2]),
     .gmii_to_rgmii_2_gmii_tx_en_pin(gmii_tx_en[2]),
     .gmii_to_rgmii_2_gmii_tx_clk_pin(gmii_tx_clk[2]),
     .gmii_to_rgmii_2_gmii_tx_er_pin(gmii_tx_err[2]),
-    .gmii_to_rgmii_2_MDC_pin(E2_MDIO_C),              // MDIO clock from GMII core (derived from mdio_clk[2])
+    .gmii_to_rgmii_2_MDC_pin(E2_MDIO_C),              // MDIO clock from GMII core (derived from mdio_clk_rt[2])
     .gmii_to_rgmii_2_clock_speed_pin(clock_speed[2]), // Clock speed (Rx)
     .gmii_to_rgmii_2_speed_mode_pin(speed_mode[2]),   // Speed mode (Tx)
 
