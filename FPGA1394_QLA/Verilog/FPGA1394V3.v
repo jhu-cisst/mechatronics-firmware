@@ -459,7 +459,7 @@ wire[7:0] eth_status_phy[1:2];   // Status bits for Ethernet ports 1 and 2
 wire[7:0] eth_status_io;         // Status bits from EthernetIO
 assign Eth_Result = { 2'b01, eth_port, eth_status_io[7:3],                   // 31:24
                       1'b0, eth_status_io[2], clk200_ok, eth_status_io[0],   // 23:20
-                      4'h0,                                                  // 19:16
+                      3'd0, eth_active_ps,                                   // 19:16
                       eth_status_phy[2], eth_status_phy[1] };                // 15:0
 
 // We detect FPGA V3.0 by checking whether the IRQ line is connected to the
