@@ -749,7 +749,7 @@ for (out = 0; out < 4; out = out + 1) begin : fifo_loop_mux
     assign fifo_data_read[out] = RecvReady[out] & ((~isLastByteOut)|force_first_byte) & (~fifo_empty[curInput][out]);
 
     assign TxD[out] = TxD_Switch[curInput][out];
-    assign TxErr[out] = (TxSt[out] == 2'b11) ? 1'b1 : 1'b0;
+    assign TxErr[out] = TxSt[out][0] & TxSt[out][1];   // TxErr if TxSt[out] == 2'b11
     assign TxEn[out] = fifo_valid[curInput][out];
 
 end

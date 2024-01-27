@@ -62,7 +62,7 @@ module EthRtInterface
     output reg recvRequest,           // Request EthernetIO to start receiving
     input wire recvBusy,              // From EthernetIO
     output reg recvReady,             // Indicates that recv_word is valid
-    output reg[15:0] recv_word,       // Word received via Ethernet (`SDSwapped for KSZ8851)
+    output reg[15:0] recv_word,       // Word received via Ethernet
     // Ethernet send
     output reg sendRequest,           // Request EthernetIO to start providing data to be sent
     input wire sendBusy,              // From EthernetIO
@@ -130,7 +130,7 @@ begin
 
     ST_RX_IDLE:
     begin
-        PortReady <= 1'b1;
+        PortReady <= ~sendBusy;
         recvReady <= 1'b0;
         sendResponse <= 1'b0;
         if (RxValid) begin
@@ -190,15 +190,10 @@ begin
                 end
                 if (curPacketValid & responseRequired) begin
                     timeReceive <= timeNow;
-                    if (sendBusy) begin
-                        // Don't accept new packets if send request is pending
-                        PortReady <= 1'b0;
-                        rxState <= ST_RX_WAIT_SEND;
-                    end
-                    else begin
-                        sendResponse <= 1'b1;
-                        rxState <= ST_RX_IDLE;
-                    end
+                    // Don't accept new packets until send completed
+                    PortReady <= 1'b0;
+                    sendResponse <= ~sendBusy;
+                    rxState <= ST_RX_WAIT_SEND;
                 end
                 else begin
                     rxState <= ST_RX_IDLE;
@@ -216,7 +211,7 @@ begin
         // Note that sendResponse is cleared in ST_RX_IDLE.
         if (sendResponse) begin
             if (sendBusy)
-              rxState <= ST_RX_IDLE;
+                rxState <= ST_RX_IDLE;
         end
         else if (~sendBusy) begin
             sendResponse <= 1'b1;
@@ -288,6 +283,7 @@ begin
         send_cnt <= 16'd0;
         tx_cnt <= 3'd0;
         TxEn <= 1'b0;
+        sendReady <= 1'b0;
         DataReady <= 1'b1;
         if (clearErrors) begin
             txStateError <= 1'b0;
@@ -312,13 +308,15 @@ begin
         if (tx_cnt == 3'd7) begin
             // Assume that sendBusy is set by now, so clear sendRequest
             sendRequest <= 1'b0;
-            sendReady <= 1'b1;
+            sendReady <= 1'b0;
             txState <= ST_TX_SEND;
             send_crc_in <= 32'hffffffff;    // Initialize CRC
             padding_cnt <= 6'd59;           // Minimum frame size is 64 (-4 for CRC)
             TxD <= 8'hd5;
         end
         else begin
+            if (tx_cnt == 3'd6)
+                sendReady <= 1'b1;
             tx_cnt <= tx_cnt + 3'd1;
             TxD <= 8'h55;
         end
@@ -334,7 +332,7 @@ begin
             TxD <= send_word_msb;      // odd byte
         end
         send_crc_in <= send_crc_8b;
-        sendReady <= send_cnt[0];
+        sendReady <= ~send_cnt[0];
         send_cnt <= send_cnt + 16'd1;
         if (padding_cnt != 6'd0)
             padding_cnt <= padding_cnt - 6'd1;

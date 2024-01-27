@@ -1361,19 +1361,14 @@ begin
          end
          else if (sendARP && !isForward) begin
             if (sendTransition) replyCnt <= ARP_Reply_Begin;
-            //nextSendState <= ST_SEND_DMA_ETHERNET_HEADERS;
          end
          else if (!(isUDP || isEcho || isForward)) begin
             // Raw packet
             nextSendState <= sendExtra ? ST_SEND_DMA_EXTRA : ST_SEND_DMA_PACKETDATA_HEADER;
          end
-         //else begin
-         //   nextSendState <= ST_SEND_DMA_ETHERNET_HEADERS;
-         //end
       end
       else if (replyCnt == IPv4_Reply_End) begin
          if (sendTransition) replyCnt <= isEcho ? ICMP_Reply_Begin : UDP_Reply_Begin;
-         //nextSendState <= ST_SEND_DMA_ETHERNET_HEADERS;
       end
       else if (replyCnt == UDP_Reply_End) begin
          if (isForward) begin
@@ -1392,9 +1387,6 @@ begin
          nextSendState <= ST_SEND_DMA_ICMP_DATA;
          icmp_read_en <= 1;
       end
-      //else begin
-      //   nextSendState <= ST_SEND_DMA_ETHERNET_HEADERS;
-      //end
    end
 
    ST_SEND_DMA_ICMP_DATA:
@@ -1406,8 +1398,6 @@ begin
       // sfw_count is in words, icmp_data_length is in bytes
       if (sfw_count[9:0] == icmp_data_length[10:1])
          nextSendState <= ST_SEND_DMA_FINISH;
-      //else
-      //   nextSendState <= ST_SEND_DMA_ICMP_DATA;
    end
 
    // Send first 6 words (3 quadlets), which are nearly identical between quadlet read response
@@ -1436,7 +1426,6 @@ begin
       else begin
          // stay in this state
          if (sendTransition) sfw_count <= sfw_count + 10'd1;
-         //nextSendState <= ST_SEND_DMA_PACKETDATA_HEADER;
       end
    end
 
@@ -1494,8 +1483,6 @@ begin
       send_word <= 16'd0;    // Checksum currently not set
       if (sfw_count[0] == 1)
          nextSendState <= ST_SEND_DMA_EXTRA;
-      //else
-      //   nextSendState <= ST_SEND_DMA_PACKETDATA_CHECKSUM;
    end
 
    ST_SEND_DMA_FWD:
@@ -1507,15 +1494,12 @@ begin
       // sfw_count is in words, sendLen is in bytes
       if (sfw_count == (sendLen[10:1]-10'd1))
          nextSendState <= ST_SEND_DMA_EXTRA;
-      //else
-      //   nextSendState <= ST_SEND_DMA_FWD;
    end
 
    ST_SEND_DMA_EXTRA:
    begin
       if (sendTransition) xcnt <= xcnt + 2'd1;
       `send_word_swapped <= ExtraData[xcnt];
-      //nextSendState <= (xcnt == 2'd3) ? ST_SEND_DMA_FINISH : ST_SEND_DMA_EXTRA;
       if (xcnt == 2'd3)
          nextSendState <= ST_SEND_DMA_FINISH;
    end
