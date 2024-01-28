@@ -61,7 +61,7 @@ module RTL8211F
     output wire[7:0] eth_status,      // Ethernet status bits
     output reg hasIRQ,                // 1 -> PHY IRQn available (FPGA V3.1+)
 
-    output reg clearErrors            // Clear error flags
+    output reg clearErrors            // Clear error flags  (TODO: No longer used)
 );
 
 initial RSTn = 1'b1;

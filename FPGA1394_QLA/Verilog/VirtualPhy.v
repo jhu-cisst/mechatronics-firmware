@@ -39,17 +39,17 @@ end
 // Generic PHY driver rather than RealTek RTL8211F driver.
 // PHYID2 also specifies a model number of 1 and a revision of 0.
 wire [15:0] regValue[0:15];
-assign regValue[0]  = 16'h1040;    // BMCR: 1GB link
-assign regValue[1]  = { 12'h79a, 1'b1, link_on, 2'b01 }; // BMSR: AN complete, link on/off
+assign regValue[0]  = 16'h1040;    // BMCR: 1GB link, auto-negotiation enabled
+assign regValue[1]  = { 12'h012, 1'b1, link_on, 2'b00 }; // BMSR: auto-negotiation complete, link on/off
 assign regValue[2]  = 16'h7e19;    // PHYID1 (JHU LCSR)
 assign regValue[3]  = 16'hc010;    // PHYID2 (JHU LCSR)
-assign regValue[4]  = 16'h09e1;    // ANAR
-assign regValue[5]  = 16'hcde1;    // ANLPAR
-assign regValue[6]  = 16'h006f;    // ANER
-assign regValue[7]  = 16'h2801;    // ANNPTR
-assign regValue[8]  = 16'h6001;    // ANNPRR
+assign regValue[4]  = 16'h0801;    // ANAR: asymmetric PAUSE, support IEEE 802.3
+assign regValue[5]  = 16'h0c01;    // ANLPAR (Partner Ability): also supports PAUSE
+assign regValue[6]  = 16'h0000;    // ANER
+assign regValue[7]  = 16'h0000;    // ANNPTR
+assign regValue[8]  = 16'h0000;    // ANNPRR
 assign regValue[9]  = 16'h0200;    // GBCR: advertise 1GB full-duplex
-assign regValue[10] = 16'h7c00;    // GBSR
+assign regValue[10] = 16'h7c00;    // GBSR: PHY is MASTER
 assign regValue[11] = 16'h0000;    //
 assign regValue[12] = 16'h0000;    //
 assign regValue[13] = 16'h0000;    // MACR
