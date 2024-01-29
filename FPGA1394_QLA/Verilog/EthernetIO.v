@@ -689,7 +689,7 @@ assign DebugData[3]  = { node_id, maxCountFW, LengthFW };                  // 6,
 assign DebugData[4]  = { fw_ctrl, host_fw_addr };                          // 16, 16
 assign DebugData[5]  = { sendState, txPktWords, nextSendState, 12'd0 };    // 4, 12, 4, 12 (rxPktWords)
 assign DebugData[6]  = { 6'd0, numUDP, 6'd0, numIPv4 };                    // 6, 10, 6, 10
-assign DebugData[7]  = { 8'd0, numICMP, fw_bus_gen, numARP };              // 8, 8, 8, 8
+assign DebugData[7]  = { br_wait_cnt, numICMP, fw_bus_gen, numARP };       // 8, 8, 8, 8
 assign DebugData[8]  = { 7'd0, bw_left, bw_err, 4'd0, bwState, numPacketError };   // 7, 9, 1, 4, 3, 8
 assign DebugData[9]  = { 7'd0, fw_left, fw_err, 7'd0, fw_wait_cnt };
 assign DebugData[10] = {16'd0, Port_Unknown };
@@ -741,8 +741,8 @@ reg mem_wen;   // memory write enable
 //               available for reading (for debugging)
 // These are 512 quadlets (512 x 32), which is the maximum possible Firewire packet size at 400 Mbits/sec
 // (actually, could add a few quadlets because the 512 limit does not include header and CRC).
-// The block write process is already set up to run in parallel with packet reception (see writeRequestTrigger).
-// This is not yet implemented for forwarding to Firewire (would be necessary to set eth_send_fw_req earlier).
+// The block write and Firewire forwarding processes are already set up to run in parallel with packet reception
+// (see writeRequestTrigger and fwRequestTrigger).
 hub_mem_gen fw_packet(.clka(sysclk),
                       .wea(mem_wen),
                       .addra(rfw_count[9:1]),
@@ -870,9 +870,6 @@ assign eth_reg_waddr[15:8] = reg_waddr[15:8];
 
 //*********************************************************************************
 
-wire timestamp_rd;
-assign timestamp_rd = (blk_rt_rd && (reg_raddr[7:0] == 8'd0)) ? 1'd1 : 1'd0;
-
 // Following signal indicates whether real-time block write
 assign blk_rt_wr = bwAddrMain & req_write_bus;
 
@@ -921,6 +918,10 @@ reg[5:0] recvCnt;       // Index into PacketBuffer
 reg[9:0] rfw_count;     // Counts words in FireWire packets (max is 1024 words, or 2048 bytes)
 reg[5:0] rebootCnt;     // Counter used to delay reboot command (could reuse recvCnt)
 
+reg br_request;         // Request block (or quadlet) read of registers into br_packet memory
+reg br_ack;             // Acknowledge br_request
+reg[7:0] br_wait_cnt;   // Number of clocks waiting for block read to finish
+
 assign responseRequired = ((FireWirePacketFresh && (quadRead || blockRead) && (isLocal || sendExtra))
                           || sendARP || isEcho) ? 1'b1 : 1'b0;
 
@@ -940,6 +941,10 @@ begin
 
    if (eth_send_fw_ack) begin
       eth_send_fw_req <= 0;
+   end
+
+   if (br_ack) begin
+      br_request <= 1'b0;
    end
 
    // req_blk_rt_rd is asserted for just one sysclk
@@ -977,6 +982,7 @@ begin
       recvBusy <= 0;
       writeRequestQuad <= 1'b0;
       writeRequestBlock <= 1'b0;
+      br_request <= 1'b0;
       eth_send_fw_req <= 0;
 
       if (resetActive|clearErrors) begin
@@ -1171,6 +1177,10 @@ begin
                   // otherwise the register writer may have overtaken the Ethernet reader.
                   bw_left <= bwEnd - local_raddr;
                end
+               else if (quadRead | blockRead) begin
+                  br_request <= 1'b1;
+                  br_wait_cnt <= 8'd0;
+               end
             end
             if (isRemote) begin
                // Request to forward should already have been set (using fwRequestTrigger).
@@ -1202,6 +1212,10 @@ begin
       if (eth_send_fw_req | eth_send_fw_ack) begin
          // Waiting for Ethernet forward to finish
          fw_wait_cnt <= fw_wait_cnt + 8'd1;
+      end
+      else if (br_request | br_ack) begin
+         // Wait until read from registers finished
+         br_wait_cnt <= br_wait_cnt + 8'd1;
       end
       else begin
 `ifdef HAS_DEBUG_DATA
@@ -1278,6 +1292,10 @@ reg[3:0] nextSendState = ST_SEND_DMA_IDLE;
 
 reg sendTransition;
 
+// Accessing br_packet memory
+reg[8:0] br_addr_out;
+wire[31:0] br_data_out;
+
 reg[9:0] sfw_count;     // Counts words in FireWire packets (max is 1024 words, or 2048 bytes)
 reg[1:0] xcnt;          // Counts words in extra packet
 
@@ -1315,7 +1333,6 @@ begin
    ST_SEND_DMA_IDLE:
    begin
       sendBusy <= 0;
-      req_read_bus <= 0;
       icmp_read_en <= 0;
       txPktWords <= 12'd0;
       sfw_count <= 10'd0;
@@ -1431,16 +1448,15 @@ begin
    ST_SEND_DMA_PACKETDATA_HEADER:
    begin
       send_word <= Firewire_Header_Reply[sfw_count[3:0]];
-      req_read_bus <= quadRead | blockRead;         // Request access to read bus
       if ((sfw_count[3:0] == 4'd5) && quadRead) begin
-         reg_raddr <= fw_dest_offset;
+         br_addr_out <= 9'd0;
          // Get ready to read data from the board.
          if (sendTransition) sfw_count <= 10'd0;
          nextSendState <= ST_SEND_DMA_PACKETDATA_QUAD;
       end
       else if (sfw_count[3:0] == 4'd9) begin  // block read
          if (blockRead) begin
-            reg_raddr <= fw_dest_offset;
+            br_addr_out <= 9'd0;
             if (sendTransition) sfw_count <= 10'd0;
             nextSendState <= ST_SEND_DMA_PACKETDATA_BLOCK;
          end
@@ -1455,13 +1471,12 @@ begin
 
    ST_SEND_DMA_PACKETDATA_QUAD:
    begin
-      //if (grant_read_bus&reg_rvalid) begin
       if (sfw_count[0] == 0) begin
-         `send_word_swapped <= reg_rdata[31:16];
+         `send_word_swapped <= br_data_out[31:16];
          if (sendTransition) sfw_count[0] <= 1;
       end
       else begin
-         `send_word_swapped <= reg_rdata[15:0];
+         `send_word_swapped <= br_data_out[15:0];
          if (sendTransition) sfw_count[0] <= 0;
          nextSendState <= ST_SEND_DMA_PACKETDATA_CHECKSUM;
       end
@@ -1470,39 +1485,25 @@ begin
    ST_SEND_DMA_PACKETDATA_BLOCK:
    begin
       if ((sfw_count[0] == 1) && sendReady) begin
-         // 12-bit address increment, even though Firewire limited to 512 quadlets (9 bits)
-         // because this way we can support non-zero starting addresses.
-         // We have to increment reg_raddr during sendReady so that it works
-         // correctly when reading from memory -- otherwise, the upper word (even sfw_count
-         // case below) will not yet be retrieved from the memory.
-         reg_raddr[11:0] <= reg_raddr[11:0] + 12'd1;
+         br_addr_out <= br_addr_out + 9'd1;
       end
-      // TODO
-      // if (grant_read_bus&reg_rvalid) begin
-      // if (grant_read_bus) begin
-         if (sendTransition) sfw_count <= sfw_count + 10'd1;
-         if (sfw_count[0] == 0) begin   // even count (upper word)
-            // Since we are not incrementing reg_raddr, writing to SDReg does not need
-            // to be conditioned on ~sendTransition, as in the odd sfw_count case above.
-            `send_word_swapped <= timestamp_rd ? timestamp_latched[31:16] : reg_rdata[31:16];
-         end
-         else begin   // odd count (lower word)
-            // For general block read (not real-time block read) cannot write to SDReg during
-            //  sendTransition so that the code works for both register reads (no delay) and
-            //  memory reads (1 clk delay).
-            if (addrMain)                    // real-time block read
-               `send_word_swapped <= timestamp_rd ? timestamp_latched[15:0] : reg_rdata[15:0];
-            else if (~sendTransition)        // general block read
-               `send_word_swapped <= reg_rdata[15:0];
-            // sfw_count is in words and block_data_length is in bytes, but we compare in quadlets
-            if ((sfw_count[9:1] + 8'd1) == block_data_length[10:2])
-               nextSendState <= ST_SEND_DMA_PACKETDATA_CHECKSUM;
-         end
+      if (sendTransition) sfw_count <= sfw_count + 10'd1;
+      if (sfw_count[0] == 0) begin   // even count (upper word)
+         // Since we are not incrementing br_addr_out, writing to SDReg does not need
+         // to be conditioned on ~sendTransition, as in the odd sfw_count case below.
+         `send_word_swapped <= br_data_out[31:16];
+      end
+      else begin   // odd count (lower word)
+         if (~sendTransition)
+            `send_word_swapped <= br_data_out[15:0];
+         // sfw_count is in words and block_data_length is in bytes, but we compare in quadlets
+         if ((sfw_count[9:1] + 8'd1) == block_data_length[10:2])
+            nextSendState <= ST_SEND_DMA_PACKETDATA_CHECKSUM;
+      end
    end
 
    ST_SEND_DMA_PACKETDATA_CHECKSUM:
    begin
-      req_read_bus <= 0; // Relinquish control of read bus
       if (sendTransition) sfw_count[0] <= 1;
       send_word <= 16'd0;    // Checksum currently not set
       if (sfw_count[0] == 1)
@@ -1717,6 +1718,78 @@ begin
    end
 
    endcase // case (bwState)
+end
+
+//************ READ *******************
+
+localparam
+   BR_IDLE = 1'd0,
+   BR_READ = 1'd1;
+
+reg brState = BR_IDLE;
+
+wire timestamp_rd;
+assign timestamp_rd = (blk_rt_rd && (reg_raddr[7:0] == 8'd0)) ? 1'd1 : 1'd0;
+
+reg[8:0] br_addr_in;
+wire[31:0] br_data_in;
+wire br_wen;
+
+assign br_data_in = timestamp_rd ? timestamp_latched : reg_rdata;
+assign br_wen = req_read_bus & grant_read_bus & reg_rvalid;
+
+hub_mem_gen br_packet(.clka(sysclk),
+                      .wea(br_wen),
+                      .addra(br_addr_in),
+                      .dina(br_data_in),
+                      .clkb(sysclk),
+                      .addrb(br_addr_out),
+                      .doutb(br_data_out)
+                     );
+
+always @(posedge sysclk)
+begin
+
+   case (brState)
+
+   BR_IDLE:
+   begin
+      br_addr_in <= 9'd0;
+      if (br_request) begin
+         br_ack <= 1'b1;
+         req_read_bus <= 1'b1;
+         reg_raddr <= fw_dest_offset;
+         brState <= BR_READ;
+      end
+      else begin
+         req_read_bus <= 1'b0;
+         br_ack <= 1'b0;
+      end
+   end
+
+   BR_READ:
+   begin
+      if ((quadRead && (br_addr_in == 9'd0)) ||
+          (blockRead && (br_addr_in == (block_data_length[10:2] - 9'd1)))) begin
+         // If on the last quadlet
+         if (br_wen) begin
+            // Release bus when it is written
+            req_read_bus <= 1'b0;
+         end
+         else if ((~req_read_bus) & (~br_request)) begin
+            // Wait until br_request cleared (for handshake)
+            brState <= BR_IDLE;
+         end
+      end
+      else if (br_wen) begin
+         // 12-bit address increment, even though Firewire limited to 512 quadlets (9 bits)
+         // because this way we can support non-zero starting addresses.
+         reg_raddr <= reg_raddr + 12'd1;
+         br_addr_in <= br_addr_in + 9'd1;
+      end
+   end
+
+   endcase // case (brState)
 end
 
 endmodule
