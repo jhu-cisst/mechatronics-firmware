@@ -42,7 +42,7 @@
 `define FW_BWRITE_HDR_SIZE 16'd20  // Firewire block write header size
 
 module EthernetIO
-    #(parameter IPv4_CSUM = 0,     // Set to 1 to generate IPv4 header checksum
+    #(parameter IPv4_CSUM = 0,     // Set to 1 to generate IPv4 (and ICMP) header checksum
       parameter IS_V3 = 0)         // Set to 1 to indicate FPGA V3 timing
 (
     // global clock
@@ -258,6 +258,7 @@ localparam[4:0]
    ID_FwCtrl            = ID_UDP_End+1,      // Firewire Control word, Raw or UDP (21)
    ID_ICMP_Begin        = ID_IPv4_End+1,     // ****** ICMP Header (17) [length=6] ******
    ID_ICMP_TypeCode     = ID_ICMP_Begin,     // ICMP Type (8) and Code (0)
+   ID_ICMP_Checksum     = ID_ICMP_Begin+1,   // ICMP Checksum
    ID_ICMP_End          = ID_ICMP_Begin+5,   // ******** End of ICMP Header (22) ********
    ID_ARP_Begin         = ID_IPv4_End+1,     // ******* ARP Packet (17) [length=14] *****
    ID_ARP_HTYPE         = ID_ARP_Begin,      // Hardware type (HTYPE):  1 for Ethernet
@@ -299,7 +300,8 @@ localparam[3:0]
    ID_Rep_IPv4_Address1 = ID_Reply_Begin+11, // Source (FPGA) IP address (LSW)
    ID_Rep_UDP_fpgaPort  = ID_Reply_Begin+12, // UDP port on FPGA (1394)
    ID_Rep_UDP_hostPort  = ID_Reply_Begin+13, // UDP port on host (ID_UDP_hostPort)
-   ID_Rep_UDP_Length    = ID_Reply_Begin+14, // UDP Reply Length
+   ID_Rep_UDP_Length    = ID_Reply_Begin+14, // UDP Reply Length (shared with ICMP_Checksum)
+   ID_Rep_ICMP_Checksum = ID_Reply_Begin+14, // ICMP checksum (shared with UDP_Length)
    ID_Rep_ARP_Oper      = ID_Reply_Begin+15, // ARP reply operation = 2
    ID_Reply_End         = ID_Reply_Begin+15; // ******** End of all data (15) ***********
 
@@ -466,6 +468,27 @@ wire[15:0] icmp_data_length;
 // Note that maximum ping data size is 1472 bytes (1500-28) because we do not fragment packets.
 assign icmp_data_length = IPv4_Length-16'd32;
 
+wire[15:0] ICMP_Checksum_Reply;
+
+if (IPv4_CSUM) begin
+    // Checksum on received packet
+    wire[15:0] ICMP_Checksum;
+    assign ICMP_Checksum = PacketBuffer[ID_ICMP_Checksum];
+
+    // Checksum on ICMP reply
+    // We can cheat by using the received checksum, and subtracting the first word (0800),
+    // which is the Type (8) and Code (0) because the reply packet has 0 for both.
+    // This is more efficiently done by avoiding the one's complement and adding instead
+    // of subtracting.
+    wire[16:0] ICMP_Checksum_Reply17;
+    assign ICMP_Checksum_Reply17 = { 1'b0, ICMP_Checksum } + { 1'b0, 16'h0800 };
+    assign ICMP_Checksum_Reply = ICMP_Checksum_Reply17[15:0] + { 15'd0, ICMP_Checksum_Reply17[16] };
+end
+else begin
+    // For FPGA V2, the KSZ8851 will compute this checksum for us
+    assign ICMP_Checksum_Reply = 16'd0;
+end
+
 //**************************** Firewire Control Word ************************************
 // The Raw or UDP header is followed by one control word, which includes the expected Firewire
 // generation.
@@ -542,7 +565,7 @@ initial begin
    ReplyIndex[ARP_Reply_Begin+13]   = {isPacket, ID_ARP_hostIP1};
 
    ReplyIndex[ICMP_Reply_Begin]     = {isReply,  ID_Rep_Zero};
-   ReplyIndex[ICMP_Reply_Begin+1]   = {isReply,  ID_Rep_Zero};       // ICMP checksum
+   ReplyIndex[ICMP_Reply_Begin+1]   = {isReply,  ID_Rep_ICMP_Checksum};
    ReplyIndex[ICMP_Reply_Begin+2]   = {isPacket, ID_ICMP_Begin+2};
    ReplyIndex[ICMP_Reply_Begin+3]   = {isPacket, ID_ICMP_Begin+3};
    ReplyIndex[ICMP_Reply_Begin+4]   = {isPacket, ID_ICMP_Begin+4};
@@ -1321,6 +1344,7 @@ begin
             ReplyBuffer[ID_Rep_Frame_Length] <= 16'h0800;   // IPv4 EtherType
             ReplyBuffer[ID_Rep_IPv4_Length] <= IPv4_Length; // Same length as request
             ReplyBuffer[ID_Rep_IPv4_Prot][7:0] <= 8'd1;     // ICMP protocol
+            ReplyBuffer[ID_Rep_ICMP_Checksum] <= ICMP_Checksum_Reply;
          end
          else if ((FireWirePacketFresh && (quadRead || blockRead) && (isLocal || sendExtra))) begin
             if (useUDP) begin

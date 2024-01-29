@@ -34,7 +34,8 @@ begin
     if (reg_wdata[25]) link_on <= reg_wdata[16];
 end
 
-// Default register values (obtained by reading RTL8211F when cable connnected)
+// Default register values, obtained by reading RTL8211F when cable connnected and then
+// simplifying (e.g., removing support for 10 and 100 Mbsp and extended registers).
 // Changed PHYID1 and PHYID2 to use JHU LCSR CID (FA:61:0E), so that Linux will use
 // Generic PHY driver rather than RealTek RTL8211F driver.
 // PHYID2 also specifies a model number of 1 and a revision of 0.
@@ -50,8 +51,8 @@ assign regValue[7]  = 16'h0000;    // ANNPTR
 assign regValue[8]  = 16'h0000;    // ANNPRR
 assign regValue[9]  = 16'h0200;    // GBCR: advertise 1GB full-duplex
 assign regValue[10] = 16'h7c00;    // GBSR: PHY is MASTER
-assign regValue[11] = 16'h0000;    //
-assign regValue[12] = 16'h0000;    //
+assign regValue[11] = 16'h0000;    // Reserved
+assign regValue[12] = 16'h0000;    // Reserved
 assign regValue[13] = 16'h0000;    // MACR
 assign regValue[14] = 16'h0000;    // MAADR
 assign regValue[15] = 16'h2000;    // GBESR: 1GB full-duplex capable
