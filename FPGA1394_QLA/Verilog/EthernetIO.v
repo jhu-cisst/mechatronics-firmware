@@ -198,8 +198,6 @@ reg fwPacketDropped;
 wire sendExtra;
 assign sendExtra = fwPacketDropped;
 
-reg[11:0] txPktWords;  // Num of words sent
-
 wire[15:0] Eth_EtherType;
 wire[15:0] UDP_Length; // UDP packet length (bytes)
 
@@ -687,7 +685,7 @@ assign DebugData[2]  = { writeRequestQuad, writeRequestBlock, bw_active, eth_sen
                          4'd0 };                                                                 //  3:0
 assign DebugData[3]  = { node_id, maxCountFW, LengthFW };                  // 6, 10, 16
 assign DebugData[4]  = { fw_ctrl, host_fw_addr };                          // 16, 16
-assign DebugData[5]  = { sendState, txPktWords, nextSendState, 12'd0 };    // 4, 12, 4, 12 (rxPktWords)
+assign DebugData[5]  = { sendState, 12'd0, 16'd0 };                        // 4, 12, 4, 12
 assign DebugData[6]  = { 6'd0, numUDP, 6'd0, numIPv4 };                    // 6, 10, 6, 10
 assign DebugData[7]  = { br_wait_cnt, numICMP, fw_bus_gen, numARP };       // 8, 8, 8, 8
 assign DebugData[8]  = { 7'd0, bw_left, bw_err, 4'd0, bwState, numPacketError };   // 7, 9, 1, 4, 3, 8
@@ -1271,9 +1269,35 @@ begin
 end
 
 
-//*****************************************************************
-//  ETHERNET Send DMA state machine
-//*****************************************************************
+//**********************************************************************
+// ETHERNET Send DMA state machine
+//
+// The lower-level module (KSZ8851.v or EthRtInterface.v) initiates the
+// data transfer by setting sendRequest, which then causes this module
+// to set sendBusy and transition out of the IDLE state.
+//
+// Data is transferred in a loop consisting of at least two clocks:
+//
+//    CLK(0):  lower-level sets sendReady and uses send_word
+//             (from previous cycle); this module does nothing
+//
+//    CLK(1):  lower-level module clears sendReady;
+//             this module latches send_word, increments address
+//             and/or transitions to new state
+//
+// Note that this module does nothing until sendReady==1, which happens
+// one clock after the lower-level asserts it (sendReady <= 1).
+// Thus, the lower-level module can increase the number of clocks per
+// loop by the rate at which it sets sendReady.
+//
+// IMPORTANT: sendReady should never be asserted for more than 1
+// consecutive clock.
+//
+// After the last word is transfered, EthernetIO clears sendBusy. It is
+// assumed that the lower-level module will clear sendRequest soon after
+// sendBusy is asserted.
+//
+//**********************************************************************
 
 localparam[3:0]
     ST_SEND_DMA_IDLE = 4'd0,
@@ -1288,12 +1312,8 @@ localparam[3:0]
     ST_SEND_DMA_FINISH = 4'd11;
 
 reg[3:0] sendState = ST_SEND_DMA_IDLE;
-reg[3:0] nextSendState = ST_SEND_DMA_IDLE;
-
-reg sendTransition;
 
 // Accessing br_packet memory
-reg[8:0] br_addr_out;
 wire[31:0] br_data_out;
 
 reg[9:0] sfw_count;     // Counts words in FireWire packets (max is 1024 words, or 2048 bytes)
@@ -1316,14 +1336,6 @@ assign responseByteCount =
 always @(posedge sysclk)
 begin
 
-   // sendTransition is 1 clock after sendReady
-   sendTransition <= sendReady;
-
-   if (sendTransition) begin
-      sendState <= nextSendState;
-      txPktWords <= txPktWords + 12'd1;
-   end
-
    if (resetActive|clearErrors) begin
       ethSendStateError <= 0;
    end
@@ -1334,7 +1346,6 @@ begin
    begin
       sendBusy <= 0;
       icmp_read_en <= 0;
-      txPktWords <= 12'd0;
       sfw_count <= 10'd0;
       xcnt <= 2'd0;
       if (sendRequest) begin
@@ -1382,7 +1393,6 @@ begin
             end
          end
          sendState <= ST_SEND_DMA_ETHERNET_HEADERS;
-         nextSendState <= ST_SEND_DMA_ETHERNET_HEADERS;
          replyCnt <= Frame_Reply_Begin;
       end
    end
@@ -1390,55 +1400,58 @@ begin
    ST_SEND_DMA_ETHERNET_HEADERS:
    begin
       ReplyBuffer[ID_Rep_IPv4_Csum] <= Rep_IPv4_Csum16;
-      if (sendTransition) replyCnt <= replyCnt + 6'd1;
-      `send_word_swapped <= (ReplyIndex[replyCnt][5]==isPacket) ?
-                             PacketBuffer[ReplyIndex[replyCnt][4:0]] :
-                             ReplyBuffer[ReplyIndex[replyCnt][3:0]];
-      if (replyCnt == Frame_Reply_End) begin
-         if (isForward && !useUDP) begin
-            nextSendState <= ST_SEND_DMA_FWD;
-            sendAck <= 1;
-            sendAddr <= 9'd0;
+      if (sendReady) begin
+         `send_word_swapped <= (ReplyIndex[replyCnt][5]==isPacket) ?
+                                PacketBuffer[ReplyIndex[replyCnt][4:0]] :
+                                ReplyBuffer[ReplyIndex[replyCnt][3:0]];
+         replyCnt <= replyCnt + 6'd1;
+         if (replyCnt == Frame_Reply_End) begin
+            if (isForward && !useUDP) begin
+               sendState <= ST_SEND_DMA_FWD;
+               sendAck <= 1;
+               sendAddr <= 9'd0;
+            end
+            else if (sendARP && !isForward) begin
+               replyCnt <= ARP_Reply_Begin;
+            end
+            else if (!(isUDP || isEcho || isForward)) begin
+               // Raw packet
+               sendState <= sendExtra ? ST_SEND_DMA_EXTRA : ST_SEND_DMA_PACKETDATA_HEADER;
+            end
          end
-         else if (sendARP && !isForward) begin
-            if (sendTransition) replyCnt <= ARP_Reply_Begin;
+         else if (replyCnt == IPv4_Reply_End) begin
+            replyCnt <= isEcho ? ICMP_Reply_Begin : UDP_Reply_Begin;
          end
-         else if (!(isUDP || isEcho || isForward)) begin
-            // Raw packet
-            nextSendState <= sendExtra ? ST_SEND_DMA_EXTRA : ST_SEND_DMA_PACKETDATA_HEADER;
+         else if (replyCnt == UDP_Reply_End) begin
+            if (isForward) begin
+               sendState <= ST_SEND_DMA_FWD;
+               sendAck <= 1;
+               sendAddr <= 9'd0;
+            end
+            else begin
+               sendState <= sendExtra ? ST_SEND_DMA_EXTRA : ST_SEND_DMA_PACKETDATA_HEADER;
+            end
          end
-      end
-      else if (replyCnt == IPv4_Reply_End) begin
-         if (sendTransition) replyCnt <= isEcho ? ICMP_Reply_Begin : UDP_Reply_Begin;
-      end
-      else if (replyCnt == UDP_Reply_End) begin
-         if (isForward) begin
-            nextSendState <= ST_SEND_DMA_FWD;
-            sendAck <= 1;
-            sendAddr <= 9'd0;
+         else if (replyCnt == ARP_Reply_End) begin
+            sendState <= ST_SEND_DMA_FINISH;
          end
-         else begin
-            nextSendState <= sendExtra ? ST_SEND_DMA_EXTRA : ST_SEND_DMA_PACKETDATA_HEADER;
+         else if (replyCnt == ICMP_Reply_End) begin
+            sendState <= ST_SEND_DMA_ICMP_DATA;
+            icmp_read_en <= 1;
          end
-      end
-      else if (replyCnt == ARP_Reply_End) begin
-         nextSendState <= ST_SEND_DMA_FINISH;
-      end
-      else if (replyCnt == ICMP_Reply_End) begin
-         nextSendState <= ST_SEND_DMA_ICMP_DATA;
-         icmp_read_en <= 1;
       end
    end
 
    ST_SEND_DMA_ICMP_DATA:
    begin
-      `send_word_swapped <= (sfw_count[0] == 0) ? mem_rdata[31:16]
-                                              : mem_rdata[15:0];
-      // Increment a little earlier due to reading from memory
-      if (sendReady) sfw_count <= sfw_count + 10'd1;
-      // sfw_count is in words, icmp_data_length is in bytes
-      if (sfw_count[9:0] == icmp_data_length[10:1])
-         nextSendState <= ST_SEND_DMA_FINISH;
+      if (sendReady) begin
+         `send_word_swapped <= (sfw_count[0] == 0) ? mem_rdata[31:16]
+                                                   : mem_rdata[15:0];
+         sfw_count <= sfw_count + 10'd1;
+         // sfw_count is in words, icmp_data_length is in bytes
+         if (sfw_count[9:0] == icmp_data_length[10:1])
+            sendState <= ST_SEND_DMA_FINISH;
+      end
    end
 
    // Send first 6 words (3 quadlets), which are nearly identical between quadlet read response
@@ -1447,86 +1460,89 @@ begin
    // and header CRC.
    ST_SEND_DMA_PACKETDATA_HEADER:
    begin
-      send_word <= Firewire_Header_Reply[sfw_count[3:0]];
-      if ((sfw_count[3:0] == 4'd5) && quadRead) begin
-         br_addr_out <= 9'd0;
-         // Get ready to read data from the board.
-         if (sendTransition) sfw_count <= 10'd0;
-         nextSendState <= ST_SEND_DMA_PACKETDATA_QUAD;
-      end
-      else if (sfw_count[3:0] == 4'd9) begin  // block read
-         if (blockRead) begin
-            br_addr_out <= 9'd0;
-            if (sendTransition) sfw_count <= 10'd0;
-            nextSendState <= ST_SEND_DMA_PACKETDATA_BLOCK;
+      if (sendReady) begin
+         send_word <= Firewire_Header_Reply[sfw_count[3:0]];
+         if ((sfw_count[3:0] == 4'd5) && quadRead) begin
+            sfw_count <= 10'd0;
+            sendState <= ST_SEND_DMA_PACKETDATA_QUAD;
          end
-         else  // Should not happen
-            nextSendState <= ST_SEND_DMA_PACKETDATA_CHECKSUM;
-      end
-      else begin
-         // stay in this state
-         if (sendTransition) sfw_count <= sfw_count + 10'd1;
+         else if (sfw_count[3:0] == 4'd9) begin  // block read
+            if (blockRead) begin
+               sfw_count <= 10'd0;
+               sendState <= ST_SEND_DMA_PACKETDATA_BLOCK;
+            end
+            else  // Should not happen
+               sendState <= ST_SEND_DMA_PACKETDATA_CHECKSUM;
+         end
+         else begin
+            // stay in this state
+            sfw_count <= sfw_count + 10'd1;
+         end
       end
    end
 
    ST_SEND_DMA_PACKETDATA_QUAD:
    begin
-      if (sfw_count[0] == 0) begin
-         `send_word_swapped <= br_data_out[31:16];
-         if (sendTransition) sfw_count[0] <= 1;
-      end
-      else begin
-         `send_word_swapped <= br_data_out[15:0];
-         if (sendTransition) sfw_count[0] <= 0;
-         nextSendState <= ST_SEND_DMA_PACKETDATA_CHECKSUM;
+      if (sendReady) begin
+         if (sfw_count[0] == 0) begin
+            `send_word_swapped <= br_data_out[31:16];
+            sfw_count[0] <= 1;
+         end
+         else begin
+            `send_word_swapped <= br_data_out[15:0];
+            sfw_count[0] <= 0;
+            sendState <= ST_SEND_DMA_PACKETDATA_CHECKSUM;
+         end
       end
    end
 
    ST_SEND_DMA_PACKETDATA_BLOCK:
    begin
-      if ((sfw_count[0] == 1) && sendReady) begin
-         br_addr_out <= br_addr_out + 9'd1;
-      end
-      if (sendTransition) sfw_count <= sfw_count + 10'd1;
-      if (sfw_count[0] == 0) begin   // even count (upper word)
-         // Since we are not incrementing br_addr_out, writing to SDReg does not need
-         // to be conditioned on ~sendTransition, as in the odd sfw_count case below.
-         `send_word_swapped <= br_data_out[31:16];
-      end
-      else begin   // odd count (lower word)
-         if (~sendTransition)
+
+      if (sendReady) begin
+         sfw_count <= sfw_count + 10'd1;
+         if (sfw_count[0] == 0) begin   // even count (upper word)
+            `send_word_swapped <= br_data_out[31:16];
+         end
+         else begin   // odd count (lower word)
             `send_word_swapped <= br_data_out[15:0];
          // sfw_count is in words and block_data_length is in bytes, but we compare in quadlets
          if ((sfw_count[9:1] + 8'd1) == block_data_length[10:2])
-            nextSendState <= ST_SEND_DMA_PACKETDATA_CHECKSUM;
+            sendState <= ST_SEND_DMA_PACKETDATA_CHECKSUM;
+         end
       end
    end
 
    ST_SEND_DMA_PACKETDATA_CHECKSUM:
    begin
-      if (sendTransition) sfw_count[0] <= 1;
-      send_word <= 16'd0;    // Checksum currently not set
-      if (sfw_count[0] == 1)
-         nextSendState <= ST_SEND_DMA_EXTRA;
+      if (sendReady) begin
+         sfw_count[0] <= 1;
+         send_word <= 16'd0;    // Checksum currently not set
+         if (sfw_count[0] == 1)
+            sendState <= ST_SEND_DMA_EXTRA;
+      end
    end
 
    ST_SEND_DMA_FWD:
    begin
-      if (sendTransition) sfw_count <= sfw_count + 10'd1;
-      `send_word_swapped <= (sfw_count[0] == 0) ? sendData[31:16] : sendData[15:0];
-      // Increment a little earlier due to reading from memory
-      if (sendReady && (sfw_count[0] == 1)) sendAddr <= sendAddr + 9'd1;
-      // sfw_count is in words, sendLen is in bytes
-      if (sfw_count == (sendLen[10:1]-10'd1))
-         nextSendState <= ST_SEND_DMA_EXTRA;
+      if (sendReady) begin
+         sfw_count <= sfw_count + 10'd1;
+         `send_word_swapped <= (sfw_count[0] == 0) ? sendData[31:16] : sendData[15:0];
+         if (sfw_count[0] == 1) sendAddr <= sendAddr + 9'd1;
+         // sfw_count is in words, sendLen is in bytes
+         if (sfw_count == (sendLen[10:1]-10'd1))
+            sendState <= ST_SEND_DMA_EXTRA;
+      end
    end
 
    ST_SEND_DMA_EXTRA:
    begin
-      if (sendTransition) xcnt <= xcnt + 2'd1;
-      `send_word_swapped <= ExtraData[xcnt];
-      if (xcnt == 2'd3)
-         nextSendState <= ST_SEND_DMA_FINISH;
+      if (sendReady) begin
+         xcnt <= xcnt + 2'd1;
+         `send_word_swapped <= ExtraData[xcnt];
+         if (xcnt == 2'd3)
+            sendState <= ST_SEND_DMA_FINISH;
+      end
    end
 
    ST_SEND_DMA_FINISH:
@@ -1535,14 +1551,12 @@ begin
       sendAck <= 0;
       sendBusy <= 0;
       sendState <= ST_SEND_DMA_IDLE;
-      nextSendState <= ST_SEND_DMA_IDLE;
    end
 
    default:
    begin
       ethSendStateError <= 1;
       sendState <= ST_SEND_DMA_IDLE;
-      nextSendState <= ST_SEND_DMA_IDLE;
    end
 
    endcase // case (sendState)
@@ -1743,7 +1757,7 @@ hub_mem_gen br_packet(.clka(sysclk),
                       .addra(br_addr_in),
                       .dina(br_data_in),
                       .clkb(sysclk),
-                      .addrb(br_addr_out),
+                      .addrb(sfw_count[9:1]),
                       .doutb(br_data_out)
                      );
 

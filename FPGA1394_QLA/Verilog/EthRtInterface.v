@@ -316,7 +316,7 @@ begin
         end
         else begin
             if (tx_cnt == 3'd6)
-                sendReady <= 1'b1;
+                sendReady <= 1'b1;          // Request EthernetIO to latch first word
             tx_cnt <= tx_cnt + 3'd1;
             TxD <= 8'h55;
         end
@@ -324,7 +324,8 @@ begin
 
     ST_TX_SEND:
     begin
-        if (~send_cnt[0]) begin
+        // Data from EthernetIO is valid one clock after sendReady
+        if (~sendReady) begin
             send_word_msb <= send_word[15:8];
             TxD <= send_word[7:0];    // even byte
         end
@@ -332,7 +333,7 @@ begin
             TxD <= send_word_msb;      // odd byte
         end
         send_crc_in <= send_crc_8b;
-        sendReady <= ~send_cnt[0];
+        sendReady <= ~sendReady;
         send_cnt <= send_cnt + 16'd1;
         if (padding_cnt != 6'd0)
             padding_cnt <= padding_cnt - 6'd1;

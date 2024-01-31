@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2023 Johns Hopkins University.
+ * Copyright(C) 2023-2024 Johns Hopkins University.
  *
  * This module generates the reg_rvalid flag to indicate that the read data
  * is valid, based on reg_rwait:
@@ -17,15 +17,16 @@
  */
 
 module ReadDataValid
+    #(parameter ADDR_BITS = 16)
 (
    input wire sysclk,
 
-   input wire[15:0] reg_raddr,
+   input wire[(ADDR_BITS-1):0] reg_raddr,
    input wire reg_rwait,
    output wire reg_rvalid
 );
  
-reg[15:0] reg_raddr_latched;
+reg[(ADDR_BITS-1):0] reg_raddr_latched;
 
 always @(posedge sysclk)
 begin

@@ -3,7 +3,7 @@
 
 /*******************************************************************************    
  *
- * Copyright(C) 2014-2023 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2014-2024 ERC CISST, Johns Hopkins University.
  *
  * This module implements the link layer interface to the KSZ8851 MAC/PHY chip.
  *
@@ -182,6 +182,8 @@ wire Reg_CMD;
 wire DMA_RDn;          // Output from DMA Read process
 wire DMA_WRn;          // Output from DMA Write process
 
+// KSZ8851 datasheet specifies that WRn and RDn must have minimum active (low) time
+// of 40 ns (2 sysclk) and minimum inactive (high) time of 10 ns.
 assign ETH_WRn = isDMARead ? 1'b1    : (isDMAWrite ? DMA_WRn : Reg_WRn);
 assign ETH_RDn = isDMARead ? DMA_RDn : (isDMAWrite ? 1'b1 : Reg_RDn);
 assign ETH_CMD = (isDMAWrite|isDMARead) ? 1'b0 : Reg_CMD;
@@ -232,8 +234,12 @@ assign DMA_WRn = sendCtrl[2];
 
 wire   sendTransition;
 assign sendTransition = sendCtrl[1];
-// 1 cycle before the transition
-assign sendReady = (state == ST_SEND_DMA_WAIT) ? sendCtrl[0] : 1'b0;
+// sendReady is 1 cycle before the transition; note that we have to set sendReady one time
+// before entering ST_SEND_DMA_WAIT so that send_word contains valid data when we enter
+// ST_SEND_DMA_WAIT. Thus, we also set it in ST_SEND_DMA_BYTECOUNT.
+// This is due to a design change in EthernetIO.v.
+assign sendReady = ((state == ST_SEND_DMA_BYTECOUNT) ||
+                    (state == ST_SEND_DMA_WAIT)) ? sendCtrl[0] : 1'b0;
 
 // Error flags
 reg ethFwReqError;     // 1 -> I/O request received (from Firewire) when not in idle state
@@ -1229,7 +1235,8 @@ always @(posedge sysclk) begin
       sendRequest <= 1'b0;
       // Left shift and rotate sendCtrl
       sendCtrl <= {sendCtrl[1:0], sendCtrl[2] };
-      SDRegDWR <= send_word;
+      if (sendCtrl[2])
+         SDRegDWR <= send_word;
       if (~sendBusy) begin
          waitInfo <= WAIT_NONE;
          if (~(responseByteCount[1]|responseByteCount[0])) begin
