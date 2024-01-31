@@ -607,9 +607,8 @@ wire is_ip_unassigned;
 assign is_ip_unassigned = (ip_address == IP_UNASSIGNED) ? 1'd1 : 1'd0;
 
 // Request a local write to be performed (quadWrite or blockWrite);
-// these requests are cleared when grant_write_bus is asserted
-reg writeRequestBlock;
-reg writeRequestQuad;
+// this request is cleared when grant_write_bus is asserted
+reg writeRequest;
 
 reg[8:0] bwStart;      // Starting offset in bw_packet for RT write block (for this board)
 reg[8:0] bwLen;        // Number of quadlets in the RT write block in bw_packet (for this board)
@@ -675,7 +674,7 @@ assign ExtraData[3] = timeNow;
 wire[31:0] DebugData[0:15];
 assign DebugData[0]  = "2GBD";  // DBG2 byte-swapped
 assign DebugData[1]  = timestamp;
-assign DebugData[2]  = { writeRequestQuad, writeRequestBlock, bw_active, eth_send_isIdle,  // 31:28
+assign DebugData[2]  = { writeRequest, writeRequest, bw_active, eth_send_isIdle,           // 31:28
                          eth_recv_isIdle, ethUDPError, 1'b0, ethIPv4Error,                 // 27:24
                          sendBusy, sendRequest, eth_send_fw_ack, eth_send_fw_req,                // 23:20
                          2'd0, isLocal, isRemote,                                                // 19:16
@@ -929,12 +928,8 @@ begin
    dataValid <= recvReady;           // 1 clock after recvReady
    recvTransition <= dataValid;      // 1 clock after dataValid
 
-   if (writeRequestQuad & grant_write_bus) begin
-      writeRequestQuad <= 1'd0;
-   end
-
-   if (writeRequestBlock & grant_write_bus) begin
-      writeRequestBlock <= 1'd0;
+   if (writeRequest & grant_write_bus) begin
+      writeRequest <= 1'd0;
    end
 
    if (eth_send_fw_ack) begin
@@ -978,8 +973,7 @@ begin
       recvCnt <= 6'd0;
       nextRecvState <= ST_RECEIVE_DMA_IDLE;
       recvBusy <= 0;
-      writeRequestQuad <= 1'b0;
-      writeRequestBlock <= 1'b0;
+      writeRequest <= 1'b0;
       br_request <= 1'b0;
       eth_send_fw_req <= 0;
 
@@ -1143,14 +1137,14 @@ begin
          end
          else if ((rfw_count == 10'd7) && quadWrite) begin
             fw_quadlet_data <= FireWireQuadlet;
-            // Set writeRequestQuad for local quadlet write, if not also remote (i.e., not broadcast).
-            // For broadcast quadlet write, we first forward to Firewire, then set writeRequestQuad
+            // Set writeRequest for local quadlet write, if not also remote (i.e., not broadcast).
+            // For broadcast quadlet write, we first forward to Firewire, then set writeRequest
             // when we receive the ack (eth_send_fw_ack).
             // The only case where this is necessary is for the broadcast query command, but we do
             // it consistently for all broadcast quadlet writes.
             // It is necessary for the broadcast query command to make sure that all boards are ready for
             // the sequential update of Hub memory (especially if this board is the lowest numbered board)
-            writeRequestQuad <= isLocal&(~isRemote);
+            writeRequest <= isLocal&(~isRemote);
          end
          else if ((rfw_count == 10'd9) && blockWrite) begin
             bwStart <= 9'd5;
@@ -1168,7 +1162,7 @@ begin
                   req_blk_rt_rd <= 1'b1;
                end
                if (blockWrite) begin
-                  // writeRequestBlock should have been set earlier (using writeRequestTrigger) for all
+                  // writeRequest should have been set earlier (using writeRequestTrigger) for all
                   // local block writes (even broadcast). We expect write to still be active.
                   bw_err <= ~req_write_bus;
                   // Number of quadlets left to write to registers; should be greater than 1,
@@ -1193,8 +1187,8 @@ begin
             nextRecvState <= ST_RECEIVE_DMA_FIREWIRE_PACKET;
          end
 
-         if (rfw_count == writeRequestTrigger) begin
-            writeRequestBlock <= blockWrite&isLocal;
+         if (blockWrite && (rfw_count == writeRequestTrigger)) begin
+            writeRequest <= isLocal;
          end
          if ((rfw_count == fwRequestTrigger) && isRemote) begin
             eth_send_fw_req <= 1'b1;
@@ -1229,7 +1223,8 @@ begin
          else begin
             // If any other broadcast quadlet write (local and remote),
             // write it to the hardware now.
-            writeRequestQuad <= quadWrite&isRemote&isLocal;
+            if (quadWrite)
+                writeRequest <= isRemote&isLocal;
             // Wait for any pending writes to start (including any previously
             // requested quadlet or block writes)
             recvState <= ST_RECEIVE_DMA_WRITE_WAIT;
@@ -1243,18 +1238,17 @@ begin
       // make sure Firewire packet has been transmitted
       rebootCnt <= rebootCnt + 6'd1;
       if (rebootCnt == 6'h3f) begin
-         writeRequestQuad <= 1'b1;
+         writeRequest <= 1'b1;
          recvState <= ST_RECEIVE_DMA_WRITE_WAIT;
       end
    end
 
    ST_RECEIVE_DMA_WRITE_WAIT:
    begin
-      // Wait until writeRequestQuad and writeRequestBlock are both 0;
-      // otherwise, IDLE state will clear them. This could be a problem
-      // if the bwState loop has not yet received grant_write_bus.
+      // Wait until writeRequest is 0; otherwise IDLE state will clear it.
+      // This could be a problem if the bwState loop has not yet received grant_write_bus.
       // Alternatively, could remove clear from IDLE state.
-      if (~(writeRequestQuad|writeRequestBlock))
+      if (~writeRequest)
         recvState <= ST_RECEIVE_DMA_IDLE;
    end
 
@@ -1584,11 +1578,11 @@ end
 //   1 sysclk (20 nsec) for blk_wen at end
 // Thus, it will start writing the Nth quadlet at
 //    t = (4+(1+3)*N)*sysclk = 4(N+1)*sysclk
-// relative to when writeRequestBlock is set.
+// relative to when writeRequest is set.
 //
 // If we want to overlap reading and writing, we need to ensure that the
 // reader stays ahead of the writer. We do this by setting the time when
-// writeRequestBlock is set; specifically when quadlet M is being stored
+// writeRequest is set; specifically when quadlet M is being stored
 // (see writeRequestTrigger).
 //
 // For KSZ8851:
@@ -1638,16 +1632,16 @@ begin
    BW_IDLE:
    begin
       bwCnt <= 2'd0;
-      if (writeRequestQuad) begin
-         req_write_bus <= 1'b1;
+      if (quadWrite & (writeRequest | grant_write_bus)) begin
+         req_write_bus <= ~grant_write_bus;
          reg_waddr <= fw_dest_offset;
          reg_wdata <= fw_quadlet_data;
          reg_wen <= 1;
          blk_wen <= 1;
          // Stay in this state until we get the write bus (grant_write_bus),
-         // which clears writeRequestQuad.
+         // which clears writeRequest.
       end
-      else if (writeRequestBlock) begin
+      else if (blockWrite & (writeRequest | grant_write_bus)) begin
          req_write_bus <= 1'b1;
          local_raddr <= bwStart;
          bwAddrMain <= addrMain;
