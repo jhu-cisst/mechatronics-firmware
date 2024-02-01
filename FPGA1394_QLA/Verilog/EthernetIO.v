@@ -303,30 +303,42 @@ localparam[3:0]
    ID_Rep_ARP_Oper      = ID_Reply_Begin+15, // ARP reply operation = 2
    ID_Reply_End         = ID_Reply_Begin+15; // ******** End of all data (15) ***********
 
-reg[15:0] ReplyBuffer[0:15];
+wire[15:0] ReplyBuffer[0:15];
+
+// Following elements of ReplyBuffer are updated in code
+reg[15:0]  Reply_Frame_Length;
+reg[15:0]  Reply_IPv4_Length;
+wire[15:0] Reply_IPv4_Csum;
+reg[15:0]  Reply_IPv4_Address0;
+reg[15:0]  Reply_IPv4_Address1;
+reg[15:0]  Reply_UDP_hostPort;
+reg[15:0]  Reply_UDP_Length;
+wire[15:0] Reply_ICMP_Checksum;
 
 integer i;
 initial begin
    for (i = ID_Packet_Begin; i <= ID_Packet_End; i=i+1) PacketBuffer[i] = 16'd0;
-   ReplyBuffer[ID_Rep_Zero]          = 16'd0;
-   ReplyBuffer[ID_Rep_fpgaMac0]      = 16'hFA61;
-   ReplyBuffer[ID_Rep_fpgaMac1]      = 16'h0E13;
-   ReplyBuffer[ID_Rep_fpgaMac2]      = 16'h9400;   // board_num updated in ST_RESET_WAIT
-   ReplyBuffer[ID_Rep_Frame_Length]  = 16'd0;      // updated in ST_SEND_DMA_BYTECOUNT
-   ReplyBuffer[ID_Rep_IPv4_Word0]    = {4'd4, 4'd5, 6'd0, 2'd0};  // 0x4500
-   ReplyBuffer[ID_Rep_IPv4_Length]   = 16'd0;      // updated in ST_SEND_DMA_BYTECOUNT
-   ReplyBuffer[ID_Rep_IPv4_Flags]    = {3'b010, 13'd0};  // 0x4000
-   ReplyBuffer[ID_Rep_IPv4_Prot]     = {8'd64, 8'd17};   // TTL=64; Prot updated in ST_SEND_DMA_BYTECOUNT
-   ReplyBuffer[ID_Rep_IPv4_Csum]     = 16'd0;
-   ReplyBuffer[ID_Rep_IPv4_Address0] = IP_UNASSIGNED[31:16];  // updated when IP address assigned
-   ReplyBuffer[ID_Rep_IPv4_Address1] = IP_UNASSIGNED[15:0];   // updated when IP address assigned
-   ReplyBuffer[ID_Rep_UDP_fpgaPort]  = 16'd1394;
-   ReplyBuffer[ID_Rep_UDP_hostPort]  = 16'd0;      // Needs to be updated
-   ReplyBuffer[ID_Rep_UDP_Length]    = 16'd0;      // updated in ST_SEND_DMA_BYTECOUNT
-   ReplyBuffer[ID_Rep_ARP_Oper]      = 16'h0002;   // ARP Operation (OPER): 2 for reply
 end
-
-wire[15:0] Rep_IPv4_Csum16;
+assign ReplyBuffer[ID_Rep_Zero]          = 16'd0;
+assign ReplyBuffer[ID_Rep_fpgaMac0]      = 16'hFA61;
+assign ReplyBuffer[ID_Rep_fpgaMac1]      = 16'h0E13;
+assign ReplyBuffer[ID_Rep_fpgaMac2]      = {12'h940, board_id};
+assign ReplyBuffer[ID_Rep_Frame_Length]  = Reply_Frame_Length;        // updated in ST_SEND_DMA_BYTECOUNT
+assign ReplyBuffer[ID_Rep_IPv4_Word0]    = {4'd4, 4'd5, 6'd0, 2'd0};  // 0x4500
+assign ReplyBuffer[ID_Rep_IPv4_Length]   = Reply_IPv4_Length;         // updated in ST_SEND_DMA_BYTECOUNT
+assign ReplyBuffer[ID_Rep_IPv4_Flags]    = {3'b010, 13'd0};           // 0x4000
+assign ReplyBuffer[ID_Rep_IPv4_Prot]     = {8'd64, isEcho ? 8'd1      // TTL=64, PROT=1  (ICMP)
+                                                          : 8'd17};   //         PROT=17 (UDP)
+assign ReplyBuffer[ID_Rep_IPv4_Csum]     = Reply_IPv4_Csum;
+assign ReplyBuffer[ID_Rep_IPv4_Address0] = Reply_IPv4_Address0;          // updated when IP address assigned
+initial Reply_IPv4_Address0 = IP_UNASSIGNED[31:16];
+assign ReplyBuffer[ID_Rep_IPv4_Address1] = Reply_IPv4_Address1;          // updated when IP address assigned
+initial Reply_IPv4_Address1 = IP_UNASSIGNED[15:0];
+assign ReplyBuffer[ID_Rep_UDP_fpgaPort]  = 16'd1394;
+assign ReplyBuffer[ID_Rep_UDP_hostPort]  = Reply_UDP_hostPort;           // updated in ST_RECEIVE_DMA_ETHERNET_HEADERS
+assign ReplyBuffer[ID_Rep_UDP_Length]    = isUDP ? Reply_UDP_Length      // updated in ST_SEND_DMA_BYTECOUNT
+                                                 : Reply_ICMP_Checksum;
+assign ReplyBuffer[ID_Rep_ARP_Oper]      = 16'h0002;                     // ARP Operation (OPER): 2 for reply
 
 generate
 if (IPv4_CSUM) begin
@@ -345,10 +357,10 @@ if (IPv4_CSUM) begin
     assign Rep_IPv4_Csum17 = { 1'd0, Rep_IPv4_Csum19[15:0]} + {14'd0, Rep_IPv4_Csum19[18:16]};
 
     // Second part of IPv4 checksum carry, with ones complement of result
-    assign Rep_IPv4_Csum16 = ~(Rep_IPv4_Csum17[15:0] + {15'd0, Rep_IPv4_Csum17[16]});
+    assign Reply_IPv4_Csum = ~(Rep_IPv4_Csum17[15:0] + {15'd0, Rep_IPv4_Csum17[16]});
 end
 else begin
-    assign Rep_IPv4_Csum16 = 16'd0;
+    assign Reply_IPv4_Csum = 16'd0;
 end
 endgenerate
 
@@ -466,8 +478,6 @@ wire[15:0] icmp_data_length;
 // Note that maximum ping data size is 1472 bytes (1500-28) because we do not fragment packets.
 assign icmp_data_length = IPv4_Length-16'd32;
 
-wire[15:0] ICMP_Checksum_Reply;
-
 if (IPv4_CSUM) begin
     // Checksum on received packet
     wire[15:0] ICMP_Checksum;
@@ -478,13 +488,13 @@ if (IPv4_CSUM) begin
     // which is the Type (8) and Code (0) because the reply packet has 0 for both.
     // This is more efficiently done by avoiding the one's complement and adding instead
     // of subtracting.
-    wire[16:0] ICMP_Checksum_Reply17;
-    assign ICMP_Checksum_Reply17 = { 1'b0, ICMP_Checksum } + { 1'b0, 16'h0800 };
-    assign ICMP_Checksum_Reply = ICMP_Checksum_Reply17[15:0] + { 15'd0, ICMP_Checksum_Reply17[16] };
+    wire[16:0] Reply_ICMP_Checksum17;
+    assign Reply_ICMP_Checksum17 = { 1'b0, ICMP_Checksum } + { 1'b0, 16'h0800 };
+    assign Reply_ICMP_Checksum = Reply_ICMP_Checksum17[15:0] + { 15'd0, Reply_ICMP_Checksum17[16] };
 end
 else begin
     // For FPGA V2, the KSZ8851 will compute this checksum for us
-    assign ICMP_Checksum_Reply = 16'd0;
+    assign Reply_ICMP_Checksum = 16'd0;
 end
 
 //**************************** Firewire Control Word ************************************
@@ -955,8 +965,8 @@ begin
    // Write to IP address register
    if (ip_reg_wen) begin
       // Following is equivalent to: ip_address <= reg_wdata_in;
-      ReplyBuffer[ID_Rep_IPv4_Address0] <= {reg_wdata_in[7:0], reg_wdata_in[15:8] };
-      ReplyBuffer[ID_Rep_IPv4_Address1] <= {reg_wdata_in[23:16], reg_wdata_in[31:24] };
+      Reply_IPv4_Address0 <= {reg_wdata_in[7:0], reg_wdata_in[15:8] };
+      Reply_IPv4_Address1 <= {reg_wdata_in[23:16], reg_wdata_in[31:24] };
    end
 
    if (recvTransition) begin
@@ -1020,8 +1030,8 @@ begin
                   // cache entry for this board, in which case we just assign
                   // the IP address, as long as it is not a broadcast address
                   // (we only check whether the last byte is 255).
-                  ReplyBuffer[ID_Rep_IPv4_Address0] <= PacketBuffer[ID_IPv4_destIP0];
-                  ReplyBuffer[ID_Rep_IPv4_Address1] <= PacketBuffer[ID_IPv4_destIP1];
+                  Reply_IPv4_Address0 <= PacketBuffer[ID_IPv4_destIP0];
+                  Reply_IPv4_Address1 <= PacketBuffer[ID_IPv4_destIP1];
                end
                nextRecvState <= ST_RECEIVE_DMA_ETHERNET_HEADERS;
             end
@@ -1044,7 +1054,7 @@ begin
                // but that would require a much larger PacketBuffer. Also, even separating ARP and UDP in PacketBuffer
                // would not handle the (unlikely) case where an invalid UDP packet is received prior to the request to
                // forward a packet from FireWire.
-               ReplyBuffer[ID_Rep_UDP_hostPort] <= PacketBuffer[ID_UDP_hostPort];
+               Reply_UDP_hostPort <= PacketBuffer[ID_UDP_hostPort];
                nextRecvState <= ST_RECEIVE_DMA_ETHERNET_HEADERS;
             end
          end
@@ -1345,46 +1355,41 @@ begin
       xcnt <= 2'd0;
       if (sendRequest) begin
          sendBusy <= 1;
-         ReplyBuffer[ID_Rep_fpgaMac2][3:0] <= board_id;
          if (isForward) begin
             if (!useUDP) begin
                // Forwarding raw data from FireWire
-               ReplyBuffer[ID_Rep_Frame_Length] <= sendLen + `FW_EXTRA_SIZE;
+               Reply_Frame_Length <= sendLen + `FW_EXTRA_SIZE;
             end
             else begin
                // Forwarding data from FireWire
-               ReplyBuffer[ID_Rep_Frame_Length] <= 16'h0800; // IPv4 EtherType
-               ReplyBuffer[ID_Rep_IPv4_Length] <= `IPv4_UDP_EXTRA_SIZE + sendLen;
-               ReplyBuffer[ID_Rep_IPv4_Prot][7:0] <= 8'd17;  // UDP protocol
-               ReplyBuffer[ID_Rep_UDP_Length] <= `UDP_EXTRA_SIZE + sendLen;
+               Reply_Frame_Length <= 16'h0800;   // IPv4 EtherType
+               Reply_IPv4_Length <= `IPv4_UDP_EXTRA_SIZE + sendLen;
+               Reply_UDP_Length <= `UDP_EXTRA_SIZE + sendLen;
             end
          end
          else if (sendARP) begin
-            ReplyBuffer[ID_Rep_Frame_Length] <= 16'h0806; // ARP EtherType
+            Reply_Frame_Length <= 16'h0806; // ARP EtherType
          end
          else if (isEcho) begin
             // Echo (ICMP) response
-            ReplyBuffer[ID_Rep_Frame_Length] <= 16'h0800;   // IPv4 EtherType
-            ReplyBuffer[ID_Rep_IPv4_Length] <= IPv4_Length; // Same length as request
-            ReplyBuffer[ID_Rep_IPv4_Prot][7:0] <= 8'd1;     // ICMP protocol
-            ReplyBuffer[ID_Rep_ICMP_Checksum] <= ICMP_Checksum_Reply;
+            Reply_Frame_Length <= 16'h0800;   // IPv4 EtherType
+            Reply_IPv4_Length <= IPv4_Length; // Same length as request
          end
          else if ((FireWirePacketFresh && (quadRead || blockRead) && (isLocal || sendExtra))) begin
             if (useUDP) begin
-               ReplyBuffer[ID_Rep_Frame_Length] <= 16'h0800; // IPv4 EtherType (UDP or ICMP)
-               ReplyBuffer[ID_Rep_IPv4_Length] <= sendExtra ? `IPv4_UDP_EXTRA_SIZE :
-                                                   quadRead ? (`IPv4_UDP_EXTRA_SIZE + `FW_QRESP_SIZE)
-                                                            : (`IPv4_UDP_EXTRA_SIZE + `FW_BRESP_SIZE) + block_data_length;
-               ReplyBuffer[ID_Rep_IPv4_Prot][7:0] <= 8'd17;  // UDP protocol
-               ReplyBuffer[ID_Rep_UDP_Length] <= sendExtra ? `UDP_EXTRA_SIZE :
-                                                  quadRead ? (`UDP_EXTRA_SIZE + `FW_QRESP_SIZE)
-                                                           : (`UDP_EXTRA_SIZE + `FW_BRESP_SIZE) + block_data_length;
+               Reply_Frame_Length <= 16'h0800;   // IPv4 EtherType (UDP or ICMP)
+               Reply_IPv4_Length <= sendExtra ? `IPv4_UDP_EXTRA_SIZE :
+                                    quadRead  ? (`IPv4_UDP_EXTRA_SIZE + `FW_QRESP_SIZE)
+                                              : (`IPv4_UDP_EXTRA_SIZE + `FW_BRESP_SIZE) + block_data_length;
+               Reply_UDP_Length <= sendExtra ? `UDP_EXTRA_SIZE :
+                                   quadRead  ? (`UDP_EXTRA_SIZE + `FW_QRESP_SIZE)
+                                             : (`UDP_EXTRA_SIZE + `FW_BRESP_SIZE) + block_data_length;
             end
             else begin
                // Local raw packet
-               ReplyBuffer[ID_Rep_Frame_Length] <= sendExtra ? `FW_EXTRA_SIZE :
-                                                    quadRead ? (`FW_QRESP_SIZE + `FW_EXTRA_SIZE)
-                                                             : (`FW_BRESP_SIZE + `FW_EXTRA_SIZE) + block_data_length;
+               Reply_Frame_Length <= sendExtra ? `FW_EXTRA_SIZE :
+                                     quadRead  ? (`FW_QRESP_SIZE + `FW_EXTRA_SIZE)
+                                               : (`FW_BRESP_SIZE + `FW_EXTRA_SIZE) + block_data_length;
             end
          end
          sendState <= ST_SEND_DMA_ETHERNET_HEADERS;
@@ -1394,7 +1399,6 @@ begin
 
    ST_SEND_DMA_ETHERNET_HEADERS:
    begin
-      ReplyBuffer[ID_Rep_IPv4_Csum] <= Rep_IPv4_Csum16;
       if (sendReady) begin
          `send_word_swapped <= (ReplyIndex[replyCnt][5]==isPacket) ?
                                 PacketBuffer[ReplyIndex[replyCnt][4:0]] :
