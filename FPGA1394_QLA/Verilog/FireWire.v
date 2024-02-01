@@ -645,6 +645,12 @@ crc32 mycrc(crc_data, crc_in, crc_2b, crc_4b, crc_8b);
 assign write_trig_reset = ((lreq_type == `LREQ_TX_ISO) && (tx_type == `TX_TYPE_BBC)) ? 1'b1 : 1'b0;
 
 `ifdef HAS_ETHERNET
+// Set eth_active when request (eth_send_fw_req) is received from Ethernet to indicate that a response
+// may need to be forwarded to Ethernet. If the next packet received is a quadlet or block read response
+// and the destination address matches eth_fw_addr, it is forwarded to Ethernet. Whether forwarded or
+// not, the eth_active flag is cleared at that time.
+reg eth_active;
+
 // packet module (used to store FireWire packet that will be forwarded to Ethernet).
 // This is 512 quadlets (512 x 32), which is the maximum possible Firewire packet size at 400 Mbits/sec
 // (actually, could add a few quadlets because the 512 limit does not include header and CRC).
@@ -706,11 +712,15 @@ begin
 `ifdef HAS_ETHERNET
                     else if (eth_send_fw_req) begin
                         eth_send_fw_ack <= 1;
+                        // Note whether Ethernet forward is active, in case there
+                        // is a response. This flag may be acted upon when the
+                        // next Firewire packet is received in ST_RX_D_ON, and is
+                        // also cleared in that state.
+                        eth_active <= 1'b1;
                         lreq_trig <= 1;
                         lreq_type <= `LREQ_TX_ISO;
                         tx_type <= `TX_TYPE_FWD;
                         eth_fwpkt_raddr <= 9'h00;
-                        numbits <= (eth_fwpkt_len << 3);
                     end
 `endif
                     else begin
@@ -982,14 +992,17 @@ begin
 
 `ifdef HAS_ETHERNET
                             // trigger packet forward if packet is for pc
-                            if ((rx_dest[15:0] == eth_fw_addr) && (rx_tcode == `TC_QRESP)) begin
-                               eth_send_req <= 1;
-                               eth_send_len <= 16'd20;
+                            if (eth_active) begin
+                               if ((rx_dest[15:0] == eth_fw_addr) && (rx_tcode == `TC_QRESP)) begin
+                                  eth_send_req <= 1;
+                                  eth_send_len <= 16'd20;
+                               end
+                               else if ((rx_dest[15:0] == eth_fw_addr) && (rx_tcode == `TC_BRESP)) begin
+                                  eth_send_req <= 1;
+                                  eth_send_len <= 16'd24 + buffer[31:16];
+                               end
                             end
-                            else if ((rx_dest[15:0] == eth_fw_addr) && (rx_tcode == `TC_BRESP)) begin
-                               eth_send_req <= 1;
-                               eth_send_len <= 16'd24 + buffer[31:16];
-                            end
+                            eth_active <= 1'b0;
 `endif
                         end
                         // quadlet 4.5 -----------------------------------------

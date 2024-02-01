@@ -674,17 +674,18 @@ assign ExtraData[3] = timeNow;
 wire[31:0] DebugData[0:15];
 assign DebugData[0]  = "2GBD";  // DBG2 byte-swapped
 assign DebugData[1]  = timestamp;
-assign DebugData[2]  = { writeRequest, writeRequest, bw_active, eth_send_isIdle,           // 31:28
-                         eth_recv_isIdle, ethUDPError, 1'b0, ethIPv4Error,                 // 27:24
+assign DebugData[2]  = { writeRequest, 1'd0, bw_active, eth_send_isIdle,                         // 31:28
+                         eth_recv_isIdle, ethUDPError, 1'b0, ethIPv4Error,                       // 27:24
                          sendBusy, sendRequest, eth_send_fw_ack, eth_send_fw_req,                // 23:20
-                         2'd0, isLocal, isRemote,                                                // 19:16
+                         recvBusy, recvRequest, isLocal, isRemote,                               // 19:16
                          FireWirePacketFresh, isForward, sendARP, isUDP,                         // 15:12
                          isICMP, isEcho, is_IPv4_Long, is_IPv4_Short,                            // 11:8
                          fw_bus_reset, 3'd0,                                                     //  7:4
                          4'd0 };                                                                 //  3:0
 assign DebugData[3]  = { node_id, maxCountFW, LengthFW };                  // 6, 10, 16
 assign DebugData[4]  = { fw_ctrl, host_fw_addr };                          // 16, 16
-assign DebugData[5]  = { sendState, 12'd0, 16'd0 };                        // 4, 12, 4, 12
+assign DebugData[5]  = { sendState, 12'd0,                                 // 16
+                         1'd0, recvState, 1'd0, nextRecvState, 8'd0 };     // 3, 3
 assign DebugData[6]  = { 6'd0, numUDP, 6'd0, numIPv4 };                    // 6, 10, 6, 10
 assign DebugData[7]  = { br_wait_cnt, numICMP, fw_bus_gen, numARP };       // 8, 8, 8, 8
 assign DebugData[8]  = { 7'd0, bw_left, bw_err, 4'd0, bwState, numPacketError };   // 7, 9, 1, 4, 3, 8
