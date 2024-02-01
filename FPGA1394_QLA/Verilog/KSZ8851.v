@@ -439,7 +439,7 @@ assign DebugData[15] = 32'd0;
 // to the program by changing the program counter (runPC).
 //
 // There is also some use of self-modifying code; specifically, ST_IRQ_DISPATCH changes
-// the contents of the ID_CLEAR_INTERRUPT instruction.
+// the contents of the ID_CLEAR_INTERRUPT instruction (ClearInterrupt register).
 //***************************************************************************************
 
 localparam CMD_WRITE = 1'd1,  // Write to register
@@ -454,7 +454,8 @@ localparam CMD_WRITE = 1'd1,  // Write to register
 `define NEXT_BITS 4:0
 
 // Program for initialization (0-16) and run-time (16-31)
-reg[25:0] RunProgram[0:31];
+wire[25:0] RunProgram[0:31];
+reg[25:0] ClearInterrupt;
 
 // Some useful indices
 localparam[4:0]
@@ -479,85 +480,84 @@ localparam[4:0]
    ID_TXQ_ENQUEUE = 5'd30,
    ID_TXQ_READ = 5'd31;
 
-initial begin
-    // Read Chip ID
-    RunProgram[ID_CHIP_ID] = {CMD_READ, CMD_NOP, `ETH_ADDR_CIDER, 11'd0, ST_INIT_CHECK_CHIPID};
-    // Set MAC address (4 LSB below should be set to board_id)
-    RunProgram[ID_MAC_LOW] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_MARL, 12'h940, 4'd0};
-    RunProgram[ID_MAC_MID] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_MARM, 16'h0E13};
-    RunProgram[ID_MAC_HIGH] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_MARH, 16'hFA61};
-    // Enable QMU transmit frame data pointer auto increment
-    RunProgram[4] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_TXFDPR, 16'h4000};
-    RunProgram[5] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_TXCR, ETH_VALUE_TXCR};
-    // B14: Enable QMU receive frame data pointer auto increment
-    // B12: Decrease write data valid sample time to 4 nS (max) -- currently not set
-    // B11: Set Little Endian (0) or Big Endian (1)-- currently, Little Endian.
-    // According to KSZ8851 Step-by-Step Programmer's Guide, in Little Endian mode,
-    // registers are:
-    //     ____________________________________
-    //     | Data 15-8 (MSB) | Data 7-0 (LSB) |
-    //     ------------------------------------
-    // The Verilog code has been written assuming a Little Endian convention (e.g.,
-    // reg[31:0] myVar), rather than Big Endian (e.g., reg[0:31] myVar), though this
-    // refers to the bit order, not just the byte order. Nevertheless, it is more
-    // convenient to keep the KSZ8851 in Little Endian mode.
-    // Note, however, that Ethernet and FireWire are both Big Endian, so some byte-swapping
-    // is needed.
-    RunProgram[6] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_RXFDPR, 16'h4000};
-    // Configure receive frame threshold for 1 frame
-    RunProgram[7] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_RXFCTR, 16'h0001};
-    // 7: enable UDP, TCP, and IP checksums
-    // C: enable MAC address filtering, enable flow control (for receive in full duplex mode)
-    // E: enable broadcast, multicast, and unicast
-    // Bit 4 = 0, Bit 1 = 0, Bit 11 = 1, Bit 8 = 0 (hash perfect, default)
-    RunProgram[8] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_RXCR1, ETH_VALUE_RXCR1};
-    // Enable UDP checksums; pass packets with 0 checksum
-    RunProgram[9] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_RXCR2, 16'h001C};
-    // Following are hard-coded values for which hash register to use and which bit to set
-    // for multicast address FB:61:0E:13:94:FF. This is obtained by computing the CRC for
-    // this MAC address and then using the first two (most significant) bits to determine
-    // the register and the next four bits to determine which bit to set.
-    // See code in mainEth1394.cpp.
-    RunProgram[10] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_MAHTR1, 16'h0008};
-    // RXQCR value
-    // B5: RXFCTE enable QMU frame count threshold (1)
-    // B4: ADRFE  auto-dequeue
-    // Not enabling auto-dequeue because we flush packet
-    // instead of reading to end.
-    RunProgram[11] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_RXQCR, ETH_VALUE_RXQCR};
-    // Clear all pending interrupts
-    RunProgram[12] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_ISR, 16'hFFFF};
-    // Enable receive and link change interrupts
-    RunProgram[13] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_IER, ETH_VALUE_IER};
-    // Enable transmit
-    RunProgram[14] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_TXCR, ETH_VALUE_TXCR[15:1], 1'd1};
-    // Enable receive
-    RunProgram[15] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_RXCR1, ETH_VALUE_RXCR1[15:1], 1'd1};
-    // Check link status. This is the last command for initialization, but will also be called
-    // in response to a link change interrupt. Note that ST_HANDLE_PORT_STATUS will transition
-    // to ST_IDLE if called during initialization and to ST_IRQ_DISPATCH if called as a result
-    // of the interrupt (isInIRQ).
-    RunProgram[ID_READ_PORT1SR]      = {CMD_READ,  CMD_NOP, `ETH_ADDR_P1SR,  11'd0, ST_HANDLE_PORT_STATUS};
-    // The following commands are used at runtime
-    RunProgram[ID_READ_INTERRUPT]    = {CMD_READ,  CMD_NOP, `ETH_ADDR_ISR, 11'd0, ST_IRQ_HANDLER};
-    RunProgram[ID_DISABLE_INTERRUPT] = {CMD_WRITE, CMD_BRA, `ETH_ADDR_IER, 16'd0};
-    // Clear interrupt (data field updated in ST_IRQ_DISPATCH)
-    RunProgram[ID_CLEAR_INTERRUPT]   = {CMD_WRITE, CMD_BRA, `ETH_ADDR_ISR, 16'd0};
-    RunProgram[ID_READ_FRAME_COUNT]  = {CMD_READ,  CMD_NOP, `ETH_ADDR_RXFCTR, 11'd0, ST_RECEIVE_FRAME_COUNT};
-    RunProgram[ID_READ_FRAME_STATUS] = {CMD_READ,  CMD_NOP, `ETH_ADDR_RXFHSR, 11'd0, ST_RECEIVE_FRAME_STATUS};
-    RunProgram[ID_READ_FRAME_LENGTH] = {CMD_READ,  CMD_NOP, `ETH_ADDR_RXFHBCR, 11'd0, ST_RECEIVE_FRAME_LENGTH};
-    // Set QMU RXQ frame pointer to 0 (not decreasing write sample time)
-    RunProgram[ID_SET_FRAME_POINTER] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_RXFDPR, 16'h4000};
-    RunProgram[ID_ENABLE_DMA_RECV]   = {CMD_WRITE, CMD_NOP, `ETH_ADDR_RXQCR, ETH_VALUE_RXQCR[15:4],1'b1,ETH_VALUE_RXQCR[2:0]};
-    // Flush the rest of the packet: Clear DMA bit (bit 3) and set flush bit (bit 0)
-    RunProgram[ID_FLUSH_FRAME]       = {CMD_WRITE, CMD_NOP, `ETH_ADDR_RXQCR, ETH_VALUE_RXQCR[15:4],1'b0,ETH_VALUE_RXQCR[2:1],1'b1};
-    RunProgram[ID_READ_CMD_REG]      = {CMD_READ,  CMD_NOP, `ETH_ADDR_RXQCR, 11'd0, ST_RECEIVE_FLUSH_WAIT};
-    RunProgram[ID_ENABLE_INTERRUPT]  = {CMD_WRITE, CMD_NOP, `ETH_ADDR_IER, ETH_VALUE_IER};
-    RunProgram[ID_ENABLE_DMA_SEND]   = {CMD_WRITE, CMD_NOP, `ETH_ADDR_RXQCR, ETH_VALUE_RXQCR[15:4],1'b1,ETH_VALUE_RXQCR[2:0]};
-    RunProgram[ID_DISABLE_DMA]       = {CMD_WRITE, CMD_NOP, `ETH_ADDR_RXQCR, ETH_VALUE_RXQCR[15:4],1'b0,ETH_VALUE_RXQCR[2:0]};
-    RunProgram[ID_TXQ_ENQUEUE]       = {CMD_WRITE, CMD_NOP, `ETH_ADDR_TXQCR, 16'h0001};
-    RunProgram[ID_TXQ_READ]          = {CMD_READ,  CMD_NOP, `ETH_ADDR_TXQCR, 11'd0, ST_SEND_TXQ_ENQUEUE_WAIT};
-end
+// Read Chip ID
+assign RunProgram[ID_CHIP_ID] = {CMD_READ, CMD_NOP, `ETH_ADDR_CIDER, 11'd0, ST_INIT_CHECK_CHIPID};
+// Set MAC address (4 LSB below should be set to board_id)
+assign RunProgram[ID_MAC_LOW] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_MARL, 12'h940, board_id};
+assign RunProgram[ID_MAC_MID] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_MARM, 16'h0E13};
+assign RunProgram[ID_MAC_HIGH] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_MARH, 16'hFA61};
+// Enable QMU transmit frame data pointer auto increment
+assign RunProgram[4] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_TXFDPR, 16'h4000};
+assign RunProgram[5] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_TXCR, ETH_VALUE_TXCR};
+// B14: Enable QMU receive frame data pointer auto increment
+// B12: Decrease write data valid sample time to 4 nS (max) -- currently not set
+// B11: Set Little Endian (0) or Big Endian (1)-- currently, Little Endian.
+// According to KSZ8851 Step-by-Step Programmer's Guide, in Little Endian mode,
+// registers are:
+//     ____________________________________
+//     | Data 15-8 (MSB) | Data 7-0 (LSB) |
+//     ------------------------------------
+// The Verilog code has been written assuming a Little Endian convention (e.g.,
+// reg[31:0] myVar), rather than Big Endian (e.g., reg[0:31] myVar), though this
+// refers to the bit order, not just the byte order. Nevertheless, it is more
+// convenient to keep the KSZ8851 in Little Endian mode.
+// Note, however, that Ethernet and FireWire are both Big Endian, so some byte-swapping
+// is needed.
+assign RunProgram[6] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_RXFDPR, 16'h4000};
+// Configure receive frame threshold for 1 frame
+assign RunProgram[7] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_RXFCTR, 16'h0001};
+// 7: enable UDP, TCP, and IP checksums
+// C: enable MAC address filtering, enable flow control (for receive in full duplex mode)
+// E: enable broadcast, multicast, and unicast
+// Bit 4 = 0, Bit 1 = 0, Bit 11 = 1, Bit 8 = 0 (hash perfect, default)
+assign RunProgram[8] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_RXCR1, ETH_VALUE_RXCR1};
+// Enable UDP checksums; pass packets with 0 checksum
+assign RunProgram[9] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_RXCR2, 16'h001C};
+// Following are hard-coded values for which hash register to use and which bit to set
+// for multicast address FB:61:0E:13:94:FF. This is obtained by computing the CRC for
+// this MAC address and then using the first two (most significant) bits to determine
+// the register and the next four bits to determine which bit to set.
+// See code in mainEth1394.cpp.
+assign RunProgram[10] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_MAHTR1, 16'h0008};
+// RXQCR value
+// B5: RXFCTE enable QMU frame count threshold (1)
+// B4: ADRFE  auto-dequeue
+// Not enabling auto-dequeue because we flush packet
+// instead of reading to end.
+assign RunProgram[11] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_RXQCR, ETH_VALUE_RXQCR};
+// Clear all pending interrupts
+assign RunProgram[12] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_ISR, 16'hFFFF};
+// Enable receive and link change interrupts
+assign RunProgram[13] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_IER, ETH_VALUE_IER};
+// Enable transmit
+assign RunProgram[14] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_TXCR, ETH_VALUE_TXCR[15:1], 1'd1};
+// Enable receive
+assign RunProgram[15] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_RXCR1, ETH_VALUE_RXCR1[15:1], 1'd1};
+// Check link status. This is the last command for initialization, but will also be called
+// in response to a link change interrupt. Note that ST_HANDLE_PORT_STATUS will transition
+// to ST_IDLE if called during initialization and to ST_IRQ_DISPATCH if called as a result
+// of the interrupt (isInIRQ).
+assign RunProgram[ID_READ_PORT1SR]      = {CMD_READ,  CMD_NOP, `ETH_ADDR_P1SR,  11'd0, ST_HANDLE_PORT_STATUS};
+// The following commands are used at runtime
+assign RunProgram[ID_READ_INTERRUPT]    = {CMD_READ,  CMD_NOP, `ETH_ADDR_ISR, 11'd0, ST_IRQ_HANDLER};
+assign RunProgram[ID_DISABLE_INTERRUPT] = {CMD_WRITE, CMD_BRA, `ETH_ADDR_IER, 16'd0};
+// Clear interrupt (data field updated in ST_IRQ_DISPATCH)
+assign RunProgram[ID_CLEAR_INTERRUPT]   = ClearInterrupt;
+initial ClearInterrupt                  = {CMD_WRITE, CMD_BRA, `ETH_ADDR_ISR, 16'd0};
+assign RunProgram[ID_READ_FRAME_COUNT]  = {CMD_READ,  CMD_NOP, `ETH_ADDR_RXFCTR, 11'd0, ST_RECEIVE_FRAME_COUNT};
+assign RunProgram[ID_READ_FRAME_STATUS] = {CMD_READ,  CMD_NOP, `ETH_ADDR_RXFHSR, 11'd0, ST_RECEIVE_FRAME_STATUS};
+assign RunProgram[ID_READ_FRAME_LENGTH] = {CMD_READ,  CMD_NOP, `ETH_ADDR_RXFHBCR, 11'd0, ST_RECEIVE_FRAME_LENGTH};
+// Set QMU RXQ frame pointer to 0 (not decreasing write sample time)
+assign RunProgram[ID_SET_FRAME_POINTER] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_RXFDPR, 16'h4000};
+assign RunProgram[ID_ENABLE_DMA_RECV]   = {CMD_WRITE, CMD_NOP, `ETH_ADDR_RXQCR, ETH_VALUE_RXQCR[15:4],1'b1,ETH_VALUE_RXQCR[2:0]};
+// Flush the rest of the packet: Clear DMA bit (bit 3) and set flush bit (bit 0)
+assign RunProgram[ID_FLUSH_FRAME]       = {CMD_WRITE, CMD_NOP, `ETH_ADDR_RXQCR, ETH_VALUE_RXQCR[15:4],1'b0,ETH_VALUE_RXQCR[2:1],1'b1};
+assign RunProgram[ID_READ_CMD_REG]      = {CMD_READ,  CMD_NOP, `ETH_ADDR_RXQCR, 11'd0, ST_RECEIVE_FLUSH_WAIT};
+assign RunProgram[ID_ENABLE_INTERRUPT]  = {CMD_WRITE, CMD_NOP, `ETH_ADDR_IER, ETH_VALUE_IER};
+assign RunProgram[ID_ENABLE_DMA_SEND]   = {CMD_WRITE, CMD_NOP, `ETH_ADDR_RXQCR, ETH_VALUE_RXQCR[15:4],1'b1,ETH_VALUE_RXQCR[2:0]};
+assign RunProgram[ID_DISABLE_DMA]       = {CMD_WRITE, CMD_NOP, `ETH_ADDR_RXQCR, ETH_VALUE_RXQCR[15:4],1'b0,ETH_VALUE_RXQCR[2:0]};
+assign RunProgram[ID_TXQ_ENQUEUE]       = {CMD_WRITE, CMD_NOP, `ETH_ADDR_TXQCR, 16'h0001};
+assign RunProgram[ID_TXQ_READ]          = {CMD_READ,  CMD_NOP, `ETH_ADDR_TXQCR, 11'd0, ST_SEND_TXQ_ENQUEUE_WAIT};
 
 reg[4:0] runPC;    // Program counter for RunProgram
 
@@ -926,7 +926,6 @@ always @(posedge sysclk) begin
    ST_RESET_WAIT:
    begin
       if (initCount == 21'h1FFFFF) begin
-         RunProgram[ID_MAC_LOW][3:0] <= board_id;
          runPC <= ID_CHIP_ID;
       end
       else begin
@@ -1005,9 +1004,9 @@ always @(posedge sysclk) begin
          // Handle receive
          isInIRQ <= 1;
          runPC <= ID_CLEAR_INTERRUPT;
-         RunProgram[ID_CLEAR_INTERRUPT][`MOD_BIT] <= 1'b0;
-         RunProgram[ID_CLEAR_INTERRUPT][`ADDR_BITS] <= `ETH_ADDR_ISR;
-         RunProgram[ID_CLEAR_INTERRUPT][`DATA_BITS] <= 16'h2000;
+         ClearInterrupt[`MOD_BIT] <= 1'b0;
+         ClearInterrupt[`ADDR_BITS] <= `ETH_ADDR_ISR;
+         ClearInterrupt[`DATA_BITS] <= 16'h2000;
          RegISR[13] <= 1'b0;     // clear ISR receive IRQ bit
       end
       else if (RegISR[15] == 1'b1) begin
@@ -1015,27 +1014,27 @@ always @(posedge sysclk) begin
          isInIRQ <= 1;
          runPC <= ID_READ_PORT1SR;
          // ST_HANDLE_PORT_STATUS will set runPC to ID_CLEAR_INTERRUPT
-         RunProgram[ID_CLEAR_INTERRUPT][`MOD_BIT] <= 1'b1;
-         RunProgram[ID_CLEAR_INTERRUPT][`ADDR_BITS] <= `ETH_ADDR_ISR;
-         RunProgram[ID_CLEAR_INTERRUPT][`DATA_BITS] <= 16'h8000;
+         ClearInterrupt[`MOD_BIT] <= 1'b1;
+         ClearInterrupt[`ADDR_BITS] <= `ETH_ADDR_ISR;
+         ClearInterrupt[`DATA_BITS] <= 16'h8000;
          RegISR[15] <= 1'b0;       // Clear RegISR
       end
       else if (RegISR[14] || RegISR[11] || RegISR[9] || RegISR[8] || RegISR[6]) begin
          // These interrupts are not handled and are disabled, so clear them
          // if they somehow occurred.
          runPC <= ID_CLEAR_INTERRUPT;
-         RunProgram[ID_CLEAR_INTERRUPT][`MOD_BIT] <= 1'b1;
-         RunProgram[ID_CLEAR_INTERRUPT][`ADDR_BITS] <= `ETH_ADDR_ISR;
-         RunProgram[ID_CLEAR_INTERRUPT][`DATA_BITS] <= RegISR&16'b0100101101000000;
+         ClearInterrupt[`MOD_BIT] <= 1'b1;
+         ClearInterrupt[`ADDR_BITS] <= `ETH_ADDR_ISR;
+         ClearInterrupt[`DATA_BITS] <= RegISR&16'b0100101101000000;
          RegISR <= RegISR&16'b1011010010111111;    // Clear RegISR bits
       end
       else if (RegISR[5] || RegISR[4] || RegISR[3] || RegISR[2]) begin
          // These interrupts are also not handled and are disabled, but are
          // cleared differently (by writing to PMECR)
          runPC <= ID_CLEAR_INTERRUPT;
-         RunProgram[ID_CLEAR_INTERRUPT][`MOD_BIT] <= 1'b1;
-         RunProgram[ID_CLEAR_INTERRUPT][`ADDR_BITS] <= `ETH_ADDR_PMECR;
-         RunProgram[ID_CLEAR_INTERRUPT][`DATA_BITS] <= RegISR&16'h003c;
+         ClearInterrupt[`MOD_BIT] <= 1'b1;
+         ClearInterrupt[`ADDR_BITS] <= `ETH_ADDR_PMECR;
+         ClearInterrupt[`DATA_BITS] <= RegISR&16'h003c;
          RegISR    <= RegISR&16'hffc3;    // Clear RegISR bits
       end
       else begin
