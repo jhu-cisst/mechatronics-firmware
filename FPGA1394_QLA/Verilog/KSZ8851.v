@@ -392,7 +392,7 @@ assign DebugData[1]  = { isDMAWrite, sendRequest, ~ETH_IRQn, isInIRQ,     // 31:
                          linkStatus, 3'd0,                                // 27:24
                          24'd0 };
 assign DebugData[2]  = { 3'd0, state, 3'd0, retState, 3'd0, nextState, 3'd0, runPC }; // 5, 5, 5, 5
-assign DebugData[3]  = { 16'd0, RegISROther};                             // 16
+assign DebugData[3]  = { responseByteCount, RegISROther};                 // 16, 16
 assign DebugData[4]  = { 6'd0, bw_wait, FrameCount, numPacketSent};       // 10, 8, 8
 assign DebugData[5]  = { 4'd0, txPktWords, 4'd0, rxPktWords };            // 12, 12
 assign DebugData[6]  = { timeSend, timeReceive };                         // 16, 16
@@ -742,10 +742,6 @@ begin
       // The KSZ8851MLL Step-by-Step guide specifies that the TXQ must
       // be DWORD (32-bit) aligned. In practice, this does not seem to
       // be necessary, but we do it anyway to be safe.
-      //
-      // Waiting for sendBusy to be cleared might result in an additional word
-      // being written. Could consider leaving this state when the following is true:
-      //    (sendTransition && (txPktWords == (responseByteCount[12:1]-12'd1)))
       nextState = sendBusy ? ST_SEND_DMA_WAIT :
                   (responseByteCount[1]|responseByteCount[0]) ? ST_SEND_DMA_DWORD_PAD
                            : ST_RUN_PROGRAM_EXECUTE;
@@ -1233,13 +1229,13 @@ always @(posedge sysclk) begin
    begin
       // Clear request flag
       sendRequest <= 1'b0;
-      // Left shift and rotate sendCtrl
-      sendCtrl <= {sendCtrl[1:0], sendCtrl[2] };
-      if (sendCtrl[2]) begin
-         SDRegDWR <= send_word;
-         txPktWords <= txPktWords + 12'd1;
+      if (txPktWords != responseByteCount[12:1]) begin
+          sendCtrl <= {sendCtrl[1:0], sendCtrl[2] };
+          if (sendCtrl[2]) begin
+             SDRegDWR <= send_word;
+             txPktWords <= txPktWords + 12'd1;
+          end
       end
-      // See note regarding nextSendState (and txPktWords) for ST_SEND_DMA_WAIT
       if (~sendBusy) begin
          waitInfo <= WAIT_NONE;
          if (~(responseByteCount[1]|responseByteCount[0])) begin

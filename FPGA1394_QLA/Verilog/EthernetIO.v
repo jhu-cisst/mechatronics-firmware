@@ -454,10 +454,6 @@ wire[15:0] IPv4_Length;
 assign IPv4_Length = PacketBuffer[ID_IPv4_Length];
 wire[7:0] IPv4_Protocol;
 assign IPv4_Protocol = PacketBuffer[ID_IPv4_Protocol][7:0];
-wire[31:0] IPv4_fpgaIP;
-// Byteswapped to match ip_address
-assign IPv4_fpgaIP = { PacketBuffer[ID_IPv4_destIP1][7:0], PacketBuffer[ID_IPv4_destIP1][15:8],
-                       PacketBuffer[ID_IPv4_destIP0][7:0], PacketBuffer[ID_IPv4_destIP0][15:8] };
 
 `ifdef HAS_DEBUG_DATA
 wire is_IPv4_Long;
