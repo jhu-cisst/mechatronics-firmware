@@ -92,7 +92,8 @@ assign TxErr = 1'b0;
 localparam
     ST_RX_IDLE          = 2'd0,
     ST_RX_FRAME         = 2'd1,
-    ST_RX_WAIT_SEND     = 2'd2;
+    ST_RX_WAIT_SEND     = 2'd2,
+    ST_RX_WAIT_BW       = 2'd3;
 
 reg[1:0] rxState = ST_RX_IDLE;
 
@@ -116,6 +117,7 @@ assign timeNow = (timeNow32 & 32'hffff0000) ? 16'hffff : timeNow32[15:0];
 
 `ifdef HAS_DEBUG_DATA
 reg[7:0] numRecv;
+reg[9:0] bw_wait;
 `endif
 
 always @(posedge clk)
@@ -146,6 +148,7 @@ begin
                 // is read on next clock
 `ifdef HAS_DEBUG_DATA
                 numRecv <= numRecv + 8'd1;
+                bw_wait <= 10'd0;
 `endif
             end
         end
@@ -195,6 +198,11 @@ begin
                     sendResponse <= ~sendBusy;
                     rxState <= ST_RX_WAIT_SEND;
                 end
+                else if (bw_active) begin
+                    // Don't accept new packets until block write finished
+                    PortReady <= 1'b0;
+                    rxState <= ST_RX_WAIT_BW;
+                end
                 else begin
                     rxState <= ST_RX_IDLE;
                 end
@@ -216,6 +224,20 @@ begin
         else if (~sendBusy) begin
             sendResponse <= 1'b1;
         end
+    end
+
+    ST_RX_WAIT_BW:
+    begin
+        // Wait for block write to finish
+        if (~bw_active) begin
+            rxState <= ST_RX_IDLE;
+        end
+`ifdef HAS_DEBUG_DATA
+        else begin
+            // Track time we are waiting for block write to finish.
+            bw_wait <= bw_wait + 10'd1;
+        end
+`endif
     end
 
     endcase
@@ -383,15 +405,19 @@ end
 assign eth_InternalError = recvNotReady | txStateError;
 
 `ifdef HAS_DEBUG_DATA
-wire[31:0] DebugData[0:3];
+wire[31:0] DebugData[0:7];
 assign DebugData[0] = "3GBD";   // DBG3 byte-swapped
-assign DebugData[1] = { sendBusy, sendRequest, rxState,                // 31:28
-                        1'd0, recvNotReady, recvReady, PortReady,      // 27:24
+assign DebugData[1] = { sendBusy, sendRequest, rxState,                          // 31:28
+                        responseRequired, recvNotReady, recvReady, PortReady,    // 27:24
                         numRecv, 4'd0, recv_nbytes};
-assign DebugData[2] = { responseByteCount, 3'd0, txStateError, responseRequired, txState, numSent };
+assign DebugData[2] = { responseByteCount, 3'd0, txStateError, 1'd0, txState, numSent };
 assign DebugData[3] = { timeSend, timeReceive };
+assign DebugData[4] = { 6'd0, bw_wait, 16'd0 };
+assign DebugData[5] = 32'd0;
+assign DebugData[6] = 32'd0;
+assign DebugData[7] = 32'd0;
 
-assign reg_rdata = (reg_raddr[7:4] == 4'ha) ? DebugData[reg_raddr[1:0]] : 32'd0;
+assign reg_rdata = (reg_raddr[7:4] == 4'ha) ? DebugData[reg_raddr[2:0]] : 32'd0;
 `else
 assign reg_rdata = 32'd0;
 `endif
