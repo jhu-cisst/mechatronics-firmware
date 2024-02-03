@@ -118,6 +118,9 @@ module EthernetIO
     input wire[15:0] timeReceive,    // Time when receive portion finished
     input wire[15:0] timeNow,        // Running time counter since start of packet receive
     // Feedback bits
+    // bw_active is provided to lower-level module so that other actions (e.g., flushing KSZ8851
+    // queue for FPGA V2) can happen in parallel; however, the lower-level module should wait until
+    // bw_active is no longer asserted before setting recvRequest to process the next packet.
     output reg bw_active,            // Indicates that block write module is active
     input wire ethLLError,           // Error summary bit to EthernetIO (from low-level)
     output wire[7:0] eth_status,     // Status feedback
@@ -633,9 +636,13 @@ assign is_ip_unassigned = (ip_address == IP_UNASSIGNED) ? 1'd1 : 1'd0;
 // this request is cleared when grant_write_bus is asserted
 reg writeRequest;
 
-reg[8:0] bwStart;      // Starting offset in bw_packet for RT write block (for this board)
-reg[8:0] bwLen;        // Number of quadlets in the RT write block in bw_packet (for this board)
-wire[8:0] bwEnd;       // Ending offset in bw_packet for RT write block (for this board)
+// Variables used by block write process. Originally, this was only for the RT block
+// write, but it is now used for all block writes. Note that the RT block write relies
+// on the WriteAddressTranslation module to translate addresses, as well as to only
+// write the data for this board (if a broadcast RT block write).
+reg[8:0] bwStart;      // Starting offset in bw_packet for block write data
+reg[8:0] bwLen;        // Number of quadlets in the block write data
+wire[8:0] bwEnd;       // Ending offset in bw_packet for block write data
 
 assign bwEnd = bwStart + bwLen;
 
@@ -990,8 +997,6 @@ begin
    begin
       mem_wen <= 0;
       rfw_count <= 10'd0;
-      bwStart <= 9'd0;
-      bwLen <= 9'd0;
       recvCnt <= 6'd0;
       nextRecvState <= ST_RECEIVE_DMA_IDLE;
       recvBusy <= 0;
@@ -1708,10 +1713,9 @@ assign timestamp_rd = (blk_rt_rd && (reg_raddr[7:0] == 8'd0)) ? 1'd1 : 1'd0;
 
 reg[8:0] br_addr_in;
 wire[31:0] br_data_in;
-wire br_wen;
+reg br_wen;
 
 assign br_data_in = timestamp_rd ? timestamp_latched : reg_rdata;
-assign br_wen = req_read_bus & grant_read_bus & reg_rvalid;
 
 hub_mem_gen br_packet(.clka(sysclk),
                       .wea(br_wen),
@@ -1730,6 +1734,7 @@ begin
    BR_IDLE:
    begin
       br_addr_in <= 9'd0;
+      br_wen <= 1'b0;
       if (br_request) begin
          br_ack <= 1'b1;
          req_read_bus <= 1'b1;
@@ -1744,23 +1749,26 @@ begin
 
    BR_READ:
    begin
-      if ((quadRead && (br_addr_in == 9'd0)) ||
-          (blockRead && (br_addr_in == (block_data_length[10:2] - 9'd1)))) begin
-         // If on the last quadlet
-         if (br_wen) begin
-            // Release bus when it is written
+      if (br_wen) begin
+         br_wen <= 1'b0;
+         if (quadRead ||
+             (blockRead && (br_addr_in == (block_data_length[10:2] - 9'd1)))) begin
+            // Release bus after quadlet read or last quadlet of block read
             req_read_bus <= 1'b0;
          end
-         else if ((~req_read_bus) & (~br_request)) begin
-            // Wait until br_request cleared (for handshake)
-            brState <= BR_IDLE;
+         else begin
+            // 12-bit address increment, even though Firewire limited to 512 quadlets (9 bits)
+            // because this way we can support non-zero starting addresses.
+            reg_raddr <= reg_raddr + 12'd1;
+            br_addr_in <= br_addr_in + 9'd1;
          end
       end
-      else if (br_wen) begin
-         // 12-bit address increment, even though Firewire limited to 512 quadlets (9 bits)
-         // because this way we can support non-zero starting addresses.
-         reg_raddr <= reg_raddr + 12'd1;
-         br_addr_in <= br_addr_in + 9'd1;
+      else if (req_read_bus & grant_read_bus & reg_rvalid) begin
+         br_wen <= 1'b1;
+      end
+      else if ((~req_read_bus) & (~br_request)) begin
+         // Wait until br_request cleared (for handshake)
+         brState <= BR_IDLE;
       end
    end
 
