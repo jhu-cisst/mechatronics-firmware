@@ -42,7 +42,7 @@
 
 module EthernetIO
     #(parameter IPv4_CSUM = 0,     // Set to 1 to generate IPv4 (and ICMP) header checksum
-      parameter IS_V3 = 0)         // Set to 1 to indicate FPGA V3 timing
+      parameter IS_V3 = 0)         // Set to 1 to indicate FPGA V3
 (
     // global clock
     input wire sysclk,
@@ -953,6 +953,16 @@ reg[7:0] br_wait_cnt;   // Number of clocks waiting for block read to finish
 assign responseRequired = ((FireWirePacketFresh && (quadRead || blockRead) && (isLocal || sendExtra))
                           || sendARP || isEcho) ? 1'b1 : 1'b0;
 
+// Firmware Rev 5-8: Set all bits of ip_address (e.g., 169.254.0.100)
+// Firmware >8: For FPGA V3, add board_id to last 8 bits (e.g., 169.254.0.{100+board_id})
+wire[31:0] desired_ip_address;
+if (IS_V3) begin
+   assign desired_ip_address = { (reg_wdata_in[31:24] + {4'd0, board_id}), reg_wdata_in[23:0] };
+end
+else begin
+   assign desired_ip_address = reg_wdata_in;
+end
+
 always @(posedge sysclk)
 begin
 
@@ -984,7 +994,7 @@ begin
 
    // Write to IP address register
    if (ip_reg_wen) begin
-      ip_address <= reg_wdata_in;
+      ip_address <= desired_ip_address;
    end
 
    if (recvTransition) begin
