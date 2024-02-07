@@ -605,11 +605,14 @@ end
 
 reg[5:0] replyCnt;                 // Counter for ReplyIndex
 
+wire[5:0] reply_node_id;
+assign reply_node_id = noForwardFlag ? { 2'd0, board_id } : node_id;
+
 //**************************** Firewire Reply Header ***********************************
 wire[15:0] Firewire_Header_Reply[0:9];
 assign Firewire_Header_Reply[0] = {fw_src_id[7:0], fw_src_id[15:8]};                      // quadlet 0: dest-id
 assign Firewire_Header_Reply[1] = {quadRead ? `TC_QRESP : `TC_BRESP, 4'd0, fw_tl, 2'd0};  // quadlet 0: tcode
-assign Firewire_Header_Reply[2] = {dest_bus_id[1:0], node_id, dest_bus_id[9:2]};          // src-id
+assign Firewire_Header_Reply[2] = {dest_bus_id[1:0], reply_node_id, dest_bus_id[9:2]};    // src-id
 assign Firewire_Header_Reply[3] = 16'd0;   // rcode, reserved
 assign Firewire_Header_Reply[4] = 16'd0;   // reserved
 assign Firewire_Header_Reply[5] = 16'd0;
@@ -688,7 +691,7 @@ reg[7:0] fw_wait_cnt;   // Number of clocks waiting for Firewire forward to fini
 // -----------------------------------------------
 
 wire[15:0] ExtraData[0:3];
-assign ExtraData[0] = {4'd0, ethSummaryError, ethInternalError, fwPacketDropped, fw_bus_reset, fw_bus_gen};
+assign ExtraData[0] = {3'd0, noForwardFlag, ethSummaryError, ethInternalError, fwPacketDropped, fw_bus_reset, fw_bus_gen};
 `ifdef DEBOUNCE_STATES
 assign ExtraData[1] = {numStateGlitch, numPacketError};
 `else
@@ -852,14 +855,24 @@ reg[31:0] fw_quadlet_data;    // Quadlet data to write
 
 wire isFwBroadcast = (dest_node_id == 6'h3f) ? 1'd1 : 1'd0;
 
-// Local write if addresses this board or FireWire broadcast.
-// Note that the host PC uses the Firewire PRI field to indicate whether the packet should be forwarded.
-assign isLocal = (dest_node_id == node_id) || isFwBroadcast;
+// Whether dest_node_id matches this board. Prior to Rev 9, this would be true if equal
+// to node_id.  Starting with Rev 9, check against node_id when forwarding to Firewire and
+// against board_id when not forwarding to Firewire.
+// Note that prior to adding support for Rev 9, the host software would only set noForwardFlag
+// for some Firewire broadcast messages during initialization, so this change is backward
+// compatible. Starting with Rev 9, regular packets will also set noForwardFlag when using the
+// Ethernet network (provided by FPGA V3) instead of the Ethernet/Firewire bridge.
+wire [5:0] expected_node_id;
+assign expected_node_id = noForwardFlag ? { 2'd0, board_id } : node_id;
+wire id_match;
+assign id_match = (dest_node_id == expected_node_id) ? 1'b1 : 1'b0;
 
-// Remote write if not addressing this board (note that this check includes Firewire broadcast)
-// and if noForwardFlag is false.
+// Local write if addresses this board or FireWire broadcast.
+assign isLocal = id_match | isFwBroadcast;
+
+// Remote write if not addressing this board or Firewire broadcast, and if noForwardFlag is false.
 // Also, note that some packets (e.g., Firewire broadcast) may set both isLocal and isRemote.
-assign isRemote = (dest_node_id != node_id) && (!noForwardFlag);
+assign isRemote = ((~id_match) | isFwBroadcast) & (~noForwardFlag);
 
 assign quadRead = (fw_tcode == `TC_QREAD) ? 1'd1 : 1'd0;
 assign quadWrite = (fw_tcode == `TC_QWRITE) ? 1'd1 : 1'd0;

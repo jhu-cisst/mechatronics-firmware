@@ -220,9 +220,32 @@ wire[3:0] TxInfo_Switch[0:3][0:3];
 // Following just for Ethernet ports
 //    PortForwardFpga[port-num][board-id]:
 //        1 --> FPGA board is accessible via port-num (i.e., Eth1 or Eth2 received
-//              a packet with the corresponding SrcMac address
+//              a packet with the corresponding SrcMac address)
 //        0 --> Not known whether FPGA board is accessible via port-num
 reg[15:0] PortForwardFpga[INDEX_ETH1:INDEX_ETH2];
+
+// Number of bits set
+wire[3:0] PortForwardFpgaNum[INDEX_ETH1:INDEX_ETH2];
+
+assign PortForwardFpgaNum[INDEX_ETH1] =
+           PortForwardFpga[INDEX_ETH1][0]  + PortForwardFpga[INDEX_ETH1][1]  +
+           PortForwardFpga[INDEX_ETH1][2]  + PortForwardFpga[INDEX_ETH1][3]  +
+           PortForwardFpga[INDEX_ETH1][4]  + PortForwardFpga[INDEX_ETH1][5]  +
+           PortForwardFpga[INDEX_ETH1][6]  + PortForwardFpga[INDEX_ETH1][7]  +
+           PortForwardFpga[INDEX_ETH1][8]  + PortForwardFpga[INDEX_ETH1][9]  +
+           PortForwardFpga[INDEX_ETH1][10] + PortForwardFpga[INDEX_ETH1][11] +
+           PortForwardFpga[INDEX_ETH1][12] + PortForwardFpga[INDEX_ETH1][13] +
+           PortForwardFpga[INDEX_ETH1][14] + PortForwardFpga[INDEX_ETH1][15];
+
+assign PortForwardFpgaNum[INDEX_ETH2] =
+           PortForwardFpga[INDEX_ETH2][0]  + PortForwardFpga[INDEX_ETH2][1]  +
+           PortForwardFpga[INDEX_ETH2][2]  + PortForwardFpga[INDEX_ETH2][3]  +
+           PortForwardFpga[INDEX_ETH2][4]  + PortForwardFpga[INDEX_ETH2][5]  +
+           PortForwardFpga[INDEX_ETH2][6]  + PortForwardFpga[INDEX_ETH2][7]  +
+           PortForwardFpga[INDEX_ETH2][8]  + PortForwardFpga[INDEX_ETH2][9]  +
+           PortForwardFpga[INDEX_ETH2][10] + PortForwardFpga[INDEX_ETH2][11] +
+           PortForwardFpga[INDEX_ETH2][12] + PortForwardFpga[INDEX_ETH2][13] +
+           PortForwardFpga[INDEX_ETH2][14] + PortForwardFpga[INDEX_ETH2][15];
 
 // Consolidated forwarding information for each FPGA board id
 //    PortForwardFpgaAction[board-id][port-num]
@@ -286,8 +309,7 @@ wire MacAddrPrimaryMatch[0:3][0:3];
 reg CrcError[0:3];     // Frame CRC error
 reg IPv4Error[0:3];    // IPv4 Header checksum error
 
-// Debugging
-`ifdef HAS_DEBUG_DATA
+// Switch status
 reg[15:0] NumPacketRecv[0:3];
 reg[15:0] NumPacketSent[0:3];
 reg[7:0]  NumPacketFwd[0:3][0:3];
@@ -307,7 +329,6 @@ initial begin
         PacketTruncated[k][k] = 1'b0;
     end
 end
-`endif
 
 // Variables for generate block
 genvar in;
@@ -391,11 +412,9 @@ for (in = 0; in < 4; in = in + 1) begin : fifo__int_loop
           end
       end
 
-`ifdef HAS_DEBUG_DATA
       if (clearErrors) begin
           NumCrcErrorIn[in] <= 8'd0;
       end
-`endif
 
       case (rxState)
 
@@ -426,13 +445,14 @@ for (in = 0; in < 4; in = in + 1) begin : fifo__int_loop
               frame_header[rxCnt[3:0]] <= RxD[in];
               if (rxCnt == 5'd13) begin
                   if ((in == INDEX_ETH1) || (in == INDEX_ETH2)) begin
-                      MacAddrHost[in] <= SrcMac;
                       // If the upper 24-bits of SrcMac match LCSR_CID, then
                       // there is an FPGA board accessible via that port.
                       // For this purpose, it does not matter whether the middle
                       // 16-bits are FPGA_RT_MAC or FPGA_PS_MAC.
                       if (SrcMac[47:24] == LCSR_CID)
                           PortForwardFpga[in][SrcMac[3:0]] <= 1'b1;
+                      else
+                          MacAddrHost[in] <= SrcMac;
                   end
                   rxCnt <= 5'd0;
                   rxState <= ST_RX_FRAME_DATA;
@@ -464,13 +484,11 @@ for (in = 0; in < 4; in = in + 1) begin : fifo__int_loop
           else if (~RxValid[in]) begin
               // The CRC of the packet, including the FCS (CRC) field should equal 32'hc704dd7b.
               CrcError[in] <= (recv_crc_in == 32'hc704dd7b) ? 1'b0 : 1'b1;
-`ifdef HAS_DEBUG_DATA
               NumPacketRecv[in] <= NumPacketRecv[in] + 16'd1;
               if (recv_crc_in != 32'hc704dd7b)
                   NumCrcErrorIn[in] <= NumCrcErrorIn[in] + 8'd1;
               if (IPv4Error[in])
                   NumIPv4ErrorIn[in] <= NumIPv4ErrorIn[in] + 8'd1;
-`endif
               rxCnt <= 5'd0;
               rxState <= ST_RX_IDLE;
           end
@@ -588,12 +606,10 @@ for (in = 0; in < 4; in = in+1) begin : fifo_loop_in
       always @(posedge RxClk[in])
       begin
 
-`ifdef HAS_DEBUG_DATA
           if (clearErrors) begin
               PacketDropped[in][out%4] <= 1'b0;
               PacketTruncated[in][out%4] <= 1'b0;
           end
-`endif
 
           // Make sure force_last_byte only asserted for one clock cycle, and only once per packet.
           // It should only be asserted when the packet was truncated due to fifo_overflow.
@@ -641,7 +657,6 @@ for (in = 0; in < 4; in = in+1) begin : fifo_loop_in
               force_last_byte <= 1'b1;
           end
 
-`ifdef HAS_DEBUG_DATA
           // Following also counts dropped packets
           if (isFirstByteIn & RxFwd & DataReady_Int[in]) begin
               NumPacketFwd[in][out%4] <= NumPacketFwd[in][out%4] + 8'd1;
@@ -650,7 +665,6 @@ for (in = 0; in < 4; in = in+1) begin : fifo_loop_in
               PacketTruncated[in][out%4] <= 1'b1;
           if (drop_packet)
               PacketDropped[in][out%4] <= 1'b1;
-`endif
       end
 
   end
@@ -678,9 +692,7 @@ for (out = 0; out < 4; out = out + 1) begin : fifo_loop_mux
     begin
 
         if (clearErrors) begin
-`ifdef HAS_DEBUG_DATA
             NumCrcErrorOut[out] <= 8'd0;
-`endif
             fifo_underflow_latched[0][out] <= 1'b0;
             fifo_underflow_latched[1][out] <= 1'b0;
             fifo_underflow_latched[2][out] <= 1'b0;
@@ -708,12 +720,10 @@ for (out = 0; out < 4; out = out + 1) begin : fifo_loop_mux
             if (fifo_valid[curInput][out] & (isLastByteOut|fifo_empty[curInput][out])) begin
                 FifoActive[curInput][out] <= 1'b0;
                 waitCnt <= 4'd12;   // Set up for IPG (interpacket gap)
-`ifdef HAS_DEBUG_DATA
                 TxInfoReg[out] <= { TxSt[out], curInput, TxInfo[out] };
                 if (TxInfo[out][3] & TxInfo[out][0])
                     NumCrcErrorOut[out] <= NumCrcErrorOut[out] + 8'd1;
                 NumPacketSent[out] <= NumPacketSent[out] + 16'd1;
-`endif
             end
         end
         else if (waitCnt != 4'd0) begin
@@ -755,7 +765,6 @@ for (out = 0; out < 4; out = out + 1) begin : fifo_loop_mux
 end
 endgenerate
 
-`ifdef HAS_DEBUG_DATA
 wire[15:0] fifo_active_bits;
 wire[15:0] fifo_empty_bits;
 wire[15:0] fifo_full_bits;
@@ -777,51 +786,48 @@ for (i = 0; i < 16; i = i +1) begin : fifo_active_loop
 end
 endgenerate
 
-wire[31:0] DebugData[0:31];
-assign DebugData[0]  = "0WSE";  // ESW0 byte-swapped
-// Port-specific data [in] or [out]
-assign DebugData[1]  = { 16'd0,
-                         DataReady[3],  DataReady[2],  DataReady[1],  DataReady[0],
-                         RecvReady[3],  RecvReady[2],  RecvReady[1],  RecvReady[0],
+wire[31:0] SwitchData[0:31];
+assign SwitchData[0]  = "0WSE";  // ESW0 byte-swapped
+// Port configuration and forwarding info
+assign SwitchData[1]  = { 24'd0,
                          PortFast[3],   PortFast[2],   PortFast[1],   PortFast[0],
                          PortActive[3], PortActive[2], PortActive[1], PortActive[0] };
-assign DebugData[2]  = { NumPacketRecv[1], NumPacketRecv[0] };
-assign DebugData[3]  = { NumPacketRecv[3], NumPacketRecv[2] };
-assign DebugData[4]  = { NumPacketSent[1], NumPacketSent[0] };
-assign DebugData[5]  = { NumPacketSent[3], NumPacketSent[2] };
-assign DebugData[6]  = { TxInfoReg[3], TxInfoReg[2], TxInfoReg[1], TxInfoReg[0] };
-assign DebugData[7]  = { NumCrcErrorIn[3], NumCrcErrorIn[2], NumCrcErrorIn[1], NumCrcErrorIn[0] };
-assign DebugData[8]  = { NumCrcErrorOut[3], NumCrcErrorOut[2], NumCrcErrorOut[1], NumCrcErrorOut[0] };
-assign DebugData[9]  = { NumIPv4ErrorIn[3], NumIPv4ErrorIn[2], NumIPv4ErrorIn[1], NumIPv4ErrorIn[0] };
-assign DebugData[10] = 32'd0;
-assign DebugData[11] = 32'd0;
+assign SwitchData[2]  = MacAddrPrimary[0][47:16];
+assign SwitchData[3]  = { MacAddrPrimary[0][15:0], MacAddrPrimary[1][47:32] };
+assign SwitchData[4]  = MacAddrPrimary[1][31:0];
+assign SwitchData[5]  = { PortForwardFpga[INDEX_ETH2], PortForwardFpga[INDEX_ETH1] };
+assign SwitchData[6]  = { 12'd0, PortForwardFpgaNum[INDEX_ETH2], 12'd0, PortForwardFpgaNum[INDEX_ETH1] };
+// Port-specific data [in] or [out]
+assign SwitchData[7]  = { 24'd0,
+                         DataReady[3],  DataReady[2],  DataReady[1],  DataReady[0],
+                         RecvReady[3],  RecvReady[2],  RecvReady[1],  RecvReady[0] };
+assign SwitchData[8]  = { NumPacketRecv[1], NumPacketRecv[0] };
+assign SwitchData[9]  = { NumPacketRecv[3], NumPacketRecv[2] };
+assign SwitchData[10] = { NumPacketSent[1], NumPacketSent[0] };
+assign SwitchData[11] = { NumPacketSent[3], NumPacketSent[2] };
+assign SwitchData[12] = { TxInfoReg[3], TxInfoReg[2], TxInfoReg[1], TxInfoReg[0] };
+assign SwitchData[13] = { NumCrcErrorIn[3], NumCrcErrorIn[2], NumCrcErrorIn[1], NumCrcErrorIn[0] };
+assign SwitchData[14] = { NumCrcErrorOut[3], NumCrcErrorOut[2], NumCrcErrorOut[1], NumCrcErrorOut[0] };
+assign SwitchData[15] = { NumIPv4ErrorIn[3], NumIPv4ErrorIn[2], NumIPv4ErrorIn[1], NumIPv4ErrorIn[0] };
 // Fifo-specific data [in][out]
-assign DebugData[12] = { fifo_underflow_bits, fifo_active_bits };
-assign DebugData[13] = { fifo_full_bits, fifo_empty_bits };
-assign DebugData[14] = { fifo_info_not_empty_bits, 16'd0 };
-assign DebugData[15] = { packet_truncated_bits, packet_dropped_bits };
-assign DebugData[16] = { NumPacketFwd[0][3], NumPacketFwd[0][2], NumPacketFwd[0][1], NumPacketFwd[0][0] };
-assign DebugData[17] = { NumPacketFwd[1][3], NumPacketFwd[1][2], NumPacketFwd[1][1], NumPacketFwd[1][0] };
-assign DebugData[18] = { NumPacketFwd[2][3], NumPacketFwd[2][2], NumPacketFwd[2][1], NumPacketFwd[2][0] };
-assign DebugData[19] = { NumPacketFwd[3][3], NumPacketFwd[3][2], NumPacketFwd[3][1], NumPacketFwd[3][0] };
-assign DebugData[20] = 32'd0;
-assign DebugData[21] = 32'd0;
-assign DebugData[22] = 32'd0;
-assign DebugData[23] = 32'd0;
-// Port-forwarding info
-assign DebugData[24] = MacAddrPrimary[0][47:16];
-assign DebugData[25] = { MacAddrPrimary[0][15:0], MacAddrPrimary[1][47:32] };
-assign DebugData[26] = MacAddrPrimary[1][31:0];
-assign DebugData[27] = { PortForwardFpga[INDEX_ETH2], PortForwardFpga[INDEX_ETH1] };
-assign DebugData[28] = 32'd0;
-assign DebugData[29] = 32'd0;
-assign DebugData[30] = 32'd0;
-assign DebugData[31] = 32'd0;
+assign SwitchData[16] = { fifo_underflow_bits, fifo_active_bits };
+assign SwitchData[17] = { fifo_full_bits, fifo_empty_bits };
+assign SwitchData[18] = { fifo_info_not_empty_bits, 16'd0 };
+assign SwitchData[19] = { packet_truncated_bits, packet_dropped_bits };
+assign SwitchData[20] = { NumPacketFwd[0][3], NumPacketFwd[0][2], NumPacketFwd[0][1], NumPacketFwd[0][0] };
+assign SwitchData[21] = { NumPacketFwd[1][3], NumPacketFwd[1][2], NumPacketFwd[1][1], NumPacketFwd[1][0] };
+assign SwitchData[22] = { NumPacketFwd[2][3], NumPacketFwd[2][2], NumPacketFwd[2][1], NumPacketFwd[2][0] };
+assign SwitchData[23] = { NumPacketFwd[3][3], NumPacketFwd[3][2], NumPacketFwd[3][1], NumPacketFwd[3][0] };
+assign SwitchData[24] = 32'd0;
+assign SwitchData[25] = 32'd0;
+assign SwitchData[26] = 32'd0;
+assign SwitchData[27] = 32'd0;
+assign SwitchData[28] = 32'd0;
+assign SwitchData[29] = 32'd0;
+assign SwitchData[30] = 32'd0;
+assign SwitchData[31] = 32'd0;
 
-// Debug data: 4090-40bf (currently, only 40a0-40bf used)
-assign reg_rdata = (reg_raddr[11:5] == 7'b0000101) ? DebugData[reg_raddr[4:0]] : 32'd0;
-`else
-assign reg_rdata = 32'd0;
-`endif
+// Switch data: 4090-40bf (currently, only 40a0-40bf used)
+assign reg_rdata = (reg_raddr[11:5] == 7'b0000101) ? SwitchData[reg_raddr[4:0]] : 32'd0;
 
 endmodule
