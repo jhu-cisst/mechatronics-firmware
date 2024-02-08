@@ -539,6 +539,7 @@ EthernetIO EthernetTransfers(
     .send_word(eth_send_word),        // Word to send via Ethernet (SDRegDWR for KSZ8851)
     .timeReceive(eth_time_recv),      // Time when receive portion finished
     .timeNow(eth_time_now),           // Running time counter since start of packet receive
+    .srcPort(2'd0),                   // Source port (0 for KSZ8851)
     .bw_active(eth_bw_active),        // Indicates that block write module is active
     .ethLLError(eth_InternalError),   // Error summary bit to EthernetIO
     .eth_status(eth_status_io)        // EthernetIO status register

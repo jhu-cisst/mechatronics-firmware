@@ -117,6 +117,7 @@ module EthernetIO
     // Timing measurements
     input wire[15:0] timeReceive,    // Time when receive portion finished
     input wire[15:0] timeNow,        // Running time counter since start of packet receive
+    input wire[1:0] srcPort,         // Source port (0 for FPGA V2, 0-2 for FPGA V3)
     // Feedback bits
     // bw_active is provided to lower-level module so that other actions (e.g., flushing KSZ8851
     // queue for FPGA V2) can happen in parallel; however, the lower-level module should wait until
@@ -686,12 +687,14 @@ reg[8:0] fw_left;    // Number of quadlets left to forward when processing last 
 
 reg[7:0] fw_wait_cnt;   // Number of clocks waiting for Firewire forward to finish
 
+reg[1:0] srcPortReg;    // Source port from Ethernet Switch (FPGA V3); 0 for FPGA V2
+
 // -----------------------------------------------
 // Extra data sent to PC with every Firewire packet
 // -----------------------------------------------
 
 wire[15:0] ExtraData[0:3];
-assign ExtraData[0] = {3'd0, noForwardFlag, ethSummaryError, ethInternalError, fwPacketDropped, fw_bus_reset, fw_bus_gen};
+assign ExtraData[0] = {1'd0, srcPortReg, noForwardFlag, ethSummaryError, ethInternalError, fwPacketDropped, fw_bus_reset, fw_bus_gen};
 `ifdef DEBOUNCE_STATES
 assign ExtraData[1] = {numStateGlitch, numPacketError};
 `else
@@ -1037,6 +1040,7 @@ begin
          recvBusy <= 1;
          FireWirePacketFresh <= 0;
          fwPacketDropped <= 0;
+         srcPortReg <= srcPort;
          recvState <= ST_RECEIVE_DMA_ETHERNET_HEADERS;
       end
    end

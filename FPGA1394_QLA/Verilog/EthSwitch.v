@@ -35,6 +35,7 @@ module EthSwitch
     output wire[7:0] P0_TxD,    // Port0 transmit data
     output wire P0_TxErr,       // Port0 transmit error
     output wire[3:0] P0_TxInfo, // Port0 transmit packet info
+    output wire[1:0] P0_TxSrc,  // Port0 source port (1-3)
 
     input wire P1_Active,       // Port1 active (e.g., link on)
     input wire P1_Fast,         // Port1 is "fast" (1 GB)
@@ -51,6 +52,7 @@ module EthSwitch
     output wire[7:0] P1_TxD,    // Port1 transmit data
     output wire P1_TxErr,       // Port1 transmit error
     output wire[3:0] P1_TxInfo, // Port1 transmit packet info
+    output wire[1:0] P1_TxSrc,  // Port1 source port (0,2,3)
 
     input wire P2_Active,       // Port2 active (e.g., link on)
     input wire P2_Fast,         // Port2 is "fast" (1 GB)
@@ -67,6 +69,7 @@ module EthSwitch
     output wire[7:0] P2_TxD,    // Port2 transmit data
     output wire P2_TxErr,       // Port2 transmit error
     output wire[3:0] P2_TxInfo, // Port2 transmit packet info
+    output wire[1:0] P2_TxSrc,  // Port2 source port (0,1,3)
 
     input wire P3_Active,       // Port3 active (e.g., link on)
     input wire P3_Fast,         // Port3 is "fast" (1 GB)
@@ -83,6 +86,7 @@ module EthSwitch
     output wire[7:0] P3_TxD,    // Port3 transmit data
     output wire P3_TxErr,       // Port3 transmit error
     output wire[3:0] P3_TxInfo, // Port3 transmit packet info
+    output wire[1:0] P3_TxSrc,  // Port3 source port (0-2)
 
     input wire[3:0] board_id,   // Board id (used for MAC addresses)
 
@@ -188,6 +192,13 @@ assign P0_TxInfo = TxInfo[0];
 assign P1_TxInfo = TxInfo[1];
 assign P2_TxInfo = TxInfo[2];
 assign P3_TxInfo = TxInfo[3];
+
+// Index of current (or most recent) active input port
+wire[1:0] TxSrc[0:3];
+assign P0_TxSrc = TxSrc[0];
+assign P1_TxSrc = TxSrc[1];
+assign P2_TxSrc = TxSrc[2];
+assign P3_TxSrc = TxSrc[3];
 
 wire[1:0] TxSt[0:3];
 
@@ -390,7 +401,7 @@ for (in = 0; in < 4; in = in + 1) begin : fifo__int_loop
   assign MacAddrPrimaryMatch[in][(in+2)%4] = (DestMac[in] == MacAddrPrimary[(in+2)%4]) ? 1'b1 : 1'b0;
   assign MacAddrPrimaryMatch[in][(in+3)%4] = (DestMac[in] == MacAddrPrimary[(in+3)%4]) ? 1'b1 : 1'b0;
 
-  localparam
+  localparam[1:0]
       ST_RX_IDLE          = 2'd0,
       ST_RX_FRAME_HEADER  = 2'd1,
       ST_RX_FRAME_DATA    = 2'd2;
@@ -761,7 +772,7 @@ for (out = 0; out < 4; out = out + 1) begin : fifo_loop_mux
     assign TxD[out] = TxD_Switch[curInput][out];
     assign TxErr[out] = TxSt[out][0] & TxSt[out][1];   // TxErr if TxSt[out] == 2'b11
     assign TxEn[out] = fifo_valid[curInput][out];
-
+    assign TxSrc[out] = curInput;
 end
 endgenerate
 

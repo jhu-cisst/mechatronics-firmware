@@ -516,6 +516,7 @@ wire       eth_clear_errors;    // Clear EthernetIO and EthRtInterface errors
 wire       recv_ready_rt;       // Whether RT ready for input data from switch
 wire       data_ready_rt;       // Whether RT providing valid data to switch
 wire[3:0]  txinfo_rt;           // Packet information from Ethernet Switch
+wire[1:0]  txsrc_rt;            // Source port from Ethernet Switch
 
 // Ethernet 4-port switch
 EthSwitch eth_switch (
@@ -576,6 +577,7 @@ EthSwitch eth_switch (
     .P3_TxD(gmii_txd[4]),            // Port3 transmit data
     .P3_TxErr(gmii_tx_err[4]),       // Port3 transmit error
     .P3_TxInfo(txinfo_rt),           // Port3 packet info
+    .P3_TxSrc(txsrc_rt),             // Port3 packet info
 
     .board_id(board_id),             // Board ID (for MAC addresses)
 
@@ -851,6 +853,7 @@ EthernetTransfers(
     .send_word(eth_send_word),        // Word to send via Ethernet (SDRegDWR for KSZ8851)
     .timeReceive(eth_time_recv),      // Time when receive portion finished
     .timeNow(eth_time_now),           // Running time counter since start of packet receive
+    .srcPort(txsrc_rt),               // Source port (from Ethernet Switch)
     .bw_active(eth_bw_active),        // Indicates that block write module is active
     .ethLLError(eth_InternalError),   // Error summary bit to EthernetIO
     .eth_status(eth_status_io),       // EthernetIO status register
