@@ -133,6 +133,7 @@ begin
     ST_RX_IDLE:
     begin
         PortReady <= ~sendBusy;
+        recvRequest <= 1'b0;
         recvReady <= 1'b0;
         sendResponse <= 1'b0;
         if (RxValid) begin

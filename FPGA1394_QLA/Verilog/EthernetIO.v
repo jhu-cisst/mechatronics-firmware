@@ -33,6 +33,8 @@
 `define FW_EXTRA_SIZE    16'd8     // Extra data (after Firewire packet)
 `define UDP_EXTRA_SIZE  (`UDP_HDR_SIZE+`FW_EXTRA_SIZE)
 
+`define FW_CTRL_SIZE    16'd2      // Firewire control word
+
 `define FW_QREAD_SIZE   16'd16     // Firewire quadlet read request
 `define FW_QRESP_SIZE   16'd20     // Firewire quadlet read response
 `define FW_QWRITE_SIZE  16'd20     // Firewire quadlet write
@@ -332,6 +334,7 @@ assign Reply_IPv4_Length = isEcho   ? IPv4_Length       // Same length as reques
                                     : (`IPv4_HDR_SIZE + Reply_UDP_Length);
 
 assign Reply_Frame_Length = sendARP           ? 16'h0806 :
+                            ipWrite           ? (`FW_CTRL_SIZE + `FW_QWRITE_SIZE) :
                             (isEcho | useUDP) ? 16'h0800 :
                             // Forwarding raw data from FireWire
                             isForward         ? sendLen + `FW_EXTRA_SIZE :
@@ -517,6 +520,11 @@ else begin
     assign Reply_ICMP_Checksum = 16'd0;
 end
 
+// Special case handling of write to IP address register.
+wire ipWrite;
+//assign ipWrite = FireWirePacketFresh && quadWrite && (fw_dest_offset == {`ADDR_MAIN, 8'h0, `REG_IPADDR}) ? 1'b1 : 1'b0;
+assign ipWrite = 1'b0;  // TODO
+
 //**************************** Firewire Control Word ************************************
 // The Raw or UDP header is followed by one control word, which includes the expected Firewire
 // generation.
@@ -609,18 +617,47 @@ reg[5:0] replyCnt;                 // Counter for ReplyIndex
 wire[5:0] reply_node_id;
 assign reply_node_id = noForwardFlag ? { 2'd0, board_id } : node_id;
 
+// Address and data to use in quadlet write response to IP write
+// (see Raw Multicast Packet below)
+wire[15:0] ipWrite_Reply_Addr;
+wire[31:0] ipWrite_Reply_Data;
+assign ipWrite_Reply_Addr = { 12'd0, `REG_FVERSION };
+assign ipWrite_Reply_Data = 32'd9;
+
 //**************************** Firewire Reply Header ***********************************
 wire[15:0] Firewire_Header_Reply[0:9];
-assign Firewire_Header_Reply[0] = {fw_src_id[7:0], fw_src_id[15:8]};                      // quadlet 0: dest-id
-assign Firewire_Header_Reply[1] = {quadRead ? `TC_QRESP : `TC_BRESP, 4'd0, fw_tl, 2'd0};  // quadlet 0: tcode
-assign Firewire_Header_Reply[2] = {dest_bus_id[1:0], reply_node_id, dest_bus_id[9:2]};    // src-id
-assign Firewire_Header_Reply[3] = 16'd0;   // rcode, reserved
-assign Firewire_Header_Reply[4] = 16'd0;   // reserved
-assign Firewire_Header_Reply[5] = 16'd0;
-assign Firewire_Header_Reply[6] = {block_data_length[7:0], block_data_length[15:8]};      // data_length
+assign Firewire_Header_Reply[0] = ipWrite ? 16'hffff : {fw_src_id[7:0], fw_src_id[15:8]};   // quadlet 0: dest-id
+assign Firewire_Header_Reply[1] = {ipWrite ? `TC_QWRITE : quadRead ? `TC_QRESP : `TC_BRESP, // quadlet 0: tcode
+                                   4'd0, fw_tl, 2'd0};
+assign Firewire_Header_Reply[2] = {dest_bus_id[1:0], reply_node_id, dest_bus_id[9:2]};      // src-id
+assign Firewire_Header_Reply[3] = 16'd0;   // rcode, reserved; addr[47:32] for write
+assign Firewire_Header_Reply[4] = 16'd0;   // reserved; addr[31:16] for write
+assign Firewire_Header_Reply[5] = ipWrite ? ipWrite_Reply_Addr : 16'd0;  // addr[15:0] for write
+// Quadlet read/write do not use entries below
+assign Firewire_Header_Reply[6] = {block_data_length[7:0], block_data_length[15:8]};  // data_length for block read
 assign Firewire_Header_Reply[7] = 16'd0;   // extended_tcode (0)
 assign Firewire_Header_Reply[8] = 16'd0;   // header_CRC
 assign Firewire_Header_Reply[9] = 16'd0;   // header_CRC
+
+//************************** Raw Multicast Packet *************************************
+// This packet is sent in response to a write to the IP address register (which can be
+// written even if host is using raw Ethernet); it triggers a raw multicast quadlet write
+// so that the Ethernet Switch port forwarding database gets updated.
+// The contents of the quadlet write are in ipWrite_Reply_Addr and ipWrite_Reply_Data.
+// Currently, it writes 9 to address 7 (firmware version), which does nothing because
+// that register is read-only.
+// Note that the FPGA forwarding database also get updated by the PS Ethernet, which
+// periodically sends Ethernet packets.
+
+wire[15:0] Multicast_Header[0:7];
+assign Multicast_Header[0] = 16'hffff;  // TEMP
+assign Multicast_Header[1] = 16'hffff;
+assign Multicast_Header[2] = 16'hffff;
+assign Multicast_Header[3] = 16'hFA61;
+assign Multicast_Header[4] = 16'h0E13;
+assign Multicast_Header[5] = {12'h940, board_id};
+assign Multicast_Header[6] = Reply_Frame_Length;
+assign Multicast_Header[7] = 16'h0100;             // Set noForward flag
 
 //******************************** Debug Counters *************************************
 
@@ -629,6 +666,7 @@ reg[9:0] numIPv4;            // Number of IPv4 packets received
 reg[9:0] numUDP;             // Number of UDP packets received
 reg[7:0] numARP;             // Number of ARP packets received
 reg[7:0] numICMP;            // Number of ICMP packets received
+reg[7:0] numIpWrite;         // Number of ICMP packets received
 `endif
 
 reg[7:0] numPacketError;     // Number of packet errors (Frame, IPv4 or UDP error)
@@ -716,17 +754,17 @@ assign DebugData[2]  = { writeRequest, 1'd0, bw_active, eth_send_isIdle,        
                          recvBusy, recvRequest, isLocal, isRemote,                               // 19:16
                          FireWirePacketFresh, isForward, sendARP, isUDP,                         // 15:12
                          isICMP, isEcho, is_IPv4_Long, is_IPv4_Short,                            // 11:8
-                         fw_bus_reset, 3'd0,                                                     //  7:4
+                         fw_bus_reset, ipWrite, 2'd0,                                            //  7:4
                          4'd0 };                                                                 //  3:0
 assign DebugData[3]  = { node_id, maxCountFW, LengthFW };                  // 6, 10, 16
 assign DebugData[4]  = { fw_ctrl, host_fw_addr };                          // 16, 16
 assign DebugData[5]  = { sendState, 12'd0,                                 // 16
-                         1'd0, recvState, 1'd0, nextRecvState, 8'd0 };     // 3, 3
+                         1'd0, recvState, 1'd0, nextRecvState, 2'd0, recvCnt };     // 3, 3, 6
 assign DebugData[6]  = { 6'd0, numUDP, 6'd0, numIPv4 };                    // 6, 10, 6, 10
 assign DebugData[7]  = { br_wait_cnt, numICMP, fw_bus_gen, numARP };       // 8, 8, 8, 8
 assign DebugData[8]  = { 7'd0, bw_left, bw_err, 4'd0, bwState, numPacketError };   // 7, 9, 1, 4, 3, 8
 assign DebugData[9]  = { 7'd0, fw_left, fw_err, 7'd0, fw_wait_cnt };       // (7,9) (1,7) 8
-assign DebugData[10] = {16'd0, Port_Unknown };
+assign DebugData[10] = { 8'd0, numIpWrite, Port_Unknown };
 assign DebugData[11] = 32'd0;
 assign DebugData[12] = 32'd0;
 assign DebugData[13] = 32'd0;
@@ -966,18 +1004,15 @@ reg br_request;         // Request block (or quadlet) read of registers into br_
 reg br_ack;             // Acknowledge br_request
 reg[7:0] br_wait_cnt;   // Number of clocks waiting for block read to finish
 
-assign responseRequired = ((FireWirePacketFresh && (quadRead || blockRead) && (isLocal || sendExtra))
-                          || sendARP || isEcho) ? 1'b1 : 1'b0;
+assign responseRequired = ((FireWirePacketFresh & (quadRead | blockRead | ipWrite) & (isLocal | sendExtra))
+                           | sendARP | isEcho);
 
-// Firmware Rev 5-8: Set all bits of ip_address (e.g., 169.254.0.100)
-// Firmware >8: For FPGA V3, add board_id to last 8 bits (e.g., 169.254.0.{100+board_id})
+// Previously (up to Firmware Rev 8), set all bits of ip_address (e.g., 169.254.0.100)
+// Firmware 9+: Add board_id to last 8 bits (e.g., 169.254.0.{100+board_id})
 wire[31:0] desired_ip_address;
-if (IS_V3) begin
-   assign desired_ip_address = { (reg_wdata_in[31:24] + {4'd0, board_id}), reg_wdata_in[23:0] };
-end
-else begin
-   assign desired_ip_address = reg_wdata_in;
-end
+assign desired_ip_address = { (reg_wdata_in == IP_UNASSIGNED) ? reg_wdata_in[31:24]
+                                                              : (reg_wdata_in[31:24] + {4'd0, board_id}),
+                              reg_wdata_in[23:0] };
 
 always @(posedge sysclk)
 begin
@@ -1394,7 +1429,8 @@ begin
    ST_SEND_DMA_ETHERNET_HEADERS:
    begin
       if (sendReady) begin
-         `send_word_swapped <= (ReplyIndex[replyCnt][5]==isPacket) ?
+         `send_word_swapped <= ipWrite ? Multicast_Header[replyCnt] :
+                               (ReplyIndex[replyCnt][5]==isPacket) ?
                                 PacketBuffer[ReplyIndex[replyCnt][4:0]] :
                                 ReplyBuffer[ReplyIndex[replyCnt][3:0]];
          replyCnt <= replyCnt + 6'd1;
@@ -1407,9 +1443,17 @@ begin
             else if (sendARP && !isForward) begin
                replyCnt <= ARP_Reply_Begin;
             end
-            else if (!(isUDP || isEcho || isForward)) begin
-               // Raw packet
+            else if (~(isUDP | isEcho | isForward | ipWrite)) begin
+               // Raw packet (except ipWrite, which needs an extra word for fw_ctrl)
                sendState <= sendExtra ? ST_SEND_DMA_EXTRA : ST_SEND_DMA_PACKETDATA_HEADER;
+            end
+         end
+         else if (replyCnt == Frame_Reply_End+1) begin
+            if (ipWrite) begin
+`ifdef HAS_DEBUG_DATA
+               numIpWrite <= numIpWrite + 8'd1;
+`endif
+               sendState <= ST_SEND_DMA_PACKETDATA_HEADER;
             end
          end
          else if (replyCnt == IPv4_Reply_End) begin
@@ -1455,7 +1499,7 @@ begin
    begin
       if (sendReady) begin
          send_word <= Firewire_Header_Reply[sfw_count[3:0]];
-         if ((sfw_count[3:0] == 4'd5) && quadRead) begin
+         if ((sfw_count[3:0] == 4'd5) && (quadRead | ipWrite)) begin
             sfw_count <= 10'd0;
             sendState <= ST_SEND_DMA_PACKETDATA_QUAD;
          end
@@ -1478,11 +1522,17 @@ begin
    begin
       if (sendReady) begin
          if (sfw_count[0] == 0) begin
-            `send_word_swapped <= br_data_out[31:16];
+            if (ipWrite)
+                send_word <= ipWrite_Reply_Data[31:16];
+            else
+                `send_word_swapped <= br_data_out[31:16];
             sfw_count[0] <= 1;
          end
          else begin
-            `send_word_swapped <= br_data_out[15:0];
+            if (ipWrite)
+                send_word <= ipWrite_Reply_Data[15:0];
+            else
+                `send_word_swapped <= br_data_out[15:0];
             sfw_count[0] <= 0;
             sendState <= ST_SEND_DMA_PACKETDATA_CHECKSUM;
          end
@@ -1512,7 +1562,7 @@ begin
          sfw_count[0] <= 1;
          send_word <= 16'd0;    // Checksum currently not set
          if (sfw_count[0] == 1)
-            sendState <= ST_SEND_DMA_EXTRA;
+            sendState <= ipWrite ? ST_SEND_DMA_FINISH : ST_SEND_DMA_EXTRA;
       end
    end
 
