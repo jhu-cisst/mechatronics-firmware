@@ -291,7 +291,8 @@ localparam[15:0] FPGA_PS_MAC = 16'h0300;
 // FPGA multicast MAC address. Currently, only used for RT, but implementation supports
 // it for PS (or any other middle 16-bits), since we only check for a match on
 // LCSR_CID_MULTICAST and the lower 8-bits (8'hff).
-localparam[23:0] LCSR_CID_MULTICAST = LCSR_CID | 24'h010000;
+localparam[23:0] MULTICAST_BIT = 24'h010000;
+localparam[23:0] LCSR_CID_MULTICAST = LCSR_CID | MULTICAST_BIT;
 
 // For saving MAC address of host (on Eth1 or Eth2)
 reg[47:0] MacAddrHost[INDEX_ETH1:INDEX_ETH2];
@@ -397,9 +398,6 @@ for (in = 0; in < 4; in = in + 1) begin : fifo__int_loop
   reg[16:0] recv_ipv4_cksum;   // Used to verify IPv4 header checksum
 
   assign MacAddrPrimaryMatch[in][in] = 1'b0;   // Should not happen, unless loop
-  assign MacAddrPrimaryMatch[in][(in+1)%4] = (DestMac[in] == MacAddrPrimary[(in+1)%4]) ? 1'b1 : 1'b0;
-  assign MacAddrPrimaryMatch[in][(in+2)%4] = (DestMac[in] == MacAddrPrimary[(in+2)%4]) ? 1'b1 : 1'b0;
-  assign MacAddrPrimaryMatch[in][(in+3)%4] = (DestMac[in] == MacAddrPrimary[(in+3)%4]) ? 1'b1 : 1'b0;
 
   localparam[1:0]
       ST_RX_IDLE          = 2'd0,
@@ -460,7 +458,7 @@ for (in = 0; in < 4; in = in + 1) begin : fifo__int_loop
                       // there is an FPGA board accessible via that port.
                       // For this purpose, it does not matter whether the middle
                       // 16-bits are FPGA_RT_MAC or FPGA_PS_MAC.
-                      if (SrcMac[47:24] == LCSR_CID)
+                      if ((SrcMac[47:24]&(~MULTICAST_BIT)) == LCSR_CID)
                           PortForwardFpga[in][SrcMac[3:0]] <= 1'b1;
                       else
                           MacAddrHost[in] <= SrcMac;
@@ -548,12 +546,19 @@ for (in = 0; in < 4; in = in+1) begin : fifo_loop_in
   for (out = in+1; out < in+4; out = out+1) begin : fifo_loop_out
 
       //********* Port in (Rx) to Port out (Tx) *****************
+      // Following checks for MAC address match, allowing both unicast and multicast
+      assign MacAddrPrimaryMatch[in][out%4] =
+            ((DestMac[in][47:41] == MacAddrPrimary[out%4][47:41]) &&
+             (DestMac[in][39:8] == MacAddrPrimary[out%4][39:8]) &&
+             ((DestMac[in][7:0] == MacAddrPrimary[out%4][7:0]) || (DestMac[in][40] == 1'b1)))
+            ? 1'b1 : 1'b0;
       wire isPrimaryMatch;
       assign isPrimaryMatch = MacAddrPrimaryMatch[in][out%4];
       wire RxFwd;         // Whether to forward packet from port "in" to port "out"
       if (((out%4) == INDEX_ETH1) || ((out%4) == INDEX_ETH2)) begin
           wire isFpgaMatch;
-          assign isFpgaMatch = (DestMac[in][47:24] == LCSR_CID) ?
+          // Mask with ~MULTICAST_BIT to allow Ethernet multicast
+          assign isFpgaMatch = ((DestMac[in][47:24]&(~MULTICAST_BIT)) == LCSR_CID) ?
                                PortForwardFpgaAction[DestMac[in][3:0]][out%4] : 1'b0;
           wire isNoPrimaryMatch;
           assign isNoPrimaryMatch = ~(MacAddrPrimaryMatch[in][(in+1)%4] | MacAddrPrimaryMatch[in][(in+2)%4] |
