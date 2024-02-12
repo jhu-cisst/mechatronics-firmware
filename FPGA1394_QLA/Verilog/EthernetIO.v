@@ -325,6 +325,9 @@ wire[15:0] Reply_ICMP_Checksum;
 assign Reply_IPv4_Address0 = { ip_address[7:0],   ip_address[15:8]  };
 assign Reply_IPv4_Address1 = { ip_address[23:16], ip_address[31:24] };
 
+wire fw_resp_udp;       // Firewire response using UDP
+assign fw_resp_udp = useUDP & (quadRead | blockRead | isForward);
+
 assign Reply_UDP_Length = isForward ? (`UDP_EXTRA_SIZE + sendLen) :
                           sendExtra ? `UDP_EXTRA_SIZE :
                           quadRead  ? (`UDP_EXTRA_SIZE + `FW_QRESP_SIZE)
@@ -333,15 +336,15 @@ assign Reply_UDP_Length = isForward ? (`UDP_EXTRA_SIZE + sendLen) :
 assign Reply_IPv4_Length = isEcho   ? IPv4_Length       // Same length as request
                                     : (`IPv4_HDR_SIZE + Reply_UDP_Length);
 
-assign Reply_Frame_Length = sendARP           ? 16'h0806 :
-                            ipWrite           ? (`FW_CTRL_SIZE + `FW_QWRITE_SIZE) :
-                            (isEcho | useUDP) ? 16'h0800 :
+assign Reply_Frame_Length = sendARP                ? 16'h0806 :
+                            (isEcho | fw_resp_udp) ? 16'h0800 :
                             // Forwarding raw data from FireWire
-                            isForward         ? sendLen + `FW_EXTRA_SIZE :
+                            isForward              ? sendLen + `FW_EXTRA_SIZE :
                             // Local raw packet
-                            sendExtra         ? `FW_EXTRA_SIZE :
-                            quadRead          ? (`FW_QRESP_SIZE + `FW_EXTRA_SIZE)
-                                              : (`FW_BRESP_SIZE + `FW_EXTRA_SIZE) + block_data_length;
+                            ipWrite                ? (`FW_CTRL_SIZE + `FW_QWRITE_SIZE) :
+                            sendExtra              ? `FW_EXTRA_SIZE :
+                            quadRead               ? (`FW_QRESP_SIZE + `FW_EXTRA_SIZE)
+                                                   : (`FW_BRESP_SIZE + `FW_EXTRA_SIZE) + block_data_length;
 integer i;
 initial begin
    for (i = ID_Packet_Begin; i <= ID_Packet_End; i=i+1) PacketBuffer[i] = 16'd0;
@@ -522,8 +525,7 @@ end
 
 // Special case handling of write to IP address register.
 wire ipWrite;
-//assign ipWrite = FireWirePacketFresh && quadWrite && (fw_dest_offset == {`ADDR_MAIN, 8'h0, `REG_IPADDR}) ? 1'b1 : 1'b0;
-assign ipWrite = 1'b0;  // TODO
+assign ipWrite = FireWirePacketFresh && quadWrite && (fw_dest_offset == {`ADDR_MAIN, 8'h0, `REG_IPADDR}) ? 1'b1 : 1'b0;
 
 //**************************** Firewire Control Word ************************************
 // The Raw or UDP header is followed by one control word, which includes the expected Firewire
@@ -632,7 +634,8 @@ assign Firewire_Header_Reply[1] = {ipWrite ? `TC_QWRITE : quadRead ? `TC_QRESP :
 assign Firewire_Header_Reply[2] = {dest_bus_id[1:0], reply_node_id, dest_bus_id[9:2]};      // src-id
 assign Firewire_Header_Reply[3] = 16'd0;   // rcode, reserved; addr[47:32] for write
 assign Firewire_Header_Reply[4] = 16'd0;   // reserved; addr[31:16] for write
-assign Firewire_Header_Reply[5] = ipWrite ? ipWrite_Reply_Addr : 16'd0;  // addr[15:0] for write
+assign Firewire_Header_Reply[5] = ipWrite ? { ipWrite_Reply_Addr[7:0], ipWrite_Reply_Addr[15:8] } // addr[15:0] for write
+                                          : 16'd0;
 // Quadlet read/write do not use entries below
 assign Firewire_Header_Reply[6] = {block_data_length[7:0], block_data_length[15:8]};  // data_length for block read
 assign Firewire_Header_Reply[7] = 16'd0;   // extended_tcode (0)
@@ -1419,9 +1422,9 @@ reg[1:0] xcnt;          // Counts words in extra packet
 // Following needed by KSZ8851
 // (block_data_length must be a multiple of 4)
 assign responseByteCount =
-             sendARP           ? (`ETH_FRAME_SIZE + 16'd28) :                        // ARP response: 14 + 28
-             (isEcho | useUDP) ? (`ETH_FRAME_SIZE + Reply_IPv4_Length)               // UDP or ICMP Echo packet
-                               : (`ETH_FRAME_SIZE + Reply_Frame_Length);             // Raw packet
+             sendARP                 ? (`ETH_FRAME_SIZE + 16'd28) :                 // ARP response: 14 + 28
+             (isEcho | fw_resp_udp)  ? (`ETH_FRAME_SIZE + Reply_IPv4_Length)        // UDP or ICMP Echo packet
+                                     : (`ETH_FRAME_SIZE + Reply_Frame_Length);      // Raw packet
 
 // wire isFirewireReply;
 // assign isFirewireReply = ((FireWirePacketFresh && (quadRead || blockRead) && (isLocal || sendExtra))) ? 1'b1 : 1'b0;
@@ -1544,17 +1547,11 @@ begin
    begin
       if (sendReady) begin
          if (sfw_count[0] == 0) begin
-            if (ipWrite)
-                send_word <= ipWrite_Reply_Data[31:16];
-            else
-                `send_word_swapped <= br_data_out[31:16];
+            `send_word_swapped <= ipWrite ? ipWrite_Reply_Data[31:16] : br_data_out[31:16];
             sfw_count[0] <= 1;
          end
          else begin
-            if (ipWrite)
-                send_word <= ipWrite_Reply_Data[15:0];
-            else
-                `send_word_swapped <= br_data_out[15:0];
+            `send_word_swapped <= ipWrite ? ipWrite_Reply_Data[15:0] : br_data_out[15:0];
             sfw_count[0] <= 0;
             sendState <= ST_SEND_DMA_PACKETDATA_CHECKSUM;
          end
