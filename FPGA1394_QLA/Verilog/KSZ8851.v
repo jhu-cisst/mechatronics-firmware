@@ -1130,8 +1130,6 @@ always @(posedge sysclk) begin
 
    ST_RECEIVE_DMA_WAIT:
    begin
-      // Clear request flag
-      recvRequest <= 1'b0;
       // Left shift and rotate recvCtrl
       recvCtrl <= { recvCtrl[3:0], recvCtrl[4] };
       // Decrement skipCnt until it is 0
@@ -1139,6 +1137,8 @@ always @(posedge sysclk) begin
           skipCnt <= (skipCnt == 2'd0) ? 2'd0 : skipCnt - 2'd1;
       end
       if (~recvBusy) begin
+         // Clear request flag
+         recvRequest <= 1'b0;
          isDMARead <= 1'b0;
          waitInfo <= WAIT_NONE;
 `ifdef HAS_DEBUG_DATA

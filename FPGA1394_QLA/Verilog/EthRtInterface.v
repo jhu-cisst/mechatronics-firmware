@@ -132,7 +132,7 @@ begin
 
     ST_RX_IDLE:
     begin
-        PortReady <= ~sendBusy;
+        PortReady <= 1'b1;
         recvRequest <= 1'b0;
         recvReady <= 1'b0;
         sendResponse <= 1'b0;
@@ -158,7 +158,6 @@ begin
     ST_RX_FRAME:
     begin
         if (RxValid) begin
-            recvRequest <= 1'b0;
             // If PortReady is 0, setting it to 1 will cause RxValid to be
             // asserted 2 clocks later (1 clock for PortReady to be set,
             // and 1 clock for FIFO to generate RxValid).
@@ -169,62 +168,60 @@ begin
             if (~recv_nbytes[0]) begin   // even byte
                 recv_word[15:8] <= RxD;
                 PortReady <= ~recvBusy;
+                waitCnt <= recvBusy ? 2'd3 : 2'd0;
             end
             else begin                   // odd byte
                 recv_word[7:0] <= RxD;
-                waitCnt <= recvBusy ? 2'd3 : 2'd0;
                 recvReady <= recvBusy;
             end
         end
-        else begin
+        else if (recvRequest) begin
             recvReady <= 1'b0;
-            waitCnt <= waitCnt - 2'd1;
-            if (waitCnt == 2'd2)
-                PortReady <= 1'b1;
-            else if (waitCnt == 2'd0) begin
+            if (waitCnt == 2'd0) begin
                 // If we get here, it means that the packet is finished
                 // (i.e., RxValid was not asserted 2 clocks after PortReady).
-                // If an odd number of bytes, pad with 0 and set recvReady
-                // so that EthernetIO processes last byte.
+                // Clear recvRequest, which will cause the lower-level module
+                // to clear recvBusy.
                 // We do not have to worry about the next packet starting
                 // right away due to the 12-byte interpacket gap (IPG).
-                if (recv_nbytes[0]) begin
-                    recv_word[7:0] <= 8'd0;
-                    recvReady <= recvBusy;
-                end
-                if (curPacketValid & responseRequired) begin
+                recvRequest <= 1'b0;
+                PortReady <= 1'b0;
+                // If an odd number of bytes, pad with 0 and set recvReady
+                // so that EthernetIO processes last byte.
+                recvReady <= recvBusy & recv_nbytes[0];
+                recv_word[7:0] <= 8'd0;       // pad with 0 if needed
+             end
+             else begin
+                 waitCnt <= waitCnt - 2'd1;
+                 if (waitCnt == 2'd2)
+                      PortReady <= 1'b1;
+             end
+        end
+        else if (~recvBusy) begin
+            // EthernetIO is no longer busy receiving, now check if
+            // a response required
+            if (curPacketValid & responseRequired) begin
+                if ((~sendResponse) & (~sendBusy)) begin
                     timeReceive <= timeNow;
-                    // Don't accept new packets until send completed
-                    PortReady <= 1'b0;
-                    sendResponse <= ~sendBusy;
+                    sendResponse <= 1'b1;
+                end
+                else if (sendResponse & sendBusy) begin
                     rxState <= ST_RX_WAIT_SEND;
                 end
-                else if (bw_active) begin
-                    // Don't accept new packets until block write finished
-                    PortReady <= 1'b0;
-                    rxState <= ST_RX_WAIT_BW;
-                end
-                else begin
-                    rxState <= ST_RX_IDLE;
-                end
+            end
+            else if (bw_active) begin
+                rxState <= ST_RX_WAIT_BW;
+            end
+            else begin
+                rxState <= ST_RX_IDLE;
             end
         end
     end
 
     ST_RX_WAIT_SEND:
     begin
-        // This state is entered with either sendResponse=1 or sendBusy=1.
-        // In the first case, it waits until sendBusy is set.
-        // In the second case, it waits until sendBusy is cleared, then
-        // sets sendResponse and waits for sendBusy to be set again.
-        // Note that sendResponse is cleared in ST_RX_IDLE.
-        if (sendResponse) begin
-            if (sendBusy)
-                rxState <= ST_RX_IDLE;
-        end
-        else if (~sendBusy) begin
-            sendResponse <= 1'b1;
-        end
+        if (~sendBusy)
+            rxState <= ST_RX_IDLE;
     end
 
     ST_RX_WAIT_BW:

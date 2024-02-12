@@ -985,9 +985,9 @@ localparam[2:0]
     ST_RECEIVE_DMA_ETHERNET_HEADERS = 3'd1,
     ST_RECEIVE_DMA_FIREWIRE_PACKET = 3'd2,
     ST_RECEIVE_DMA_ICMP_DATA = 3'd3,
-    ST_RECEIVE_DMA_WAIT = 3'd4,
+    ST_RECEIVE_DMA_WAIT_START = 3'd4,
     ST_RECEIVE_DMA_REBOOT = 3'd5,
-    ST_RECEIVE_DMA_WRITE_WAIT = 3'd6;
+    ST_RECEIVE_DMA_WAIT_FINISH = 3'd6;
 
 reg[2:0] recvState = ST_RECEIVE_DMA_IDLE;
 reg[2:0] nextRecvState = ST_RECEIVE_DMA_IDLE;
@@ -995,6 +995,14 @@ reg[2:0] nextRecvState = ST_RECEIVE_DMA_IDLE;
 // recvReady (aka dataReady) -->  dataValid  -->  recvTransition
 reg dataValid;          // Data has been stored in PacketBuffer
 reg recvTransition;     // Transition to next state
+
+// This indicates that the lower-level module has stopped providing data; in some cases
+// this would be unexpected, so checking this signal can prevent this module from getting
+// stuck in a non-idle state. We assume that the lower-level module will keep recvRequest
+// asserted until all data is provided. The check below for recvReady|dataValid|recvTransition
+// ensures that we will finish processing the last word provided.
+wire recvFinish;
+assign recvFinish = ((~recvRequest) & ~(recvReady|dataValid|recvTransition)) ? 1'b1 : 1'b0;
 
 reg[5:0] recvCnt;       // Index into PacketBuffer
 reg[9:0] rfw_count;     // Counts words in FireWire packets (max is 1024 words, or 2048 bytes)
@@ -1082,25 +1090,28 @@ begin
 
    ST_RECEIVE_DMA_ETHERNET_HEADERS:
    begin
+      // Unexpected end of data from lower-level
+      if (recvFinish) recvState <= ST_RECEIVE_DMA_WAIT_FINISH;
+
       if (recvReady) PacketBuffer[recvCnt] <= recv_word;  // `SDSwapped for KSZ8851
 
       if (dataValid) begin
          if ((recvCnt == ID_Frame_End) && !(isRaw|isIPv4|isARP)) begin
             ethFrameError <= 1'd1;
             numPacketError <= numPacketError + 8'd1;
-            nextRecvState <= ST_RECEIVE_DMA_IDLE;
+            nextRecvState <= ST_RECEIVE_DMA_WAIT_FINISH;
          end
          else if ((recvCnt == ID_ARP_End) && isARP) begin
 `ifdef HAS_DEBUG_DATA
             numARP <= numARP + 8'd1;
 `endif
-            nextRecvState <= ST_RECEIVE_DMA_IDLE;
+            nextRecvState <= ST_RECEIVE_DMA_WAIT_FINISH;
          end
          else if ((recvCnt == ID_IPv4_End) && isIPv4) begin
             if ((IPv4_Version != 4'h4) || !(isUDP|isICMP)) begin
                ethIPv4Error <= 1'd1;
                numPacketError <= numPacketError + 8'd1;
-               nextRecvState <= ST_RECEIVE_DMA_IDLE;
+               nextRecvState <= ST_RECEIVE_DMA_WAIT_FINISH;
             end
             else begin
                nextRecvState <= ST_RECEIVE_DMA_ETHERNET_HEADERS;
@@ -1115,7 +1126,7 @@ begin
                    numPacketError <= numPacketError + 8'd1;
                    Port_Unknown <= PacketBuffer[ID_UDP_destPort];
                end
-               nextRecvState <= ST_RECEIVE_DMA_IDLE;
+               nextRecvState <= ST_RECEIVE_DMA_WAIT_FINISH;
             end
             else begin
                // Save the UDP host port because UDP_hostPort may get overwritten if an ARP packet is received, which
@@ -1148,13 +1159,16 @@ begin
 
    ST_RECEIVE_DMA_ICMP_DATA:
    begin
+      // Unexpected end of data from lower-level
+      if (recvFinish) recvState <= ST_RECEIVE_DMA_WAIT_FINISH;
+
       if (recvTransition) rfw_count <= rfw_count + 10'd1;
       // rfw_count is in words, icmp_data_length is in bytes
       if (rfw_count[9:0] == icmp_data_length[10:1]) begin
 `ifdef HAS_DEBUG_DATA
          if (recvTransition) numICMP <= numICMP + 8'd1;
 `endif
-         nextRecvState <= ST_RECEIVE_DMA_IDLE;   // was ST_RECEIVE_DMA_FRAME_CRC;
+         nextRecvState <= ST_RECEIVE_DMA_WAIT_FINISH;   // was ST_RECEIVE_DMA_FRAME_CRC;
       end
       else
          nextRecvState <= ST_RECEIVE_DMA_ICMP_DATA;
@@ -1173,6 +1187,9 @@ begin
    // Read Firewire header; also handles quadlet read/write
    ST_RECEIVE_DMA_FIREWIRE_PACKET:
    begin
+      // Unexpected end of data from lower-level
+      if (recvFinish) recvState <= (eth_send_fw_req | br_request) ? ST_RECEIVE_DMA_WAIT_START
+                                                                  : ST_RECEIVE_DMA_WAIT_FINISH;
       if (recvTransition) rfw_count <= rfw_count + 10'd1;
 
       // Read FireWire packet, byteswap to make it easier to work with.
@@ -1203,7 +1220,7 @@ begin
          if ((rfw_count == 10'd0) && (dest_bus_id != 10'h3FF)) begin
             // Invalid destination address (first 10 bits are not FFC), flush packet
             ethDestError <= 1;
-            nextRecvState <= ST_RECEIVE_DMA_IDLE;
+            nextRecvState <= ST_RECEIVE_DMA_WAIT_FINISH;
          end
          else if (rfw_count == 10'd5) begin
             FireWirePacketFresh <= 1;
@@ -1213,7 +1230,7 @@ begin
                // packet), then flush packet. Note that we do not check if the bus goes into reset
                // or the generation changes while we are processing the packet.
                fwPacketDropped <= 1;
-               nextRecvState <= ST_RECEIVE_DMA_IDLE;
+               nextRecvState <= ST_RECEIVE_DMA_WAIT_FINISH;
             end
          end
          else if ((rfw_count == 10'd7) && quadWrite) begin
@@ -1232,7 +1249,7 @@ begin
             bwLen <= block_data_length[10:2];
          end
          else if (rfw_count == maxCountFW) begin
-            nextRecvState <= ST_RECEIVE_DMA_WAIT;  // was ST_RECEIVE_DMA_FRAME_CRC;
+            nextRecvState <= ST_RECEIVE_DMA_WAIT_START;  // was ST_RECEIVE_DMA_FRAME_CRC;
             if (isLocal) begin
                // Latch timestamp if a block read from ADDR_MAIN or a broadcast read request
                // (quadlet write to ADDR_HUB).
@@ -1280,7 +1297,7 @@ begin
       end
    end
 
-   ST_RECEIVE_DMA_WAIT:
+   ST_RECEIVE_DMA_WAIT_START:
    begin
       if (eth_send_fw_req | eth_send_fw_ack) begin
          // Waiting for Ethernet forward to finish
@@ -1308,7 +1325,7 @@ begin
                 writeRequest <= isRemote&isLocal;
             // Wait for any pending writes to start (including any previously
             // requested quadlet or block writes)
-            recvState <= ST_RECEIVE_DMA_WRITE_WAIT;
+            recvState <= ST_RECEIVE_DMA_WAIT_FINISH;
          end
       end
    end
@@ -1320,23 +1337,28 @@ begin
       rebootCnt <= rebootCnt + 6'd1;
       if (rebootCnt == 6'h3f) begin
          writeRequest <= 1'b1;
-         recvState <= ST_RECEIVE_DMA_WRITE_WAIT;
+         recvState <= ST_RECEIVE_DMA_WAIT_FINISH;
       end
    end
 
-   ST_RECEIVE_DMA_WRITE_WAIT:
+   ST_RECEIVE_DMA_WAIT_FINISH:
    begin
       // Wait until writeRequest is 0; otherwise IDLE state will clear it.
       // This could be a problem if the bwState loop has not yet received grant_write_bus.
       // Alternatively, could remove clear from IDLE state.
-      if (~writeRequest)
-        recvState <= ST_RECEIVE_DMA_IDLE;
+      // Once writeRequest is 0, we perform the final handshaking with the lower-level by
+      // clearing recvBusy and then waiting for recvRequest to be cleared.
+      if (~writeRequest) begin
+         recvBusy <= 1'b0;
+         if (~recvRequest)
+            recvState <= ST_RECEIVE_DMA_IDLE;
+      end
    end
 
    default:
    begin
       ethRecvStateError <= 1;
-      recvState <= ST_RECEIVE_DMA_IDLE;
+      recvState <= ST_RECEIVE_DMA_WAIT_FINISH;
       nextRecvState <= ST_RECEIVE_DMA_IDLE;
    end
 

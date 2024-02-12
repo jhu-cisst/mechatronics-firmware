@@ -150,7 +150,7 @@ assign blk_rt_rd = eth_grant_read_bus ? eth_blk_rt_rd :
 
 // The real-time block read request indicates that we have latched the
 // timestamp and will soon be starting a real-time block read.
-assign req_blk_rt_rd = fw_req_blk_rt_rd | eth_req_blk_rt_rd;
+assign req_blk_rt_rd = fw_req_blk_rt_rd | (eth_grant_read_bus & eth_req_blk_rt_rd);
 
 //*********************** Read Address Translation *******************************
 

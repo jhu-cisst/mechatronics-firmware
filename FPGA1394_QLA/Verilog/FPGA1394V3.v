@@ -181,7 +181,9 @@ assign blk_rt_rd = ps_grant_read_bus ? ps_blk_rt_rd :
 
 // The real-time block read request indicates that we have latched the
 // timestamp and will soon be starting a real-time block read.
-assign req_blk_rt_rd = fw_req_blk_rt_rd | eth_req_blk_rt_rd | ps_req_blk_rt_rd;
+assign req_blk_rt_rd = (ps_grant_read_bus & ps_req_blk_rt_rd) |
+                       (eth_grant_read_bus & eth_req_blk_rt_rd) |
+                       fw_req_blk_rt_rd;
 
 //*********************** Read Address Translation *******************************
 //
@@ -1033,6 +1035,7 @@ EmioBus PS_EMIO(
     .blk_wstart(ps_blk_wstart),
     .req_blk_rt_rd(ps_req_blk_rt_rd),
     .blk_rt_rd(ps_blk_rt_rd),
+    .blk_rt_wr(ps_blk_rt_wr),
     .req_write_bus(ps_req_write_bus),
     .grant_write_bus(ps_grant_write_bus),
 
