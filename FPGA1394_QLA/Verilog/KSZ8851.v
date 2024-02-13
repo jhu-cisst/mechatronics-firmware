@@ -126,6 +126,7 @@ module KSZ8851(
     output reg[15:0] timeSinceIRQ,    // Running time counter since last IRQ
     // Feedback bits
     input wire bw_active,             // Indicates that block write module is active
+    output wire isHub,                // Whether this board directly connected to host PC
     output wire ethInternalError      // Error summary bit to EthernetIO
 );
 
@@ -559,32 +560,6 @@ assign RunProgram[ID_TXQ_ENQUEUE]       = {CMD_WRITE, CMD_NOP, `ETH_ADDR_TXQCR, 
 assign RunProgram[ID_TXQ_READ]          = {CMD_READ,  CMD_NOP, `ETH_ADDR_TXQCR, 11'd0, ST_SEND_TXQ_ENQUEUE_WAIT};
 
 reg[4:0] runPC;    // Program counter for RunProgram
-
-// Following data is accessible via block read from address `ADDR_ETH (0x4000)
-// Note that some data (some DebugData and RunProgram) is provided by this module
-// (KSZ8851) whereas everything else is provided by the high-level interface (EthernetIO).
-//    4000 - 407f (128 quadlets) FireWire packet (first 128 quadlets only)
-//    4080 - 408f (16 quadlets) EthernetIO Debug data
-//    4090 - 409f (16 quadlets) Low-level (e.g., KSZ8851) Debug data
-//    40a0 - 40bf (32 quadlets) RunProgram
-//    40c0 - 40df (32 quadlets) PacketBuffer/ReplyBuffer (64 words)
-//    40e0 - 40ff (32 quadlets) ReplyIndex (64 words)
-always @(*)
-begin
-   if (reg_raddr[11:4] == 8'h09) begin             // 4090-409f
-`ifdef HAS_DEBUG_DATA
-      reg_rdata = DebugData[reg_raddr[3:0]];
-`else
-      reg_rdata = "0GBD";
-`endif
-   end
-   else if (reg_raddr[11:5] == 7'b0000101) begin   // 40a0-40bf
-      reg_rdata = {6'd0, RunProgram[reg_raddr[4:0]]};
-   end
-   else begin
-      reg_rdata = 32'd0;
-   end
-end
 
 // Reg_CMD is 0 except when writing address to the KSZ8851
 assign Reg_CMD = (state == ST_WAVEFORM_ADDR) ? 1'd1 : 1'd0;
@@ -1321,6 +1296,109 @@ always @(posedge sysclk) begin
    end
 `endif
 
+end
+
+//************** Emulate some features of FPGA V3 EthSwitch ****************
+
+// Ethernet broadcast MAC address
+localparam[47:0] BroadcastMAC = 48'hFFFFFFFFFFFF;
+
+// FPGA MAC addresses contain the LCSR Company ID (CID) as the first 24-bits,
+// followed by 16-bits for the RT or PS interface, followed by 8-bits for the board-id
+// (PS interface only available in FPGA V3).
+localparam[23:0] LCSR_CID    = 24'hfa610e;
+
+// Host MAC address (typically, MAC address of PC)
+reg[47:0] MacAddrHost;
+
+// PortForwardFpga[board-id]:
+//     1 --> FPGA board is accessible via Ethernet board (i.e., received a packet
+//           with the corresponding SrcMac address)
+//     0 --> Not known whether FPGA board is accessible via Ethernet port
+reg[15:0] PortForwardFpga;
+
+assign isHub = (PortForwardFpga == 16'd0) ? 1'b1 : 1'b0;
+
+// Counts words received
+reg[2:0] swcnt;
+// Source MAC address
+reg[47:0] SrcMac;
+
+always @(posedge sysclk)
+begin
+   if (~linkStatus) begin
+      MacAddrHost <= BroadcastMAC;
+      PortForwardFpga <= 16'd0;
+   end
+   else if (initOK & recvRequest & recvBusy) begin
+      if (recvReady) begin
+         if (swcnt == 3'd3)      SrcMac[47:32] <= recv_word;
+         else if (swcnt == 3'd4) SrcMac[31:16] <= recv_word;
+         else if (swcnt == 3'd5) SrcMac[15:0]  <= recv_word;
+         else if (swcnt == 3'd6) begin
+            // If the upper 24-bits of SrcMac match LCSR_CID, then
+            // there is an FPGA board accessible via that port.
+            // For this purpose, it does not matter whether the middle
+            // 16-bits are FPGA_RT_MAC or FPGA_PS_MAC.
+            if (SrcMac[47:24] == LCSR_CID)
+               PortForwardFpga[SrcMac[3:0]] <= 1'b1;
+            else
+               MacAddrHost <= SrcMac;
+         end
+         if (swcnt != 3'd7)
+            swcnt <= swcnt + 3'd1;
+      end
+   end
+   else begin
+      swcnt <= 3'd0;
+   end
+end
+
+wire[31:0] SwitchData[0:31];
+assign SwitchData[0]  = "0WSE";  // ESW0 byte-swapped
+// Port configuration and forwarding info
+assign SwitchData[1]  = { 4'b1001, 20'd0,                 // Ports 3 (RT) and 0 (ETH) exist
+                          4'd0,                           // All port are slow
+                          1'd1, 2'd0, linkStatus };       // Port 3 active, Port 0 depends on linkStatus
+assign SwitchData[2]  = MacAddrHost[47:16];
+assign SwitchData[3]  = { MacAddrHost[15:0], 16'd0 };
+assign SwitchData[4]  = 32'd0;
+assign SwitchData[5]  = { 16'd0, PortForwardFpga };
+assign SwitchData[6]  = 32'd0;
+assign SwitchData[7]  = 32'd0;
+assign SwitchData[8]  = { 16'd0,               numPacketValid };      // NumPacketRecv[0] (received from ETH)
+assign SwitchData[9]  = { 8'd0, numPacketSent, 16'd0 };               // NumPacketRecv[3] (received from RT)
+assign SwitchData[10] = { 16'd0,               8'd0, numPacketSent }; // NumPacketSent[0] (sent to ETH)
+assign SwitchData[11] = { numPacketValid,      16'd0 };               // NumPacketSent[3] (sent to RT)
+genvar i;
+for (i = 12; i < 32; i = i + 1) begin : switch_data_loop
+   assign SwitchData[i] = 32'd0;
+end
+
+// Following data is accessible via block read from address `ADDR_ETH (0x4000)
+// Note that some data (some DebugData and RunProgram) is provided by this module
+// (KSZ8851) whereas everything else is provided by the high-level interface (EthernetIO).
+//    4000 - 407f (128 quadlets) FireWire packet (first 128 quadlets only)
+//    4080 - 408f (16 quadlets) EthernetIO Debug data
+//    4090 - 409f (16 quadlets) Low-level (e.g., KSZ8851) Debug data
+//    40a0 - 40bf (32 quadlets) Switch data (was RunProgram prior to Firmware Rev 9)
+//    40c0 - 40df (32 quadlets) PacketBuffer/ReplyBuffer (64 words)
+//    40e0 - 40ff (32 quadlets) ReplyIndex (64 words)
+always @(*)
+begin
+   if (reg_raddr[11:4] == 8'h09) begin             // 4090-409f
+`ifdef HAS_DEBUG_DATA
+      reg_rdata = DebugData[reg_raddr[3:0]];
+`else
+      reg_rdata = "0GBD";
+`endif
+   end
+   else if (reg_raddr[11:5] == 7'b0000101) begin   // 40a0-40bf
+      reg_rdata = SwitchData[reg_raddr[4:0]];
+   end
+   else begin
+      reg_rdata = 32'd0;
+   end
 end
 
 endmodule

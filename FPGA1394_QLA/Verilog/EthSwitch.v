@@ -236,29 +236,6 @@ wire[3:0] TxInfo_Switch[0:3][0:3];
 //        0 --> Not known whether FPGA board is accessible via port-num
 reg[15:0] PortForwardFpga[INDEX_ETH1:INDEX_ETH2];
 
-// Number of bits set
-wire[3:0] PortForwardFpgaNum[INDEX_ETH1:INDEX_ETH2];
-
-assign PortForwardFpgaNum[INDEX_ETH1] =
-           PortForwardFpga[INDEX_ETH1][0]  + PortForwardFpga[INDEX_ETH1][1]  +
-           PortForwardFpga[INDEX_ETH1][2]  + PortForwardFpga[INDEX_ETH1][3]  +
-           PortForwardFpga[INDEX_ETH1][4]  + PortForwardFpga[INDEX_ETH1][5]  +
-           PortForwardFpga[INDEX_ETH1][6]  + PortForwardFpga[INDEX_ETH1][7]  +
-           PortForwardFpga[INDEX_ETH1][8]  + PortForwardFpga[INDEX_ETH1][9]  +
-           PortForwardFpga[INDEX_ETH1][10] + PortForwardFpga[INDEX_ETH1][11] +
-           PortForwardFpga[INDEX_ETH1][12] + PortForwardFpga[INDEX_ETH1][13] +
-           PortForwardFpga[INDEX_ETH1][14] + PortForwardFpga[INDEX_ETH1][15];
-
-assign PortForwardFpgaNum[INDEX_ETH2] =
-           PortForwardFpga[INDEX_ETH2][0]  + PortForwardFpga[INDEX_ETH2][1]  +
-           PortForwardFpga[INDEX_ETH2][2]  + PortForwardFpga[INDEX_ETH2][3]  +
-           PortForwardFpga[INDEX_ETH2][4]  + PortForwardFpga[INDEX_ETH2][5]  +
-           PortForwardFpga[INDEX_ETH2][6]  + PortForwardFpga[INDEX_ETH2][7]  +
-           PortForwardFpga[INDEX_ETH2][8]  + PortForwardFpga[INDEX_ETH2][9]  +
-           PortForwardFpga[INDEX_ETH2][10] + PortForwardFpga[INDEX_ETH2][11] +
-           PortForwardFpga[INDEX_ETH2][12] + PortForwardFpga[INDEX_ETH2][13] +
-           PortForwardFpga[INDEX_ETH2][14] + PortForwardFpga[INDEX_ETH2][15];
-
 // Consolidated forwarding information for each FPGA board id
 //    PortForwardFpgaAction[board-id][port-num]
 //      1 -> forward packets for board-id on port-num
@@ -459,7 +436,7 @@ for (in = 0; in < 4; in = in + 1) begin : fifo__int_loop
                       // there is an FPGA board accessible via that port.
                       // For this purpose, it does not matter whether the middle
                       // 16-bits are FPGA_RT_MAC or FPGA_PS_MAC.
-                      if ((SrcMac[47:24]&(~MULTICAST_BIT)) == LCSR_CID)
+                      if (SrcMac[47:24] == LCSR_CID)
                           PortForwardFpga[in][SrcMac[3:0]] <= 1'b1;
                       else
                           MacAddrHost[in] <= SrcMac;
@@ -816,14 +793,14 @@ endgenerate
 wire[31:0] SwitchData[0:31];
 assign SwitchData[0]  = "0WSE";  // ESW0 byte-swapped
 // Port configuration and forwarding info
-assign SwitchData[1]  = { 24'd0,
+assign SwitchData[1]  = { 4'b1111, 20'd0,               // Bitmask indicating ports 3-0 available
                          PortFast[3],   PortFast[2],   PortFast[1],   PortFast[0],
                          PortActive[3], PortActive[2], PortActive[1], PortActive[0] };
 assign SwitchData[2]  = MacAddrPrimary[0][47:16];
 assign SwitchData[3]  = { MacAddrPrimary[0][15:0], MacAddrPrimary[1][47:32] };
 assign SwitchData[4]  = MacAddrPrimary[1][31:0];
 assign SwitchData[5]  = { PortForwardFpga[INDEX_ETH2], PortForwardFpga[INDEX_ETH1] };
-assign SwitchData[6]  = { 12'd0, PortForwardFpgaNum[INDEX_ETH2], 12'd0, PortForwardFpgaNum[INDEX_ETH1] };
+assign SwitchData[6]  = 32'd0;
 // Port-specific data [in] or [out]
 assign SwitchData[7]  = { 24'd0,
                          DataReady[3],  DataReady[2],  DataReady[1],  DataReady[0],

@@ -412,6 +412,7 @@ wire eth_bw_active;             // Indicates that block write module is active
 wire eth_InternalError;         // Error summary bit to EthernetIO
 wire[5:0] eth_ioErrors;         // Error bits from EthernetIO
 wire useUDP;                    // Whether EthernetIO is using UDP
+wire isHub;                     // 1 -> this board may be the Ethernet Hub
 
 KSZ8851  EthernetMacPhy(
     .sysclk(sysclk),          // in: global clock
@@ -458,6 +459,7 @@ KSZ8851  EthernetMacPhy(
     .timeReceive(eth_time_recv),      // Time when receive portion finished
     .timeSinceIRQ(eth_time_now),      // Running time counter since start of packet receive
     .bw_active(eth_bw_active),        // Indicates that block write module is active
+    .isHub(isHub),                    // 1 -> this board (probably) is the Ethernet hub
     .ethInternalError(eth_InternalError)   // Error summary bit to EthernetIO
 );
 
@@ -540,6 +542,7 @@ EthernetIO EthernetTransfers(
     .timeReceive(eth_time_recv),      // Time when receive portion finished
     .timeNow(eth_time_now),           // Running time counter since start of packet receive
     .srcPort(2'd0),                   // Source port (0 for KSZ8851)
+    .isHub(isHub),                    // Whether this board might be Ethernet hub
     .bw_active(eth_bw_active),        // Indicates that block write module is active
     .ethLLError(eth_InternalError),   // Error summary bit to EthernetIO
     .eth_status(eth_status_io)        // EthernetIO status register
