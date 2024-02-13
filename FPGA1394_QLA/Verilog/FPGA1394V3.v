@@ -519,6 +519,7 @@ wire       recv_ready_rt;       // Whether RT ready for input data from switch
 wire       data_ready_rt;       // Whether RT providing valid data to switch
 wire[3:0]  txinfo_rt;           // Packet information from Ethernet Switch
 wire[1:0]  txsrc_rt;            // Source port from Ethernet Switch
+wire       isHub;               // 1 -> this board may be the Ethernet Hub
 
 // Ethernet 4-port switch
 EthSwitch eth_switch (
@@ -582,6 +583,7 @@ EthSwitch eth_switch (
     .P3_TxSrc(txsrc_rt),             // Port3 packet info
 
     .board_id(board_id),             // Board ID (for MAC addresses)
+    .isHub(isHub),                   // 1 -> this board (probably) is the Ethernet hub
 
     // TODO: Define a separate bit for clearing EthSwitch errors
     // For now, uses clearErrors from EthernetIO
@@ -856,6 +858,7 @@ EthernetTransfers(
     .timeReceive(eth_time_recv),      // Time when receive portion finished
     .timeNow(eth_time_now),           // Running time counter since start of packet receive
     .srcPort(txsrc_rt),               // Source port (from Ethernet Switch)
+    .isHub(isHub),                    // Whether this board is Ethernet hub (from Ethernet Switch)
     .bw_active(eth_bw_active),        // Indicates that block write module is active
     .ethLLError(eth_InternalError),   // Error summary bit to EthernetIO
     .eth_status(eth_status_io),       // EthernetIO status register

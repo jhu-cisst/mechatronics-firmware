@@ -120,6 +120,7 @@ module EthernetIO
     input wire[15:0] timeReceive,    // Time when receive portion finished
     input wire[15:0] timeNow,        // Running time counter since start of packet receive
     input wire[1:0] srcPort,         // Source port (0 for FPGA V2, 0-2 for FPGA V3)
+    input wire isHub,                // Whether this board might be the Ethernet hub
     // Feedback bits
     // bw_active is provided to lower-level module so that other actions (e.g., flushing KSZ8851
     // queue for FPGA V2) can happen in parallel; however, the lower-level module should wait until
@@ -169,8 +170,9 @@ assign eth_recv_isIdle = (recvState == ST_RECEIVE_DMA_IDLE) ? 1'd1 : 1'd0;
 
 // Following flags are set based on the destination address. Note that
 // a FireWire broadcast packet will set both isLocal and isRemote.
-wire isLocal;       // 1 -> FireWire packet should be processed locally
-wire isRemote;      // 1 -> FireWire packet should be forwarded
+wire isLocalWrite;       // 1 -> FireWire write request should be processed locally
+wire isLocalRead;        // 1 -> FireWire read request should be processed locally
+wire isRemote;           // 1 -> FireWire packet should be forwarded
 
 wire quadRead;
 wire quadWrite;
@@ -754,10 +756,10 @@ assign DebugData[1]  = timestamp;
 assign DebugData[2]  = { writeRequest, 1'd0, bw_active, eth_send_isIdle,                         // 31:28
                          eth_recv_isIdle, ethUDPError, 1'b0, ethIPv4Error,                       // 27:24
                          sendBusy, sendRequest, eth_send_fw_ack, eth_send_fw_req,                // 23:20
-                         recvBusy, recvRequest, isLocal, isRemote,                               // 19:16
+                         recvBusy, recvRequest, isLocalWrite, isRemote,                          // 19:16
                          FireWirePacketFresh, isForward, sendARP, isUDP,                         // 15:12
                          isICMP, isEcho, is_IPv4_Long, is_IPv4_Short,                            // 11:8
-                         fw_bus_reset, ipWrite, 2'd0,                                            //  7:4
+                         fw_bus_reset, ipWrite, isLocalRead, 1'd0,                               //  7:4
                          4'd0 };                                                                 //  3:0
 assign DebugData[3]  = { node_id, maxCountFW, LengthFW };                  // 6, 10, 16
 assign DebugData[4]  = { fw_ctrl, host_fw_addr };                          // 16, 16
@@ -836,6 +838,9 @@ hub_mem_gen bw_packet(.clka(sysclk),
                       .doutb(mem_rdata)
                      );
 
+wire addrHubReg;
+assign addrHubReg = (fw_dest_offset == {`ADDR_HUB, 12'h800 }) ? 1'b1 : 1'b0;
+
 reg FireWirePacketFresh;   // 1 -> FireWirePacket data is valid (fresh)
 
 // Following data is accessible via block read from address `ADDR_ETH (0x4000),
@@ -912,11 +917,14 @@ wire id_match;
 assign id_match = (dest_node_id == expected_node_id) ? 1'b1 : 1'b0;
 
 // Local write if addresses this board or FireWire broadcast.
-assign isLocal = id_match | isFwBroadcast;
+assign isLocalWrite = id_match | isFwBroadcast;
+// Local read if addresses this board, or if this board is the Ethernet hub and the broadcast
+// read is Ethernet only (noForwardFlag)
+assign isLocalRead = id_match | (isFwBroadcast & noForwardFlag & isHub);
 
-// Remote write if not addressing this board or Firewire broadcast, and if noForwardFlag is false.
+// Remote read or write if not addressing this board or Firewire broadcast, and if noForwardFlag is false.
 // Also, note that some packets (e.g., Firewire broadcast) may set both isLocal and isRemote.
-assign isRemote = ((~id_match) | isFwBroadcast) & (~noForwardFlag);
+assign isRemote = (~id_match) & (~noForwardFlag);
 
 assign quadRead = (fw_tcode == `TC_QREAD) ? 1'd1 : 1'd0;
 assign quadWrite = (fw_tcode == `TC_QWRITE) ? 1'd1 : 1'd0;
@@ -929,12 +937,12 @@ assign addrMain = (fw_dest_offset[15:12] == `ADDR_MAIN) ? 1'd1 : 1'd0;
 reg[15:0] reg_waddr;
 reg reg_wen;
 
+// Following signal indicates whether real-time block read is in process
+assign blk_rt_rd = addrMain & blockRead & req_read_bus;
+
 //*********************** Write Address Translation *******************************
 //
 // Write bus address translation (to support real-time block write).
-
-// Following signal indicates whether real-time block write is in process
-assign blk_rt_rd = addrMain & blockRead & req_read_bus;
 
 wire board_equal;
 assign board_equal = (reg_wdata[11:8] == board_id) ? 1'b1 : 1'b0;
@@ -955,7 +963,7 @@ assign eth_reg_waddr[15:8] = reg_waddr[15:8];
 
 //*********************************************************************************
 
-// Following signal indicates whether real-time block write
+// Following signal indicates whether real-time block write in process
 assign blk_rt_wr = bwAddrMain & req_write_bus;
 
 assign isRebootCmd = (addrMain && (fw_dest_offset[11:0] == 12'd0) && quadWrite
@@ -1015,7 +1023,8 @@ reg br_request;         // Request block (or quadlet) read of registers into br_
 reg br_ack;             // Acknowledge br_request
 reg[7:0] br_wait_cnt;   // Number of clocks waiting for block read to finish
 
-assign responseRequired = ((FireWirePacketFresh & (quadRead | blockRead | ipWrite) & (isLocal | sendExtra))
+assign responseRequired = ((FireWirePacketFresh &
+                            ((quadRead | blockRead) & (isLocalRead | sendExtra)) | (ipWrite & isLocalWrite))
                            | sendARP | isEcho);
 
 // Previously (up to Firmware Rev 8), set all bits of ip_address (e.g., 169.254.0.100)
@@ -1245,7 +1254,7 @@ begin
             // it consistently for all broadcast quadlet writes.
             // It is necessary for the broadcast query command to make sure that all boards are ready for
             // the sequential update of Hub memory (especially if this board is the lowest numbered board)
-            writeRequest <= isLocal&(~isRemote);
+            writeRequest <= isLocalWrite&(~isRemote);
          end
          else if ((rfw_count == 10'd9) && blockWrite) begin
             bwStart <= 9'd5;
@@ -1253,27 +1262,26 @@ begin
          end
          else if (rfw_count == maxCountFW) begin
             nextRecvState <= ST_RECEIVE_DMA_WAIT_START;  // was ST_RECEIVE_DMA_FRAME_CRC;
-            if (isLocal) begin
+            if ((isLocalRead & addrMain & blockRead) ||
+                (isLocalWrite & addrHubReg & quadWrite)) begin
                // Latch timestamp if a block read from ADDR_MAIN or a broadcast read request
                // (quadlet write to ADDR_HUB).
-               if ((addrMain && blockRead) || ((fw_dest_offset == {`ADDR_HUB, 12'h800 }) && quadWrite)) begin
-                  // TODO: Subtracting 1 for backward compatibility; may eliminate that for Firmware Rev 9
-                  timestamp_latched <= (timestamp-timestamp_prev)-32'd1;
-                  timestamp_prev <= timestamp;
-                  req_blk_rt_rd <= 1'b1;
-               end
-               if (blockWrite) begin
-                  // writeRequest should have been set earlier (using writeRequestTrigger) for all
-                  // local block writes (even broadcast). We expect write to still be active.
-                  bw_err <= ~req_write_bus;
-                  // Number of quadlets left to write to registers; should be greater than 1,
-                  // otherwise the register writer may have overtaken the Ethernet reader.
-                  bw_left <= bwEnd - local_raddr;
-               end
-               else if (quadRead | blockRead) begin
-                  br_request <= 1'b1;
-                  br_wait_cnt <= 8'd0;
-               end
+               // TODO: Subtracting 1 for backward compatibility; may eliminate that for Firmware Rev 9
+               timestamp_latched <= (timestamp-timestamp_prev)-32'd1;
+               timestamp_prev <= timestamp;
+               req_blk_rt_rd <= 1'b1;
+            end
+            if (isLocalWrite & blockWrite) begin
+              // writeRequest should have been set earlier (using writeRequestTrigger) for all
+              // local block writes (even broadcast). We expect write to still be active.
+              bw_err <= ~req_write_bus;
+              // Number of quadlets left to write to registers; should be greater than 1,
+              // otherwise the register writer may have overtaken the Ethernet reader.
+              bw_left <= bwEnd - local_raddr;
+           end
+           else if (isLocalRead & (quadRead | blockRead)) begin
+              br_request <= 1'b1;
+              br_wait_cnt <= 8'd0;
             end
             if (isRemote) begin
                // Request to forward should already have been set (using fwRequestTrigger).
@@ -1289,7 +1297,7 @@ begin
          end
 
          if (blockWrite && (rfw_count == writeRequestTrigger)) begin
-            writeRequest <= isLocal;
+            writeRequest <= isLocalWrite;
          end
          if ((rfw_count == fwRequestTrigger) && isRemote) begin
             eth_send_fw_req <= 1'b1;
@@ -1316,7 +1324,7 @@ begin
          numIPv4 <= numIPv4 + {9'd0, isIPv4};
          numUDP <= numUDP + {9'd0, isUDP};
 `endif
-         if (isRebootCmd&isRemote&isLocal) begin
+         if (isRebootCmd&isRemote&isLocalWrite) begin
             // Special case handling of broadcast reboot
             rebootCnt <= 6'd1;
             recvState <= ST_RECEIVE_DMA_REBOOT;
@@ -1325,7 +1333,7 @@ begin
             // If any other broadcast quadlet write (local and remote),
             // write it to the hardware now.
             if (quadWrite)
-                writeRequest <= isRemote&isLocal;
+                writeRequest <= isRemote&isLocalWrite;
             // Wait for any pending writes to start (including any previously
             // requested quadlet or block writes)
             recvState <= ST_RECEIVE_DMA_WAIT_FINISH;
@@ -1425,9 +1433,6 @@ assign responseByteCount =
              sendARP                 ? (`ETH_FRAME_SIZE + 16'd28) :                 // ARP response: 14 + 28
              (isEcho | fw_resp_udp)  ? (`ETH_FRAME_SIZE + Reply_IPv4_Length)        // UDP or ICMP Echo packet
                                      : (`ETH_FRAME_SIZE + Reply_Frame_Length);      // Raw packet
-
-// wire isFirewireReply;
-// assign isFirewireReply = ((FireWirePacketFresh && (quadRead || blockRead) && (isLocal || sendExtra))) ? 1'b1 : 1'b0;
 
 always @(posedge sysclk)
 begin

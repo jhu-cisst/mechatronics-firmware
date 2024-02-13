@@ -89,6 +89,7 @@ module EthSwitch
     output wire[1:0] P3_TxSrc,  // Port3 source port (0-2)
 
     input wire[3:0] board_id,   // Board id (used for MAC addresses)
+    output wire isHub,          // Whether this switch directly connected to host PC
 
     input wire clearErrors,
 
@@ -778,6 +779,16 @@ for (out = 0; out < 4; out = out + 1) begin : fifo_loop_mux
     assign TxErr[out] = TxSt[out][0] & TxSt[out][1];   // TxErr if TxSt[out] == 2'b11
     assign TxEn[out] = fifo_valid[curInput][out];
     assign TxSrc[out] = curInput;
+    if (out == INDEX_RT) begin
+        // This board is the hub if the message is received from an Ethernet port (ETH1 or ETH2) that does not
+        // have any FPGA boards in its port forwarding database, or if the message is received from the PS.
+        // Note that this assumes that the port forwarding database has been initialized, which is done when the
+        // IP address is written and each board sends a raw Ethernet multicast packet (ipWrite in EthernetIO)
+        assign isHub = (curInput == INDEX_ETH1) ? ((PortForwardFpga[INDEX_ETH1] == 16'd0) ? 1'b1 : 1'b0 ) :
+                       (curInput == INDEX_ETH2) ? ((PortForwardFpga[INDEX_ETH2] == 16'd0) ? 1'b1 : 1'b0 ) :
+                       (curInput == INDEX_PS)   ? 1'b1
+                                                : 1'b0;
+    end
 end
 endgenerate
 
