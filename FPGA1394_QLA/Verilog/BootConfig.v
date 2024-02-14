@@ -32,16 +32,14 @@ module BootConfig(
     input wire[15:0]  reg_waddr,
     output wire[31:0] reg_rdata,
     input wire[31:0]  reg_wdata,
+    output wire reg_rwait,
     input wire reg_wen,
     input wire blk_wen,
     input wire blk_wstart,
+    input wire blk_rt_rd,
 
-    // Sampling support
-    input wire sample_start,        // Start sampling read data
-    output reg sample_busy,         // Sampling in process
-    input wire[5:0] sample_raddr,   // Address in sample_data buffer
-    output wire[31:0] sample_rdata, // Output from sample_data buffer
-    output reg[31:0] timestamp      // Timestamp used when sampling
+    // Timestamp
+    output reg[31:0] timestamp
 );
 
     //******************* I/O pin mappings **************************
@@ -69,7 +67,10 @@ wire[31:0] reg_rdata_chan0;      // 'channel 0' is a special axis that contains 
 // Mux routing read data based on read address
 //   See Constants.v for details
 assign reg_rdata = (reg_raddr[15:12]==`ADDR_PROM_QLA) ? (reg_rdata_prom) :
-                   (reg_raddr[15:12]==`ADDR_MAIN) ? (reg_rdata_chan0) : 32'd0;
+                   ((reg_raddr[15:12]==`ADDR_MAIN) && (reg_raddr[7:4] == 4'd0)) ? (reg_rdata_chan0) : 32'd0;
+
+// No wait-states for reg_rdata
+assign reg_rwait = 1'b0;
 
 // --------------------------------------------------------------------------
 // Prom 25AA128
@@ -158,64 +159,45 @@ assign reg_status = {4'd0, board_id, isNONE, isQLA, isDQLA, isDRAC, isV30,   // 
 wire[31:0] reg_version;   // Hardware version
 assign reg_version = 32'h42434647;   // "BCFG"
 
-assign reg_rdata_chan0 = (reg_raddr[3:0] == `REG_STATUS) ? reg_status :
+// Repurpose REG_DIGIN and REG_TEMPSNS for additional feedback; also, note that lower 10 bits of REG_STATUS
+// are used for real-time block read.
+assign reg_rdata_chan0 = (reg_raddr[3:0] == `REG_STATUS)  ? { reg_status[31:10], (blk_rt_rd ? IO1[0:9] : 10'd0) } :
+                         (reg_raddr[3:0] == `REG_DIGIN)   ? { IO1[10:33], IO2[0:7] } :
+                         (reg_raddr[3:0] == `REG_TEMPSNS) ? IO2[8:39] :
                          (reg_raddr[3:0] == `REG_VERSION) ? reg_version :
                          32'd0;
 
-// --------------------------------------------------------------------------
-// Sample data for block read
-// This is a simplified version of SampleData.v
-// --------------------------------------------------------------------------
-
-reg[31:0] RT_Feedback[0:3];
-
-integer ii;
-initial begin
-    for (ii = 0; ii <= 3; ii = ii + 1)
-        RT_Feedback[ii] = 32'd0;
-end
-
-assign sample_rdata = RT_Feedback[sample_raddr[1:0]];
+// -------------------------------------------------------------------------
+// Timestamp: just a free-running counter
+// -------------------------------------------------------------------------
 
 always @(posedge sysclk)
 begin
-    timestamp <= sample_start&(~sample_busy) ? 32'd0 : timestamp + 1'b1;
-    if (sample_start) begin
-        sample_busy <= 1;
-        if (~sample_busy) begin
-            RT_Feedback[0] <= timestamp;
-            RT_Feedback[1] <= { reg_status[31:10], IO1[0:9] };
-            RT_Feedback[2] <= { IO1[10:33], IO2[0:7] };
-            RT_Feedback[3] <= IO2[8:39];
-        end
-    end
-    else if (sample_busy) begin
-        sample_busy <= 0;
-    end
+    timestamp <= timestamp + 1'b1;
 end
 
 // --------------------------------------------------------------------------
 // dRAC LED
 // --------------------------------------------------------------------------
 wire drac_front_panel_led;
-assign IO1[6] = isDRAC ? drac_front_panel_led : 'bz;
+assign IO1[6] = isDRAC ? drac_front_panel_led : 1'bz;
 
 reg [25:0] blink_counter;
 reg blink_ovf;
-reg [3:0] on_led = 'd1;
+reg [3:0] on_led = 4'd1;
 reg [7:0] led_red;
 reg [7:0] led_green;
 reg [7:0] led_blue;
 wire [3:0] led_address;
 always @(posedge sysclk) begin
-    blink_counter <= blink_counter + 'd1;
+    blink_counter <= blink_counter + 26'd1;
     blink_ovf <= blink_counter == 'd12_288_000 - 'd1;
     led_green <= led_address == on_led ? 'd50 : 'd0;
     if (blink_ovf) begin
-        blink_counter <= 'd0;
-        on_led <= on_led + 'd1;
-        if (on_led == 'd6) begin
-            on_led <= 'd1;
+        blink_counter <= 26'd0;
+        on_led <= on_led + 4'd1;
+        if (on_led == 4'd6) begin
+            on_led <= 4'd1;
         end
     end
 end

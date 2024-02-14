@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2008-2023 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2008-2024 ERC CISST, Johns Hopkins University.
  *
  * This module contains a register file dedicated to general board parameters.
  * Separate register files are maintained for each I/O channel (SpiCtrl).
@@ -35,9 +35,9 @@ module BoardRegs
     input  wire[15:0] reg_raddr,     // register read address
     input  wire[15:0] reg_waddr,     // register write address
     output reg[31:0] reg_rdata,      // register read data
+    output wire reg_rwait,           // register read wait state
     input  wire[31:0] reg_wdata,     // register write data
     input  wire reg_wen,             // write enable from FireWire module
-    input  wire[31:0] reg_rdata_ext, // register read data from external board
 
     output reg wdog_period_led,    // 1 -> LED1 displays wdog_period_status
     output reg[2:0] wdog_period_status,
@@ -50,7 +50,7 @@ module BoardRegs
     //
 
     // Interface to Firewire PHY. The host PC writes phy_ctrl, which is
-    // actually processed in Firewire.v or EthernetIO.v. The data saved here
+    // actually processed elsewhere (see reg_lreq_trig). The data saved here
     // is only for readback purposes.
     // The Firewire.v module actually issues the write to store the value
     // in phy_data, which can then be read by the host PC.
@@ -99,7 +99,6 @@ assign write_main = ((reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[7:4]==4'd0) &&
 
 // return register data for reads
 //    REG_PROMSTAT, REG_PROMRES, REG_IPADDR and REG_ETHSTAT handled elsewhere in FPGA module
-//    reg_rdata_ext is data from external board (e.g., QLA)
 always @(*) begin
     case (reg_raddr[3:0])
         `REG_PHYCTRL: reg_rdata = {16'd0, phy_ctrl};
@@ -107,9 +106,12 @@ always @(*) begin
         `REG_TIMEOUT: reg_rdata = {wdog_period_led, 15'd0, wdog_period};
         `REG_FVERSION: reg_rdata = `FW_VERSION;
         `REG_GIT_DESC: reg_rdata = git_desc;
-         default:  reg_rdata = reg_rdata_ext;
+        default: reg_rdata = 32'd0;
     endcase
 end
+
+// Register reads have 0 wait
+assign reg_rwait = 1'b0;
 
 // write register data
 always @(posedge(sysclk))

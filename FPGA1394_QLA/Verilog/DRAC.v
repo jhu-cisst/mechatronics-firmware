@@ -29,34 +29,19 @@ module DRAC(
     inout wire[3:0]  io_extra,
 
     // Read/Write bus
-    input wire[15:0]  reg_raddr_non_sample,
+    input wire[15:0]  reg_raddr,
     input wire[15:0]  reg_waddr,
-    output reg[31:0] reg_rdata,
+    output reg[31:0]  reg_rdata,
     input wire[31:0]  reg_wdata,
+    output reg reg_rwait,
     input wire reg_wen,
     input wire blk_wen,
     input wire blk_wstart,
+    input wire sample_start,        // now req_blk_rt_rd
+    input wire sample_read,         // now called blk_rt_rd
 
-    // Block write support
-    output wire bw_write_en,
-    output wire[7:0] bw_reg_waddr,
-    output wire[31:0] bw_reg_wdata,
-    output wire bw_reg_wen,
-    output wire bw_blk_wen,
-    output wire bw_blk_wstart,
-
-    // Real-time write support
-    input wire  rt_wen,
-    input wire[3:0]  rt_waddr,
-    input wire[31:0] rt_wdata,
-
-    // Sampling support
-    input wire sample_start,        // Start sampling read data
-    output wire sample_busy,        // Sampling in process
-    input wire[5:0] sample_raddr,   // Address in sample_data buffer
-    output wire[31:0] sample_rdata, // Output from sample_data buffer
-    input wire sample_read,
-    output wire[31:0] timestamp,    // Timestamp used when sampling
+    // Timestamp
+    output wire[31:0] timestamp,
 
     // Watchdog support
     input wire wdog_period_led,     // 1 -> external LED displays wdog_period_status
@@ -167,61 +152,60 @@ assign IO2[36] = PWM_P[10];
 assign ADC_CUR_SDO[9] = IO2[37];
 assign ADC_CUR_SDO[10] = IO2[38];
 
-assign IO1[7] = 'bz;
-assign IO1[14] = 'bz;
-assign IO1[15] = 'bz;
-assign IO1[16] = 'bz;
-assign IO1[17] = 'bz;
-assign IO1[24] = 'bz;
-assign IO1[26] = 'bz;
-assign IO1[27] = 'bz;
-assign IO1[29] = 'bz;
-assign IO1[30] = 'bz;
-assign IO1[31] = 'bz;
-assign IO2[2] = 'bz;
-assign IO2[4] = 'bz;
-assign IO2[5] = 'bz;
-assign IO2[6] = 'bz;
-assign IO2[7] = 'bz;
-assign IO2[11] = 'bz;
-assign IO2[18] = 'bz;
-assign IO2[19] = 'bz;
-assign IO2[21] = 'bz;
-assign IO2[23] = 'bz;
-assign IO2[25] = 'bz;
-assign IO2[33] = 'bz;
-assign IO2[35] = 'bz;
-assign IO2[37] = 'bz;
-assign IO2[38] = 'bz;
-assign io_extra[0] = 'bz; // safety chain S sense
+assign IO1[7] = 1'bz;
+assign IO1[14] = 1'bz;
+assign IO1[15] = 1'bz;
+assign IO1[16] = 1'bz;
+assign IO1[17] = 1'bz;
+assign IO1[24] = 1'bz;
+assign IO1[26] = 1'bz;
+assign IO1[27] = 1'bz;
+assign IO1[29] = 1'bz;
+assign IO1[30] = 1'bz;
+assign IO1[31] = 1'bz;
+assign IO2[2] = 1'bz;
+assign IO2[4] = 1'bz;
+assign IO2[5] = 1'bz;
+assign IO2[6] = 1'bz;
+assign IO2[7] = 1'bz;
+assign IO2[11] = 1'bz;
+assign IO2[18] = 1'bz;
+assign IO2[19] = 1'bz;
+assign IO2[21] = 1'bz;
+assign IO2[23] = 1'bz;
+assign IO2[25] = 1'bz;
+assign IO2[33] = 1'bz;
+assign IO2[35] = 1'bz;
+assign IO2[37] = 1'bz;
+assign IO2[38] = 1'bz;
+assign io_extra[0] = 1'bz; // safety chain S sense
 assign io_extra[1] = EXTRA_IO; // dSIB RX
-assign io_extra[2] = 'bz; // dSIB TX
-assign io_extra[3] = 'bz; // dSIB INT
+assign io_extra[2] = 1'bz; // dSIB TX
+assign io_extra[3] = 1'bz; // dSIB INT
 
 // --------------------------------------------------------------------------
 // rdata mux
 // --------------------------------------------------------------------------
 
-wire[15:0]  reg_raddr_sample;
-wire[15:0]  reg_raddr = sample_read ? reg_raddr_sample : reg_raddr_non_sample;
-
 wire[31:0] reg_rdata_prom_qla; // reads from QLA prom
 wire[31:0] reg_rdata_chan0;    // 'channel 0' is a special axis that contains various board I/Os
+wire reg_rwait_chan0;
 wire[31:0] reg_rdata_motor_control;
 reg[31:0] reg_rdata_main;
 reg[31:0] reg_rdata_board_specific;
 wire[31:0] reg_rdata_databuf;
+wire reg_rwait_databuf;
 reg [31:0] reg_espm_bram;
 
 always @(*) begin
     case (reg_raddr[15:12])
-        `ADDR_PROM_QLA: reg_rdata = reg_rdata_prom_qla;
-        `ADDR_DATA_BUF: reg_rdata = reg_rdata_databuf;
-        `ADDR_MOTOR_CONTROL: reg_rdata = reg_rdata_motor_control;
-        `ADDR_ESPM: reg_rdata = reg_espm_bram;
-        `ADDR_BOARD_SPECIFIC: reg_rdata = reg_rdata_board_specific;
-        `ADDR_MAIN: reg_rdata = (reg_raddr[7:4]==4'd0) ? reg_rdata_chan0 : reg_rdata_main;
-        default: reg_rdata = 'b0;
+        `ADDR_PROM_QLA: {reg_rdata, reg_rwait} = {reg_rdata_prom_qla, 1'b0};
+        `ADDR_DATA_BUF: {reg_rdata, reg_rwait} = {reg_rdata_databuf, reg_rwait_databuf};
+        `ADDR_MOTOR_CONTROL: {reg_rdata, reg_rwait} = {reg_rdata_motor_control, 1'b0};
+        `ADDR_ESPM: {reg_rdata, reg_rwait} = {reg_espm_bram, 1'b0};
+        `ADDR_BOARD_SPECIFIC: {reg_rdata, reg_rwait} = {reg_rdata_board_specific, 1'b0};
+        `ADDR_MAIN: {reg_rdata, reg_rwait} = (reg_raddr[7:4]==4'd0) ? {reg_rdata_chan0, reg_rwait_chan0} : {reg_rdata_main, 1'b0};
+        default: {reg_rdata, reg_rwait} = {32'b0, 1'b0};
     endcase
 end
 
@@ -290,7 +274,7 @@ wire [1:10] motor_channel_enable_requested; // PC requested to enable channel.
 
 genvar k;
 generate
-    for (k = 1; k < 11; k = k + 1) begin
+    for (k = 1; k < 11; k = k + 1) begin : mchan_loop
         MotorChannelDRAC #(.CHANNEL(k)) MotorChannel_instance
         (
             .sysclk(sysclk),
@@ -376,12 +360,13 @@ BoardRegsDRAC chan0(
     .mv_amp_disable(mv_amp_disable),
     .safety_fb(SAFETY_CHAIN_GOOD),
     .board_id(board_id),
-    .temp_sense({reg_databuf, tempsense}),
+    .temp_sense({(blk_rt_rd ? reg_databuf : 16'd0), tempsense}),
     .is_ecm(is_ecm),
     .reg_status12(reg_status12),
     .reg_raddr(reg_raddr),
     .reg_waddr(reg_waddr),
     .reg_rdata(reg_rdata_chan0),
+    .reg_rwait(reg_rwait_chan0),
     .reg_wdata(reg_wdata),
     .reg_wen(reg_wen),
     .reg_status(reg_status),
@@ -409,37 +394,7 @@ always @(posedge sysclk) begin
     if (sample_read_falling_edge) espm_bram_update_inhibit <= 'b0;
 end
 
-SampleDataAddressTranslation sampler
-(
-    .clk(sysclk),
-    .doSample(sample_start),
-    .isBusy(sample_busy),
-    .blk_addr(sample_raddr),
-    .blk_data(sample_rdata),
-    .reg_raddr(reg_raddr_sample),
-    .reg_rdata(reg_rdata),
-    .timestamp_espmcomm(timestamp_espmcomm),
-    .timestamp(timestamp)
-);
-
-// --------------------------------------------------------------------------
-// Write data for real-time block
-// --------------------------------------------------------------------------
-
-WriteRtData #(.NUM_MOTORS(10)) rt_write
-(
-    .clk(sysclk),
-    .rt_write_en(rt_wen),       // Write enable
-    .rt_write_addr(rt_waddr),   // Write address
-    .rt_write_data(rt_wdata),   // Write data
-    .bw_write_en(bw_write_en),
-    .bw_reg_wen(bw_reg_wen),
-    .bw_block_wen(bw_blk_wen),
-    .bw_block_wstart(bw_blk_wstart),
-    .bw_reg_waddr(bw_reg_waddr),
-    .bw_reg_wdata(bw_reg_wdata)
-);
-
+assign timestamp = timestamp_espmcomm;
 
 // --------------------------------------------------------------------------
 // Data Buffer
@@ -464,9 +419,10 @@ DataBuffer data_buffer(
     .reg_wen(reg_wen),              // write enable
     .reg_raddr(reg_raddr),          // read address
     .reg_rdata(reg_rdata_databuf),  // read data
+    .reg_rwait(reg_rwait_databuf),  // read wait state
     // status and timestamp
-    .databuf_status(reg_databuf),   // status for SampleData
-    .ts(timestamp)                  // timestamp from SampleData
+    .databuf_status(reg_databuf),   // status for real-time block read
+    .ts(timestamp)                  // timestamp
 );
 
 // --------------------------------------------------------------------------
@@ -558,7 +514,7 @@ reg espm_comm_wdt_fault;
 assign espm_comm_good = ~espm_comm_wdt_fault;
 reg [18:0] espm_comm_wdt_clkdiv;
 always @(posedge sysclk) begin
-    espm_comm_wdt_clkdiv = espm_comm_wdt_clkdiv + 'd1;
+    espm_comm_wdt_clkdiv = espm_comm_wdt_clkdiv + 19'd1;
     if (espm_comm_wdt_clkdiv == 'd0) begin // 10 ms
         crc_good_count_prev <= crc_good_count[9:0];
         espm_comm_wdt_fault <= crc_good_count[9:0] == crc_good_count_prev;
@@ -739,8 +695,8 @@ begin
         'h010: reg_rdata_board_specific = rdata_misc[2]; // esii status
         'h012: reg_rdata_board_specific = rdata_misc[4]; // instrument model
         'h013: reg_rdata_board_specific = rdata_misc[5]; // instrument version
-        'h020: reg_rdata_board_specific = {reg_databuf, tempsense};
-        'h021: reg_rdata_board_specific = reg_digin;
+        'h020: reg_rdata_board_specific = {reg_databuf, tempsense};      // TODO: Is this still needed?
+        'h021: reg_rdata_board_specific = reg_digin;                     // TODO: Is this still needed?
         'hfff: reg_rdata_board_specific = 'h100; // development build number
         default: reg_rdata_board_specific = 'hcccc;
     endcase
@@ -771,11 +727,11 @@ always @(*) begin
     endcase
 end
 
-reg extra_io_reg = 'bz;
+reg extra_io_reg = 1'bz;
 assign EXTRA_IO = extra_io_reg;
 always @(posedge sysclk) begin
     if (reg_wen && (reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[7:4] == 4'd0) & (reg_waddr[3:0] == `REG_DIGIOUT)) begin
-        if (reg_wdata[8]) extra_io_reg <= reg_wdata[0] ? 'bz : 'b0;
+        if (reg_wdata[8]) extra_io_reg <= reg_wdata[0] ? 1'bz : 1'b0;
     end
 end
 
@@ -906,7 +862,7 @@ QLA25AA128 prom_qla(
     .prom_miso(IO1[1]),
     .prom_sclk(qla_prom_sclk),
     .prom_cs(IO1[4]),
-    .other_busy('b0),
+    .other_busy(1'b0),
     .this_busy(qla_prom_busy)
 );
 

@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2011-2022 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2011-2023 ERC CISST, Johns Hopkins University.
  *
  * This module serially shifts samples out to 4 LTC2601 DACs set up in a chain.
  * Transfers are initiated by a trigger signal. Commands for each dac are read
@@ -68,7 +68,7 @@ module LTC2601x4
 
     // state machine
     reg state;
-    parameter
+    localparam
         ST_IDLE=0,
         ST_LOOP=1;
 

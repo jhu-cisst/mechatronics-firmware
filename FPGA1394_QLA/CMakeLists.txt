@@ -49,7 +49,10 @@ add_subdirectory(ipcorev3_dir)
 # Source files for everything
 set (VERILOG_SOURCE_COMMON "${VERILOG_SOURCE_DIR}/ClkDiv.v"
                            "${VERILOG_SOURCE_DIR}/Constants.v"
-                           "${VERILOG_BINARY_DIR}/Versions.v")
+                           "${VERILOG_BINARY_DIR}/Versions.v"
+                           "${VERILOG_SOURCE_DIR}/ReadAddressTranslation.v"
+                           "${VERILOG_SOURCE_DIR}/WriteAddressTranslation.v"
+			   "${VERILOG_SOURCE_DIR}/ReadDataValid.v")
 
 add_custom_command (OUTPUT "${VERILOG_BINARY_DIR}/Versions-New.v"
                     COMMAND ${CMAKE_COMMAND} -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
@@ -99,12 +102,14 @@ set (VERILOG_SOURCE_FPGAV3
                          "${VERILOG_SOURCE_DIR}/FPGA1394V3.v"
                          "${VERILOG_SOURCE_DIR}/RTL8211F.v"
                          "${VERILOG_SOURCE_DIR}/EthernetIO.v"
-                         "${VERILOG_SOURCE_DIR}/EthSwitchRt.v"
+                         "${VERILOG_SOURCE_DIR}/EthRtInterface.v"
+                         "${VERILOG_SOURCE_DIR}/EthSwitch.v"
+                         "${VERILOG_SOURCE_DIR}/VirtualPhy.v"
+			 "${VERILOG_SOURCE_DIR}/EmioBus.v"
                          "${IPCOREV3_BINARY_DIR}/hub_mem_gen.v"
                          "${IPCOREV3_BINARY_DIR}/Dual_port_RAM_32X1024.v"
-                         "${IPCOREV3_BINARY_DIR}/fifo_8x8192_16.v"
-                         "${IPCOREV3_BINARY_DIR}/fifo_16x2048_8.v"
-                         "${IPCOREV3_BINARY_DIR}/fifo_32x32.v"
+                         "${IPCOREV3_BINARY_DIR}/fifo_10x8192.v"
+                         "${IPCOREV3_BINARY_DIR}/fifo_4x128.v"
                          "${XPSCORE_BINARY_DIR}/hdl/fpgav3.v")
 
 ################### Boards (QLA, DQLA, DRAC) ###########################
@@ -126,9 +131,7 @@ set (VERILOG_SOURCE_QLA_DQLA
                            "${VERILOG_SOURCE_DIR}/CtrlDout.v"
                            "${VERILOG_SOURCE_DIR}/MotorChannelQLA.v"
                            "${VERILOG_SOURCE_DIR}/CtrlDac.v"
-                           "${VERILOG_SOURCE_DIR}/DS2505.v"
-                           "${VERILOG_SOURCE_DIR}/WriteRtData.v"
-                           "${VERILOG_SOURCE_DIR}/SampleData.v")
+                           "${VERILOG_SOURCE_DIR}/DS2505.v")
 
 # Source files used by QLA
 set (VERILOG_SOURCE_QLA    ${VERILOG_SOURCE_QLA_DQLA}
@@ -156,8 +159,6 @@ set (VERILOG_SOURCE_DRAC
                            "${VERILOG_SOURCE_DIR}/PowerControl.v"
                            "${VERILOG_SOURCE_DIR}/PWM.v"
                            "${VERILOG_SOURCE_DIR}/PwmAdcTiming.v"
-                           "${VERILOG_SOURCE_DIR}/SampleDataAddressTranslation.v"
-                           "${VERILOG_SOURCE_DIR}/WriteRtData.v"
                            "${VERILOG_SOURCE_DIR}/ws2811.v")
 
 file(DOWNLOAD
@@ -208,6 +209,7 @@ ise_compile_fpga(PROJ_NAME      "FPGA1394V2-QLA"
                  UCF_FILE       "${VERILOG_SOURCE_DIR}/XC6S45-Rev2.ucf"
                  BOARD_UCF_FILE "${VERILOG_SOURCE_DIR}/QLA.ucf"
                  IPCORE_DIR     ${IPCORE_BINARY_DIR}
+                 USER_MACROS    "HAS_DEBUG_DATA"
                  TOP_LEVEL      "FPGA1394V2QLA")
 
 ##### FPGAV3 + QLA

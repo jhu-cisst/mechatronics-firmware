@@ -4,7 +4,7 @@ cmake_minimum_required(VERSION 3.1)
 
 project(MechatronicsFirmware NONE)
 
-set (FIRMWARE_VERSION 8)
+set (FIRMWARE_VERSION 9)
 
 set (FIRMWARE_CMAKE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 set (CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${FIRMWARE_CMAKE_PATH})
