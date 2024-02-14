@@ -109,7 +109,7 @@ assign {reg_rdata, reg_rwait} =
 // Unused channel offsets
 assign reg_rd[`OFF_UNUSED_02] = 32'd0;
 assign reg_rd[`OFF_UNUSED_03] = 32'd0;
-assign reg_rd[`OFF_UNUSED_13] = 32'd0;
+//assign reg_rd[`OFF_UNUSED_13] = 32'd0;
 assign reg_rd[`OFF_UNUSED_14] = 32'd0;
 assign reg_rd[`OFF_UNUSED_15] = 32'd0;
 
