@@ -70,11 +70,6 @@ module FPGA1394V2DRAC
     parameter NUM_MOTORS = 10;
     parameter NUM_ENCODERS = 7;
 
-    // Number of quadlets in real-time block read (not including Firewire header and CRC)
-    localparam NUM_RT_READ_QUADS = (4 + 2*NUM_MOTORS + 5*NUM_ENCODERS);
-    // Number of quadlets in broadcast real-time block; includes sequence number
-    localparam NUM_BC_READ_QUADS = (1+NUM_RT_READ_QUADS);
-
     // System clock
     wire sysclk;
     BUFG clksysclk(.I(clk1394), .O(sysclk));
@@ -98,6 +93,8 @@ module FPGA1394V2DRAC
     wire reg_wen;               // register write signal
     wire blk_wen;               // block write enable
     wire blk_wstart;            // block write start
+    wire req_blk_rt_rd;         // real-time block read request
+    wire blk_rt_rd;             // real-time block read
 
     // Wires for block write
     wire bw_reg_wen;            // register write signal from WriteRtData
@@ -112,14 +109,8 @@ module FPGA1394V2DRAC
     wire [3:0] rt_waddr;
     wire [31:0] rt_wdata;
 
-    // Wires for sampling block read data
-    wire sample_start;        // Start sampling read data
-    wire sample_busy;         // 1 -> data sampler has control of bus
-    wire[3:0] sample_chan;    // Channel for sampling
-    wire[5:0] sample_raddr;   // Address in sample_data buffer
-    wire[31:0] sample_rdata;  // Output from sample_data buffer
-    wire sample_read;
-    wire[31:0] timestamp;     // Timestamp used when sampling
+    // Timestamp
+    wire[31:0] timestamp;
 
     // Wires for watchdog
     wire wdog_period_led;     // 1 -> external LED displays wdog_period_status
@@ -133,7 +124,7 @@ assign LED = IO1[21];     // NOTE: IO1[21] pwr_enable
 
 // FPGA module, including Firewire and Ethernet
 FPGA1394V2
-    #(.NUM_BC_READ_QUADS(NUM_BC_READ_QUADS))
+    #(.NUM_MOTORS(NUM_MOTORS), .NUM_ENCODERS(NUM_ENCODERS))
 fpga(
     .sysclk(sysclk),
     .reboot_clk(clk_12M),
@@ -170,6 +161,8 @@ fpga(
     .reg_wen(reg_wen),
     .blk_wen(blk_wen),
     .blk_wstart(blk_wstart),
+    .req_blk_rt_rd(req_blk_rt_rd),
+    .blk_rt_rd(blk_rt_rd),
 
     // Block write support
     .bw_reg_waddr(bw_reg_waddr),
@@ -184,13 +177,7 @@ fpga(
     .rt_waddr(rt_waddr),
     .rt_wdata(rt_wdata),
 
-    // Sampling support
-    .sample_start(sample_start),
-    .sample_busy(sample_busy),
-    .sample_chan(sample_chan),
-    .sample_raddr(sample_raddr),
-    .sample_rdata(sample_rdata),
-    .sample_read(sample_read),
+    // Timestamp
     .timestamp(timestamp),
 
     // Watchdog support
@@ -230,13 +217,15 @@ DRAC drac(
     // .io_extra(4'd0),
 
     // Read/write bus
-    .reg_raddr_non_sample(reg_raddr),
+    .reg_raddr(reg_raddr),
     .reg_waddr(reg_waddr),
     .reg_rdata(reg_rdata),
     .reg_wdata(reg_wdata),
     .reg_wen(reg_wen),
     .blk_wen(blk_wen),
     .blk_wstart(blk_wstart),
+    .sample_start(req_blk_rt_rd),
+    .sample_read(blk_rt_rd),
 
     // Block write support
     .bw_reg_waddr(bw_reg_waddr),
@@ -251,13 +240,7 @@ DRAC drac(
     .rt_waddr(rt_waddr),
     .rt_wdata(rt_wdata),
 
-    // Sampling support
-    .sample_start(sample_start),
-    .sample_busy(sample_busy),
-    .sample_chan(sample_chan),
-    .sample_raddr(sample_raddr),
-    .sample_rdata(sample_rdata),
-    .sample_read(sample_read),
+    // Timestamp
     .timestamp(timestamp),
 
     // Watchdog support

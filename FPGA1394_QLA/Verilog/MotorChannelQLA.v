@@ -56,9 +56,9 @@ initial cur_cmd = 16'h8000;
 reg[7:0] delay_cnt;
 initial delay_cnt = 8'd120;  // 120 --> 2.5 ms delay
 
-// Motor current limit
+// Motor current limit (always positive)
 reg[15:0] cur_lim;
-initial cur_lim = 16'h8418;  // 200mA
+initial cur_lim = 16'h0418;  // 200mA
 
 reg force_disable_f;
 
@@ -74,7 +74,7 @@ reg disable_safety;
 //    25:   1 -> voltage control available (R/O)
 //    24:   1 -> (analog) current control available (R/O)
 // 23-16:   delay (20.83 us resolution)
-//  15-0:   motor current limit
+//  15-0:   motor current limit (0.19 mA resolution, always positive)
 
 assign motor_config = { disable_safety, force_disable_f, 4'd0, ioexp_present, 1'b1,
                         delay_cnt, cur_lim };
@@ -139,6 +139,20 @@ else begin
 end
 endgenerate
 
+// Internal version of write bus to avoid FPGA routing congestion on FPGA V2
+reg[31:0] reg_wdata_int;
+reg dac_reg_wen_int;
+reg motor_reg_wen_int;
+reg status_reg_wen_int;
+
+always @(posedge clk)
+begin
+    reg_wdata_int <= reg_wdata;
+    dac_reg_wen_int <= dac_reg_wen;
+    motor_reg_wen_int <= motor_reg_wen;
+    status_reg_wen_int <= status_reg_wen;
+end
+
 // Motor Status
 //
 //      31   0
@@ -163,29 +177,29 @@ assign motor_status = { 1'b0, amp_disable_error, amp_fault, ~reg_disable, ctrl_m
 //    0: current control (always)
 //    1: voltage control (if ioexp_present)
 wire valid_ctrl_mode;
-assign valid_ctrl_mode = (reg_wdata[27:24] == 4'd0) ||
-                         (ioexp_present && (reg_wdata[27:24] == 4'd1));
+assign valid_ctrl_mode = (reg_wdata_int[27:24] == 4'd0) ||
+                         (ioexp_present && (reg_wdata_int[27:24] == 4'd1));
 
 always @(posedge clk)
 begin
-    if (dac_reg_wen) begin
+    if (dac_reg_wen_int) begin
         // If the valid bit (reg_wdata[31]) is set AND the specified control mode
         // (reg_wdata[27:24]) is valid, save the commanded value (reg_wdata[15:0])
         // and control mode.
-        if (reg_wdata[31] && valid_ctrl_mode) begin
-            cur_cmd <= reg_wdata[15:0];
-            ctrl_mode <= reg_wdata[27:24];
+        if (reg_wdata_int[31] && valid_ctrl_mode) begin
+            cur_cmd <= reg_wdata_int[15:0];
+            ctrl_mode <= reg_wdata_int[27:24];
         end
-        reg_disable <= (~pwr_enable) | safety_disable | (reg_wdata[29] ? ~reg_wdata[28] : reg_disable);
+        reg_disable <= (~pwr_enable) | safety_disable | (reg_wdata_int[29] ? ~reg_wdata_int[28] : reg_disable);
     end
-    else if (motor_reg_wen) begin
-        disable_safety <= reg_wdata[31];
-        force_disable_f <= reg_wdata[30];
-        delay_cnt <= reg_wdata[23:16];
-        cur_lim <= reg_wdata[15:0];
+    else if (motor_reg_wen_int) begin
+        disable_safety <= reg_wdata_int[31];
+        force_disable_f <= reg_wdata_int[30];
+        delay_cnt <= reg_wdata_int[25] ? reg_wdata_int[23:16] : delay_cnt;
+        cur_lim <= reg_wdata_int[24] ? {1'b0, reg_wdata_int[14:0]} : cur_lim;
     end
-    else if (status_reg_wen) begin
-        reg_disable <= (~pwr_enable) | safety_disable | (reg_wdata[CHANNEL+7] ? ~reg_wdata[CHANNEL-1] : reg_disable);
+    else if (status_reg_wen_int) begin
+        reg_disable <= (~pwr_enable) | safety_disable | (reg_wdata_int[CHANNEL+7] ? ~reg_wdata_int[CHANNEL-1] : reg_disable);
     end
     else begin
         reg_disable <= reg_disable | safety_disable;

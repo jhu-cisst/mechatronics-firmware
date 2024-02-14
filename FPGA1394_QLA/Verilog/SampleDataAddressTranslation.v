@@ -11,7 +11,7 @@ module SampleDataAddressTranslation(
     input wire        doSample,    // signal to trigger sampling
     output reg        isBusy,      // 1 -> busy sampling
     input wire[5:0]   blk_addr,    // Address for accessing RT_Feedback
-    output wire[31:0] blk_data,
+    output reg[31:0] blk_data,
     output reg[31:0]  reg_raddr,
     input [31:0]      reg_rdata,
     input [31:0]      timestamp_espmcomm, // timestamp when received the most recent ESPMComm packet
@@ -26,10 +26,10 @@ end
 
 reg [31:0] timestamp_latched;
 reg [31:0] timestamp_espmcomm_prev;
-assign blk_data = (blk_addr == 6'd0) ? timestamp_latched : reg_rdata;
 assign timestamp = timestamp_latched;
 
 always @(posedge clk) begin
+    blk_data <= (blk_addr == 6'd0) ? timestamp_latched : reg_rdata;
     isBusy <= doSample;
     if (isBusy) begin
         // doSample is only asserted for one clock cycle due to gating in

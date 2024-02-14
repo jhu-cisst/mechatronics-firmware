@@ -75,15 +75,9 @@ module FPGA1394V3DQLA
     input            PS_PORB
 );
 
-
     // Number of motors and encoders
     parameter NUM_MOTORS = 8;
     parameter NUM_ENCODERS = 8;
-
-    // Number of quadlets in real-time block read (not including Firewire header and CRC)
-    localparam NUM_RT_READ_QUADS = (4 + 2*NUM_MOTORS + 5*NUM_ENCODERS);
-    // Number of quadlets in broadcast real-time block; includes sequence number
-    localparam NUM_BC_READ_QUADS = (1+NUM_RT_READ_QUADS);
 
     // System clock
     wire sysclk;
@@ -101,30 +95,13 @@ module FPGA1394V3DQLA
     wire[15:0] reg_waddr;       // 16-bit reg write address
     wire[31:0] reg_rdata;       // reg read data
     wire[31:0] reg_wdata;       // reg write data
+    wire reg_rwait;             // reg read wait state
     wire reg_wen;               // register write signal
     wire blk_wen;               // block write enable
     wire blk_wstart;            // block write start
 
-    // Wires for block write
-    wire bw_reg_wen;            // register write signal from WriteRtData
-    wire bw_blk_wen;            // block write enable from WriteRtData
-    wire bw_blk_wstart;         // block write start from WriteRtData
-    wire[7:0] bw_reg_waddr;     // 16-bit reg write address from WriteRtData
-    wire[31:0] bw_reg_wdata;    // reg write data from WriteRtData
-    wire bw_write_en;           // 1 -> WriteRtData (real-time block write) is driving write bus
-
-    // Wires for real-time write
-    wire  rt_wen;
-    wire [3:0] rt_waddr;
-    wire [31:0] rt_wdata;
-
-    // Wires for sampling block read data
-    wire sample_start;        // Start sampling read data
-    wire sample_busy;         // 1 -> data sampler has control of bus
-    wire[3:0] sample_chan;    // Channel for sampling
-    wire[5:0] sample_raddr;   // Address in sample_data buffer
-    wire[31:0] sample_rdata;  // Output from sample_data buffer
-    wire[31:0] timestamp;     // Timestamp used when sampling
+    // Timestamp
+    wire[31:0] timestamp;
 
     // Wires for watchdog
     wire wdog_period_led;     // 1 -> external LED displays wdog_period_status
@@ -143,7 +120,7 @@ assign LED = isV30 ? 1'bz : LED_Out;        // FPGA V3.1 (pin U13)
 
 // FPGA module, including Firewire and Ethernet
 FPGA1394V3
-    #(.NUM_BC_READ_QUADS(NUM_BC_READ_QUADS))
+    #(.NUM_MOTORS(NUM_MOTORS), .NUM_ENCODERS(NUM_ENCODERS))
 fpga(
     .sysclk(sysclk),
     .board_id(board_id),
@@ -185,36 +162,18 @@ fpga(
     .PS_SRSTB(PS_SRSTB),
     .PS_CLK(PS_CLK),
     .PS_PORB(PS_PORB),
-    .emio_ps_in({60'd0, board_id}),
 
-     // Read/write bus
+    // Read/write bus
     .reg_raddr(reg_raddr),
     .reg_waddr(reg_waddr),
     .reg_rdata_ext(reg_rdata),
     .reg_wdata(reg_wdata),
+    .reg_rwait_ext(reg_rwait),
     .reg_wen(reg_wen),
     .blk_wen(blk_wen),
     .blk_wstart(blk_wstart),
 
-    // Block write support
-    .bw_reg_waddr(bw_reg_waddr),
-    .bw_reg_wdata(bw_reg_wdata),
-    .bw_reg_wen(bw_reg_wen),
-    .bw_blk_wen(bw_blk_wen),
-    .bw_blk_wstart(bw_blk_wstart),
-    .bw_write_en(bw_write_en),
-
-    // Real-time write support
-    .rt_wen(rt_wen),
-    .rt_waddr(rt_waddr),
-    .rt_wdata(rt_wdata),
-
-    // Sampling support
-    .sample_start(sample_start),
-    .sample_busy(sample_busy),
-    .sample_chan(sample_chan),
-    .sample_raddr(sample_raddr),
-    .sample_rdata(sample_rdata),
+    // Timestamp
     .timestamp(timestamp),
 
     // Watchdog support
@@ -259,29 +218,12 @@ DQLA dqla(
     .reg_waddr(reg_waddr),
     .reg_rdata(reg_rdata),
     .reg_wdata(reg_wdata),
+    .reg_rwait(reg_rwait),
     .reg_wen(reg_wen),
     .blk_wen(blk_wen),
     .blk_wstart(blk_wstart),
 
-    // Block write support
-    .bw_reg_waddr(bw_reg_waddr),
-    .bw_reg_wdata(bw_reg_wdata),
-    .bw_reg_wen(bw_reg_wen),
-    .bw_blk_wen(bw_blk_wen),
-    .bw_blk_wstart(bw_blk_wstart),
-    .bw_write_en(bw_write_en),
-
-    // Real-time write support
-    .rt_wen(rt_wen),
-    .rt_waddr(rt_waddr),
-    .rt_wdata(rt_wdata),
-
-    // Sampling support
-    .sample_start(sample_start),
-    .sample_busy(sample_busy),
-    .sample_chan(sample_chan),
-    .sample_raddr(sample_raddr),
-    .sample_rdata(sample_rdata),
+    // Timestamp
     .timestamp(timestamp),
 
     // Watchdog support

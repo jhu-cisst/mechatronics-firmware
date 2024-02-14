@@ -64,7 +64,7 @@
 # In both cases, the functions could be enhanced to accept parameters that provide options for
 # the various compilation steps. Presently, most options are left at their default
 # values, with a few exceptions noted. These settings are consistent with the ISE
-# project files, FPGA1394-QLA.xise and FPGA1394Eth-QLA.xise.
+# project files, FPGA1394V1-QLA.xise and FPGA1394V2-QLA.xise.
 
 function (ise_compile_fpga ...)
 
@@ -145,12 +145,18 @@ function (ise_compile_fpga ...)
   # Note: Had to add ${CMAKE_CURRENT_BINARY_DIR} to the following two custom commands
   #       and target for CMake dependency checking to work properly.
 
-  add_custom_command (OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/${PROJ_OUTPUT}.mcs"
+  if (IS_V3)
+    set (OUTPUT_FILE "${CMAKE_CURRENT_BINARY_DIR}/${PROJ_OUTPUT}.bit")
+  else ()
+    set (OUTPUT_FILE "${CMAKE_CURRENT_BINARY_DIR}/${PROJ_OUTPUT}.mcs")
+  endif ()
+
+  add_custom_command (OUTPUT ${OUTPUT_FILE}
                       COMMAND ${XFLOW_NATIVE} -f ${PROJ_NAME}-xflow.cmd ${PROJ_NAME}.prj
                       DEPENDS ${VERILOG_SOURCE} ${DEPENDENCIES})
 
   add_custom_target(${PROJ_NAME} ALL
-                    DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/${PROJ_OUTPUT}.mcs")
+                    DEPENDS ${OUTPUT_FILE})
 
   # Additional files to clean; ${PROJ_OUTPUT}.mcs is already handled by CMake, so here we
   # add the other generated output files (first two lines) and various log and temporary files.

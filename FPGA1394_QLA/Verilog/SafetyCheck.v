@@ -7,7 +7,9 @@
  * This module performs a safety check by comparing the measured motor current
  * (cur_in) to the commanded motor current (dac_in). If the difference is too
  * large, the amp_disable signal is set to indicate that the motor amplifiers
- * should be disabled.
+ * should be disabled. If the system is in voltage control mode (possible with
+ * QLA 1.5+), this module instead ensures that the measured motor current is
+ * within the specified current limit (cur_lim).
  *
  * Commanded and measured motor currents are both 16-bit unsigned values,
  * with a full scale of +/-6.25 Amps.
@@ -48,6 +50,9 @@ module SafetyCheck(
     wire [15:0] high_limit;
     wire[15:0] low_limit;
 
+    wire[15:0] cur_lim_low;
+    wire[15:0] cur_lim_high;
+
     // ---- Code Starts Here -----
     initial begin
         amp_disable <= 1'b0;
@@ -56,6 +61,10 @@ module SafetyCheck(
     
     assign high_limit = ((dac_in[15] == 1'b1) ? dac_in : ~dac_in) + 16'h0900;
     assign low_limit = ((dac_in[15] == 1'b1) ? ~dac_in : dac_in) - 16'h0900;
+
+    // cur_lim is always positive (MSB is 0)
+    assign cur_lim_low = 16'h8000 - cur_lim;
+    assign cur_lim_high = 16'h8000 + cur_lim;
 
     always @ (posedge clk)
     begin
@@ -84,7 +93,7 @@ module SafetyCheck(
         else if (enable_limit) begin
             // Current limit check (measured current must be lower than current limit).
             // Note that both safety checks cannot be active at the same time.
-            if ((cur_in > cur_lim) || (cur_in < -cur_lim)) begin
+            if ((cur_in > cur_lim_high) || (cur_in < cur_lim_low)) begin
                 error_counter <= error_counter + 1'b1;
             end
             else begin

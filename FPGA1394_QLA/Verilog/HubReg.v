@@ -24,6 +24,7 @@ module HubReg(
     input  wire[15:0] reg_waddr,   // hub reg addr 9-bit
     output wire[31:0] reg_rdata,   // hub outgoing read data
     input  wire[31:0] reg_wdata,   // hub incoming write data
+    output wire reg_rwait,         // hub read wait state
     output reg[15:0]  sequence,    // sequence number received via read request
     input wire[3:0]   board_id,    // board id
     output reg        write_trig,  // request to broadcast this board's info via FireWire
@@ -89,11 +90,13 @@ wire hub_reg_raddr;
 assign hub_reg_raddr = (reg_raddr[15:12]==`ADDR_HUB) && (reg_raddr[11:2] == 10'b1000000000);
 
 wire[31:0] reg_rdata_hub;
-assign reg_rdata = !hub_reg_raddr ? reg_rdata_hub :
-                   (reg_raddr[1:0] == 2'b00) ? {sequence, board_mask} :                           // 0x1800
-                   (reg_raddr[1:0] == 2'b01) ? { 8'd0, last_reg_waddr, 7'd0, reg_waddr_offset} :  // 0x1801
-                   (reg_raddr[1:0] == 2'b10) ? { 23'd0, num_written} :                            // 0x1802
-                   { 12'd0, board_id, board_mask_lower };                                         // 0x1803
+wire reg_rwait_hub;
+assign {reg_rdata, reg_rwait} =
+                   !hub_reg_raddr ? {reg_rdata_hub, reg_rwait_hub} :
+                   (reg_raddr[1:0] == 2'b00) ? {sequence, board_mask, 1'b0} :                           // 0x1800
+                   (reg_raddr[1:0] == 2'b01) ? { 8'd0, last_reg_waddr, 7'd0, reg_waddr_offset, 1'b0} :  // 0x1801
+                   (reg_raddr[1:0] == 2'b10) ? { 23'd0, num_written, 1'b0} :                            // 0x1802
+                   { 12'd0, board_id, board_mask_lower, 1'b0 };                                         // 0x1803
 
 always @(posedge(sysclk))
 begin
@@ -139,8 +142,9 @@ begin
        write_trig <= 0;
     end
     else if (board_selected && !write_trig_done) begin
-       // write_trig is sent to Firewire module to start broadcast write of hub data from this board to
-       // all other boards. Note that writing is done sequentially, by board number.
+       // write_trig is sent to Firewire module to start broadcast write of real-time block data from this board to all
+       // other boards; while doing this, the Firewire module also writes the real-time block data to the hub memory (hub_mem).
+       // Note that writing is done sequentially, by board number.
        if (board_mask_lower == 16'd0) begin
           // First board: wait 150 cycles (~3 usec)
           if (bcTimer == 14'd150) begin
@@ -166,8 +170,9 @@ assign read_addr_ok = (reg_raddr[8:0] < num_written) ? 1'b1 : 1'b0;
 
 wire[31:0] reg_rdata_mem;
 
-assign reg_rdata_hub = is_extra ? { 2'b0, bcReadStart, 2'b0, bcTimer } :
-                       read_addr_ok ? reg_rdata_mem : 32'd0;
+assign {reg_rdata_hub, reg_rwait_hub} =
+                       is_extra ? { 2'b0, bcReadStart, 2'b0, bcTimer, 1'b0 } :
+                       read_addr_ok ? {reg_rdata_mem, 1'b1} : {32'd0, 1'b0};
 
 // When writing first board quadlet, rearrange bits to obtain following:
 //      | Block Size (8) | Sequence LSB (8) | Seq Error (1) | 0 | Update Time (14) |

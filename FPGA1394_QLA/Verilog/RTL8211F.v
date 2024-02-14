@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2022-2023 Johns Hopkins University.
+ * Copyright(C) 2022-2024 Johns Hopkins University.
  *
  * Module: RTL8211F
  *
@@ -25,14 +25,10 @@
 
 `include "Constants.v"
 
-// Define following for debug data (DBG2)
-`define HAS_DEBUG_DATA
-
 module RTL8211F
     #(parameter[3:0] CHANNEL = 4'd1)
 (
     input  wire clk,               // input clock
-    input  wire[3:0] board_id,     // board id
 
     input  wire[15:0] reg_raddr,   // read address
     input  wire[15:0] reg_waddr,   // write address
@@ -55,56 +51,24 @@ module RTL8211F
     output reg MDIO_T,             // Tristate control
     output wire mdioBusy,          // 1 -> MDIO busy processing request
 
-    // GMII Interface
-    input wire RxClk,              // Rx Clk
-    input wire RxValid,            // Rx Valid
-    input wire[7:0] RxD,           // Rx Data
-    input wire RxErr,              // Rx Error
+    output reg linkOK,             // 1 -> link on
+    output reg[1:0] linkSpeed,     // 00 -> 10Mbps, 01 -> 100 Mbps, 10 -> 1000 Mbps
 
-    input wire TxClk,              // Tx Clk
-    output reg TxEn,               // Tx Enable
-    output reg[7:0] TxD,           // Tx Data
-    output wire TxErr,             // Tx Error
-
-    input wire[1:0] clock_speed,   // Detected clock speed (Rx)
-    input wire[1:0] speed_mode,    // Speed mode (Tx)
-
-    // Arbitration for Tx bus (PS may be using it)
-    output reg tx_bus_req,         // Bus request
-    input wire tx_bus_grant,       // Bus grant
+    input wire[1:0] clock_speed,   // Clock speed (Rx), detected by gmii_to_rgmii
+    input wire[1:0] speed_mode,    // Speed mode (Tx), detected by gmii_to_rgmii
 
     // Feedback bits
-    output wire ethInternalError,     // Error summary bit to EthernetIO
     output wire[7:0] eth_status,      // Ethernet status bits
     output reg hasIRQ,                // 1 -> PHY IRQn available (FPGA V3.1+)
 
-    // Interface to EthSwitch
-    output reg initOK,                // 1 -> Initialization successful
-
-    output wire recv_fifo_empty,
-    input wire recv_rd_en,
-    output wire[15:0] recv_fifo_dout,
-    output wire recv_info_fifo_empty,
-    input wire recv_info_rd_en,
-    output wire[31:0] recv_info_dout,
-    input wire recv_fifo_error,       // Feedback from EthSwitchRt
-
-    output wire send_fifo_full,
-    input wire send_wr_en,
-    input wire[15:0] send_fifo_din,
-    output wire send_info_fifo_full,
-    input wire send_info_wr_en,
-    input wire[31:0] send_info_din,
-    input wire send_fifo_overflow,    // Feedback from EthSwitchRt
-
-    output reg clearErrors            // Clear error flags
+    output reg clearErrors            // Clear error flags  (TODO: No longer used)
 );
 
 initial RSTn = 1'b1;
 
 initial MDIO_T = 1'b1;
 
-assign TxErr = 1'b0;
+reg initOK;                 // 1 -> Initialization successful
 
 // ----------------------------------------------------------------------------
 // MDIO (management) interface
@@ -241,492 +205,6 @@ begin
 end
 
 // ----------------------------------------------------------------------------
-// Ethernet low-level interface
-
-// ----------------------------------------------------------------------------
-// Ethernet receive
-//
-// Receives bytes from the Ethernet PHY, via GMII interface. Since the RTL8211F
-// uses a RGMII interface, the input is actually via a GMII-to-RGMII IP core.
-//
-// The receive loop caches the first 16 bytes, which includes the Ethernet frame
-// header (first 14 bytes), so that MAC address filtering can be implemented.
-// This helps with performance because the higher-level block takes longer to
-// process the packets and therefore it is better to filter them out as early as
-// possible. There are several reasons why a packet may be discarded at this level:
-//
-//   1) If the destination MAC address is not unicast (matching this board's MAC
-//      address), or multicast, or broadcast.
-//
-//   2) If a CRC (Ethernet FCS) or IPv4 checksum error is detected. We currently
-//      do not check the UDP checksum, but that could also be implemented.
-//
-//   3) If we could not store some of the bytes in the recv_fifo because it was full
-//      (recv_fifo_overflow set).
-//
-// Note that once we detect that a packet should be discarded, we stop writing
-// bytes to the recv_fifo.
-//
-// There are two ways to discard packets:
-//
-//   1) If the recv_fifo was empty when we started, we can just reset it.
-//      This is the most efficient, but may not always be possible. The
-//      numRxDropped counter indicates the number of packets discarded this way.
-//
-//   2) Set the ETH_RECV_FLUSH_BIT to indicate to the higher-level block that this
-//      packet should be flushed from recv_fifo. The higher-level block sets the
-//      numPacketFlushed counter to indicate the number of packets discarded this way.
-//
-// For packets that are not dropped, after the last byte is written to the recv_fifo,
-// a single 32-bit status word is written to a second FIFO (recv_info_fifo).
-// The status word indicates the number of received bytes. If the ETH_RECV_FLUSH_BIT is
-// set, the higher-level loop should flush the packet. Otherwise, it should be processed.
-// The status word contains other bits that can be used by the higher-level block,
-// including a copy of the first byte in recv_fifo, which can be used to detect
-// alignment problems.
-//
-// Note that recv_fifo takes 8-bit bytes as input and provides 16-bit words as
-// output. The use of 16-bit words enables easier integration with the higher-level
-// code in EthernetIO.v, which was initially implemented to interface to the
-// 16-bit FIFO provided by the KSZ8851.
-// ----------------------------------------------------------------------------
-
-localparam
-    ST_RX_IDLE = 1'd0,
-    ST_RX_RECV = 1'd1;
-
-reg rxState;
-
-// crc registers
-wire[7:0] recv_crc_data;    // data into crc module to compute crc on
-reg[31:0] recv_crc_in;      // input to crc module (starts at all ones)
-wire[31:0] recv_crc_2b;     // current crc module output for data width 2 (not used)
-wire[31:0] recv_crc_4b;     // current crc module output for data width 4 (not used)
-wire[31:0] recv_crc_8b;     // current crc module output for data width 8
-
-// Reverse bits when computing CRC
-assign recv_crc_data = { RxD[0], RxD[1], RxD[2], RxD[3], RxD[4], RxD[5], RxD[6], RxD[7] };
-
-// This module computes crc continuously, so it is up to the state machine to
-// initialize, feed back, and latch crc values as necessary
-crc32 recv_crc(recv_crc_data, recv_crc_in, recv_crc_2b, recv_crc_4b, recv_crc_8b);
-
-reg[16:0] recv_ipv4_cksum;   // Used to verify IPv4 header checksum
-reg recv_ipv4_err;           // 1 -> IPv4 checksum error
-
-reg  recv_fifo_reset_req;    // Recv FIFO reset request via Ethernet control register
-reg  recv_fifo_reset;
-reg  recv_wr_en;
-wire recv_fifo_full;
-reg[7:0]   recv_byte;
-wire[7:0]  recv_first_byte_in;
-
-reg[2:0] recv_preamble_cnt;
-reg      recv_preamble_error;
-
-reg[11:0] recv_nbytes;    // Number of bytes received (not including preamble)
-reg[11:0] recv_fifo_nb;   // Number of bytes in receive FIFO
-
-// First 16 bytes of Ethernet frame
-reg[7:0] frame_header[0:15];
-
-assign recv_first_byte_in = frame_header[`ETH_Frame_Begin];
-
-// First 44 bits of FPGA MAC address (last 4 bits is board_id)
-localparam[43:0] fpgaMAC44 = 44'hFA610E13940;
-
-// FPGA multicast MAC address
-localparam[47:0] fpgaMulticastMAC = 48'hFB610E1394FF;
-
-// FPGA broadcast MAC address
-localparam[47:0] fpgaBroadcastMAC = 48'hFFFFFFFFFFFF;
-
-// Destination MAC address
-wire[47:0] destMac;
-assign destMac = { frame_header[`ETH_Dest_MAC],   frame_header[`ETH_Dest_MAC+1],
-                   frame_header[`ETH_Dest_MAC+2], frame_header[`ETH_Dest_MAC+3],
-                   frame_header[`ETH_Dest_MAC+4], frame_header[`ETH_Dest_MAC+5] };
-
-wire isUnicast;
-assign isUnicast = (destMac == {fpgaMAC44, board_id}) ? 1'b1 : 1'b0;
-wire isMulticast;
-assign isMulticast = (destMac == fpgaMulticastMAC) ? 1'b1 : 1'b0;
-wire isBroadcast;
-assign isBroadcast = (destMac == fpgaBroadcastMAC) ? 1'b1 : 1'b0;
-
-// Whether Ethernet frame should be handled by this board
-wire isForThis;
-assign isForThis = isUnicast|isMulticast|isBroadcast;
-
-reg recv_fifo_was_empty;
-reg recv_fifo_overflow;
-
-// Whether to write to FIFO -- always write first 16 bytes, unless FIFO is full
-// or has overflowed.
-wire writeToRecvFifo;
-assign writeToRecvFifo = ((recv_nbytes[11:4] == 8'd0) || isForThis) ?
-                         ~(recv_fifo_full|recv_fifo_overflow) : 1'b0;
-
-// Ethernet frame length/type and IPv4 protocol are used to compute checksums.
-// This duplicates some code from EthernetIO.v, but the advantage is that we
-// can detect checksum errors before the packet is processed in EthernetIO.v.
-wire[15:0] recv_length;   // Ethernet frame length/type (0x0800 is IPv4)
-assign recv_length = {frame_header[`ETH_Frame_Length], frame_header[`ETH_Frame_Length+1]};
-wire recv_ipv4;
-assign recv_ipv4 = (recv_length == 16'h0800) ? 1'b1 : 1'b0;
-reg  recv_udp;           // Indicates UDP protocol
-
-// Receive FIFO: 8 KByte (for now)
-// KSZ8851 has 12 KByte receive FIFO and 6 KByte transmit FIFO
-fifo_8x8192_16 recv_fifo(
-    .rst(recv_fifo_reset),
-    .wr_clk(RxClk),
-    .rd_clk(clk),
-    .din(recv_byte),
-    .wr_en(recv_wr_en),
-    .rd_en(recv_rd_en),
-    .dout(recv_fifo_dout),
-    .full(recv_fifo_full),
-    .empty(recv_fifo_empty)
-);
-
-wire[31:0] recv_info_din;
-reg recv_info_wr_en;
-wire recv_info_fifo_full;
-
-fifo_32x32 recv_info_fifo(
-    .rst(recv_fifo_reset),
-    .wr_clk(RxClk),
-    .rd_clk(clk),
-    .din(recv_info_din),
-    .wr_en(recv_info_wr_en),
-    .rd_en(recv_info_rd_en),
-    .dout(recv_info_dout),
-    .full(recv_info_fifo_full),
-    .empty(recv_info_fifo_empty)
-);
-
-// The CRC of the packet, including the FCS (CRC) field should equal 32'hc704dd7b.
-// Due to byte swapping, we check against 32'h7bdd04c7
-wire recv_crc_error;
-assign recv_crc_error = (recv_crc_in != 32'h7bdd04c7) ? 1'b0 : 1'b1;
-
-// Whether to flush packet
-wire recv_flush;
-assign recv_flush = recv_fifo_overflow|(~isForThis)|recv_ipv4_err|recv_crc_error;
-
-assign recv_info_din = { recv_flush, 1'b0, recv_fifo_overflow, ~isForThis,            // [31:28]
-                         recv_ipv4_err, recv_crc_error, RxErr, recv_preamble_error,   // [27:24]
-                         recv_first_byte_in,                                          // [23:16]
-                         1'b0, isUnicast, isMulticast, isBroadcast,                   // [15:12]
-                         recv_fifo_nb };                                              // [11:0]
-
-`ifdef HAS_DEBUG_DATA
-reg[7:0]  numRxDropped;   // Number of irrelevant or erroneous packets dropped by Rx loop
-`endif
-
-always @(posedge RxClk)
-begin
-
-    if (RxValid) begin
-        recv_byte <= RxD;
-        recv_info_wr_en <= 1'b0;
-        if (rxState == ST_RX_IDLE) begin
-            // Here, ST_RX_IDLE means receiving preamble
-            recv_wr_en <= 1'b0;
-            if (RxD == 8'h55) begin
-                recv_preamble_cnt <= recv_preamble_cnt + 3'd1;
-            end
-            else begin
-                rxState <= ST_RX_RECV;
-                recv_preamble_cnt <= 3'd0;
-                recv_crc_in <= 32'hffffffff;    // Initialize CRC
-                recv_fifo_was_empty <= recv_fifo_empty;
-                recv_fifo_overflow <= 1'b0;
-                if ((RxD != 8'hd5) ||
-                    (recv_preamble_cnt != 3'd7)) begin
-                    recv_preamble_error <= 1'b1;
-                end
-            end
-        end
-        else begin      // (rxState == ST_RX_RECV)
-            if (recv_nbytes[11:4] == 8'd0) begin
-                // Save first 16 bytes (Ethernet header is 14 bytes)
-                frame_header[recv_nbytes[3:0]] <= RxD;
-            end
-            recv_wr_en <= writeToRecvFifo;
-            if (writeToRecvFifo) begin
-                recv_fifo_nb <= recv_fifo_nb + 12'd1;
-            end
-            if (recv_fifo_full) begin
-                recv_fifo_overflow <= 1'b1;
-            end
-
-            if (recv_nbytes == `ETH_IPv4_Protocol)
-                recv_udp <= (recv_ipv4 && (RxD == 8'd17)) ? 1'd1 : 1'd0;
-
-            // IPv4 header checksum. Note that the carry bit is added to the sum.
-            if (recv_nbytes == `ETH_IPv4_Begin)
-                recv_ipv4_cksum <= {1'b0, RxD, 8'd0};
-            else if (recv_nbytes == `ETH_IPv4_End)
-                recv_ipv4_err <= ((recv_ipv4_cksum == 17'h0ffff) || (recv_ipv4_cksum == 17'h1fffe)) ? 1'b0 : recv_ipv4;
-            else if (~recv_nbytes[0])
-                recv_ipv4_cksum <= {1'b0, recv_ipv4_cksum[15:0]} + {RxD, 7'd0, recv_ipv4_cksum[16]};
-            else
-                recv_ipv4_cksum <= recv_ipv4_cksum + { 9'd0, RxD };
-
-            recv_nbytes <= recv_nbytes + 12'd1;
-            recv_crc_in <= recv_crc_8b;
-        end
-    end
-    else begin
-        if (rxState == ST_RX_IDLE) begin
-            recv_nbytes <= 12'd0;
-            recv_fifo_nb <= 12'd0;
-            recv_preamble_cnt <= 3'd0;
-            recv_wr_en <= 1'b0;
-            // Note that recv_fifo_reset_req will only be acted upon in the IDLE state
-            recv_fifo_reset <= recv_fifo_reset_req;
-            recv_info_wr_en <= 1'b0;
-            recv_preamble_error <= 1'b0;
-        end
-        else begin
-            // This state is entered when a receive has just ended;
-            // rxState should be ST_RX_RECV and recv_nbytes should be non-zero.
-            rxState <= ST_RX_IDLE;
-            recv_info_wr_en <= 1'b0;
-            // If an odd number of bytes in FIFO, pad with 0; not necessary to
-            // check for FIFO full (overflow) in this case because FIFO has
-            // an even number of bytes.
-            recv_byte <= 8'd0;
-            recv_wr_en <= recv_nbytes[0]&writeToRecvFifo;
-            if (recv_fifo_nb[0]&writeToRecvFifo)
-                recv_fifo_nb <= recv_fifo_nb + 12'd1;
-            if (recv_nbytes != 12'd0) begin
-                if (recv_flush&recv_fifo_was_empty) begin
-                    recv_fifo_reset <= 1'b1;
-`ifdef HAS_DEBUG_DATA
-                    numRxDropped <= numRxDropped + 8'd1;
-`endif
-                end
-                else begin
-                    // Write to recv_info FIFO (on next RxClk)
-                    recv_info_wr_en <= ~recv_info_fifo_full;
-                end
-            end
-        end
-    end
-end
-
-// ----------------------------------------------------------------------------
-// Ethernet send
-//
-// Sends bytes to the Ethernet PHY, via GMII interface. Since the RTL8211F
-// uses a RGMII interface, the output is actually via a GMII-to-RGMII IP core.
-//
-// The input is via two FIFOs, one that contains the bytes to send (send_fifo)
-// and another that contains a single 32-bit status word (send_info_fifo).
-// In particular, the status word specifies the number of bytes to send.
-//
-// Note that send_fifo does not include the CRC, so this module is responsible
-// for computing and sending the CRC.
-//
-// Note that send_fifo takes 16-bit words as input and provides 8-bit bytes as
-// output (used by this module). The use of 16-bit words enables easier
-// integration with the higher-level code in EthernetIO.v, which was initially
-// implemented to interface to the 16-bit FIFO provided by the KSZ8851.
-// ----------------------------------------------------------------------------
-
-localparam[2:0]
-    ST_TX_IDLE = 3'd0,
-    ST_TX_PREAMBLE = 3'd1,
-    ST_TX_SEND = 3'd2,
-    ST_TX_PADDING = 3'd3,
-    ST_TX_CRC = 3'd4;
-
-reg[2:0] txState;
-
-// crc registers
-wire[7:0] send_crc_data;    // data into crc module to compute crc on
-reg[31:0] send_crc_in;      // input to crc module (starts at all ones)
-wire[31:0] send_crc_2b;     // current crc module output for data width 2 (not used)
-wire[31:0] send_crc_4b;     // current crc module output for data width 4 (not used)
-wire[31:0] send_crc_8b;     // current crc module output for data width 8
-
-// This module computes crc continuously, so it is up to the state machine to
-// initialize, feed back, and latch crc values as necessary
-crc32 send_crc(send_crc_data, send_crc_in, send_crc_2b, send_crc_4b, send_crc_8b);
-
-reg[15:0] send_nbytes;  // Number of bytes to send (not including preamble or CRC), from send_info_fifo
-reg[15:0] send_cnt;     // Counts number of bytes sent (not including preamble or CRC)
-reg[5:0]  padding_cnt;  // Counter used to ensure minimum Ethernet frame size (64)
-reg[2:0]  tx_cnt;       // Counter used for preamble and crc
-
-reg txStateError;       // Invalid state
-reg tx_underflow;       // Attempt to read send_fifo when empty
-
-reg  send_fifo_reset;
-reg  send_rd_en;
-wire send_fifo_empty;
-reg  send_fifo_error;     // First byte in send_fifo not as expected
-
-wire[7:0] send_fifo_dout;
-
-// Reverse bits for computing CRC
-wire[7:0] TxRev = { send_fifo_dout[0], send_fifo_dout[1], send_fifo_dout[2], send_fifo_dout[3],
-                    send_fifo_dout[4], send_fifo_dout[5], send_fifo_dout[6], send_fifo_dout[7] };
-
-assign send_crc_data = (txState == ST_TX_SEND) ? TxRev : 8'd0;
-
-// Send FIFO: 4 KByte (for now)
-// KSZ8851 has 6 KByte transmit FIFO
-fifo_16x2048_8 send_fifo(
-    .rst(send_fifo_reset),
-    .wr_clk(clk),
-    .rd_clk(TxClk),
-    .din(send_fifo_din),
-    .wr_en(send_wr_en),
-    .rd_en(send_rd_en),
-    .dout(send_fifo_dout),
-    .full(send_fifo_full),
-    .empty(send_fifo_empty)
-);
-
-reg send_info_rd_en;
-wire[31:0] send_info_dout;
-reg[7:0]   send_first_byte_out;  // for error checking
-
-fifo_32x32 send_info_fifo(
-    .rst(send_fifo_reset),
-    .wr_clk(clk),
-    .rd_clk(TxClk),
-    .din(send_info_din),
-    .wr_en(send_info_wr_en),
-    .rd_en(send_info_rd_en),
-    .dout(send_info_dout),
-    .full(send_info_fifo_full),
-    .empty(send_info_fifo_empty)
-);
-
-always @(posedge TxClk)
-begin
-    case (txState)
-
-    ST_TX_IDLE:
-    begin
-        send_cnt <= 16'd0;
-        tx_cnt <= 3'd0;
-        send_rd_en <= 1'b0;
-        tx_bus_req <= 1'b0;
-        TxEn <= 1'b0;
-        if (resetActive) begin
-            txStateError <= 1'b0;
-        end
-        else if (~send_info_fifo_empty) begin
-            // If the MSB is set, we flush the packet, so we don't
-            // need to request the bus
-            tx_bus_req <= ~send_info_dout[31];
-            tx_underflow <= 1'b0;
-            send_nbytes <= send_info_dout[15:0];
-            send_first_byte_out <= send_info_dout[23:16];
-            if (tx_bus_grant|send_info_dout[31]) begin
-                // Could clear tx_bus_req if desired
-                send_info_rd_en <= 1'b1;
-                txState <= ST_TX_PREAMBLE;
-                // If the MSB is set, we flush the packet (TxEn=0)
-                TxEn <= ~send_info_dout[31];
-            end
-        end
-    end
-
-    ST_TX_PREAMBLE:
-    begin
-        send_info_rd_en <= 1'b0;
-        if (tx_cnt == 3'd7) begin
-            txState <= ST_TX_SEND;
-            send_rd_en <= ~send_fifo_empty;
-            send_crc_in <= 32'hffffffff;    // Initialize CRC
-            padding_cnt <= 6'd59;           // Minimum frame size is 64 (-4 for CRC)
-            TxD <= 8'hd5;
-        end
-        else begin
-            tx_cnt <= tx_cnt + 3'd1;
-            TxD <= 8'h55;
-        end
-    end
-
-    ST_TX_SEND:
-    begin
-        if (send_fifo_empty) begin
-            tx_underflow <= 1'b1;
-            TxD <= 8'd0;
-        end          
-        else begin
-            TxD <= send_fifo_dout;
-            if (send_cnt == 16'd0) begin
-                send_fifo_error <= (send_first_byte_out == send_fifo_dout) ? 1'b0 : 1'b1;
-                // May not be easy to handle an error if it occurs
-            end
-            send_crc_in <= send_crc_8b;
-        end
-        if (send_cnt == (send_nbytes-16'd1)) begin
-            send_rd_en <= 1'b0;
-            tx_cnt <= 3'd0;
-            txState <= (padding_cnt == 6'd0) ? ST_TX_CRC : ST_TX_PADDING;
-        end
-        else begin
-            send_rd_en <= ~send_fifo_empty;
-            send_cnt <= send_cnt + 16'd1;
-        end
-        if (padding_cnt != 6'd0) begin
-            padding_cnt <= padding_cnt - 6'd1;
-        end
-    end
-
-    ST_TX_PADDING:
-    begin
-        TxD <= 8'd0;
-        send_crc_in <= send_crc_8b;
-        padding_cnt <= padding_cnt - 6'd1;
-        if (padding_cnt == 6'd0)
-            txState <= ST_TX_CRC;
-    end
-
-    ST_TX_CRC:
-    begin
-        if (tx_cnt == 3'd0) begin
-            // If the number of bytes is odd, we need to pop the last
-            // byte from the FIFO because the producer provides words.
-            send_rd_en <= send_nbytes[0];
-        end
-        else begin
-            send_rd_en <= 1'b0;
-        end
-        // Need to bit-reverse CRC when sending
-        TxD <= ~{send_crc_in[24], send_crc_in[25], send_crc_in[26], send_crc_in[27],
-                 send_crc_in[28], send_crc_in[29], send_crc_in[30], send_crc_in[31]};
-        send_crc_in <= {send_crc_in[23:0], send_crc_in[31:24]};
-        if (tx_cnt == 3'd3) begin
-            txState <= ST_TX_IDLE;
-`ifdef HAS_DEBUG_DATA
-            numTxSent <= numTxSent + 8'd1;
-`endif
-        end
-        else begin
-            tx_cnt <= tx_cnt + 3'd1;
-        end
-    end
-
-    default:
-    begin
-        txStateError <= 1'b1;
-        txState <= ST_TX_IDLE;
-    end
-
-   endcase
-end
-
-// ----------------------------------------------------------------------------
 // MDIO state machine
 // ----------------------------------------------------------------------------
 
@@ -818,13 +296,6 @@ initial begin
     RunProgram[10] = {CMD_WRITE, PHY_RTL, ADDR_PAGSR, 16'h0a42};
 end
 
-`ifdef HAS_DEBUG_DATA
-reg[7:0]  numTxSent;         // Number of packets sent to host PC
-reg[15:0] debug_PhyId1;
-reg[15:0] debug_PhyId2;
-reg[23:0] debug_initCount;
-`endif
-
 reg[23:0] initCount;
 reg resetRequest;            // 1 -> Request PHY reset
 reg[7:0] numReset;           // Number of times reset called
@@ -839,9 +310,6 @@ reg IRQ_cs;                  // 1 -> IRQ generated by change in Rx clock_speed
 // which does not have the hardware IRQn.
 reg[1:0] clock_speed_latch1;
 reg[1:0] clock_speed_latch2;
-
-reg linkOK;                  // 1 -> link on
-reg[1:0] linkSpeed;          // 00 -> 10Mbps, 01 -> 100 Mbps, 10 -> 1000 Mbps
 
 // validChannel is used when the implementation only supports 2 channels
 wire validChannel;
@@ -867,16 +335,12 @@ begin
     if (reg_wen_ctrl) begin
         // Ignore reset request if already in reset
         resetRequest <= validChannel&reg_wdata[26]&reg_wdata[BIT_OFFSET+7]&RSTn;
-        IRQn_disable <= validChannel&reg_wdata[28]&reg_wdata[BIT_OFFSET+6];
+        IRQn_disable <= validChannel&reg_wdata[27]&reg_wdata[BIT_OFFSET+6];
         IRQ_sw <= validChannel&reg_wdata[28]&reg_wdata[BIT_OFFSET+5];
         clearErrors <= validChannel&reg_wdata[28]&reg_wdata[BIT_OFFSET+4];
-        recv_fifo_reset_req <= validChannel&reg_wdata[28]&reg_wdata[BIT_OFFSET+2];
-        send_fifo_reset <= validChannel&reg_wdata[28]&reg_wdata[BIT_OFFSET+1];
     end
     else begin
         clearErrors <= 0;
-        recv_fifo_reset_req <= 0;
-        send_fifo_reset <= 0;
     end
 
     // Request write to RTL8211F register via MDIO, address = 4xa0,
@@ -937,9 +401,6 @@ begin
         // 0xFFFFFF (340 msec).
         if ((initCount == 24'hFFFFFF) || (~IRQn_latched)) begin
             hasIRQ <= ~IRQn_latched;
-`ifdef HAS_DEBUG_DATA
-            debug_initCount <= initCount;
-`endif
             resetActive <= 0;
             state <= ST_RUN_PROGRAM_EXECUTE;
             runPC <= PC_RESET_BEGIN;
@@ -985,9 +446,6 @@ begin
     begin
         // ChipID1 should be 001c; if not, go to IDLE
         state <= (read_data == 16'h001c) ? ST_RUN_PROGRAM_EXECUTE : ST_IDLE;
-`ifdef HAS_DEBUG_DATA
-        debug_PhyId1 <= read_data;
-`endif
     end
 
     ST_INIT_CHECK_CHIPID2:
@@ -995,9 +453,6 @@ begin
         // ChipID2 should be c916; if not, go to IDLE
         state <= (read_data == 16'hc916) ? ST_RUN_PROGRAM_EXECUTE : ST_IDLE;
         initOK <= (read_data == 16'hc916) ? 1'b1 : 1'b0;
-`ifdef HAS_DEBUG_DATA
-        debug_PhyId2 <= read_data;
-`endif
     end
 
     ST_GET_PHYSR_DATA:
@@ -1023,54 +478,10 @@ begin
     endcase
 end
 
-// Error bit provided to EthernetIO (reported back to PC in ExtraData)
-assign ethInternalError = RxErr|recv_preamble_error;
-
 // Ethernet status bits for this port
-assign eth_status = { initOK, hasIRQ, linkOK, linkSpeed, recv_fifo_error, send_fifo_overflow, 1'd0 };
+//assign eth_status = { initOK, hasIRQ, linkOK, linkSpeed, recv_fifo_error, send_fifo_overflow, ps_eth_enable };
+assign eth_status = { initOK, hasIRQ, linkOK, linkSpeed, 1'b0, 1'b0, 1'b1 };
 
-// -----------------------------------------------
-// Debug data
-// -----------------------------------------------
-
-`ifdef HAS_DEBUG_DATA
-wire[31:0] DebugData[0:7];
-assign DebugData[0] = "2GBD";  // DBG2 byte-swapped
-assign DebugData[1] = { RxErr, recv_preamble_error, recv_fifo_reset, recv_fifo_full,      // 31:28
-                        recv_fifo_empty, recv_info_fifo_empty, 2'd0,                      // 27:24
-                        1'd0, tx_underflow, send_fifo_full, send_fifo_empty,              // 23:20
-                        ~IRQn_latched, 1'd0, send_fifo_error, recv_ipv4,                  // 19:16
-                        recv_ipv4_err, recv_udp, 1'd0, hasIRQ,                            // 15:12
-                        isUnicast, isMulticast, isBroadcast, initOK,                      // 11:8
-                        txStateError, 7'd0 };
-assign DebugData[2] = { 4'd0, speed_mode, clock_speed, state, txState, rxState, numIRQ, numReset };
-                      //          2,          2,         4       3,       1
-assign DebugData[3] = recv_crc_in;
-assign DebugData[4] = { numRxDropped, 8'd0, send_first_byte_out, numTxSent };
-assign DebugData[5] = send_crc_in;
-assign DebugData[6] = { debug_PhyId2, debug_PhyId1 };
-assign DebugData[7] = { 8'd0, debug_initCount };
-`endif
-
-// Following data is accessible via block read from address `ADDR_ETH (0x4000),
-// where x is the Ethernet channel (1 or 2).
-// Note that some data is provided by this module (RTL8211F) whereas most is provided
-// by other modules (EthernetIO and EthSwitchRt).
-//    4x00 - 4x7f (128 quadlets) FireWire packet (first 128 quadlets only)
-//    4080 - 408f (16 quadlets)  EthernetIO Debug data
-//    4090 - 4097 (8 quadlets)   Low-level (e.g., RTL8211F) Debug data
-//    4098 - 409f (8 quadlets)   Low-level (e.g., EthSwitchRt) Debug data
-//    4xa0        (1 quadlet)    MDIO feedback (data read from management interface)
-//    4xa1 - 4xbf (31 quadlets)  Unused
-//    4xc0 - 4xdf (32 quadlets)  PacketBuffer/ReplyBuffer (64 words)
-//    4xe0 - 4xff (32 quadlets)  ReplyIndex (64 words)
-
-assign reg_rdata = (reg_raddr[7:3] == {4'h9, 1'b0}) ?
-`ifdef HAS_DEBUG_DATA
-                                               DebugData[reg_raddr[2:0]] :
-`else
-                                               "0GBD" :
-`endif
-                   (reg_raddr[7:0] == 8'ha0) ? mdio_result : 32'd0;
+assign reg_rdata = (reg_raddr[7:0] == 8'ha0) ? mdio_result : 32'd0;
 
 endmodule
