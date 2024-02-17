@@ -131,6 +131,10 @@ module KSZ8851(
     output wire ethInternalError      // Error summary bit to EthernetIO
 );
 
+// FPGA MAC address
+wire[47:0] fpga_mac;
+assign fpga_mac = { `LCSR_CID, `FPGA_RT_MAC, 4'd0, board_id };
+
 reg initOK;            // 1 -> Initialization successful
 reg isWrite;           // 0 -> Read, 1 -> Write
 reg isWord;            // 0 -> Byte, 1 -> Word
@@ -484,9 +488,9 @@ localparam[4:0]
 // Read Chip ID
 assign RunProgram[ID_CHIP_ID] = {CMD_READ, CMD_NOP, `ETH_ADDR_CIDER, 11'd0, ST_INIT_CHECK_CHIPID};
 // Set MAC address (4 LSB below should be set to board_id)
-assign RunProgram[ID_MAC_LOW] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_MARL, 12'h940, board_id};
-assign RunProgram[ID_MAC_MID] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_MARM, 16'h0E13};
-assign RunProgram[ID_MAC_HIGH] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_MARH, 16'hFA61};
+assign RunProgram[ID_MAC_LOW] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_MARL, fpga_mac[15:0]};
+assign RunProgram[ID_MAC_MID] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_MARM, fpga_mac[31:16]};
+assign RunProgram[ID_MAC_HIGH] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_MARH, fpga_mac[47:32]};
 // Enable QMU transmit frame data pointer auto increment
 assign RunProgram[4] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_TXFDPR, 16'h4000};
 assign RunProgram[5] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_TXCR, ETH_VALUE_TXCR};
@@ -1310,14 +1314,6 @@ end
 
 //************** Emulate some features of FPGA V3 EthSwitch ****************
 
-// Ethernet broadcast MAC address
-localparam[47:0] BroadcastMAC = 48'hFFFFFFFFFFFF;
-
-// FPGA MAC addresses contain the LCSR Company ID (CID) as the first 24-bits,
-// followed by 16-bits for the RT or PS interface, followed by 8-bits for the board-id
-// (PS interface only available in FPGA V3).
-localparam[23:0] LCSR_CID    = 24'hfa610e;
-
 // Host MAC address (typically, MAC address of PC)
 reg[47:0] MacAddrHost;
 
@@ -1337,7 +1333,7 @@ reg[47:0] SrcMac;
 always @(posedge sysclk)
 begin
    if (~linkStatus) begin
-      MacAddrHost <= BroadcastMAC;
+      MacAddrHost <= `BROADCAST_MAC;
       PortForwardFpga <= 16'd0;
    end
    else if (initOK & recvRequest & recvBusy) begin
@@ -1350,7 +1346,7 @@ begin
             // there is an FPGA board accessible via that port.
             // For this purpose, it does not matter whether the middle
             // 16-bits are FPGA_RT_MAC or FPGA_PS_MAC.
-            if (SrcMac[47:24] == LCSR_CID)
+            if (SrcMac[47:24] == `LCSR_CID)
                PortForwardFpga[SrcMac[3:0]] <= 1'b1;
             else
                MacAddrHost <= SrcMac;

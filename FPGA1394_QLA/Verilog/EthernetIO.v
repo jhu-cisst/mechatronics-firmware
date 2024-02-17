@@ -161,6 +161,14 @@ localparam[31:0] IP_UNASSIGNED = 32'hffffffff;
 
 initial ip_address = IP_UNASSIGNED;
 
+// FPGA MAC address
+wire[47:0] fpga_mac;
+assign fpga_mac = { `LCSR_CID, `FPGA_RT_MAC, 4'd0, board_id };
+
+// FPGA Multicast MAC address
+wire[47:0] multicast_mac;
+assign multicast_mac = { `LCSR_CID_MULTICAST, `FPGA_RT_MAC, 4'd0, board_id };
+
 `ifdef HAS_DEBUG_DATA
 wire eth_send_isIdle;
 assign eth_send_isIdle = (sendState == ST_SEND_DMA_IDLE) ? 1'd1 : 1'd0;
@@ -352,9 +360,9 @@ initial begin
    for (i = ID_Packet_Begin; i <= ID_Packet_End; i=i+1) PacketBuffer[i] = 16'd0;
 end
 assign ReplyBuffer[ID_Rep_Zero]          = 16'd0;
-assign ReplyBuffer[ID_Rep_fpgaMac0]      = 16'hFA61;
-assign ReplyBuffer[ID_Rep_fpgaMac1]      = 16'h0E13;
-assign ReplyBuffer[ID_Rep_fpgaMac2]      = {12'h940, board_id};
+assign ReplyBuffer[ID_Rep_fpgaMac0]      = fpga_mac[47:32];
+assign ReplyBuffer[ID_Rep_fpgaMac1]      = fpga_mac[31:16];
+assign ReplyBuffer[ID_Rep_fpgaMac2]      = fpga_mac[15:0];
 assign ReplyBuffer[ID_Rep_Frame_Length]  = Reply_Frame_Length;
 assign ReplyBuffer[ID_Rep_IPv4_Word0]    = {4'd4, 4'd5, 6'd0, 2'd0};  // 0x4500
 assign ReplyBuffer[ID_Rep_IPv4_Length]   = Reply_IPv4_Length;
@@ -655,12 +663,12 @@ assign Firewire_Header_Reply[9] = 16'd0;   // header_CRC
 // periodically sends Ethernet packets.
 
 wire[15:0] Multicast_Header[0:7];
-assign Multicast_Header[0] = 16'hffff;  // TEMP
-assign Multicast_Header[1] = 16'hffff;
-assign Multicast_Header[2] = 16'hffff;
-assign Multicast_Header[3] = 16'hFA61;
-assign Multicast_Header[4] = 16'h0E13;
-assign Multicast_Header[5] = {12'h940, board_id};
+assign Multicast_Header[0] = multicast_mac[47:32];
+assign Multicast_Header[1] = multicast_mac[31:16];
+assign Multicast_Header[2] = multicast_mac[15:0];
+assign Multicast_Header[3] = fpga_mac[47:32];
+assign Multicast_Header[4] = fpga_mac[31:16];
+assign Multicast_Header[5] = fpga_mac[15:0];
 assign Multicast_Header[6] = Reply_Frame_Length;
 assign Multicast_Header[7] = 16'h0100;             // Set noForward flag
 
