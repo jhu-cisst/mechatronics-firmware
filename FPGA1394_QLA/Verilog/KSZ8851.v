@@ -73,6 +73,7 @@ endmodule
 `define ETH_ADDR_ISR     8'h92     // Interrupt Status Reg
 `define ETH_ADDR_RXFCTR  8'h9C     // RX Frame Count and Threshold Reg
 `define ETH_ADDR_MAHTR1  8'hA2     // MAC Address Hash Table Reg 1
+`define ETH_ADDR_MAHTR2  8'hA4     // MAC Address Hash Table Reg 2
 `define ETH_ADDR_CIDER   8'hC0     // Chip ID and Enable Reg
 `define ETH_ADDR_PMECR   8'hD4     // Power management event control register
 `define ETH_ADDR_P1SR    8'hF8     // Port 1 status register
@@ -519,6 +520,15 @@ assign RunProgram[9] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_RXCR2, 16'h001C};
 // the register and the next four bits to determine which bit to set.
 // See code in mainEth1394.cpp.
 assign RunProgram[10] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_MAHTR1, 16'h0008};
+// Following are hard-coded values for UDP multicast address 224.0.0.100 (also see
+// code in mainEth1394.cpp). But, not using it for the following two reasons:
+//   1) Already have 32 entries in RunProgram, so would need to add another bit
+//      of address space and renumber.
+//   2) Hard-coding for 224.0.0.100 would not allow different UDP Multicast addresses
+//      to be set.
+// Thus, we do not use UDP Multicast when talking to FPGA V2, which is fine because we will
+// only support an Ethernet-Only network for FPGA V3 (FPGA V2 will use Ethernet/Firewire bridge).
+// assign RunProgram[] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_MAHTR2, 16'h0020};
 // RXQCR value
 // B5: RXFCTE enable QMU frame count threshold (1)
 // B4: ADRFE  auto-dequeue
