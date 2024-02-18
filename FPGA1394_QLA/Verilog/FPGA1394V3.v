@@ -786,7 +786,8 @@ wire   ip_reg_wen;
 assign ip_reg_wen = (reg_waddr == {`ADDR_MAIN, 8'h0, `REG_IPADDR}) ? reg_wen : 1'b0;
 
 EthernetIO
-    #(.IPv4_CSUM(1), .IS_V3(1))
+    #(.IPv4_CSUM(1), .IS_V3(1),
+      .NUM_BC_READ_QUADS(NUM_BC_READ_QUADS))
 EthernetTransfers(
     .sysclk(sysclk),          // in: global clock
 

@@ -108,8 +108,8 @@ localparam INDEX_RT = 3;
 reg[31:0] UdpMulticastFpga;
 initial UdpMulticastFpga = `UDP_MULTICAST_FPGA_DEFAULT;
 
-wire[47:0] UdpMulticastMac;      // MAC address for UDP Multicast
-assign UdpMulticastMac = { `UDP_MULTICAST, UdpMulticastFpga[23:0] };
+// wire[47:0] UdpMulticastMac;      // MAC address for UDP Multicast
+// assign UdpMulticastMac = { `UDP_MULTICAST, UdpMulticastFpga[23:0] };
 
 // Create arrays from input parameters
 
