@@ -546,8 +546,13 @@ assign ipWrite = FireWirePacketFresh && quadWrite && (fw_dest_offset == {`ADDR_M
 // (0x1800) causes this module to send an Ethernet multicast write packet to update the
 // hub memory on this board and other FPGA boards.
 wire hubSend;
+wire[15:0] board_mask;                      // Board mask sent with quadlet write to Hub register
+assign board_mask = fw_quadlet_data[15:0];
+wire isBoardMasked;
+assign isBoardMasked = board_mask[board_id];
+
 if (IS_V3)
-    assign hubSend = FireWirePacketFresh & quadWrite & addrHubReg & isLocal & (~isRemote);
+   assign hubSend = FireWirePacketFresh & quadWrite & addrHubReg & isLocal & (~isRemote) & isBoardMasked;
 else
     assign hubSend = 1'b0;
 
@@ -662,7 +667,8 @@ assign fw_tcode_reply = ipWrite  ? `TC_QWRITE :
 
 //**************************** Firewire Reply Header ***********************************
 wire[15:0] Firewire_Header_Reply[0:9];
-assign Firewire_Header_Reply[0] = ipWrite ? 16'hffff : {fw_src_id[7:0], fw_src_id[15:8]};   // quadlet 0: dest-id
+assign Firewire_Header_Reply[0] = (ipWrite | hubSend) ? 16'hffff
+                                                      : {fw_src_id[7:0], fw_src_id[15:8]};  // quadlet 0: dest-id
 assign Firewire_Header_Reply[1] = {fw_tcode_reply, 4'd0, fw_tl, 2'd0};                      // quadlet 0: tcode
 assign Firewire_Header_Reply[2] = {dest_bus_id[1:0], reply_node_id, dest_bus_id[9:2]};      // src-id
 assign Firewire_Header_Reply[3] = 16'd0;   // rcode, reserved; addr[47:32] for write
@@ -1395,7 +1401,7 @@ begin
             writeRequest <= isLocal&(~isRemote)&(~addrHubReg);
             // If not remote (noForwardFlag), then we write the quadlet data to the local Hub register
             // (the quadlet data contains the sequence number and board mask).
-            reg_wen_hub_quad <= isLocal&(~isRemote)&addrHubReg;
+            reg_wen_hub_quad <= isLocal&(~isRemote)&addrHubReg&isBoardMasked;
          end
          else if ((rfw_count == 10'd9) && blockWrite) begin
             bwStart <= 9'd5;
@@ -1405,7 +1411,7 @@ begin
          else if (rfw_count == maxCountFW) begin
             reg_wen_hub_quad <= 1'b0;
             nextRecvState <= ST_RECEIVE_DMA_WAIT_START;  // was ST_RECEIVE_DMA_FRAME_CRC;
-            if (isLocal & ((addrMain & blockRead) | (addrHubReg & quadWrite))) begin
+            if (isLocal & ((addrMain & blockRead) | (addrHubReg & quadWrite & isBoardMasked))) begin
                // Latch timestamp if a block read from ADDR_MAIN or a broadcast read request
                // (quadlet write to ADDR_HUB).
                // TODO: Subtracting 1 for backward compatibility; may eliminate that for Firmware Rev 9
