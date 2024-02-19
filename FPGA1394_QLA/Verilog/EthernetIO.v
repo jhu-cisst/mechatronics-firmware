@@ -177,10 +177,10 @@ wire eth_recv_isIdle;
 assign eth_recv_isIdle = (recvState == ST_RECEIVE_DMA_IDLE) ? 1'd1 : 1'd0;
 `endif
 
-// Following flags are set based on the destination address. Note that
-// a FireWire broadcast packet will set both isLocal and isRemote.
+// Following flags are set based on the destination address. Note that a FireWire
+// broadcast packet will set both isLocal and isRemote, unless noForwardFlag is set.
 wire isLocal;            // 1 -> FireWire packet should be processed locally
-wire isRemote;           // 1 -> FireWire packet should be forwarded
+wire isRemote;           // 1 -> FireWire packet should be forwarded via Firewire
 
 wire quadRead;
 wire quadWrite;
@@ -792,7 +792,7 @@ assign DebugData[2]  = { writeRequest, 1'd0, bw_active, eth_send_isIdle,        
                          recvBusy, recvRequest, isLocal, isRemote,                               // 19:16
                          FireWirePacketFresh, isForward, sendARP, isUDP,                         // 15:12
                          isICMP, isEcho, is_IPv4_Long, is_IPv4_Short,                            // 11:8
-                         fw_bus_reset, ipWrite, 2'd0,                                            //  7:4
+                         fw_bus_reset, ipWrite, hubSend, 1'd0,                                   //  7:4
                          4'd0 };                                                                 //  3:0
 assign DebugData[3]  = { node_id, maxCountFW, LengthFW };                  // 6, 10, 16
 assign DebugData[4]  = { fw_ctrl, host_fw_addr };                          // 16, 16
@@ -878,7 +878,7 @@ wire addrHubReg;
 assign addrHubReg = (addrHub && (fw_dest_offset[11:0] == 12'h800)) ? 1'b1 : 1'b0;
 
 wire addrHubMem;
-assign addrHubMem = addrHub & (~fw_dest_offset[11]);
+assign addrHubMem = (addrHub && (fw_dest_offset[11:8] == 4'd0)) ? 1'b1 : 1'b0;
 
 // Local hub memory; only used by Ethernet-only network (i.e., when not using
 // Ethernet/Firewire bridge), which is only possible with FPGA V3 (IS_V3).
@@ -927,7 +927,7 @@ if (IS_V3) begin
    assign reg_waddr_hub_remote = { `ADDR_HUB, 4'd0, (rfw_count[8:1] - bwStart[7:0]) };
 
    wire[15:0] reg_waddr_hub_local;
-   assign reg_waddr_hub_local = { `ADDR_HUB, (sfw_count[8:1] - 8'd1) };
+   assign reg_waddr_hub_local = { `ADDR_HUB, 4'd0, (sfw_count[8:1] - 8'd1) };
 
    // By design, the "local" and "remote" hub writes cannot happen at the same time,
    // so following is fine as long as they are both driven by the same write clock
@@ -1371,10 +1371,14 @@ begin
          else if (rfw_count == 10'd5) begin
             FireWirePacketFresh <= 1;
             useUDP <= isUDP;
-            if (fw_bus_reset || ((host_fw_bus_gen != fw_bus_gen) && ~isFwBroadcast)) begin
-               // if Firewire bus is in reset OR (bus generation does not match AND not a broadcast
-               // packet), then flush packet. Note that we do not check if the bus goes into reset
-               // or the generation changes while we are processing the packet.
+            if ((~noForwardFlag) &&
+                (fw_bus_reset || ((host_fw_bus_gen != fw_bus_gen) && ~isFwBroadcast))) begin
+               // If we are using Firewire (~noForwardFlag) and if Firewire bus is in reset OR
+               // (bus generation does not match AND not a broadcast packet), then flush packet.
+               // Note that we do not check if the bus goes into reset or the generation changes
+               // while we are processing the packet. Also, it is important to note that a
+               // Firewire bus reset can change node_id, unless noForwardFlag is set, in which
+               // case board_id is used instead of the node_id (see expected_node_id).
                fwPacketDropped <= 1;
                nextRecvState <= ST_RECEIVE_DMA_WAIT_FINISH;
             end
@@ -1739,7 +1743,7 @@ begin
          sfw_count[0] <= 1;
          send_word <= 16'd0;    // Checksum currently not set
          if (sfw_count[0] == 1)
-            sendState <= ipWrite ? ST_SEND_DMA_FINISH : ST_SEND_DMA_EXTRA;
+            sendState <= (ipWrite | hubSend) ? ST_SEND_DMA_FINISH : ST_SEND_DMA_EXTRA;
       end
    end
 
