@@ -95,6 +95,12 @@ localparam NUM_RT_READ_QUADS = (4 + 2*NUM_MOTORS + 5*NUM_ENCODERS);
 // Number of quadlets in broadcast real-time block; includes sequence number
 localparam NUM_BC_READ_QUADS = (1+NUM_RT_READ_QUADS);
 
+// ETH_RT_FAST:
+//   0:   Use sysclk for Ethernet RT interface Rx/Tx
+//   1:   Use clk_125MHz for Ethernet RT interface Rx/Tx, which requires clock
+//        domain crossing (to sysclk) when accessing FPGA registers
+localparam ETH_RT_FAST = 0;
+
 // 1394 phy low reset, never reset
 assign reset_phy = 1'b1;
 
@@ -569,7 +575,7 @@ EthSwitch eth_switch (
 
     // Port3: RT
     .P3_Active(1'b1),                // Port3 active (e.g., link on)
-    .P3_Fast(1'b0),                  // Port3 currently slow
+    .P3_Fast(ETH_RT_FAST),           // Port3 currently slow
     .P3_RecvReady(recv_ready_rt),    // Port3 client ready for data
     .P3_DataReady(data_ready_rt),    // Port3 client providing valid data
     .P3_RxClk(gmii_rx_clk[4]),       // Port3 receive clock
@@ -716,8 +722,16 @@ assign gmii_rx_clk[3] = clk_125A;
 assign gmii_tx_clk3_src = clk_125B;
 assign gmii_tx_clk3_dest = clk_125A;
 
+// Clock to use for RT Ethernet Rx/Tx (EthRtInterface and EthernetIO)
+wire rt_clk;
+
+if (ETH_RT_FAST)
+   assign rt_clk = clk_125MHz;
+else
+   assign rt_clk = sysclk;
+
 EthRtInterface eth_rti(
-    .clk(sysclk),
+    .clk(rt_clk),
 
     .reg_raddr(reg_raddr),
     .reg_rdata(reg_rdata_rti),
@@ -768,10 +782,11 @@ assign ip_reg_wen = (reg_waddr == {`ADDR_MAIN, 8'h0, `REG_IPADDR}) ? reg_wen : 1
 
 EthernetIO
     #(.IPv4_CSUM(1), .IS_V3(1),
-      .NUM_BC_READ_QUADS(NUM_BC_READ_QUADS))
+      .NUM_BC_READ_QUADS(NUM_BC_READ_QUADS),
+      .USE_RXTX_CLK(ETH_RT_FAST))
 EthernetTransfers(
     .sysclk(sysclk),          // in: global clock
-    .RxTxClk(clk_125MHz),     // in: Rx/Tx clock (if USE_RXTX_CLK)
+    .RxTxClk(rt_clk),         // in: Rx/Tx clock (if USE_RXTX_CLK)
 
     .board_id(board_id),      // in: board id (rotary switch)
     .node_id(node_id),        // in: phy node id

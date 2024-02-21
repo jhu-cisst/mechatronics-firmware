@@ -1932,11 +1932,12 @@ end
 //   RTL8211F: (N-M)*8 < N*4   --> 4*N < 8*M  --> M > (1/2)*N
 //
 localparam[2:0]
-   BW_IDLE = 0,
-   BW_WSTART = 1,
-   BW_WRITE = 2,
-   BW_WRITE_GAP = 3,
-   BW_BLK_WEN = 4;
+   BW_IDLE = 3'd0,
+   BW_WSTART = 3'd1,
+   BW_WRITE = 3'd2,
+   BW_WRITE_GAP = 3'd3,
+   BW_BLK_WEN = 3'd4,
+   BW_WAIT = 3'd5;
 
 reg[2:0] bwState = BW_IDLE;
 reg[1:0] bwCnt;
@@ -1965,13 +1966,13 @@ begin
    begin
       bwCnt <= 2'd0;
       if (quadWrite & (writeRequest_sync | grant_write_bus)) begin
-         req_write_bus <= ~grant_write_bus;
+         req_write_bus <= 1'b1;
          reg_waddr <= fw_dest_offset;
          reg_wdata <= fw_quadlet_data;
          reg_wen <= 1;
          blk_wen <= 1;
-         // Stay in this state until we get the write bus (grant_write_bus),
-         // which clears writeRequest.
+         if (grant_write_bus)
+            bwState <= BW_WAIT;
       end
       else if (blockWrite & (writeRequest_sync | grant_write_bus)) begin
          req_write_bus <= 1'b1;
@@ -2045,10 +2046,18 @@ begin
       if (bwCnt == 2'd3) begin
          blk_wen <= 1'b1;
          if (grant_write_bus)
-            bwState <= BW_IDLE;
+            bwState <= BW_WAIT;
       end
       else
          bwCnt <= bwCnt + 2'd1;
+   end
+
+   BW_WAIT:
+   begin
+      // Wait for Rx process to clear writeRequest
+      req_write_bus <= 1'b0;
+      if (~writeRequest_sync)
+         bwState <= BW_IDLE;
    end
 
    default:
