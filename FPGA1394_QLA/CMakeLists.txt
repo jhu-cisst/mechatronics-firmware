@@ -253,28 +253,6 @@ ise_compile_fpga(PROJ_NAME      "FPGA1394V3-DQLA"
                  USER_MACROS    "HAS_DEBUG_DATA"
                  IS_V3          ON)
 
-# ##### FPGAV2 + dRAC
-# set (VERILOG_SOURCE_FPGAV2_DRAC
-#                          "${VERILOG_SOURCE_DIR}/FPGA1394V2-DRAC.v"
-#                          "${IPCORE_BINARY_DIR}/pwm_clk_gen.v"
-#                          ${HLS_GENERATED_SOURCES_DRAC_FPGAV1V2}
-#                          ${VERILOG_SOURCE_COMMON}
-#                          ${VERILOG_SOURCE_FPGAV2}
-#                          ${VERILOG_SOURCE_DRAC})
-
-# # Compile the firmware -- output is FPGA1394V2-DRAC.mcs, which is copied
-# # to the Generated subdirectory in the source directory (if different).
-# ise_compile_fpga(PROJ_NAME      "FPGA1394V2-DRAC"
-#                  DEPENDENCIES   "CoreGenCommon" "VersionFile"
-#                  FPGA_PARTNUM   ${FPGA_PARTNUM}
-#                  VERILOG_SOURCE ${VERILOG_SOURCE_FPGAV2_DRAC}
-#                  UCF_FILE       "${VERILOG_SOURCE_DIR}/XC6S45-Rev2.ucf"
-#                  BOARD_UCF_FILE "${VERILOG_SOURCE_DIR}/DRAC.ucf"
-#                  IPCORE_DIR     ${IPCORE_BINARY_DIR}
-#                  TOP_LEVEL      "FPGA1394V2DRAC")
-
-# set_target_properties(FPGA1394V2-DRAC PROPERTIES EXCLUDE_FROM_ALL ON)
-
 ##### FPGAV3 + dRAC
 set (VERILOG_SOURCE_FPGAV3_DRAC
                          "${VERILOG_SOURCE_DIR}/FPGA1394V3-DRAC.v"
