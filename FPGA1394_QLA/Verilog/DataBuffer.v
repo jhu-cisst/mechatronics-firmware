@@ -3,7 +3,7 @@
 
 /*******************************************************************************    
  *
- * Copyright(C) 2020-2021 Johns Hopkins University.
+ * Copyright(C) 2020-2024 Johns Hopkins University.
  *
  * This module implements a data collection buffer.
  *
@@ -70,7 +70,7 @@ assign {reg_rdata, reg_rwait} =
                    (reg_raddr[11:0] == 12'h800) ? { 16'd0, databuf_status, 1'b0 }
                    : {32'd0, 1'b0};
 
-Dual_port_RAM_32X1024 Dual_port_RAM_32X1024(
+DPRAM_32x1024_sclk DPRAM_32x1024(
     .clka(clk),
     .ena(1'b1),
     .wea(buf_wr),

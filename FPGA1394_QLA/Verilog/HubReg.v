@@ -195,7 +195,7 @@ assign reg_wdata_mem = (reg_waddr[7:0] == 8'd0) ? { reg_wdata[7:0], reg_wdata[23
 // NOTE
 //   port a: write port
 //   port b: read port
-hub_mem_gen hub_mem(
+DPRAM_32x512_sclk hub_mem(
     .clka(sysclk),
     .wea(hub_mem_wen),
     .addra(write_addr),

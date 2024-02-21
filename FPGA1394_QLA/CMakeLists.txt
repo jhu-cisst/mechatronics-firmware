@@ -78,10 +78,10 @@ set (VERILOG_SOURCE_FPGA "${VERILOG_SOURCE_DIR}/Crc32.v"
 # Source files for FPGA V1 and V2
 set (VERILOG_SOURCE_FPGAV1_V2
                          ${VERILOG_SOURCE_FPGA}
-                         "${IPCORE_BINARY_DIR}/hub_mem_gen.v"
+                         "${IPCORE_BINARY_DIR}/DPRAM_32x512_sclk.v"
                          "${VERILOG_SOURCE_DIR}/UartSerial.v"
                          "${VERILOG_SOURCE_DIR}/M25P16.v"
-                         "${IPCORE_BINARY_DIR}/Dual_port_RAM_32X1024.v"
+                         "${IPCORE_BINARY_DIR}/DPRAM_32x1024_sclk.v"
                          "${VERILOG_SOURCE_DIR}/Reboot.v")
 
 # Source files for FPGA V1
@@ -106,8 +106,9 @@ set (VERILOG_SOURCE_FPGAV3
                          "${VERILOG_SOURCE_DIR}/EthSwitch.v"
                          "${VERILOG_SOURCE_DIR}/VirtualPhy.v"
 			 "${VERILOG_SOURCE_DIR}/EmioBus.v"
-                         "${IPCOREV3_BINARY_DIR}/hub_mem_gen.v"
-                         "${IPCOREV3_BINARY_DIR}/Dual_port_RAM_32X1024.v"
+                         "${IPCOREV3_BINARY_DIR}/DPRAM_32x512_sclk.v"
+                         "${IPCOREV3_BINARY_DIR}/DPRAM_32x512_aclk.v"
+                         "${IPCOREV3_BINARY_DIR}/DPRAM_32x1024_sclk.v"
                          "${IPCOREV3_BINARY_DIR}/fifo_10x8192.v"
                          "${IPCOREV3_BINARY_DIR}/fifo_4x128.v"
                          "${XPSCORE_BINARY_DIR}/hdl/fpgav3.v")

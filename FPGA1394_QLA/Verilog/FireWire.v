@@ -657,7 +657,8 @@ reg eth_active;
 reg pkt_mem_wen;
 reg [8:0] pkt_mem_waddr;
 reg [31:0] pkt_mem_wdata;
-hub_mem_gen pkt_mem(.clka(sysclk),
+DPRAM_32x512_sclk pkt_mem(
+                    .clka(sysclk),
                     .wea(pkt_mem_wen),
                     .addra(pkt_mem_waddr),
                     .dina(pkt_mem_wdata),

@@ -473,9 +473,11 @@ assign eth_ctrl_wen = (reg_waddr == {`ADDR_MAIN, 8'h0, `REG_ETHSTAT}) ? reg_wen 
 
 EthernetIO
     #(.IPv4_CSUM(0), .IS_V3(0),
-      .NUM_BC_READ_QUADS(NUM_BC_READ_QUADS))
+      .NUM_BC_READ_QUADS(NUM_BC_READ_QUADS),
+      .USE_RXTX_CLK(0))
 EthernetTransfers(
     .sysclk(sysclk),          // in: global clock
+    .RxTxClk(sysclk),         // in: Rx/Tx clock (only used for FPGA V3)
 
     .board_id(board_id),      // in: board id (rotary switch)
     .node_id(node_id),        // in: phy node id

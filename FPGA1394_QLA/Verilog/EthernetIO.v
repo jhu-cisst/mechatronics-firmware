@@ -45,10 +45,12 @@
 module EthernetIO
     #(parameter IPv4_CSUM = 0,     // Set to 1 to generate IPv4 (and ICMP) header checksum
       parameter IS_V3 = 0,         // Set to 1 to indicate FPGA V3
-      parameter NUM_BC_READ_QUADS = 33)
+      parameter NUM_BC_READ_QUADS = 33,
+      parameter USE_RXTX_CLK = 0)
 (
     // global clock
     input wire sysclk,
+    input wire RxTxClk,            // Rx/Tx clock (if configured)
 
     // board id (rotary switch)
     input wire[3:0] board_id,
@@ -131,6 +133,18 @@ module EthernetIO
     output wire[7:0] eth_status,     // Status feedback
     output reg clearErrors           // Flag set by host to clear error bits and counters
 );
+
+// Clocks for Rx and Tx processes
+wire RxClk;
+wire TxClk;
+if (USE_RXTX_CLK) begin
+   assign RxClk = RxTxClk;
+   assign TxClk = RxTxClk;
+end
+else begin
+   assign RxClk = sysclk;
+   assign TxClk = sysclk;
+end
 
 `define send_word_swapped {send_word[7:0], send_word[15:8]}
 
@@ -843,9 +857,6 @@ wire[31:0] mem_rdata;
 reg[8:0] local_raddr;
 reg      icmp_read_en;    // 1 -> ICMP needs to read from memory
 
-assign mem_raddr = bw_active     ? local_raddr :
-                   icmp_read_en  ? sfw_count[9:1]
-                                 : {2'd0, reg_raddr_in[6:0]};
 reg[31:0] FireWireQuadlet;   // the current quadlet being read
 
 reg mem_wen;   // memory write enable
@@ -859,23 +870,64 @@ reg mem_wen;   // memory write enable
 // (actually, could add a few quadlets because the 512 limit does not include header and CRC).
 // The block write and Firewire forwarding processes are already set up to run in parallel with packet reception
 // (see writeRequestTrigger and fwRequestTrigger).
-hub_mem_gen fw_packet(.clka(sysclk),
-                      .wea(mem_wen),
-                      .addra(rfw_count[9:1]),
-                      .dina(FireWireQuadlet),
-                      .clkb(sysclk),
-                      .addrb(eth_fwpkt_raddr),
-                      .doutb(eth_fwpkt_rdata)
-                     );
 
-hub_mem_gen bw_packet(.clka(sysclk),
-                      .wea(mem_wen),
-                      .addra(rfw_count[9:1]),
-                      .dina(FireWireQuadlet),
-                      .clkb(sysclk),
-                      .addrb(mem_raddr),
-                      .doutb(mem_rdata)
-                     );
+if (USE_RXTX_CLK) begin
+   assign mem_raddr = bw_active     ? local_raddr
+                                    : {2'd0, reg_raddr_in[6:0]};
+   wire[31:0] mem_rdata_icmp;
+   wire[31:0] mem_rdata_bw;
+   assign mem_rdata = icmp_read_en ? mem_rdata_icmp : mem_rdata_bw;
+
+   DPRAM_32x512_sclk icmp_packet(.clka(RxClk),
+                                 .wea(mem_wen),
+                                 .addra(rfw_count[9:1]),
+                                 .dina(FireWireQuadlet),
+                                 .clkb(TxClk),
+                                 .addrb(sfw_count[9:1]),
+                                 .doutb(mem_rdata_icmp)
+                                );
+
+   DPRAM_32x512_aclk fw_packet(.clka(RxClk),
+                               .wea(mem_wen),
+                               .addra(rfw_count[9:1]),
+                               .dina(FireWireQuadlet),
+                               .clkb(sysclk),
+                               .addrb(eth_fwpkt_raddr),
+                               .doutb(eth_fwpkt_rdata)
+                               );
+
+   DPRAM_32x512_aclk bw_packet(.clka(RxClk),
+                               .wea(mem_wen),
+                               .addra(rfw_count[9:1]),
+                               .dina(FireWireQuadlet),
+                               .clkb(sysclk),
+                               .addrb(mem_raddr),
+                               .doutb(mem_rdata_bw)
+                              );
+end
+else begin
+   assign mem_raddr = bw_active     ? local_raddr :
+                      icmp_read_en  ? sfw_count[9:1]
+                                    : {2'd0, reg_raddr_in[6:0]};
+
+   DPRAM_32x512_sclk fw_packet(.clka(RxClk),
+                               .wea(mem_wen),
+                               .addra(rfw_count[9:1]),
+                               .dina(FireWireQuadlet),
+                               .clkb(sysclk),
+                               .addrb(eth_fwpkt_raddr),
+                               .doutb(eth_fwpkt_rdata)
+                              );
+
+   DPRAM_32x512_sclk bw_packet(.clka(RxClk),
+                               .wea(mem_wen),
+                               .addra(rfw_count[9:1]),
+                               .dina(FireWireQuadlet),
+                               .clkb(sysclk),
+                               .addrb(mem_raddr),
+                              .doutb(mem_rdata)
+                              );
+end
 
 wire addrHub;
 assign addrHub = (fw_dest_offset[15:12] == `ADDR_HUB) ? 1'b1 : 1'b0;
@@ -1112,11 +1164,16 @@ reg[31:0] timestamp_latched;
 reg[31:0] timestamp_prev;
 
 //*****************************************************************
-//  Write to Ethernet control register
+//  Write to Ethernet IP register or control register
 //*****************************************************************
 
 always @(posedge sysclk)
 begin
+   // Write to IP address register
+   if (ip_reg_wen) begin
+      ip_address <= desired_ip_address;
+   end
+
    if (ctrl_reg_wen) begin
       clearErrors <= reg_wdata_in[29];
    end
@@ -1172,38 +1229,63 @@ assign desired_ip_address = { (reg_wdata_in == IP_UNASSIGNED) ? reg_wdata_in[31:
                                                               : (reg_wdata_in[31:24] + {4'd0, board_id}),
                               reg_wdata_in[23:0] };
 
-always @(posedge sysclk)
+// Clock domain crossing (if USE_RXTX_CLK)
+// Do not need to synchronize resetActive because it is not used for FPGA V3 (always 0)
+wire grant_write_bus_sync;
+wire eth_send_fw_ack_sync;
+wire br_ack_sync;
+wire clearErrors_sync;
+if (USE_RXTX_CLK) begin
+   reg grant_write_bus_latched;
+   reg eth_send_fw_ack_latched;
+   reg br_ack_latched;
+   reg clearErrors_latched;
+   always @(posedge RxClk)
+   begin
+      grant_write_bus_latched <= grant_write_bus;
+      eth_send_fw_ack_latched <= eth_send_fw_ack;
+      br_ack_latched <= br_ack;
+      clearErrors_latched <= clearErrors;
+   end
+   assign grant_write_bus_sync = grant_write_bus_latched;
+   assign eth_send_fw_ack_sync = eth_send_fw_ack_latched;
+   assign br_ack_sync = br_ack_latched;
+   assign clearErrors_sync = clearErrors_latched;
+end
+else begin
+   assign grant_write_bus_sync = grant_write_bus;
+   assign eth_send_fw_ack_sync = eth_send_fw_ack;
+   assign br_ack_sync = br_ack;
+   assign clearErrors_sync = clearErrors;
+end
+
+always @(posedge RxClk)
 begin
 
    dataValid <= recvReady;           // 1 clock after recvReady
    recvTransition <= dataValid;      // 1 clock after dataValid
 
-   if (writeRequest & grant_write_bus) begin
+   if (writeRequest & grant_write_bus_sync) begin
       writeRequest <= 1'd0;
    end
 
-   if (eth_send_fw_ack) begin
+   if (eth_send_fw_ack_sync) begin
       eth_send_fw_req <= 0;
    end
 
-   if (br_ack) begin
+   if (br_ack_sync) begin
       br_request <= 1'b0;
    end
 
    // req_blk_rt_rd is asserted for just one sysclk
    req_blk_rt_rd <= 1'b0;
 
-   if (resetActive|clearErrors) begin
+   if (resetActive|clearErrors_sync) begin
       numPacketError <= 8'd0;
       ethFrameError <= 0;
       ethIPv4Error <= 0;
       ethUDPError <= 0;
       ethDestError <= 0;
-   end
-
-   // Write to IP address register
-   if (ip_reg_wen) begin
-      ip_address <= desired_ip_address;
    end
 
    if (recvTransition) begin
@@ -1224,7 +1306,7 @@ begin
       localHubWrite <= 1'b0;
       eth_send_fw_req <= 0;
 
-      if (resetActive|clearErrors) begin
+      if (resetActive|clearErrors_sync) begin
          FireWirePacketFresh <= 0;
          fwPacketDropped <= 0;
          ethRecvStateError <= 0;
@@ -1439,7 +1521,7 @@ begin
             if (isRemote) begin
                // Request to forward should already have been set (using fwRequestTrigger).
                // We expect that it would still be active.
-               fw_err <= ~eth_send_fw_ack;
+               fw_err <= ~eth_send_fw_ack_sync;
                // Number of quadlets left to write to registers; should be greater than 1,
                // otherwise the Firewire writer may have overtaken the Ethernet reader.
                fw_left <= eth_fwpkt_len[10:2] - eth_fwpkt_raddr;
@@ -1463,11 +1545,11 @@ begin
 
    ST_RECEIVE_DMA_WAIT_START:
    begin
-      if (eth_send_fw_req | eth_send_fw_ack) begin
+      if (eth_send_fw_req | eth_send_fw_ack_sync) begin
          // Waiting for Ethernet forward to finish
          fw_wait_cnt <= fw_wait_cnt + 8'd1;
       end
-      else if (br_request | br_ack) begin
+      else if (br_request | br_ack_sync) begin
          // Wait until read from registers finished
          br_wait_cnt <= br_wait_cnt + 8'd1;
       end
@@ -1587,10 +1669,10 @@ assign responseByteCount =
              (isEcho | fw_resp_udp)  ? (`ETH_FRAME_SIZE + Reply_IPv4_Length)        // UDP or ICMP Echo packet
                                      : (`ETH_FRAME_SIZE + Reply_Frame_Length);      // Raw packet
 
-always @(posedge sysclk)
+always @(posedge TxClk)
 begin
 
-   if (resetActive|clearErrors) begin
+   if (resetActive|clearErrors_sync) begin
       ethSendStateError <= 0;
    end
 
@@ -1860,6 +1942,20 @@ reg[2:0] bwState = BW_IDLE;
 reg[1:0] bwCnt;
 reg bwAddrMain;        // 1 -> real-time block write
 
+// Clock domain crossing (if USE_RXTX_CLK)
+wire writeRequest_sync;
+if (USE_RXTX_CLK) begin
+   reg writeRequest_latched;
+   always @(posedge sysclk)
+   begin
+      writeRequest_latched <= writeRequest;
+   end
+   assign writeRequest_sync = writeRequest_latched;
+end
+else begin
+   assign writeRequest_sync = writeRequest;
+end
+
 always @(posedge sysclk)
 begin
 
@@ -1868,7 +1964,7 @@ begin
    BW_IDLE:
    begin
       bwCnt <= 2'd0;
-      if (quadWrite & (writeRequest | grant_write_bus)) begin
+      if (quadWrite & (writeRequest_sync | grant_write_bus)) begin
          req_write_bus <= ~grant_write_bus;
          reg_waddr <= fw_dest_offset;
          reg_wdata <= fw_quadlet_data;
@@ -1877,7 +1973,7 @@ begin
          // Stay in this state until we get the write bus (grant_write_bus),
          // which clears writeRequest.
       end
-      else if (blockWrite & (writeRequest | grant_write_bus)) begin
+      else if (blockWrite & (writeRequest_sync | grant_write_bus)) begin
          req_write_bus <= 1'b1;
          local_raddr <= bwStart;
          bwAddrMain <= addrMain;
@@ -1988,14 +2084,40 @@ assign br_data_in = hubSendHeader ? hub_header :
                     timestamp_rd  ? timestamp_latched
                                   : reg_rdata;
 
-hub_mem_gen br_packet(.clka(sysclk),
-                      .wea(br_wen),
-                      .addra(br_addr_in),
-                      .dina(br_data_in),
-                      .clkb(sysclk),
-                      .addrb(sfw_count[9:1]),
-                      .doutb(br_data_out)
-                     );
+if (USE_RXTX_CLK) begin
+   DPRAM_32x512_aclk br_packet(.clka(sysclk),
+                               .wea(br_wen),
+                               .addra(br_addr_in),
+                               .dina(br_data_in),
+                               .clkb(TxClk),
+                               .addrb(sfw_count[9:1]),
+                               .doutb(br_data_out)
+                              );
+end
+else begin
+   DPRAM_32x512_sclk br_packet(.clka(sysclk),
+                               .wea(br_wen),
+                               .addra(br_addr_in),
+                               .dina(br_data_in),
+                               .clkb(sysclk),
+                               .addrb(sfw_count[9:1]),
+                               .doutb(br_data_out)
+                              );
+end
+
+// Clock domain crossing (if USE_RXTX_CLK)
+wire br_request_sync;
+if (USE_RXTX_CLK) begin
+   reg br_request_latched;
+   always @(posedge sysclk)
+   begin
+      br_request_latched <= br_request;
+   end
+   assign br_request_sync = br_request_latched;
+end
+else begin
+   assign br_request_sync = br_request;
+end
 
 always @(posedge sysclk)
 begin
@@ -2006,7 +2128,7 @@ begin
    begin
       br_addr_in <= 9'd0;
       br_wen <= 1'b0;
-      if (br_request) begin
+      if (br_request_sync) begin
          br_ack <= 1'b1;
          req_read_bus <= 1'b1;
          if (hubSend) begin
@@ -2053,8 +2175,8 @@ begin
       else if (req_read_bus & grant_read_bus & reg_rvalid) begin
          br_wen <= 1'b1;
       end
-      else if ((~req_read_bus) & (~br_request)) begin
-         // Wait until br_request cleared (for handshake)
+      else if ((~req_read_bus) & (~br_request_sync)) begin
+         // Wait until br_request_sync cleared (for handshake)
          brState <= BR_IDLE;
       end
    end
