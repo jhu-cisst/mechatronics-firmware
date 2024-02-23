@@ -297,9 +297,11 @@ assign eth_send_addr_mux = eth_send_ack ? eth_send_addr : reg_raddr[8:0];
 
 // phy-link interface
 PhyLinkInterface
-    #(.NUM_BC_READ_QUADS(NUM_BC_READ_QUADS))
+    #(.NUM_BC_READ_QUADS(NUM_BC_READ_QUADS),
+      .USE_ETH_CLK(0))
 phy(
     .sysclk(sysclk),         // in: global clk  
+    .ethclk(sysclk),         // in: Ethernet clk (not used)
     .board_id(board_id),     // in: board id (rotary switch)
     .node_id(node_id),       // out: phy node id
 

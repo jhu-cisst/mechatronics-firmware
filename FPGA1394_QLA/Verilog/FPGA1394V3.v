@@ -99,7 +99,17 @@ localparam NUM_BC_READ_QUADS = (1+NUM_RT_READ_QUADS);
 //   0:   Use sysclk for Ethernet RT interface Rx/Tx
 //   1:   Use clk_125MHz for Ethernet RT interface Rx/Tx, which requires clock
 //        domain crossing (to sysclk) when accessing FPGA registers
-localparam ETH_RT_FAST = 1'b0;
+localparam ETH_RT_FAST = 1'b1;
+
+wire clk_125MHz;
+
+// Clock to use for RT Ethernet Rx/Tx (EthRtInterface and EthernetIO)
+wire rt_clk;
+
+if (ETH_RT_FAST)
+   assign rt_clk = clk_125MHz;
+else
+   assign rt_clk = sysclk;
 
 // 1394 phy low reset, never reset
 assign reset_phy = 1'b1;
@@ -354,9 +364,11 @@ assign eth_send_addr_mux = eth_send_ack ? eth_send_addr : reg_raddr[8:0];
 
 // phy-link interface
 PhyLinkInterface
-    #(.NUM_BC_READ_QUADS(NUM_BC_READ_QUADS))
+    #(.NUM_BC_READ_QUADS(NUM_BC_READ_QUADS),
+      .USE_ETH_CLK(ETH_RT_FAST))
 phy(
     .sysclk(sysclk),         // in: global clk  
+    .ethclk(rt_clk),         // in: Ethernet clk
     .board_id(board_id),     // in: board id (rotary switch)
     .node_id(node_id),       // out: phy node id
 
@@ -711,7 +723,6 @@ VirtualPhy VPhy(
 // In the future, this can be replaced by a Tx clk with a 90 degree
 // phase shift, which can be obtained from a more recent gmii_to_rgmii
 // IP core (provided with Vivado).
-wire clk_125MHz;
 
 wire clk_125A;
 wire clk_125B;
@@ -723,14 +734,6 @@ assign gmii_rx_clk[3] = clk_125A;
 
 assign gmii_tx_clk3_src = clk_125B;
 assign gmii_tx_clk3_dest = clk_125A;
-
-// Clock to use for RT Ethernet Rx/Tx (EthRtInterface and EthernetIO)
-wire rt_clk;
-
-if (ETH_RT_FAST)
-   assign rt_clk = clk_125MHz;
-else
-   assign rt_clk = sysclk;
 
 EthRtInterface eth_rti(
     .clk(rt_clk),
@@ -834,7 +837,7 @@ EthernetTransfers(
     .host_fw_addr(eth_host_fw_addr),   // out: eth fw host address (e.g., ffd0)
 
     // Interface from Firewire (for sending packets via Ethernet)
-    // Note that sendReq(eth_send_req) is in KSZ8851
+    // Note that sendReq(eth_send_req) is in EthRtInterface
     .sendAck(eth_send_ack),
     .sendAddr(eth_send_addr),
     .sendData(reg_rdata_fw),

@@ -92,9 +92,11 @@ module EthernetIO
     output reg[15:0] host_fw_addr,     // Firewire address of host (e.g., ffd0)
 
     // Interface from Firewire (for sending packets via Ethernet)
-    // Note that sendAck is asserted when the Ethernet module is accessing the Firewire
-    // packet memory via sendAddr and sendData.
-    output reg sendAck,              // Ack from Ethernet
+    // sendAck is in sysclk domain
+    // sendAddr and sendData are in RxTxClk domain
+    // sendLen is in RxTxClk domain, but it is set in advance and therefore
+    // clock domain crossing not necessary
+    output wire sendAck,             // Ack from Ethernet
     output reg[8:0] sendAddr,        // Address into packet memory
     input wire[31:0] sendData,       // Packet data from memory
     input wire[15:0] sendLen,        // Packet size (bytes)
@@ -761,8 +763,14 @@ wire[9:0] fwRequestTrigger;
 // In both cases, we add 2 words to provide some margin and handle round-off.
 generate
 if (IS_V3) begin
-  assign writeRequestTrigger = {bwStart, 1'd0} + {1'd0, bwLen} + 10'd2;
-  assign fwRequestTrigger    = LengthFW[11:2] + 10'd2;
+   if (USE_RXTX_CLK) begin
+      assign writeRequestTrigger = {bwStart, 1'd0} + 10'd2;
+      assign fwRequestTrigger    = 10'd2;
+   end
+   else begin
+      assign writeRequestTrigger = {bwStart, 1'd0} + {1'd0, bwLen} + 10'd2;
+      assign fwRequestTrigger    = LengthFW[11:2] + 10'd2;
+   end
 end
 else begin
   assign writeRequestTrigger = {bwStart, 1'd0} + {1'd0, bwLen} +
@@ -1205,6 +1213,9 @@ reg  eth_send_fw_req_rxtx;  // request Firewire to send packet (eth_send_fw_req 
 // input wire eth_send_fw_ack
 wire eth_send_fw_ack_rxtx;  // eth_send_fw_ack input in RxTxClk domain
 
+// output wire sendAck
+reg sendAck_rxtx;
+
 reg  writeRequest_rxtx;     // request register write from RxTxClk domain
 wire writeRequest;          // request register write in sysclk domain
 
@@ -1236,15 +1247,18 @@ if (USE_RXTX_CLK) begin
    assign br_ack_rxtx = br_ack_latched;
    // Synchronize signals from RxTxClk to sysclk
    reg eth_send_fw_req_rxtx_latched;
+   reg sendAck_rxtx_latched;
    reg writeRequest_rxtx_latched;
    reg br_request_rxtx_latched;
    always @(posedge sysclk)
    begin
       eth_send_fw_req_rxtx_latched <= eth_send_fw_req_rxtx;
       writeRequest_rxtx_latched <= writeRequest_rxtx;
+      sendAck_rxtx_latched <= sendAck_rxtx;
       br_request_rxtx_latched <= br_request_rxtx;
    end
    assign eth_send_fw_req = eth_send_fw_req_rxtx_latched;
+   assign sendAck = sendAck_rxtx_latched;
    assign writeRequest = writeRequest_rxtx_latched;
    assign br_request = br_request_rxtx_latched;
 end
@@ -1253,6 +1267,7 @@ else begin
    assign clearErrors_rxtx = clearErrors;
    assign eth_send_fw_req = eth_send_fw_req_rxtx;
    assign eth_send_fw_ack_rxtx = eth_send_fw_ack;
+   assign sendAck = sendAck_rxtx;
    assign writeRequest = writeRequest_rxtx;
    assign bw_active = bw_active_sys;
    assign br_request = br_request_rxtx;
@@ -1359,6 +1374,7 @@ begin
 
       if (recvRequest) begin
          recvBusy <= 1;
+         bwStart <= 9'd15;    // Large value to prevent early write
          FireWirePacketFresh <= 0;
          fwPacketDropped <= 0;
          srcPortReg <= srcPort;
@@ -1746,7 +1762,7 @@ begin
          if (replyCnt == Frame_Reply_End) begin
             if (isForward && !useUDP) begin
                sendState <= ST_SEND_DMA_FWD;
-               sendAck <= 1;
+               sendAck_rxtx <= 1;
                sendAddr <= 9'd0;
             end
             else if (sendARP && !isForward) begin
@@ -1771,7 +1787,7 @@ begin
          else if (replyCnt == UDP_Reply_End) begin
             if (isForward) begin
                sendState <= ST_SEND_DMA_FWD;
-               sendAck <= 1;
+               sendAck_rxtx <= 1;
                sendAddr <= 9'd0;
             end
             else begin
@@ -1904,7 +1920,7 @@ begin
    ST_SEND_DMA_FINISH:
    begin
       icmp_read_en <= 0;
-      sendAck <= 0;
+      sendAck_rxtx <= 0;
       sendBusy <= 0;
       sendState <= ST_SEND_DMA_IDLE;
    end
@@ -1920,7 +1936,7 @@ end
 
 // Following handles writing to board registers via quadlet or block write.
 //
-// For the KSZ8851,
+// For FPGA V2 (using KSZ8851),
 // the DMA receive process requires 5 sysclk for reading each word (16-bits)
 // for a total of 10 sysclk (~200 nsec) per quadlet.
 // Thus, quadlet N is available at t = 10*N*sysclk, relative to when the
@@ -1928,10 +1944,13 @@ end
 // the first 5 quadlets are the block write header, which do not get written
 // to the registers.
 //
-// For the RTL8211F, the receive process uses 4 sysclk for reading each word,
-// so data is available faster. It is ok (though not optimal) to use the
-// KSZ8851 timing, so the IS_V3 parameter is used to improve the timing.
-// In this case, quadlet N is available at t = 8*N*sysclk.
+// For FPGA V3, data is received from EthRtInterface, which reads from a
+// FIFO in EthSwitch, using either sysclk (49.152 MHz, USE_RXTX_CLK=0)
+// or RxTxClk (125 MHz, USE_RXTX_CLK=1). It currently uses 4 clocks:
+// 2 to read the 2 bytes from the FIFO, and 2 for EthernetIO to process.
+// For USE_RXTX_CLK=0, quadlet N is available at t = 8*N*sysclk.
+// For USE_RXTX_CLK=1, sysclk is replaced by RxTxClk, which is approximately
+// sysclk/2.5 (49.125/125), so we can conservatively use 4*N*sysclk.
 //
 // The register block write process (below) is timed as follows:
 //   4 sysclk (80 nsec) for blk_wstart at beginning
@@ -1947,7 +1966,7 @@ end
 // writeRequest is set; specifically when quadlet M is being stored
 // (see writeRequestTrigger).
 //
-// For KSZ8851:
+// For FPGA V2 (KSZ8851):
 //   10(N-M)*sysclk < 4(N+1)*sysclk
 //   M > (3N-2)/5
 //
@@ -1957,24 +1976,25 @@ end
 //   Thus, it is sufficient to choose M = N/2 + N/8 - N/64, which can be
 //   implemented by shifting and adding/subtracting.
 //
-// For RTL8211F:
-//   8(N-M)*sysclk < 4(N+1)*sysclk
-//   M > (N-1)/2
+// For FPGA V3 (EthRtInterface/EthSwitch):
+//   X(N-M)*sysclk < 4(N+1)*sysclk   (X = 4 or 8)
+//   M > (N-1)/2  (X = 8)
+//   M > 0        (X = 4)
 //
-//   Thus, it is sufficient to choose M = N/2, which can easily be implemented
-//   in an FPGA (shift by 2).
+//   For X=8, it is sufficient to choose M = N/2, which can easily be implemented
+//   in an FPGA (shift by 2). For X=4, we can set M = 0.
 //
 // The reader actually works with words, rather than quadlets, and has to add the
 // length of the block write header. In addition, we add 2 to provide some margin (and
 // handle round-off), which leads to the equation above for setting writeRequestTrigger.
 //
 // Forwarding packets via Firewire has similar timing. The Firewire module requires
-// 4 clocks per quadlet, whereas the KSZ8851 requires 10 clocks and the RTL8211F requires
-// 8 clocks. Thus, we can start the Firewire transfer when we are M of the
-// way through a packet of size N:
-//   KSZ8851:  (N-M)*10 < N*4  --> 6*N < 10*M --> M > (3/5)*N
-//   RTL8211F: (N-M)*8 < N*4   --> 4*N < 8*M  --> M > (1/2)*N
-//
+// 4 clocks per quadlet, whereas FPGA V2 (KSZ8851) requires 10 clocks and FPGA V3 requires
+// 8 clocks (or less, if USE_RXTX_CLK=1). Thus, we can start the Firewire transfer when we
+// are M of the way through a packet of size N:
+//   FPGA V2:  (N-M)*10 < N*4  --> 6*N < 10*M --> M > (3/5)*N
+//   FPGA V3: (N-M)*8 < N*4   --> 4*N < 8*M  --> M > (1/2)*N   (USE_RXTX_CLK=0)
+//                                               M > 0         (USE_RXTX_CLK=1)
 localparam[2:0]
    BW_IDLE = 3'd0,
    BW_WSTART = 3'd1,

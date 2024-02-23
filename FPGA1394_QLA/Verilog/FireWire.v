@@ -185,10 +185,12 @@
 `define MIN_ROM_ENTRY  {4'h01, `JHU_LCSR_CID}
 
 module PhyLinkInterface
-    #(parameter NUM_BC_READ_QUADS = 33)
+    #(parameter NUM_BC_READ_QUADS = 33,
+      parameter USE_ETH_CLK = 1'b0)
 (
     // globals
     input wire sysclk,           // system clock
+    input wire ethclk,           // Ethernet clock
     input wire[3:0] board_id,    // global board id
     output reg[5:0] node_id,     // phy node id
 
@@ -224,6 +226,9 @@ module PhyLinkInterface
     input wire[15:0] eth_fwpkt_len,   // firewire pkt len in bytes
     input wire[15:0] eth_fw_addr,     // Host (PC) Firewire address (via Ethernet)
 
+    // eth_send_addr and eth_send_data are in ethclk domain
+    // Everything else is in sysclk domain (clock domain crossing, if needed,
+    // done in EthernetIO)
     output reg eth_send_req,         // request to send ethernet packet
     input wire eth_send_ack,         // ack from ethernet module
     input wire[8:0] eth_send_addr,   // packet address bus
@@ -651,13 +656,27 @@ assign write_trig_reset = ((lreq_type == `LREQ_TX_ISO) && (tx_type == `TX_TYPE_B
 // not, the eth_active flag is cleared at that time.
 reg eth_active;
 
+reg eth_send_req_pending;
+
 // packet module (used to store FireWire packet that will be forwarded to Ethernet).
 // This is 512 quadlets (512 x 32), which is the maximum possible Firewire packet size at 400 Mbits/sec
 // (actually, could add a few quadlets because the 512 limit does not include header and CRC).
 reg pkt_mem_wen;
 reg [8:0] pkt_mem_waddr;
 reg [31:0] pkt_mem_wdata;
-DPRAM_32x512_sclk pkt_mem(
+if (USE_ETH_CLK) begin
+    DPRAM_32x512_aclk pkt_mem(
+                    .clka(sysclk),
+                    .wea(pkt_mem_wen),
+                    .addra(pkt_mem_waddr),
+                    .dina(pkt_mem_wdata),
+                    .clkb(ethclk),
+                    .addrb(eth_send_addr),
+                    .doutb(eth_send_data)
+                    );
+end
+else begin
+    DPRAM_32x512_sclk pkt_mem(
                     .clka(sysclk),
                     .wea(pkt_mem_wen),
                     .addra(pkt_mem_waddr),
@@ -666,6 +685,7 @@ DPRAM_32x512_sclk pkt_mem(
                     .addrb(eth_send_addr),
                     .doutb(eth_send_data)
                     );
+end
 `endif
    
 //
@@ -993,13 +1013,18 @@ begin
 
 `ifdef HAS_ETHERNET
                             // trigger packet forward if packet is for pc
+                            // For USE_ETH_CLK, we have to worry about Ethernet running faster than
+                            // Firewire. For now, we set eth_send_req_pending and just trigger the
+                            // forward after the entire packet is received
                             if (eth_active) begin
                                if ((rx_dest[15:0] == eth_fw_addr) && (rx_tcode == `TC_QRESP)) begin
-                                  eth_send_req <= 1;
+                                  eth_send_req <= ~USE_ETH_CLK;
+                                  eth_send_req_pending <= USE_ETH_CLK;
                                   eth_send_len <= 16'd20;
                                end
                                else if ((rx_dest[15:0] == eth_fw_addr) && (rx_tcode == `TC_BRESP)) begin
-                                  eth_send_req <= 1;
+                                  eth_send_req <= ~USE_ETH_CLK;
+                                  eth_send_req_pending <= USE_ETH_CLK;
                                   eth_send_len <= 16'd24 + buffer[31:16];
                                end
                             end
@@ -1080,6 +1105,19 @@ begin
                     // makes the ack an error if there is a crc error
                     if (crc_comp != buffer)
                         tx_type <= `TX_TYPE_DATA;
+
+`ifdef HAS_ETHERNET
+                    // Request Ethernet to send pending packet. Note that eth_send_req_pending
+                    // is set when USE_ETH_CLK=1, which is assumed to use a 125 MHz clock.
+                    // Thus, we wait until the entire packet is stored in memory before we issue
+                    // the request, so that the reader (EthernetIO) does not overtake the writer
+                    // (FireWire). The request could be made sooner (e.g., see fwRequestTrigger
+                    // in EthernetIO) if the correct trigger value is computed.
+                    if (eth_send_req_pending) begin
+                        eth_send_req <= 1'b1;
+                        eth_send_req_pending <= 1'b0;
+                    end
+`endif
 
                     // trigger a quadlet or block write event
                     // NOTE: 
