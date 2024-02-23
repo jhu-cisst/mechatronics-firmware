@@ -962,7 +962,7 @@ reg localHubWrite;
 // from local hub (hub_eth) rather than from br_packet memory
 wire localHubRead;
 if (IS_V3)
-   assign localHubRead = addrHub & (quadRead | blockRead) & isLocal & (~isRemote);
+   assign localHubRead = addrHub & (quadRead | blockRead) & isLocal & noForwardFlag;
 else
    assign localHubRead = 1'b0;
 
@@ -1541,15 +1541,15 @@ begin
             // it consistently for all broadcast quadlet writes.
             // It is necessary for the broadcast query command to make sure that all boards are ready for
             // the sequential update of Hub memory (especially if this board is the lowest numbered board)
-            writeRequest_rxtx <= isLocal&(~isRemote)&(~addrHubReg);
-            // If not remote (noForwardFlag), then we write the quadlet data to the local Hub register
+            writeRequest_rxtx <= isLocal & (~isRemote) & (~addrHubReg);
+            // If Ethernet-only (noForwardFlag), then we write the quadlet data to the local Hub register
             // (the quadlet data contains the sequence number and board mask).
-            reg_wen_hub_quad <= isLocal&(~isRemote)&addrHubReg&isBoardMasked;
+            reg_wen_hub_quad <= isLocal & noForwardFlag & addrHubReg & isBoardMasked;
          end
          else if ((rfw_count == 10'd9) && blockWrite) begin
             bwStart <= 9'd5;
             bwLen <= block_data_length[10:2];
-            localHubWrite <= isLocal&(~isRemote)&addrHubMem;
+            localHubWrite <= isLocal & noForwardFlag & addrHubMem;
          end
          else if (rfw_count == maxCountFW) begin
             reg_wen_hub_quad <= 1'b0;
