@@ -99,7 +99,7 @@ localparam NUM_BC_READ_QUADS = (1+NUM_RT_READ_QUADS);
 //   0:   Use sysclk for Ethernet RT interface Rx/Tx
 //   1:   Use clk_125MHz for Ethernet RT interface Rx/Tx, which requires clock
 //        domain crossing (to sysclk) when accessing FPGA registers
-localparam ETH_RT_FAST = 0;
+localparam ETH_RT_FAST = 1'b0;
 
 // 1394 phy low reset, never reset
 assign reset_phy = 1'b1;
@@ -232,7 +232,8 @@ assign isAddrMain = ((reg_raddr[15:12]==`ADDR_MAIN) && (reg_raddr[7:4]==4'd0)) ?
 // reg_rwait indicates when reg_rdata is valid
 //   0 --> same sysclk as reg_raddr (e.g., register read)
 //   1 --> one sysclk after reg_raddr set (e.g., reading from memory)
-// For ADDR_ETH, set reg_rwait=1 (worst-case) even though it could be 0 in some cases
+// For ADDR_ETH, set reg_rwait=1 (worst-case) even though it could be 0 in some cases (note,
+// however, that setting it to 1 is necessary when there is clock domain crossing)
 assign {reg_rdata, reg_rwait} =
                    ((reg_raddr[15:12]==`ADDR_HUB) ? {reg_rdata_hub, reg_rwait_hub} :
                     (reg_raddr[15:12]==`ADDR_PROM) ? {reg_rdata_prom, 1'b0} :
@@ -597,6 +598,7 @@ EthSwitch eth_switch (
     .clearErrors(eth_clear_errors),
 
     // For debugging
+    .sysclk(sysclk),                 // clock for read signals
     .reg_raddr(reg_raddr),           // read address
     .reg_rdata(reg_rdata_esw)        // register read data
 );
@@ -613,7 +615,7 @@ wire       mdio_busy_rt[1:2];   // OUT from RTL8211F module (MDIO busy)
 wire       mdio_clk_rt[1:2];    // OUT from RTL8211F module, IN to GMII core
 wire       mdio_clk_ps;         // OUT from Zynq PS, IN to VirtualPhy
 
-// Wires between EthSwitchRt and EthernetIO
+// Wires between EthRtInterface and EthernetIO
 wire resetActive_e[1:2];        // Ethernet port reset active
 wire eth_isForward;             // Indicates that FireWire receiver is forwarding to Ethernet
 wire eth_responseRequired;      // Indicates that the received packet requires a response
@@ -733,6 +735,9 @@ else
 EthRtInterface eth_rti(
     .clk(rt_clk),
 
+    // These signals are in the sysclk domain, but are just used
+    // for reading debug registers
+    .sysclk(sysclk),
     .reg_raddr(reg_raddr),
     .reg_rdata(reg_rdata_rti),
 
@@ -755,9 +760,10 @@ EthRtInterface eth_rti(
     .PacketInfo(txinfo_rt),    // Packet information
 
     // Interface from Firewire (for sending packets via Ethernet)
+    // This signal is in the sysclk domain
     .sendReq(eth_send_req),
 
-    // Interface to EthernetIO
+    // Interface to EthernetIO (assumed to be in rt_clk domain)
     .isForward(eth_isForward),        // Indicates that FireWire receiver is forwarding to Ethernet
     .responseRequired(eth_responseRequired),   // Indicates that the received packet requires a response
     .responseByteCount(eth_responseByteCount), // Number of bytes in required response

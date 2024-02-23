@@ -46,7 +46,7 @@ module EthernetIO
     #(parameter IPv4_CSUM = 0,     // Set to 1 to generate IPv4 (and ICMP) header checksum
       parameter IS_V3 = 0,         // Set to 1 to indicate FPGA V3
       parameter NUM_BC_READ_QUADS = 33,
-      parameter USE_RXTX_CLK = 0)
+      parameter USE_RXTX_CLK = 1'b0)
 (
     // global clock
     input wire sysclk,
@@ -84,8 +84,8 @@ module EthernetIO
     input wire       grant_write_bus,
 
     // Interface to FireWire module (for sending packets via FireWire)
-    output reg eth_send_fw_req,   // request to send firewire packet
-    input wire eth_send_fw_ack,   // ack from firewire module
+    output wire eth_send_fw_req,   // request to send firewire packet
+    input wire eth_send_fw_ack,    // ack from firewire module
     input  wire[8:0] eth_fwpkt_raddr,
     output wire[31:0] eth_fwpkt_rdata,
     output wire[15:0] eth_fwpkt_len,   // eth received fw pkt length
@@ -105,6 +105,7 @@ module EthernetIO
     input wire[31:0] timestamp,
 
     // Interface to KSZ8851 or EthRtInterface
+    // Note that these are assumed to be in the RxTxClk domain
     input wire resetActive,          // Indicates that reset is active
     input wire isForward,            // Indicates that FireWire receiver is forwarding to Ethernet
     output wire responseRequired,    // Indicates that the received packet requires a response
@@ -128,7 +129,7 @@ module EthernetIO
     // bw_active is provided to lower-level module so that other actions (e.g., flushing KSZ8851
     // queue for FPGA V2) can happen in parallel; however, the lower-level module should wait until
     // bw_active is no longer asserted before setting recvRequest to process the next packet.
-    output reg bw_active,            // Indicates that block write module is active
+    output wire bw_active,           // Indicates that block write module is active
     input wire ethLLError,           // Error summary bit to EthernetIO (from low-level)
     output wire[7:0] eth_status,     // Status feedback
     output reg clearErrors           // Flag set by host to clear error bits and counters
@@ -732,10 +733,6 @@ reg[7:0] numPacketError;     // Number of packet errors (Frame, IPv4 or UDP erro
 wire is_ip_unassigned;
 assign is_ip_unassigned = (ip_address == IP_UNASSIGNED) ? 1'd1 : 1'd0;
 
-// Request a local write to be performed (quadWrite or blockWrite);
-// this request is cleared when grant_write_bus is asserted
-reg writeRequest;
-
 // Variables used by block write process. Originally, this was only for the RT block
 // write, but it is now used for all block writes. Note that the RT block write relies
 // on the WriteAddressTranslation module to translate addresses, as well as to only
@@ -806,7 +803,7 @@ assign ExtraData[3] = timeNow;
 wire[31:0] DebugData[0:15];
 assign DebugData[0]  = "2GBD";  // DBG2 byte-swapped
 assign DebugData[1]  = timestamp;
-assign DebugData[2]  = { writeRequest, 1'd0, bw_active, eth_send_isIdle,                         // 31:28
+assign DebugData[2]  = { writeRequest, 1'd0, bw_active_sys, eth_send_isIdle,                     // 31:28
                          eth_recv_isIdle, ethUDPError, 1'b0, ethIPv4Error,                       // 27:24
                          sendBusy, sendRequest, eth_send_fw_ack, eth_send_fw_req,                // 23:20
                          recvBusy, recvRequest, isLocal, isRemote,                               // 19:16
@@ -872,7 +869,7 @@ reg mem_wen;   // memory write enable
 // (see writeRequestTrigger and fwRequestTrigger).
 
 if (USE_RXTX_CLK) begin
-   assign mem_raddr = bw_active     ? local_raddr
+   assign mem_raddr = bw_active_sys ? local_raddr
                                     : {2'd0, reg_raddr_in[6:0]};
    wire[31:0] mem_rdata_icmp;
    wire[31:0] mem_rdata_bw;
@@ -906,7 +903,7 @@ if (USE_RXTX_CLK) begin
                               );
 end
 else begin
-   assign mem_raddr = bw_active     ? local_raddr :
+   assign mem_raddr = bw_active_sys ? local_raddr :
                       icmp_read_en  ? sfw_count[9:1]
                                     : {2'd0, reg_raddr_in[6:0]};
 
@@ -1182,6 +1179,86 @@ begin
    end
 end
 
+//**********************************************************************************************
+// Clock domain crossing
+//
+// Following handles possible clock domain crossing between sysclk and RxTxClk. For clarity,
+// signals that cross this domain have the name suffix "_rxtx" in the RxTxClk domain, except
+// for signals that are provided to the lower-level Ethernet module (KSZ8851 or EthRtInterface),
+// since these are assumed to be in the RxTxClk domain. There is one signal, bw_active_sys,
+// that is generated in the sysclk domain and provided to the lower-level module as bw_active.
+//
+// If USE_RXTX_CLK=0, there is no clock domain crossing (sysclk and RxTxClk are the same).
+// If USE_RXTX_CLK=1, there is clock domain crossing and we latch the signal using the
+// appropriate clock.
+//
+//**********************************************************************************************
+
+// Signals between sysclk and RxTxClk
+
+// input wire clearErrors
+wire clearErrors_rxtx;      // clearErrors input in RxTxClk domain
+
+// output wire eth_send_fw_req
+reg  eth_send_fw_req_rxtx;  // request Firewire to send packet (eth_send_fw_req output)
+
+// input wire eth_send_fw_ack
+wire eth_send_fw_ack_rxtx;  // eth_send_fw_ack input in RxTxClk domain
+
+reg  writeRequest_rxtx;     // request register write from RxTxClk domain
+wire writeRequest;          // request register write in sysclk domain
+
+reg bw_active_sys;          // register write active in sysclk domain
+// output wire bw_active (actually in RxTxClk domain)
+
+reg  br_request_rxtx;       // request register read into br_packet memory from RxTxClk domain
+wire br_request;            // request register read into br_packet_memory in sysclk domain
+
+reg  br_ack;                // Acknowledge br_request
+wire br_ack_rxtx;           // br_ack in RxTxClk domain
+
+if (USE_RXTX_CLK) begin
+   // Synchronize signals from sysclk to RxTxClk
+   reg clearErrors_latched;
+   reg eth_send_fw_ack_latched;
+   reg bw_active_sys_latched;
+   reg br_ack_latched;
+   always @(posedge RxTxClk)
+   begin
+      clearErrors_latched <= clearErrors;
+      eth_send_fw_ack_latched <= eth_send_fw_ack;
+      bw_active_sys_latched <= bw_active_sys;
+      br_ack_latched <= br_ack;
+   end
+   assign clearErrors_rxtx = clearErrors_latched;
+   assign eth_send_fw_ack_rxtx = eth_send_fw_ack_latched;
+   assign bw_active = bw_active_sys_latched;
+   assign br_ack_rxtx = br_ack_latched;
+   // Synchronize signals from RxTxClk to sysclk
+   reg eth_send_fw_req_rxtx_latched;
+   reg writeRequest_rxtx_latched;
+   reg br_request_rxtx_latched;
+   always @(posedge sysclk)
+   begin
+      eth_send_fw_req_rxtx_latched <= eth_send_fw_req_rxtx;
+      writeRequest_rxtx_latched <= writeRequest_rxtx;
+      br_request_rxtx_latched <= br_request_rxtx;
+   end
+   assign eth_send_fw_req = eth_send_fw_req_rxtx_latched;
+   assign writeRequest = writeRequest_rxtx_latched;
+   assign br_request = br_request_rxtx_latched;
+end
+else begin
+   // No clock domain crossing
+   assign clearErrors_rxtx = clearErrors;
+   assign eth_send_fw_req = eth_send_fw_req_rxtx;
+   assign eth_send_fw_ack_rxtx = eth_send_fw_ack;
+   assign writeRequest = writeRequest_rxtx;
+   assign bw_active = bw_active_sys;
+   assign br_request = br_request_rxtx;
+   assign br_ack_rxtx = br_ack;
+end
+
 //*****************************************************************
 //  ETHERNET Receive state machine
 //*****************************************************************
@@ -1214,8 +1291,6 @@ reg[5:0] recvCnt;       // Index into PacketBuffer
 reg[9:0] rfw_count;     // Counts words in FireWire packets (max is 1024 words, or 2048 bytes)
 reg[5:0] rebootCnt;     // Counter used to delay reboot command (could reuse recvCnt)
 
-reg br_request;         // Request block (or quadlet) read of registers into br_packet memory
-reg br_ack;             // Acknowledge br_request
 reg[7:0] br_wait_cnt;   // Number of clocks waiting for block read to finish
 
 assign responseRequired = ((FireWirePacketFresh &
@@ -1229,58 +1304,28 @@ assign desired_ip_address = { (reg_wdata_in == IP_UNASSIGNED) ? reg_wdata_in[31:
                                                               : (reg_wdata_in[31:24] + {4'd0, board_id}),
                               reg_wdata_in[23:0] };
 
-// Clock domain crossing (if USE_RXTX_CLK)
-// Do not need to synchronize resetActive because it is not used for FPGA V3 (always 0)
-wire grant_write_bus_sync;
-wire eth_send_fw_ack_sync;
-wire br_ack_sync;
-wire clearErrors_sync;
-if (USE_RXTX_CLK) begin
-   reg grant_write_bus_latched;
-   reg eth_send_fw_ack_latched;
-   reg br_ack_latched;
-   reg clearErrors_latched;
-   always @(posedge RxClk)
-   begin
-      grant_write_bus_latched <= grant_write_bus;
-      eth_send_fw_ack_latched <= eth_send_fw_ack;
-      br_ack_latched <= br_ack;
-      clearErrors_latched <= clearErrors;
-   end
-   assign grant_write_bus_sync = grant_write_bus_latched;
-   assign eth_send_fw_ack_sync = eth_send_fw_ack_latched;
-   assign br_ack_sync = br_ack_latched;
-   assign clearErrors_sync = clearErrors_latched;
-end
-else begin
-   assign grant_write_bus_sync = grant_write_bus;
-   assign eth_send_fw_ack_sync = eth_send_fw_ack;
-   assign br_ack_sync = br_ack;
-   assign clearErrors_sync = clearErrors;
-end
-
 always @(posedge RxClk)
 begin
 
    dataValid <= recvReady;           // 1 clock after recvReady
    recvTransition <= dataValid;      // 1 clock after dataValid
 
-   if (writeRequest & grant_write_bus_sync) begin
-      writeRequest <= 1'd0;
+   if (eth_send_fw_ack_rxtx) begin
+      eth_send_fw_req_rxtx <= 1'b0;
    end
 
-   if (eth_send_fw_ack_sync) begin
-      eth_send_fw_req <= 0;
+   if (bw_active) begin
+      writeRequest_rxtx <= 1'b0;
    end
 
-   if (br_ack_sync) begin
-      br_request <= 1'b0;
+   if (br_ack_rxtx) begin
+      br_request_rxtx <= 1'b0;
    end
 
    // req_blk_rt_rd is asserted for just one sysclk
    req_blk_rt_rd <= 1'b0;
 
-   if (resetActive|clearErrors_sync) begin
+   if (resetActive|clearErrors_rxtx) begin
       numPacketError <= 8'd0;
       ethFrameError <= 0;
       ethIPv4Error <= 0;
@@ -1301,12 +1346,12 @@ begin
       recvCnt <= 6'd0;
       nextRecvState <= ST_RECEIVE_DMA_IDLE;
       recvBusy <= 0;
-      writeRequest <= 1'b0;
-      br_request <= 1'b0;
+      writeRequest_rxtx <= 1'b0;
+      br_request_rxtx <= 1'b0;
       localHubWrite <= 1'b0;
-      eth_send_fw_req <= 0;
+      eth_send_fw_req_rxtx <= 0;
 
-      if (resetActive|clearErrors_sync) begin
+      if (resetActive|clearErrors_rxtx) begin
          FireWirePacketFresh <= 0;
          fwPacketDropped <= 0;
          ethRecvStateError <= 0;
@@ -1421,8 +1466,8 @@ begin
    ST_RECEIVE_DMA_FIREWIRE_PACKET:
    begin
       // Unexpected end of data from lower-level
-      if (recvFinish) recvState <= (eth_send_fw_req | br_request) ? ST_RECEIVE_DMA_WAIT_START
-                                                                  : ST_RECEIVE_DMA_WAIT_FINISH;
+      if (recvFinish) recvState <= (eth_send_fw_req_rxtx | br_request_rxtx)
+                                   ? ST_RECEIVE_DMA_WAIT_START : ST_RECEIVE_DMA_WAIT_FINISH;
       if (recvTransition) rfw_count <= rfw_count + 10'd1;
 
       // Read FireWire packet, byteswap to make it easier to work with.
@@ -1480,7 +1525,7 @@ begin
             // it consistently for all broadcast quadlet writes.
             // It is necessary for the broadcast query command to make sure that all boards are ready for
             // the sequential update of Hub memory (especially if this board is the lowest numbered board)
-            writeRequest <= isLocal&(~isRemote)&(~addrHubReg);
+            writeRequest_rxtx <= isLocal&(~isRemote)&(~addrHubReg);
             // If not remote (noForwardFlag), then we write the quadlet data to the local Hub register
             // (the quadlet data contains the sequence number and board mask).
             reg_wen_hub_quad <= isLocal&(~isRemote)&addrHubReg&isBoardMasked;
@@ -1511,7 +1556,7 @@ begin
               bw_left <= bwEnd - local_raddr;
            end
            else if (isLocal & (quadRead | blockRead | hubSend)) begin
-              br_request <= 1'b1;
+              br_request_rxtx <= 1'b1;
               br_wait_cnt <= 8'd0;
             end
             if (hubSend) begin
@@ -1521,7 +1566,7 @@ begin
             if (isRemote) begin
                // Request to forward should already have been set (using fwRequestTrigger).
                // We expect that it would still be active.
-               fw_err <= ~eth_send_fw_ack_sync;
+               fw_err <= ~eth_send_fw_ack_rxtx;
                // Number of quadlets left to write to registers; should be greater than 1,
                // otherwise the Firewire writer may have overtaken the Ethernet reader.
                fw_left <= eth_fwpkt_len[10:2] - eth_fwpkt_raddr;
@@ -1532,10 +1577,10 @@ begin
          end
 
          if (blockWrite && (rfw_count == writeRequestTrigger)) begin
-            writeRequest <= isLocal & (~localHubWrite);
+            writeRequest_rxtx <= isLocal & (~localHubWrite);
          end
          if ((rfw_count == fwRequestTrigger) && isRemote) begin
-            eth_send_fw_req <= 1'b1;
+            eth_send_fw_req_rxtx <= 1'b1;
             fw_wait_cnt <= 8'd0;
             host_fw_addr <= fw_src_id;
          end
@@ -1545,11 +1590,11 @@ begin
 
    ST_RECEIVE_DMA_WAIT_START:
    begin
-      if (eth_send_fw_req | eth_send_fw_ack_sync) begin
+      if (eth_send_fw_req_rxtx | eth_send_fw_ack_rxtx) begin
          // Waiting for Ethernet forward to finish
          fw_wait_cnt <= fw_wait_cnt + 8'd1;
       end
-      else if (br_request | br_ack_sync) begin
+      else if (br_request_rxtx | br_ack_rxtx) begin
          // Wait until read from registers finished
          br_wait_cnt <= br_wait_cnt + 8'd1;
       end
@@ -1568,7 +1613,7 @@ begin
             // If any other broadcast quadlet write (local and remote),
             // write it to the hardware now.
             if (quadWrite)
-                writeRequest <= isRemote&isLocal;
+                writeRequest_rxtx <= isRemote&isLocal;
             // Wait for any pending writes to start (including any previously
             // requested quadlet or block writes)
             recvState <= ST_RECEIVE_DMA_WAIT_FINISH;
@@ -1582,19 +1627,18 @@ begin
       // make sure Firewire packet has been transmitted
       rebootCnt <= rebootCnt + 6'd1;
       if (rebootCnt == 6'h3f) begin
-         writeRequest <= 1'b1;
+         writeRequest_rxtx <= 1'b1;
          recvState <= ST_RECEIVE_DMA_WAIT_FINISH;
       end
    end
 
    ST_RECEIVE_DMA_WAIT_FINISH:
    begin
-      // Wait until writeRequest is 0; otherwise IDLE state will clear it.
-      // This could be a problem if the bwState loop has not yet received grant_write_bus.
-      // Alternatively, could remove clear from IDLE state.
-      // Once writeRequest is 0, we perform the final handshaking with the lower-level by
-      // clearing recvBusy and then waiting for recvRequest to be cleared.
-      if (~writeRequest) begin
+      // First, wait until writeRequest and bw_active are both 0, indicating that any
+      // requested register write has completed.
+      // Then, perform the final handshaking with the lower-level by clearing recvBusy
+      // and waiting for recvRequest to be cleared.
+      if ((~writeRequest_rxtx) & (~bw_active)) begin
          recvBusy <= 1'b0;
          if (~recvRequest)
             recvState <= ST_RECEIVE_DMA_IDLE;
@@ -1672,7 +1716,7 @@ assign responseByteCount =
 always @(posedge TxClk)
 begin
 
-   if (resetActive|clearErrors_sync) begin
+   if (resetActive|clearErrors_rxtx) begin
       ethSendStateError <= 0;
    end
 
@@ -1943,20 +1987,6 @@ reg[2:0] bwState = BW_IDLE;
 reg[1:0] bwCnt;
 reg bwAddrMain;        // 1 -> real-time block write
 
-// Clock domain crossing (if USE_RXTX_CLK)
-wire writeRequest_sync;
-if (USE_RXTX_CLK) begin
-   reg writeRequest_latched;
-   always @(posedge sysclk)
-   begin
-      writeRequest_latched <= writeRequest;
-   end
-   assign writeRequest_sync = writeRequest_latched;
-end
-else begin
-   assign writeRequest_sync = writeRequest;
-end
-
 always @(posedge sysclk)
 begin
 
@@ -1965,16 +1995,18 @@ begin
    BW_IDLE:
    begin
       bwCnt <= 2'd0;
-      if (quadWrite & (writeRequest_sync | grant_write_bus)) begin
+      if (quadWrite & writeRequest) begin
          req_write_bus <= 1'b1;
          reg_waddr <= fw_dest_offset;
          reg_wdata <= fw_quadlet_data;
          reg_wen <= 1;
          blk_wen <= 1;
-         if (grant_write_bus)
+         if (grant_write_bus) begin
+            bw_active_sys <= 1;
             bwState <= BW_WAIT;
+         end
       end
-      else if (blockWrite & (writeRequest_sync | grant_write_bus)) begin
+      else if (blockWrite & writeRequest) begin
          req_write_bus <= 1'b1;
          local_raddr <= bwStart;
          bwAddrMain <= addrMain;
@@ -1989,12 +2021,12 @@ begin
          // the first increment causes it to become 0.
          reg_waddr[11:0] <= addrMain ? 12'hfff : (fw_dest_offset[11:0] - 12'd1);
          if (grant_write_bus) begin
-            bw_active <= 1;
+            bw_active_sys <= 1;
             bwState <= BW_WSTART;
          end
       end
       else begin
-         bw_active <= 0;
+         bw_active_sys <= 0;
          req_write_bus <= 0;
          reg_wen <= 0;    // Clean up from quadlet/block writes
          blk_wen <= 0;
@@ -2041,7 +2073,11 @@ begin
 
    BW_BLK_WEN:
    begin
-      bw_active <= 0;   // Stop accessing memory
+      // Could enable following line to stop memory access, but
+      // it may be safer to keep bw_active set until the entire
+      // write process (including blk_wen) is finished.
+      // bw_active_sys <= 0;
+
       // Wait 60 nsec before asserting blk_wen
       if (bwCnt == 2'd3) begin
          blk_wen <= 1'b1;
@@ -2054,9 +2090,11 @@ begin
 
    BW_WAIT:
    begin
-      // Wait for Rx process to clear writeRequest
+      // Wait for Rx process to clear writeRequest (should not have
+      // to wait long, since Rx process clears it as soon as bw_active
+      // is asserted).
       req_write_bus <= 1'b0;
-      if (~writeRequest_sync)
+      if (~writeRequest)
          bwState <= BW_IDLE;
    end
 
@@ -2114,20 +2152,6 @@ else begin
                               );
 end
 
-// Clock domain crossing (if USE_RXTX_CLK)
-wire br_request_sync;
-if (USE_RXTX_CLK) begin
-   reg br_request_latched;
-   always @(posedge sysclk)
-   begin
-      br_request_latched <= br_request;
-   end
-   assign br_request_sync = br_request_latched;
-end
-else begin
-   assign br_request_sync = br_request;
-end
-
 always @(posedge sysclk)
 begin
 
@@ -2137,7 +2161,7 @@ begin
    begin
       br_addr_in <= 9'd0;
       br_wen <= 1'b0;
-      if (br_request_sync) begin
+      if (br_request) begin
          br_ack <= 1'b1;
          req_read_bus <= 1'b1;
          if (hubSend) begin
@@ -2184,8 +2208,8 @@ begin
       else if (req_read_bus & grant_read_bus & reg_rvalid) begin
          br_wen <= 1'b1;
       end
-      else if ((~req_read_bus) & (~br_request_sync)) begin
-         // Wait until br_request_sync cleared (for handshake)
+      else if ((~req_read_bus) & (~br_request)) begin
+         // Wait until br_request cleared (for handshake)
          brState <= BR_IDLE;
       end
    end

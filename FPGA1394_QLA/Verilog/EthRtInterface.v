@@ -30,6 +30,7 @@ module EthRtInterface
 (
     input  wire clk,                  // input clock
 
+    input  wire sysclk,               // sysclk
     input  wire[15:0] reg_raddr,      // read address
     output wire[31:0] reg_rdata,      // register read data
 
@@ -293,8 +294,15 @@ reg[15:0] timeSend;          // Time when send portion finished
 reg[7:0]  numSent;           // Number of packets sent to host PC
 `endif
 
+// sendReq is provided by the Firewire module, and is in the sysclk domain. We assume
+// that TxClk is different from sysclk (which is the case if ETH_RT_FAST=1) and
+// therefore implement clock domain crossing.
+reg sendReq_latched;
+
 always @(posedge TxClk)
 begin
+
+    sendReq_latched <= sendReq;
 
     case (txState)
 
@@ -308,7 +316,7 @@ begin
         if (clearErrors) begin
             txStateError <= 1'b0;
         end
-        if (sendReq) begin
+        if (sendReq_latched) begin
             // Request to send from Firewire
             isForward <= 1;
             sendRequest <= 1'b1;
@@ -415,7 +423,13 @@ assign DebugData[5] = 32'd0;
 assign DebugData[6] = 32'd0;
 assign DebugData[7] = 32'd0;
 
-assign reg_rdata = (reg_raddr[7:4] == 4'ha) ? DebugData[reg_raddr[2:0]] : 32'd0;
+reg[31:0] DebugData_latched;
+always @(posedge sysclk)
+begin
+    DebugData_latched <= DebugData[reg_raddr[2:0]];
+end
+
+assign reg_rdata = (reg_raddr[7:4] == 4'ha) ? DebugData_latched : 32'd0;
 `else
 assign reg_rdata = 32'd0;
 `endif

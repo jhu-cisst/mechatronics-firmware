@@ -94,6 +94,7 @@ module EthSwitch
     input wire clearErrors,
 
     // For external monitoring
+    input wire sysclk,
     input wire[15:0] reg_raddr,
     output wire[31:0] reg_rdata
 );
@@ -841,7 +842,13 @@ assign SwitchData[29] = 32'd0;
 assign SwitchData[30] = 32'd0;
 assign SwitchData[31] = 32'd0;
 
+reg[31:0] SwitchData_latched;
+always @(posedge sysclk)
+begin
+    SwitchData_latched <= SwitchData[reg_raddr[4:0]];
+end
+
 // Switch data: 4090-40bf (currently, only 40a0-40bf used)
-assign reg_rdata = (reg_raddr[11:5] == 7'b0000101) ? SwitchData[reg_raddr[4:0]] : 32'd0;
+assign reg_rdata = (reg_raddr[11:5] == 7'b0000101) ? SwitchData_latched : 32'd0;
 
 endmodule
