@@ -533,6 +533,7 @@ wire       eth_active_ps;       // Whether PS Ethernet enabled
 
 wire[1:0]  link_speed[1:2];     // Link speed
 
+wire       eth_wdog_refresh;    // Additional watchdog refresh from Ethernet
 wire       eth_clear_errors;    // Clear EthernetIO and EthRtInterface errors
 
 wire       recv_ready_rt;       // Whether RT ready for input data from switch
@@ -827,6 +828,7 @@ EthernetTransfers(
     .req_blk_rt_rd(eth_req_blk_rt_rd), // out: real-time block read request
     .req_write_bus(eth_req_write_bus), // out: request write bus
     .grant_write_bus(eth_grant_write_bus), // in: write bus grant
+    .wdog_refresh(eth_wdog_refresh),   // out: wdog refresh (for Ethernet-only broadcast read)
 
     // Interface to FireWire module (for sending packets via FireWire)
     .eth_send_fw_req(eth_send_fw_req), // out: req to send fw pkt
@@ -943,6 +945,7 @@ BoardRegs chan0(
     .wdog_period_led(wdog_period_led),
     .wdog_period_status(wdog_period_status),
     .wdog_timeout(wdog_timeout),
+    .wdog_refresh(eth_wdog_refresh | reg_wen),
     .wdog_clear(wdog_clear)
 );
 

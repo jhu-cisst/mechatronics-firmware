@@ -82,6 +82,7 @@ module EthernetIO
     output wire      blk_rt_wr,        // real-time block write
     output reg       req_write_bus,
     input wire       grant_write_bus,
+    output wire      wdog_refresh,     // watchdog refresh
 
     // Interface to FireWire module (for sending packets via FireWire)
     output wire eth_send_fw_req,   // request to send firewire packet
@@ -208,11 +209,14 @@ wire addrMain;
 
 wire isRebootCmd;   // 1 -> Reboot FPGA command received
 
-// Whether to use UDP (1) or raw Ethernet frames (0).
-// This mode is set each time a valid packet is received
-// (i.e., set if a valid UDP packet received, cleared if
-// a valid raw Ethernet frame is received).
+// Whether last valid packet was UDP (1) or Raw Ethernet (0)
 reg useUDP;
+
+// Whether to use UDP (1) or raw Ethernet frames (0) when forwarding packet from
+// Firewire.  This flag is updated each time a valid packet is received and needs
+// to be forwarded to Firewire (isRemote).
+reg fwUseUDP;
+initial fwUseUDP = 1'b1;
 
 assign eth_status[7] = ethFrameError;      // 1 -> Ethernet frame unsupported
 assign eth_status[6] = ethIPv4Error;       // 1 -> IPv4 header error
@@ -357,7 +361,7 @@ assign Reply_IPv4_Address0 = { ip_address[7:0],   ip_address[15:8]  };
 assign Reply_IPv4_Address1 = { ip_address[23:16], ip_address[31:24] };
 
 wire fw_resp_udp;       // Firewire response using UDP
-assign fw_resp_udp = useUDP & (quadRead | blockRead | isForward);
+assign fw_resp_udp = (isUDP & (quadRead | blockRead)) | (fwUseUDP & isForward);
 
 assign Reply_UDP_Length = isForward ? (`UDP_EXTRA_SIZE + sendLen) :
                           sendExtra ? `UDP_EXTRA_SIZE :
@@ -1228,6 +1232,8 @@ wire br_request;            // request register read into br_packet_memory in sy
 reg  br_ack;                // Acknowledge br_request
 wire br_ack_rxtx;           // br_ack in RxTxClk domain
 
+// output wire wdog_refresh (generated from reg_wen_hub_quad)
+
 if (USE_RXTX_CLK) begin
    // Synchronize signals from sysclk to RxTxClk
    reg clearErrors_latched;
@@ -1250,17 +1256,20 @@ if (USE_RXTX_CLK) begin
    reg sendAck_rxtx_latched;
    reg writeRequest_rxtx_latched;
    reg br_request_rxtx_latched;
+   reg reg_wen_hub_quad_latched;
    always @(posedge sysclk)
    begin
       eth_send_fw_req_rxtx_latched <= eth_send_fw_req_rxtx;
       writeRequest_rxtx_latched <= writeRequest_rxtx;
       sendAck_rxtx_latched <= sendAck_rxtx;
       br_request_rxtx_latched <= br_request_rxtx;
+      reg_wen_hub_quad_latched <= reg_wen_hub_quad;
    end
    assign eth_send_fw_req = eth_send_fw_req_rxtx_latched;
    assign sendAck = sendAck_rxtx_latched;
    assign writeRequest = writeRequest_rxtx_latched;
    assign br_request = br_request_rxtx_latched;
+   assign wdog_refresh = reg_wen_hub_quad_latched;
 end
 else begin
    // No clock domain crossing
@@ -1272,6 +1281,7 @@ else begin
    assign bw_active = bw_active_sys;
    assign br_request = br_request_rxtx;
    assign br_ack_rxtx = br_ack;
+   assign wdog_refresh = reg_wen_hub_quad;
 end
 
 //*****************************************************************
@@ -1520,6 +1530,7 @@ begin
          else if (rfw_count == 10'd5) begin
             FireWirePacketFresh <= 1;
             useUDP <= isUDP;
+            if (isRemote) fwUseUDP <= isUDP;
             if ((~noForwardFlag) &&
                 (fw_bus_reset || ((host_fw_bus_gen != fw_bus_gen) && ~isFwBroadcast))) begin
                // If we are using Firewire (~noForwardFlag) and if Firewire bus is in reset OR
@@ -1760,12 +1771,12 @@ begin
                                 ReplyBuffer[ReplyIndex[replyCnt][3:0]];
          replyCnt <= replyCnt + 6'd1;
          if (replyCnt == Frame_Reply_End) begin
-            if (isForward && !useUDP) begin
+            if (isForward & (~fwUseUDP)) begin
                sendState <= ST_SEND_DMA_FWD;
                sendAck_rxtx <= 1;
                sendAddr <= 9'd0;
             end
-            else if (sendARP && !isForward) begin
+            else if (sendARP & (~isForward)) begin
                replyCnt <= ARP_Reply_Begin;
             end
             else if (~(isUDP | isEcho | isForward | ipWrite | hubSend)) begin

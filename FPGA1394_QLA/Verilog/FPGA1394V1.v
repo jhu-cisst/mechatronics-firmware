@@ -297,6 +297,7 @@ BoardRegs chan0(
     .wdog_period_led(wdog_period_led),
     .wdog_period_status(wdog_period_status),
     .wdog_timeout(wdog_timeout),
+    .wdog_refresh(reg_wen),
     .wdog_clear(wdog_clear)
 );
 
