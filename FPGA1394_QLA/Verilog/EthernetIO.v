@@ -1017,10 +1017,18 @@ if (IS_V3) begin
    wire[15:0] reg_raddr_hub;
    assign reg_raddr_hub = fw_dest_offset + { 7'd0, sfw_count[9:1] };
 
+   // Set hubclk
+   wire hubclk;
+   assign hubclk = USE_RXTX_CLK ? RxTxClk : sysclk;
+
+   // All signals to/from HubReg are in hubclk domain.
+   // The only one used in the sysclk domain is bc_sequence, but this
+   // is fine because it is latched well in advance.
+
    HubReg
        #(.USE_FW(0))
    hub_eth(
-       .sysclk(sysclk),
+       .sysclk(hubclk),
        .reg_wen(reg_wen_hub),
        .reg_raddr(reg_raddr_hub),
        .reg_waddr(reg_waddr_hub),
