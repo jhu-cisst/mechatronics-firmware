@@ -348,7 +348,6 @@ wire[31:0] reg_digin;     // Digital I/O register
 wire[15:0] tempsense;     // Temperature sensor
 wire[15:0] reg_databuf;   // Data collection status
 wire is_ecm;
-wire preload_set_sysclk_toggle;
 
 wire[11:0] reg_status12 = {8'b0, preload_good, ESPMV_GOOD, esii_escc_comm_good, espm_comm_good};
 BoardRegsDRAC chan0(
@@ -452,8 +451,7 @@ reg lvds_tx_clk_en = 'b1;
 wire [9:0] espm_tx_tdata_sel;
 reg [31:0] espm_tx_tdata;
 wire espm_tx_pkt_start;
-reg [1:0] preload_set_espm_tx;
-wire preload_set_espm_tx_pulse = preload_set_espm_tx[1] ^ preload_set_espm_tx[0]; // should be 1 for 1 packet after preload changes, otherwise 0.
+reg preload_set_espm_tx_pulse;
 
 always @(posedge sysclk) begin
     sysclk_div2 <= ~sysclk_div2;
@@ -481,7 +479,8 @@ end
 
 always @(posedge lvds_tx_clk) begin
     if (espm_tx_pkt_start) begin
-        preload_set_espm_tx <= {preload_set_espm_tx[0], preload_set_sysclk_toggle};
+        preload_count_prev <= preload_count;
+        preload_set_espm_tx_pulse <= preload_count != preload_count_prev;
     end
 
     case (espm_tx_tdata_sel[5:0])
@@ -639,15 +638,15 @@ initial begin
     end
 end
 
-reg [1:0] preload_set_div2; // CDC
-assign preload_set_sysclk_toggle = preload_set_div2[1];
+reg [4:0] preload_count;
+reg [4:0] preload_count_prev;
 integer encoder_overflow_i;
 always @(posedge sysclk)
 begin
     if (reg_wen && (reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[3:0]==`OFF_ENC_LOAD)) begin
         encoder_preload[reg_waddr[7:4]] <= reg_wdata[23:0];
         encoder_preload_offset[reg_waddr[7:4]] <= reg_wdata[23:0] - rdata_pos[reg_waddr[7:4]];
-        preload_set_div2 <= preload_set_div2 + 'b1;
+        preload_count <= preload_count + 'b1;
         encoder_overflow[reg_waddr[7:4]] <= 'b0;
     end else begin
         for (encoder_overflow_i = 1; encoder_overflow_i < 8; encoder_overflow_i = encoder_overflow_i + 1) begin
