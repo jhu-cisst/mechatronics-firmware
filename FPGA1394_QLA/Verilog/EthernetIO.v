@@ -567,10 +567,9 @@ assign ipWrite = FireWirePacketFresh && quadWrite && (fw_dest_offset == {`ADDR_M
 // (0x1800) causes this module to send an Ethernet multicast write packet to update the
 // hub memory on this board and other FPGA boards.
 wire hubSend;
-wire[15:0] board_mask;                      // Board mask sent with quadlet write to Hub register
-assign board_mask = fw_quadlet_data[15:0];
-wire isBoardMasked;
-assign isBoardMasked = board_mask[board_id];
+wire[15:0] board_mask;                        // Board mask sent with quadlet write to Hub register
+assign board_mask = FireWireQuadlet[15:0];    // Only valid for a limited time
+reg isBoardMasked;
 
 if (IS_V3)
    assign hubSend = FireWirePacketFresh & quadWrite & addrHubReg & isLocal & (~isRemote) & isBoardMasked;
@@ -1563,7 +1562,8 @@ begin
             writeRequest_rxtx <= isLocal & (~isRemote) & (~addrHubReg);
             // If Ethernet-only (noForwardFlag), then we write the quadlet data to the local Hub register
             // (the quadlet data contains the sequence number and board mask).
-            reg_wen_hub_quad <= isLocal & noForwardFlag & addrHubReg & isBoardMasked;
+            isBoardMasked <= board_mask[board_id];
+            reg_wen_hub_quad <= isLocal & noForwardFlag & addrHubReg & board_mask[board_id];
          end
          else if ((rfw_count == 10'd9) && blockWrite) begin
             bwStart <= 9'd5;
