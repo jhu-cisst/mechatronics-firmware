@@ -423,14 +423,15 @@ function (ise_ipcoregen ...)
   # CoreGen (XCO/XCP --> Verilog)
   # Note that coregen.log is created in CMAKE_CURRENT_BINARY_DIR
   # regardless of the setting of OUTPUT_DIR.
-  add_custom_command (OUTPUT "coregen.log"
+  set (COREGEN_LOG "${CMAKE_CURRENT_BINARY_DIR}/coregen.log")
+  add_custom_command (OUTPUT ${COREGEN_LOG}
                       COMMAND ${COREGEN_NATIVE} -b "${COREGEN_FILE}"
                                                 -p "${OUTPUT_DIR}"
                       DEPENDS ${XCO_SOURCE}
                       COMMENT "Running COREGEN to generate IP cores for ${TARGET_NAME}")
 
   add_custom_target(${TARGET_NAME} ALL
-                    DEPENDS "coregen.log")
+                    DEPENDS ${COREGEN_LOG})
 
 endfunction (ise_ipcoregen)
 

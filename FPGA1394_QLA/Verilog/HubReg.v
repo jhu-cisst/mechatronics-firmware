@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2013-2022 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2013-2024 ERC CISST, Johns Hopkins University.
  *
  * Module: HubReg
  *
@@ -17,7 +17,9 @@
 
 `include "Constants.v"
 
-module HubReg(
+module HubReg
+    #(parameter USE_FW = 1)        // Whether or not to trigger Firewire transactions
+(
     input  wire sysclk,            // system clk
     input  wire reg_wen,           // hub memory write enable
     input  wire[15:0] reg_raddr,   // hub reg addr 9-bit
@@ -138,24 +140,26 @@ begin
         bcReadStart <= bcTimer;
     end
 
-    if (write_trig_reset) begin
-       write_trig <= 0;
-    end
-    else if (board_selected && !write_trig_done) begin
-       // write_trig is sent to Firewire module to start broadcast write of real-time block data from this board to all
-       // other boards; while doing this, the Firewire module also writes the real-time block data to the hub memory (hub_mem).
-       // Note that writing is done sequentially, by board number.
-       if (board_mask_lower == 16'd0) begin
-          // First board: wait 150 cycles (~3 usec)
-          if (bcTimer == 14'd150) begin
-             write_trig <= 1;
-             write_trig_done <= 1;
-          end
-       end
-       else if ((board_updated == board_mask_lower) && fw_idle) begin
-          write_trig <= 1;
-          write_trig_done <= 1;
-       end
+    if (USE_FW) begin
+        if (write_trig_reset) begin
+            write_trig <= 0;
+        end
+        else if (board_selected && !write_trig_done) begin
+            // write_trig is sent to Firewire module to start broadcast write of real-time block data from this board to all
+            // other boards; while doing this, the Firewire module also writes the real-time block data to the hub memory (hub_mem).
+            // Note that writing is done sequentially, by board number.
+            if (board_mask_lower == 16'd0) begin
+                // First board: wait 150 cycles (~3 usec)
+                if (bcTimer == 14'd150) begin
+                    write_trig <= 1;
+                    write_trig_done <= 1;
+                end
+            end
+            else if ((board_updated == board_mask_lower) && fw_idle) begin
+                write_trig <= 1;
+                write_trig_done <= 1;
+            end
+        end
     end
 end
 
@@ -191,7 +195,7 @@ assign reg_wdata_mem = (reg_waddr[7:0] == 8'd0) ? { reg_wdata[7:0], reg_wdata[23
 // NOTE
 //   port a: write port
 //   port b: read port
-hub_mem_gen hub_mem(
+DPRAM_32x512_sclk hub_mem(
     .clka(sysclk),
     .wea(hub_mem_wen),
     .addra(write_addr),

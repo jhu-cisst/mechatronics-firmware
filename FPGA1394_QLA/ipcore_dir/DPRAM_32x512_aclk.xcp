@@ -5,10 +5,10 @@
 #
 ##############################################################
 #
-#  This file contains the customisation parameters for a
-#  Xilinx CORE Generator IP GUI. It is strongly recommended
-#  that you do not manually alter this file as it may cause
-#  unexpected and unsupported behavior.
+#  This file was manually created from the XCO file by deleting
+#  the Project Options. This allows it to be used with different
+#  devices because the Project Options are also specified in
+#  the coregen.cgp file.
 #
 ##############################################################
 #
@@ -16,39 +16,20 @@
 #
 ##############################################################
 #
-# BEGIN Project Options
-SET addpads = false
-SET asysymbol = true
-SET busformat = BusFormatAngleBracketNotRipped
-SET createndf = false
-SET designentry = Verilog
-SET device = xc6slx45
-SET devicefamily = spartan6
-SET flowvendor = Other
-SET formalverification = false
-SET foundationsym = false
-SET implementationfiletype = Ngc
-SET package = fgg484
-SET removerpms = false
-SET simulationfiles = Behavioral
-SET speedgrade = -2
-SET verilogsim = true
-SET vhdlsim = false
-# END Project Options
 # BEGIN Select
 SELECT Block_Memory_Generator xilinx.com:ip:blk_mem_gen:7.3
 # END Select
 # BEGIN Parameters
 CSET additional_inputs_for_power_estimation=false
 CSET algorithm=Minimum_Area
-CSET assume_synchronous_clk=true
+CSET assume_synchronous_clk=false
 CSET axi_id_width=4
 CSET axi_slave_type=Memory_Slave
 CSET axi_type=AXI4_Full
 CSET byte_size=9
 CSET coe_file=no_coe_file_loaded
 CSET collision_warnings=ALL
-CSET component_name=hub_mem_gen
+CSET component_name=DPRAM_32x512_aclk
 CSET disable_collision_warnings=false
 CSET disable_out_of_range_warnings=false
 CSET ecc=false
@@ -62,8 +43,8 @@ CSET interface_type=Native
 CSET load_init_file=false
 CSET mem_file=no_Mem_file_loaded
 CSET memory_type=Simple_Dual_Port_RAM
-CSET operating_mode_a=READ_FIRST
-CSET operating_mode_b=READ_FIRST
+CSET operating_mode_a=WRITE_FIRST
+CSET operating_mode_b=WRITE_FIRST
 CSET output_reset_value_a=0
 CSET output_reset_value_b=0
 CSET pipeline_stages=0
@@ -105,4 +86,3 @@ CSET write_width_b=32
 MISC pkg_timestamp=2012-11-19T16:22:25Z
 # END Extra information
 GENERATE
-# CRC: 56a32c02

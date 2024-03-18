@@ -73,6 +73,7 @@ endmodule
 `define ETH_ADDR_ISR     8'h92     // Interrupt Status Reg
 `define ETH_ADDR_RXFCTR  8'h9C     // RX Frame Count and Threshold Reg
 `define ETH_ADDR_MAHTR1  8'hA2     // MAC Address Hash Table Reg 1
+`define ETH_ADDR_MAHTR2  8'hA4     // MAC Address Hash Table Reg 2
 `define ETH_ADDR_CIDER   8'hC0     // Chip ID and Enable Reg
 `define ETH_ADDR_PMECR   8'hD4     // Power management event control register
 `define ETH_ADDR_P1SR    8'hF8     // Port 1 status register
@@ -129,6 +130,10 @@ module KSZ8851(
     output wire isHub,                // Whether this board directly connected to host PC
     output wire ethInternalError      // Error summary bit to EthernetIO
 );
+
+// FPGA MAC address
+wire[47:0] fpga_mac;
+assign fpga_mac = { `LCSR_CID, `FPGA_RT_MAC, 4'd0, board_id };
 
 reg initOK;            // 1 -> Initialization successful
 reg isWrite;           // 0 -> Read, 1 -> Write
@@ -483,9 +488,9 @@ localparam[4:0]
 // Read Chip ID
 assign RunProgram[ID_CHIP_ID] = {CMD_READ, CMD_NOP, `ETH_ADDR_CIDER, 11'd0, ST_INIT_CHECK_CHIPID};
 // Set MAC address (4 LSB below should be set to board_id)
-assign RunProgram[ID_MAC_LOW] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_MARL, 12'h940, board_id};
-assign RunProgram[ID_MAC_MID] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_MARM, 16'h0E13};
-assign RunProgram[ID_MAC_HIGH] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_MARH, 16'hFA61};
+assign RunProgram[ID_MAC_LOW] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_MARL, fpga_mac[15:0]};
+assign RunProgram[ID_MAC_MID] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_MARM, fpga_mac[31:16]};
+assign RunProgram[ID_MAC_HIGH] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_MARH, fpga_mac[47:32]};
 // Enable QMU transmit frame data pointer auto increment
 assign RunProgram[4] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_TXFDPR, 16'h4000};
 assign RunProgram[5] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_TXCR, ETH_VALUE_TXCR};
@@ -519,6 +524,15 @@ assign RunProgram[9] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_RXCR2, 16'h001C};
 // the register and the next four bits to determine which bit to set.
 // See code in mainEth1394.cpp.
 assign RunProgram[10] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_MAHTR1, 16'h0008};
+// Following are hard-coded values for UDP multicast address 224.0.0.100 (also see
+// code in mainEth1394.cpp). But, not using it for the following two reasons:
+//   1) Already have 32 entries in RunProgram, so would need to add another bit
+//      of address space and renumber.
+//   2) Hard-coding for 224.0.0.100 would not allow different UDP Multicast addresses
+//      to be set.
+// Thus, we do not use UDP Multicast when talking to FPGA V2, which is fine because we will
+// only support an Ethernet-Only network for FPGA V3 (FPGA V2 will use Ethernet/Firewire bridge).
+// assign RunProgram[] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_MAHTR2, 16'h0020};
 // RXQCR value
 // B5: RXFCTE enable QMU frame count threshold (1)
 // B4: ADRFE  auto-dequeue
@@ -1300,14 +1314,6 @@ end
 
 //************** Emulate some features of FPGA V3 EthSwitch ****************
 
-// Ethernet broadcast MAC address
-localparam[47:0] BroadcastMAC = 48'hFFFFFFFFFFFF;
-
-// FPGA MAC addresses contain the LCSR Company ID (CID) as the first 24-bits,
-// followed by 16-bits for the RT or PS interface, followed by 8-bits for the board-id
-// (PS interface only available in FPGA V3).
-localparam[23:0] LCSR_CID    = 24'hfa610e;
-
 // Host MAC address (typically, MAC address of PC)
 reg[47:0] MacAddrHost;
 
@@ -1327,7 +1333,7 @@ reg[47:0] SrcMac;
 always @(posedge sysclk)
 begin
    if (~linkStatus) begin
-      MacAddrHost <= BroadcastMAC;
+      MacAddrHost <= `BROADCAST_MAC;
       PortForwardFpga <= 16'd0;
    end
    else if (initOK & recvRequest & recvBusy) begin
@@ -1340,7 +1346,7 @@ begin
             // there is an FPGA board accessible via that port.
             // For this purpose, it does not matter whether the middle
             // 16-bits are FPGA_RT_MAC or FPGA_PS_MAC.
-            if (SrcMac[47:24] == LCSR_CID)
+            if (SrcMac[47:24] == `LCSR_CID)
                PortForwardFpga[SrcMac[3:0]] <= 1'b1;
             else
                MacAddrHost <= SrcMac;

@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2015-2022 Johns Hopkins University.
+ * Copyright(C) 2015-2024 Johns Hopkins University.
  *
  * This module controls access to the digital output bits. Each of the digital
  * output bits can be set/cleared, put in PWM mode, or used as a 1-shot.
@@ -110,7 +110,7 @@ assign end_cnt = table_rdata[30:8];
 // Table of DOUT values to be written.
 // This table is 1024 x 32
 // Format:  Valid(1), EndCnt(23), DOUT(8)
-Dual_port_RAM_32X1024 dout_table(
+DPRAM_32x1024_sclk dout_table(
                        .clka(sysclk),
                        .ena(1'b1),
                        .wea(dout_table_wen),

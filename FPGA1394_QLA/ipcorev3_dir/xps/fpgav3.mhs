@@ -67,7 +67,7 @@
  PORT gmii_to_rgmii_2_gmii_rx_clk_pin = gmii_to_rgmii_2_gmii_rx_clk, DIR = O, SIGIS = CLK
  PORT gmii_to_rgmii_2_gmii_rx_er_pin = gmii_to_rgmii_2_gmii_rx_er, DIR = O
  PORT processing_system7_0_RESETn_PHY_0_pin = processing_system7_0_FCLK_RESET0_N_0, DIR = O, SIGIS = RST
- PORT processing_system7_0_FCLK_CLK1_pin = processing_system7_0_FCLK_CLK1, DIR = O, SIGIS = CLK, CLK_FREQ = 250000000
+ PORT processing_system7_0_FCLK_CLK1_pin = processing_system7_0_FCLK_CLK1, DIR = O, SIGIS = CLK, CLK_FREQ = 125000000
 
 
 BEGIN processing_system7
@@ -126,7 +126,7 @@ BEGIN processing_system7
  PARAMETER C_EN_DDR = 1
  PARAMETER C_EN_GPIO = 1
  PARAMETER C_FCLK_CLK0_FREQ = 200000000
- PARAMETER C_FCLK_CLK1_FREQ = 250000000
+ PARAMETER C_FCLK_CLK1_FREQ = 125000000
  PARAMETER C_FCLK_CLK2_FREQ = 50000000
  PARAMETER C_FCLK_CLK3_FREQ = 50000000
  PARAMETER C_USE_FABRIC_INTERRUPT = 1

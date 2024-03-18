@@ -4,8 +4,9 @@ set (IPCORE_DIR "${FPGA1394_QLA_SOURCE_DIR}/ipcore_dir")
 # IP core source files used by all versions of firmware.
 # Using XCP files instead of XCO because project settings
 # (e.g., target device) are set in coregen.cgp.
-set (IPCORE_SOURCE_COMMON "${IPCORE_DIR}/hub_mem_gen.xcp"
-                          "${IPCORE_DIR}/Dual_port_RAM_32X1024.xcp"
+set (IPCORE_SOURCE_COMMON "${IPCORE_DIR}/DPRAM_32x512_sclk.xcp"
+                          "${IPCORE_DIR}/DPRAM_32x512_aclk.xcp"
+                          "${IPCORE_DIR}/DPRAM_32x1024_sclk.xcp"
                           "${IPCORE_DIR}/pwm_clk_gen_zynq.xcp")
 
 set (IPCORE_SOURCE ${IPCORE_SOURCE_COMMON}
