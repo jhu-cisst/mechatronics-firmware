@@ -68,8 +68,11 @@ wire[8:0] num_written;
 assign num_written = last_write_addr + 9'd1;
 
 // For timing measurements. Cleared when broadcast query command received (i.e., quadlet write to 0x1800).
-reg[13:0] bcTimer;
-reg[13:0] bcReadStart;
+// Firmware Rev 9 increased timer from 14-bits to 16-bits
+// 16 bits measures up to 1333.3 us when sysclk is 49.152 MHz and up to 524.3 us when sysclk is 125 MHz
+// Note that the update times (times when data written to Hub memory) are the lower 15 bits
+reg[15:0] bcTimer;
+reg[15:0] bcReadStart;
 
 // Whether write_trig has been asserted for this broadcast read cycle
 reg write_trig_done;
@@ -102,11 +105,11 @@ assign {reg_rdata, reg_rwait} =
 
 always @(posedge(sysclk))
 begin
-    bcTimer <=  bcTimer + 14'd1;
+    bcTimer <=  bcTimer + 16'd1;
     if (hub_reg_wen) begin
         sequence <= reg_wdata[31:16];
         board_mask <= reg_wdata[15:0];
-        bcTimer <=  14'd0;
+        bcTimer <=  16'd0;
         board_updated <= 16'd0;
         write_trig <= 0;
         write_trig_done <= 0;
@@ -150,7 +153,7 @@ begin
             // Note that writing is done sequentially, by board number.
             if (board_mask_lower == 16'd0) begin
                 // First board: wait 150 cycles (~3 usec)
-                if (bcTimer == 14'd150) begin
+                if (bcTimer == 16'd150) begin
                     write_trig <= 1;
                     write_trig_done <= 1;
                 end
@@ -175,7 +178,7 @@ assign read_addr_ok = (reg_raddr[8:0] < num_written) ? 1'b1 : 1'b0;
 wire[31:0] reg_rdata_mem;
 
 assign {reg_rdata_hub, reg_rwait_hub} =
-                       is_extra ? { 2'b0, bcReadStart, 2'b0, bcTimer, 1'b0 } :
+                       is_extra ? { bcReadStart, bcTimer, 1'b0 } :
                        read_addr_ok ? {reg_rdata_mem, 1'b1} : {32'd0, 1'b0};
 
 // When writing first board quadlet, rearrange bits to obtain following:
@@ -183,12 +186,11 @@ assign {reg_rdata_hub, reg_rwait_hub} =
 // Block Size (bits 31:24) is the size of the block in quadlets (including this header quadlet)
 // Sequence LSB (bits 23:16) is the lowest byte of the 16-bit sequence number sent by the PC
 // Seq Error (bit 15) is 1 if the full 16-bit sequence numbers do not match
-// Reserved (bit 14) is not used and should be set to 0
-// Update Time (bits 13:0) indicate the time when the board was updated (relative to the query command)
+// Update Time (bits 14:0) indicate the time when the board was updated (relative to the query command)
 wire[31:0] reg_wdata_mem;
 wire sequence_error;
 assign sequence_error = (sequence == reg_wdata[31:16]) ? 1'b0 : 1'b1;
-assign reg_wdata_mem = (reg_waddr[7:0] == 8'd0) ? { reg_wdata[7:0], reg_wdata[23:16], sequence_error, 1'b0, bcTimer }
+assign reg_wdata_mem = (reg_waddr[7:0] == 8'd0) ? { reg_wdata[7:0], reg_wdata[23:16], sequence_error, bcTimer[14:0] }
                                                 : reg_wdata;
 
 //********************************* Hub memory **************************************
