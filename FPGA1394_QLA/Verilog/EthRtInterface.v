@@ -69,6 +69,9 @@ module EthRtInterface
     input wire sendBusy,              // From EthernetIO
     output reg sendReady,             // Request EthernetIO to provide next send_word
     input wire[15:0] send_word,       // Word to send via Ethernet (SDRegDWR for KSZ8851)
+    // Broadcast response
+    input wire bcRespReady,           // Broadcast read response is ready to be sent
+    output reg bcResp,                // Broadcast read response is active
     // Timing measurements (does not include times for Ethernet switch)
     input wire[31:0] timestamp,       // Free running timestamp
     output reg[15:0] timeReceive,     // Time for receiving packet (not including Rx loop in RTL8211F)
@@ -106,6 +109,7 @@ wire curPacketValid;      // Whether current packet is valid
 assign curPacketValid = 1'b1;  // TODO
 
 reg sendResponse;         // 1 -> Request EthernetIO to send response packet
+reg sendBcResp;           // 1 -> Request EthernetIO to send broadcast read response
 
 reg recvNotReady;         // 1 -> EthernetIO not ready (error)
 
@@ -153,6 +157,11 @@ begin
                 bw_wait <= 10'd0;
 `endif
             end
+        end
+        else if (bcRespReady | bcResp) begin
+            // Disable Rx port when sending broadcast response
+            PortReady <= 1'b0;
+            sendBcResp <= ~bcResp;
         end
     end
 
@@ -316,15 +325,11 @@ begin
         if (clearErrors) begin
             txStateError <= 1'b0;
         end
-        if (sendReq_latched) begin
-            // Request to send from Firewire
-            isForward <= 1;
-            sendRequest <= 1'b1;
-            txState <= ST_TX_PREAMBLE;
-        end
-        else if (sendResponse) begin
-            // Request to send response packet
-            isForward <= 0;
+        if (sendReq_latched | sendResponse | sendBcResp) begin
+            // Request to send from Firewire, or send response, or
+            // send broadcast read response
+            isForward <= sendReq_latched;
+            bcResp <= ~(sendReq_latched|sendResponse);
             sendRequest <= 1'b1;
             txState <= ST_TX_PREAMBLE;
         end
@@ -367,6 +372,7 @@ begin
             padding_cnt <= padding_cnt - 6'd1;
         if (send_cnt == responseByteCount-16'd1) begin
             tx_cnt <= 3'd0;
+            bcResp <= 1'b0;
             txState <= (padding_cnt == 6'd0) ? ST_TX_CRC : ST_TX_PADDING;
         end
     end
@@ -401,6 +407,7 @@ begin
     default:
     begin
         txStateError <= 1'b1;
+        bcResp <= 1'b0;
         txState <= ST_TX_IDLE;
     end
 

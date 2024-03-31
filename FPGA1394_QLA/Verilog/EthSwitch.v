@@ -89,7 +89,9 @@ module EthSwitch
     output wire[1:0] P3_TxSrc,  // Port3 source port (0-2)
 
     input wire[3:0] board_id,   // Board id (used for MAC addresses)
+    input wire[15:0] bcBoardMask,  // Broadcast read board mask
     output wire isHub,          // Whether this switch directly connected to host PC
+    output wire isBcHub,        // Whether this board should be the broadcast read hub
 
     input wire clearErrors,
 
@@ -592,7 +594,7 @@ for (in = 0; in < 4; in = in+1) begin : fifo_loop_in
           .empty(fifo_empty[in][out%4])
       );
 
-      // Fifo_Info is 4-bits wide and has a depth of 128 bytes, which should be enough
+      // Fifo_Info is 4-bits wide and has a depth of 128, which should be enough
       // since the data FIFO (above) has a depth of 8192 bytes and the minimum Ethernet
       // packet size is 64 bytes.
       fifo_4x128 Fifo_Info(
@@ -776,6 +778,15 @@ for (out = 0; out < 4; out = out + 1) begin : fifo_loop_mux
                        (curInput == INDEX_ETH2) ? ((PortForwardFpga[INDEX_ETH2] == 16'd0) ? 1'b1 : 1'b0 ) :
                        (curInput == INDEX_PS)   ? 1'b1
                                                 : 1'b0;
+        // This board is the broadcast read hub if the message is received from an Ethernet port that does
+        // not have any other participating boards in its port forwarding database, or if the message is
+        // received from the PS. Note that this should only be used for broadcast read, where bcBoardMask
+        // is non-zero.
+        assign isBcHub = (curInput == INDEX_ETH1) ?
+                             (((PortForwardFpga[INDEX_ETH1]&bcBoardMask) == 16'd0) ? 1'b1 : 1'b0 ) :
+                         (curInput == INDEX_ETH2) ?
+                             (((PortForwardFpga[INDEX_ETH2]&bcBoardMask) == 16'd0) ? 1'b1 : 1'b0 ) :
+                         (curInput == INDEX_PS)   ? 1'b1 : 1'b0;
     end
 end
 endgenerate

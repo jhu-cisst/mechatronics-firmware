@@ -32,7 +32,9 @@ module HubReg
     output reg        write_trig,  // request to broadcast this board's info via FireWire
     input wire        write_trig_reset, // reset write_trig
     input wire        fw_idle,     // whether Firewire state machine is idle
-    output wire       updated      // hub has been updated since last query (write to 0x1800)
+    output wire       updated,     // hub has been updated since last query (write to 0x1800)
+    output wire[8:0]  bc_quads,    // available data length (in quadlets)
+    output wire[15:0] board_mask_ext    // board mask (0 if this board not included)
 );
 
 // Writing to hub register or memory
@@ -61,11 +63,12 @@ wire[8:0] write_addr;
 assign write_addr = ((reg_waddr[7:0] == 8'd0) && !offset_updated) ? (reg_waddr_offset + {1'b0, block_size})
                                                                   : (reg_waddr_offset + {1'b0, reg_waddr[7:0]});
 
-// Saves last write address (last_write_addr+1 is the number of quadlets written)
-reg[8:0] last_write_addr;
-
+// Number of quadlets written (assumes that last block was written)
 wire[8:0] num_written;
-assign num_written = last_write_addr + 9'd1;
+assign num_written = reg_waddr_offset + {1'b0, block_size};
+
+// Add 1 for timing info
+assign bc_quads = num_written + 9'd1;
 
 // For timing measurements. Cleared when broadcast query command received (i.e., quadlet write to 0x1800).
 // Firmware Rev 9 increased timer from 14-bits to 16-bits
@@ -86,9 +89,14 @@ reg[15:0] board_updated;
 assign updated = (board_updated == board_mask) ? 1'b1 : 1'b0;
 
 wire[15:0] board_mask_lower;  // only boards with lower board ids
-assign board_mask_lower = ((16'b1 << board_id) - 16'b1) & board_mask;
+if (USE_FW)
+    assign board_mask_lower = ((16'b1 << board_id) - 16'b1) & board_mask;
+else
+    assign board_mask_lower = 16'd0;
 
 assign board_selected = board_mask[board_id];
+
+assign board_mask_ext = board_selected ? board_mask : 16'd0;
 
 wire hub_reg_raddr;
 // Hub register read address space is 0x1800 - 0x1803
@@ -116,14 +124,12 @@ begin
         // Initialize for writing to memory
         reg_waddr_offset <= 9'd0;
         last_reg_waddr <= 8'hff;
-        last_write_addr <= 9'h1ff;
         block_size <= 8'd0;
         offset_updated <= 0;
     end
     else if (hub_mem_wen) begin
         if (reg_waddr[7:0] != last_reg_waddr) begin
             last_reg_waddr <= reg_waddr[7:0];
-            last_write_addr <= write_addr;
             offset_updated <= 0;
             if (reg_waddr[7:0] == 8'd0) begin
                 // Writing of header. Get block size from bits 7:0

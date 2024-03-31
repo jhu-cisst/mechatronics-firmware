@@ -322,6 +322,7 @@ end
 // --------------------------------------------------------------------------
 
 wire[15:0] bc_sequence;
+wire[15:0] bc_board_mask;
 wire       hub_write_trig;
 wire       hub_write_trig_reset;
 wire       fw_idle;
@@ -604,7 +605,9 @@ EthSwitch eth_switch (
     .P3_TxSrc(txsrc_rt),             // Port3 packet info
 
     .board_id(board_id),             // Board ID (for MAC addresses)
+    .bcBoardMask(bc_board_mask),     // Broadcast read board mask
     .isHub(isHub),                   // 1 -> this board (probably) is the Ethernet hub
+    .isBcHub(isBcHub),               // 1 -> this board is the Ethernet broadcast read hub
 
     // TODO: Define a separate bit for clearing EthSwitch errors
     // For now, uses clearErrors from EthernetIO
@@ -641,6 +644,8 @@ wire eth_sendRequest;           // Request EthernetIO to get ready to start send
 wire eth_sendBusy;              // EthernetIO send state machine busy
 wire eth_sendReady;             // Request EthernetIO to provide next send_word
 wire[15:0] eth_send_word;       // Word to send via Ethernet (SDRegDWR for KSZ8851)
+wire bc_resp_ready;             // Broadcast read response is ready to be sent
+wire bc_resp;                   // Broadcast read response active
 wire[15:0] eth_time_recv;       // Time when receive portion finished
 wire[15:0] eth_time_now;        // Running time counter since start of packet receive
 wire eth_bw_active;             // Indicates that block write module is active
@@ -779,6 +784,8 @@ EthRtInterface eth_rti(
     .sendBusy(eth_sendBusy),          // To KSZ8851
     .sendReady(eth_sendReady),        // Request EthernetIO to provide next send_word
     .send_word(eth_send_word),        // Word to send via Ethernet (SDRegDWR for KSZ8851)
+    .bcRespReady(bc_resp_ready),      // Broadcast read response is ready
+    .bcResp(bc_resp),                 // Broadcast read response active
     .timestamp(timestamp),            // Timestamp input
     .timeReceive(eth_time_recv),      // Time when receive portion finished
     .timeNow(eth_time_now),           // Running time counter since start of packet receive
@@ -864,10 +871,14 @@ EthernetTransfers(
     .sendBusy(eth_sendBusy),          // To KSZ8851
     .sendReady(eth_sendReady),        // Request EthernetIO to provide next send_word
     .send_word(eth_send_word),        // Word to send via Ethernet (SDRegDWR for KSZ8851)
+    .bcRespReady(bc_resp_ready),      // Broadcast read response is ready
+    .bcResp(bc_resp),                 // Broadcast read response active
+    .bcBoardMask(bc_board_mask),      // Broadcast read boardmask
     .timeReceive(eth_time_recv),      // Time when receive portion finished
     .timeNow(eth_time_now),           // Running time counter since start of packet receive
     .srcPort(txsrc_rt),               // Source port (from Ethernet Switch)
     .isHub(isHub),                    // Whether this board is Ethernet hub (from Ethernet Switch)
+    .isBcHub(isBcHub),                // Whether this board is the Ethernet broadcast read hub
     .bw_active(eth_bw_active),        // Indicates that block write module is active
     .ethLLError(eth_InternalError),   // Error summary bit to EthernetIO
     .eth_status(eth_status_io),       // EthernetIO status register
