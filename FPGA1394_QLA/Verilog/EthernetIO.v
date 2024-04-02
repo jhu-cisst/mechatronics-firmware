@@ -1255,7 +1255,7 @@ assign id_match = (dest_node_id == expected_node_id) ? 1'b1 : 1'b0;
 // Local if addresses this board or FireWire broadcast write or Firewire broadcast read (and this
 // board is the Ethernet hub and noForwardFlag is set)
 assign isLocal = id_match | (isFwBroadcast & ((quadWrite | blockWrite) |
-                 ((quadRead | blockRead) & noForwardFlag & (isHub | isBcHub))));
+                 ((quadRead | blockRead) & noForwardFlag & isHub)));
 
 // Remote read or write if not addressing this board or Firewire broadcast, and if noForwardFlag is false.
 // Also, note that some packets (e.g., Firewire broadcast) may set both isLocal and isRemote.
