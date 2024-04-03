@@ -550,6 +550,7 @@ EthernetTransfers(
     .timeNow(eth_time_now),           // Running time counter since start of packet receive
     .srcPort(2'd0),                   // Source port (0 for KSZ8851)
     .isHub(isHub),                    // Whether this board might be Ethernet hub
+    .isBcHub(1'b0),                   // V2 cannot be Ethernet broadcast read hub
     .bw_active(eth_bw_active),        // Indicates that block write module is active
     .ethLLError(eth_InternalError),   // Error summary bit to EthernetIO
     .eth_status(eth_status_io)        // EthernetIO status register

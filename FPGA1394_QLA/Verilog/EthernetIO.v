@@ -1863,7 +1863,7 @@ end
 localparam[3:0]
     ST_SEND_DMA_IDLE = 4'd0,
     ST_SEND_DMA_ETHERNET_HEADERS = 4'd3,
-    ST_SEND_DMA_ETHERNET_HEADERS_MC = 4'd4,   // Send multicast headers (TBD)
+    ST_SEND_DMA_ETHERNET_HEADERS_MC = 4'd4,   // Send multicast headers
     ST_SEND_DMA_ETHERNET_HEADERS_BC = 4'd5,   // Send broadcast response headers
     ST_SEND_DMA_PACKETDATA_HEADER = 4'd6,
     ST_SEND_DMA_PACKETDATA_QUAD = 4'd7,
@@ -1905,7 +1905,9 @@ begin
       xcnt <= 2'd0;
       if (sendRequest) begin
          sendBusy <= 1;
-         sendState <= (bcResp & IS_V3) ? ST_SEND_DMA_ETHERNET_HEADERS_BC : ST_SEND_DMA_ETHERNET_HEADERS;
+         sendState <= (bcResp & IS_V3)    ? ST_SEND_DMA_ETHERNET_HEADERS_BC :
+                      (ipWrite | hubSend) ? ST_SEND_DMA_ETHERNET_HEADERS_MC
+                                          : ST_SEND_DMA_ETHERNET_HEADERS;
          replyCnt <= Frame_Reply_Begin;
       end
    end
@@ -1913,8 +1915,7 @@ begin
    ST_SEND_DMA_ETHERNET_HEADERS:
    begin
       if (sendReady) begin
-         `send_word_swapped <= (ipWrite|hubSend) ? Multicast_Header[replyCnt] :
-                               (ReplyIndex[replyCnt][5]==isPacket) ?
+         `send_word_swapped <= (ReplyIndex[replyCnt][5]==isPacket) ?
                                 PacketBuffer[ReplyIndex[replyCnt][4:0]] :
                                 ReplyBuffer[ReplyIndex[replyCnt][3:0]];
          replyCnt <= replyCnt + 6'd1;
@@ -1927,17 +1928,9 @@ begin
             else if (sendARP & (~isForward)) begin
                replyCnt <= ARP_Reply_Begin;
             end
-            else if (~(isUDP | isEcho | isForward | ipWrite | hubSend)) begin
-               // Raw packet (except ipWrite and hubSend, which need an extra word for fw_ctrl)
+            else if (~(isUDP | isEcho | isForward)) begin
+               // Raw packet
                sendState <= sendExtra ? ST_SEND_DMA_EXTRA : ST_SEND_DMA_PACKETDATA_HEADER;
-            end
-         end
-         else if (replyCnt == Frame_Reply_End+1) begin
-            if (ipWrite | hubSend) begin
-`ifdef HAS_DEBUG_DATA
-               numMulticastWrite <= numMulticastWrite + 8'd1;
-`endif
-               sendState <= ST_SEND_DMA_PACKETDATA_HEADER;
             end
          end
          else if (replyCnt == IPv4_Reply_End) begin
@@ -1963,17 +1956,40 @@ begin
       end
    end
 
-   ST_SEND_DMA_ETHERNET_HEADERS_BC:
+   // Send raw Ethernet multicast packet
+   ST_SEND_DMA_ETHERNET_HEADERS_MC:
    begin
       if (sendReady) begin
-         `send_word_swapped <= bcResponseHeader[replyCnt];
+         `send_word_swapped <= Multicast_Header[replyCnt];
          replyCnt <= replyCnt + 6'd1;
-         if ((replyCnt == Frame_Reply_End) && (~bcUseUDP)) begin
-             sendState <= sendExtra ? ST_SEND_DMA_EXTRA : ST_SEND_DMA_PACKETDATA_HEADER;
+         // Extra word is for fw_ctrl (set noforward flag)
+         if (replyCnt == Frame_Reply_End+1) begin
+`ifdef HAS_DEBUG_DATA
+            numMulticastWrite <= numMulticastWrite + 8'd1;
+`endif
+            sendState <= ST_SEND_DMA_PACKETDATA_HEADER;
          end
-         else if (replyCnt == UDP_Reply_End) begin
-             sendState <= sendExtra ? ST_SEND_DMA_EXTRA : ST_SEND_DMA_PACKETDATA_HEADER;
+      end
+   end
+
+   // Send broadcast read response packet (raw Ethernet or UDP)
+   ST_SEND_DMA_ETHERNET_HEADERS_BC:
+   begin
+      if (IS_V3) begin
+         if (sendReady) begin
+            `send_word_swapped <= bcResponseHeader[replyCnt];
+            replyCnt <= replyCnt + 6'd1;
+            if ((replyCnt == Frame_Reply_End) && (~bcUseUDP)) begin
+                sendState <= ST_SEND_DMA_PACKETDATA_HEADER;
+            end
+            else if (replyCnt == UDP_Reply_End) begin
+                sendState <= ST_SEND_DMA_PACKETDATA_HEADER;
+            end
          end
+      end
+      else begin
+         ethSendStateError <= 1;
+         sendState <= ST_SEND_DMA_IDLE;
       end
    end
 
