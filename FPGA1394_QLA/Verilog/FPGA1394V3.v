@@ -822,7 +822,7 @@ EthernetTransfers(
     // to respond to quadlet read and block read commands.
     .reg_rdata(reg_rdata),             //  in: reg read data
     .reg_raddr(eth_reg_raddr),         // out: reg read addr
-    .req_read_bus(eth_req_read_bus),   // out: reg read enable
+    .req_read_bus(eth_req_read_bus),   // out: read bus request
     .grant_read_bus(eth_grant_read_bus),  // in: read bus grant
     .reg_rvalid(reg_rvalid),           // in: indicates that reg_rdata is valid
     .reg_wdata(eth_reg_wdata),         // out: reg write data

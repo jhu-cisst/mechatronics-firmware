@@ -2370,6 +2370,7 @@ begin
    begin
       br_addr_in <= 9'd0;
       br_wen <= 1'b0;
+      hubSendHeader <= 1'b0;
       if (br_request) begin
          br_ack <= 1'b1;
          req_read_bus <= 1'b1;

@@ -500,7 +500,7 @@ EthernetTransfers(
     .reg_raddr(eth_reg_raddr),         // out: reg read addr
     .req_read_bus(eth_req_read_bus),   // out: read bus request
     .grant_read_bus(eth_grant_read_bus),  // in: read bus grant
-    .reg_rvalid(reg_rvalid),           //  in: indicates that reg_rdata is valid
+    .reg_rvalid(reg_rvalid),           // in: indicates that reg_rdata is valid
     .reg_wdata(eth_reg_wdata),         // out: reg write data
     .eth_reg_waddr(eth_reg_waddr),     // out: reg write addr
     .eth_reg_wen(eth_reg_wen),         // out: reg write enable
