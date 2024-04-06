@@ -250,12 +250,6 @@ module PhyLinkInterface
 
     // External timestamp
     input wire[31:0] timestamp
-
-    // debug
-`ifdef USE_CHIPSCOPE
-    ,
-    inout[35:0] ila_control       // ila control module
-`endif
 );
 
     // -------------------------------------------------------------------------
@@ -731,7 +725,7 @@ begin
                         tx_type <= `TX_TYPE_BBC;
                     end
 `ifdef HAS_ETHERNET
-                    else if (eth_send_fw_req) begin
+                    else if (eth_send_fw_req & (~eth_send_fw_ack)) begin
                         eth_send_fw_ack <= 1;
                         // Note whether Ethernet forward is active, in case there
                         // is a response. This flag may be acted upon when the
@@ -1506,30 +1500,6 @@ begin
 
     endcase
 end
-
-
-`ifdef USE_CHIPSCOPE
-// // debug hub timing
-// ila_fw_packet ila_hw(
-//     .CONTROL(ila_control),
-//     .CLK(sysclk),
-//     .TRIG0({state, next}),
-//     .TRIG1(eth_fwpkt_rdata),
-//     .TRIG2({9'd0, eth_fwpkt_raddr}),
-//     .TRIG3(ctl),
-//     .TRIG4(data)
-// );
-
-ila_fw_packet ila_hw(
-    .CONTROL(ila_control),
-    .CLK(sysclk),
-    .TRIG0({state, next}),
-    .TRIG1(32'd0),
-    .TRIG2(16'd0),
-    .TRIG3(ctl),
-    .TRIG4(data)
-);
-`endif
 
 endmodule  // PhyLinkInterface
 

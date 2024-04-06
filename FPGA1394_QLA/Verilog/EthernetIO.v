@@ -1473,16 +1473,8 @@ begin
    dataValid <= recvReady;           // 1 clock after recvReady
    recvTransition <= dataValid;      // 1 clock after dataValid
 
-   if (eth_send_fw_ack_rxtx) begin
-      eth_send_fw_req_rxtx <= 1'b0;
-   end
-
    if (bw_active) begin
       writeRequest_rxtx <= 1'b0;
-   end
-
-   if (br_ack_rxtx) begin
-      br_request_rxtx <= 1'b0;
    end
 
    // req_blk_rt_rd is asserted for just one sysclk
@@ -1721,21 +1713,21 @@ begin
                req_blk_rt_rd <= 1'b1;
             end
             if (isLocal & blockWrite & (~(addrHub & (~isRemote)))) begin
-              // writeRequest should have been set earlier (using writeRequestTrigger) for all
-              // local block writes (even broadcast). We expect write to still be active.
-              // The one exception is when we receive a multicast write to the Hub memory.
-              bw_err <= ~req_write_bus;
-              // Number of quadlets left to write to registers; should be greater than 1,
-              // otherwise the register writer may have overtaken the Ethernet reader.
-              bw_left <= bwEnd - local_raddr;
-           end
-           else if (isLocal & (quadRead | blockRead | hubSend)) begin
-              br_request_rxtx <= 1'b1;
-              br_wait_cnt <= 8'd0;
+               // writeRequest should have been set earlier (using writeRequestTrigger) for all
+               // local block writes (even broadcast). We expect write to still be active.
+               // The one exception is when we receive a multicast write to the Hub memory.
+               bw_err <= ~req_write_bus;
+               // Number of quadlets left to write to registers; should be greater than 1,
+               // otherwise the register writer may have overtaken the Ethernet reader.
+               bw_left <= bwEnd - local_raddr;
+            end
+            else if (isLocal & (quadRead | blockRead | hubSend)) begin
+               br_request_rxtx <= 1'b1;
+               br_wait_cnt <= 8'd0;
             end
             if (hubSend) begin
-                // Set block_data_length to the size of the hubSend packet
-                block_data_length <= SZ_BBC_BYTES;
+               // Set block_data_length to the size of the hubSend packet
+               block_data_length <= SZ_BBC_BYTES;
             end
             if (isRemote) begin
                // Request to forward should already have been set (using fwRequestTrigger).
@@ -1758,19 +1750,27 @@ begin
             fw_wait_cnt <= 8'd0;
             host_fw_addr <= fw_src_id;
          end
-
+         else if (eth_send_fw_ack_rxtx) begin
+            eth_send_fw_req_rxtx <= 1'b0;
+         end
       end
    end
 
    ST_RECEIVE_DMA_WAIT_START:
    begin
-      if (eth_send_fw_req_rxtx | eth_send_fw_ack_rxtx) begin
-         // Waiting for Ethernet forward to finish
-         fw_wait_cnt <= fw_wait_cnt + 8'd1;
-      end
-      else if (br_request_rxtx | br_ack_rxtx) begin
-         // Wait until read from registers finished
-         br_wait_cnt <= br_wait_cnt + 8'd1;
+      if (eth_send_fw_req_rxtx | eth_send_fw_ack_rxtx | br_request_rxtx | br_ack_rxtx) begin
+         // Clear eth_send_fw_req if eth_send_fw_ack asserted
+         if (eth_send_fw_ack_rxtx) eth_send_fw_req_rxtx <= 1'b0;
+         if (eth_send_fw_req_rxtx | eth_send_fw_ack_rxtx) begin
+            // Waiting for Ethernet forward to finish
+            fw_wait_cnt <= fw_wait_cnt + 8'd1;
+         end
+         // Clear br_request if br_ack asserted
+         if (br_ack_rxtx) br_request_rxtx <= 1'b0;
+         if (br_request_rxtx | br_ack_rxtx) begin
+            // Wait until read from registers finished
+            br_wait_cnt <= br_wait_cnt + 8'd1;
+         end
       end
       else begin
 `ifdef HAS_DEBUG_DATA
