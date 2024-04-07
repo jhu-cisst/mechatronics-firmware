@@ -245,7 +245,7 @@ module PhyLinkInterface
     // broadcast related fields
     input wire[15:0] rx_bc_sequence, // broadcast sequence num
     input wire write_trig,           // request to broadcast this board's hub data
-    output wire write_trig_reset,    // reset write_trig
+    output reg write_trig_reset,     // reset write_trig
     output wire fw_idle,             // whether Firewire state machine is idle
 
     // External timestamp
@@ -343,6 +343,14 @@ module PhyLinkInterface
     // For reading the timestamp
     reg[31:0] timestamp_latched;
     reg[31:0] timestamp_prev;
+
+    // lreq_busy is set in response to write_trig (from HubReg) or eth_send_fw_req (from EthernetIO).
+    // There are two reasons:
+    //  1) Avoids contention between write_trig and eth_send_fw_req (cannot both be in process at the
+    //     same time).
+    //  2) Can be cleared to initiate a retry, since the pending PHY request will get canceled by a
+    //     receive state.
+    reg lreq_busy;
 
 //*********************** Write Address Translation *******************************
 //
@@ -641,8 +649,6 @@ assign crc_8msb = { crc_in[24], crc_in[25], crc_in[26], crc_in[27], crc_in[28], 
 //   initialize, feed back, and latch crc values as necessary
 crc32 mycrc(crc_data, crc_in, crc_2b, crc_4b, crc_8b);
 
-assign write_trig_reset = ((lreq_type == `LREQ_TX_ISO) && (tx_type == `TX_TYPE_BBC)) ? 1'b1 : 1'b0;
-
 `ifdef HAS_ETHERNET
 // Set eth_active when request (eth_send_fw_req) is received from Ethernet to indicate that a response
 // may need to be forwarded to Ethernet. If the next packet received is a quadlet or block read response
@@ -719,21 +725,22 @@ begin
             case (ctl)
                 `CTL_PHY_IDLE: begin
                     state <= ST_IDLE;           // stay in monitor state
-                    if (write_trig) begin
+                    if (write_trig & (~lreq_busy)) begin
+                        lreq_busy <= 1;
                         lreq_trig <= 1;
-                        lreq_type <= `LREQ_TX_ISO;
+                        lreq_type <= `LREQ_TX_PRI;
                         tx_type <= `TX_TYPE_BBC;
                     end
 `ifdef HAS_ETHERNET
-                    else if (eth_send_fw_req & (~eth_send_fw_ack)) begin
-                        eth_send_fw_ack <= 1;
+                    else if (eth_send_fw_req & (~lreq_busy)) begin
                         // Note whether Ethernet forward is active, in case there
                         // is a response. This flag may be acted upon when the
                         // next Firewire packet is received in ST_RX_D_ON, and is
                         // also cleared in that state.
                         eth_active <= 1'b1;
+                        lreq_busy <= 1;
                         lreq_trig <= 1;
-                        lreq_type <= `LREQ_TX_ISO;
+                        lreq_type <= `LREQ_TX_FAIR;
                         tx_type <= `TX_TYPE_FWD;
                         eth_fwpkt_raddr <= 9'h00;
                     end
@@ -743,7 +750,11 @@ begin
                     end
                 end
                 
-                `CTL_PHY_RECV: state <= ST_RX_D_ON;  // phy data from the bus
+                `CTL_PHY_RECV:
+                    begin
+                        state <= ST_RX_D_ON;         // phy data from the bus
+                        lreq_busy <= 0;              // above request canceled (will resubmit)
+                    end
                 `CTL_PHY_GRNT: state <= ST_TX;       // phy grants tx request
                 `CTL_PHY_STAT: begin                 // phy status transfer
                     st_buff <= {14'b0, data2b};      // clock in status bits
@@ -781,6 +792,14 @@ begin
                     if (stcount == `SZ_STAT) begin
                         // update bus reset bit
                         fw_bus_reset <= st_buff[`BUS_RESET_START];
+                        // If bus reset, clear various signals
+                        if (st_buff[`BUS_RESET_START]) begin
+                            lreq_busy <= 1'b0;
+                            write_trig_reset <= 1'b0;
+`ifdef HAS_ETHERNET
+                            eth_send_fw_ack <= 1'b0;
+`endif
+                        end
                         state <= ST_IDLE;              // go back to idle state
                     end
                     // save phy register into register file
@@ -1195,6 +1214,8 @@ begin
             //        - reuse it to indicate broadcast packet is from FPGA_QLA 
             //        - pri = 4'hA   A is a random picked value
             `TX_TYPE_BBC: begin
+                lreq_busy <= 0;
+                write_trig_reset <= 1;
                 buffer <= { 16'hffff, rx_tag, 2'd0, `TC_BWRITE, 4'hA };
                 next <= ST_TX_HEAD_BC;
                 numbits <= SZ_BBC;
@@ -1203,6 +1224,8 @@ begin
 `ifdef HAS_ETHERNET
             // transmit packet from Ethernet
             `TX_TYPE_FWD: begin
+                lreq_busy <= 0;
+                eth_send_fw_ack <= 1;
                 buffer <= eth_fwpkt_rdata;
                 next <= ST_TX_FWD;
                 numbits <= (eth_fwpkt_len << 3);  // len in bytes => in bits
@@ -1406,6 +1429,7 @@ begin
                 ctl <= `CTL_IDLE;
                 state <= ST_TX_DONE1;
                 req_read_bus <= 1'b0;        // Relinquish read bus
+                write_trig_reset <= 1'b0;
             end
 
             else begin
@@ -1532,7 +1556,7 @@ reg[16:0] request;       // formatted request bit sequence
 
 assign lreq = request[16];           // shift out msb of request string
 
-// requests initiated by active low trigger and shifted out on sysclk
+// requests initiated by active high trigger and shifted out on sysclk
 always @(posedge(sysclk))
 begin
     // on trigger, construct request string
@@ -1544,6 +1568,7 @@ begin
             `LREQ_TX_IMM: request[11:9] <= 3'b100;   // S400
             `LREQ_TX_ISO: request[11:9] <= 3'b100;   // S400
             `LREQ_TX_PRI: request[11:9] <= 3'b100;   // S400
+            `LREQ_TX_FAIR: request[11:9] <= 3'b100;  // S400
         endcase
     end
 
