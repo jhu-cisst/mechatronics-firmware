@@ -945,7 +945,7 @@ else begin
                       icmp_read_en  ? sfw_count[9:1]
                                     : {2'd0, reg_raddr_in[6:0]};
 
-   DPRAM_32x512_sclk fw_packet(.clka(RxClk),
+   DPRAM_32x512_sclk fw_packet(.clka(sysclk),
                                .wea(mem_wen),
                                .addra(rfw_count[9:1]),
                                .dina(FireWireQuadlet),
@@ -954,13 +954,13 @@ else begin
                                .doutb(eth_fwpkt_rdata)
                               );
 
-   DPRAM_32x512_sclk bw_packet(.clka(RxClk),
+   DPRAM_32x512_sclk bw_packet(.clka(sysclk),
                                .wea(mem_wen),
                                .addra(rfw_count[9:1]),
                                .dina(FireWireQuadlet),
                                .clkb(sysclk),
                                .addrb(mem_raddr),
-                              .doutb(mem_rdata)
+                               .doutb(mem_rdata)
                               );
 end
 

@@ -650,11 +650,11 @@ assign crc_8msb = { crc_in[24], crc_in[25], crc_in[26], crc_in[27], crc_in[28], 
 crc32 mycrc(crc_data, crc_in, crc_2b, crc_4b, crc_8b);
 
 `ifdef HAS_ETHERNET
-// Set eth_active when request (eth_send_fw_req) is received from Ethernet to indicate that a response
-// may need to be forwarded to Ethernet. If the next packet received is a quadlet or block read response
-// and the destination address matches eth_fw_addr, it is forwarded to Ethernet. Whether forwarded or
-// not, the eth_active flag is cleared at that time.
-reg eth_active;
+// Set eth_resp when request (eth_send_fw_req) for a quadlet or block read is received from Ethernet
+// to indicate that a response will need to be forwarded to Ethernet. The next quadlet or block read response,
+// with a destination address that matches eth_fw_addr, is forwarded to Ethernet.
+// The eth_resp flag is cleared at that time.
+reg eth_resp;
 
 reg eth_send_req_pending;
 
@@ -733,11 +733,6 @@ begin
                     end
 `ifdef HAS_ETHERNET
                     else if (eth_send_fw_req & (~lreq_busy)) begin
-                        // Note whether Ethernet forward is active, in case there
-                        // is a response. This flag may be acted upon when the
-                        // next Firewire packet is received in ST_RX_D_ON, and is
-                        // also cleared in that state.
-                        eth_active <= 1'b1;
                         lreq_busy <= 1;
                         lreq_trig <= 1;
                         lreq_type <= `LREQ_TX_FAIR;
@@ -1029,19 +1024,14 @@ begin
                             // For USE_ETH_CLK, we have to worry about Ethernet running faster than
                             // Firewire. For now, we set eth_send_req_pending and just trigger the
                             // forward after the entire packet is received
-                            if (eth_active) begin
-                               if ((rx_dest[15:0] == eth_fw_addr) && (rx_tcode == `TC_QRESP)) begin
-                                  eth_send_req <= ~USE_ETH_CLK;
-                                  eth_send_req_pending <= USE_ETH_CLK;
-                                  eth_send_len <= 16'd20;
-                               end
-                               else if ((rx_dest[15:0] == eth_fw_addr) && (rx_tcode == `TC_BRESP)) begin
-                                  eth_send_req <= ~USE_ETH_CLK;
-                                  eth_send_req_pending <= USE_ETH_CLK;
-                                  eth_send_len <= 16'd24 + buffer[31:16];
-                               end
+                            if ((rx_dest[15:0] == eth_fw_addr) &&
+                                ((rx_tcode == `TC_QRESP) || (rx_tcode == `TC_BRESP))) begin
+                               eth_send_req <= ~USE_ETH_CLK & eth_resp;
+                               eth_send_req_pending <= USE_ETH_CLK & eth_resp;
+                               eth_send_len <= (rx_tcode == `TC_QRESP) ? 16'd20
+                                                                       : 16'd24 + buffer[31:16];
+                               eth_resp <= 1'b0;
                             end
-                            eth_active <= 1'b0;
 `endif
                         end
                         // quadlet 4.5 -----------------------------------------
@@ -1227,6 +1217,11 @@ begin
                 lreq_busy <= 0;
                 eth_send_fw_ack <= 1;
                 buffer <= eth_fwpkt_rdata;
+                // Set eth_resp flag if a quadlet or block read.
+                // This flag will be checked when the next Firewire packet is received
+                // in ST_RX_D_ON, and is also cleared in that state.
+                eth_resp <= ((eth_fwpkt_rdata[7:4] == `TC_QREAD) || (eth_fwpkt_rdata[7:4] == `TC_BREAD))
+                            ? 1'b1 : 1'b0;
                 next <= ST_TX_FWD;
                 numbits <= (eth_fwpkt_len << 3);  // len in bytes => in bits
                 eth_fwpkt_raddr <= eth_fwpkt_raddr + 1'b1;
