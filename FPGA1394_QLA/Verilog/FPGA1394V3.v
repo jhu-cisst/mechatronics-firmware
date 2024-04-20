@@ -1115,7 +1115,7 @@ end
 assign clk200_ok = ((clk200per == 6'd30) || (clk200per == 6'd31)) ? 1'b1 : 1'b0;
 
 // Empirically verified that clk125per is either 49 or 50
-assign clk125_ok = ((clk125per == 6'd49) || (clk200per == 6'd50)) ? 1'b1 : 1'b0;
+assign clk125_ok = ((clk125per == 6'd49) || (clk125per == 6'd50)) ? 1'b1 : 1'b0;
 
 // *** END: TEST code for PS clocks
 

@@ -335,7 +335,8 @@ reg[4:0] nextStateLatched = ST_RESET_ASSERT;
 reg[4:0] retState = ST_IDLE;
 
 // Debugging support
-assign eth_io_isIdle = (state == ST_IDLE) ? 1'd1 : 1'd0;
+wire eth_ksz_isIdle;
+assign eth_ksz_isIdle = (state == ST_IDLE) ? 1'd1 : 1'd0;
 
 // Keep track of areas where state machine may wait
 // for unknown amount of time (for debugging)
@@ -365,7 +366,7 @@ assign eth_status[6] = ethFwReqError;    // 1 -> Could not access KSZ registers 
 assign eth_status[5] = initOK;           // 1 -> Initialization OK
 assign eth_status[4] = ethStateError;    // 1 -> Invalid state detected
 assign eth_status[3] = linkStatus;       // Link status
-assign eth_status[2] = eth_io_isIdle;    // Ethernet I/O state machine is idle
+assign eth_status[2] = eth_ksz_isIdle;   // KSZ8851 state machine is idle
 assign eth_status[1:0] = waitInfo;       // Wait points in KSZ8851.v
 
 reg isInIRQ;           // True if IRQ handle routing

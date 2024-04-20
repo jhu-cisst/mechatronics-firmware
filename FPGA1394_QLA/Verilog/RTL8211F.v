@@ -473,7 +473,7 @@ begin
 end
 
 // Ethernet status bits for this port
-assign eth_status = { initOK, hasIRQ, linkOK, linkSpeed, 1'b0, 1'b0, 1'b1 };
+assign eth_status = { initOK, hasIRQ, linkOK, linkSpeed, 3'd0 };
 
 assign reg_rdata = (reg_raddr[7:0] == 8'ha0) ? mdio_result : 32'd0;
 
