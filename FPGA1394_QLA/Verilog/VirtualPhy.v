@@ -20,7 +20,8 @@ module VirtualPhy(
     input  wire mdc,      // mdc (clock) from PS
 
     input  wire ctrl_wen,         // write to Ethernet control register
-    input  wire[31:0] reg_wdata,  // write data
+    input  wire link_on_mask,     // mask for setting link_on
+    input  wire link_on_bit,      // value for setting link_on
 
     output reg  link_on,          // whether link is on
 
@@ -31,7 +32,7 @@ module VirtualPhy(
 
 always @(posedge ctrl_wen)
 begin
-    if (reg_wdata[25]) link_on <= reg_wdata[16];
+    if (link_on_mask) link_on <= link_on_bit;
 end
 
 // Default register values, obtained by reading RTL8211F when cable connnected and then

@@ -93,10 +93,10 @@ module EthSwitch
     output wire isHub,          // Whether this switch directly connected to host PC
     output wire isBcHub,        // Whether this board should be the broadcast read hub
 
-    input wire clearErrors,
-
     // For external monitoring
     input wire sysclk,
+    input wire reg_wen_ctrl,
+    input wire clearErrorBit,
     input wire[15:0] reg_raddr,
     output wire[31:0] reg_rdata
 );
@@ -110,6 +110,10 @@ localparam INDEX_RT = 3;
 // TODO: make this configurable
 reg[31:0] UdpMulticastFpga;
 initial UdpMulticastFpga = `UDP_MULTICAST_FPGA_DEFAULT;
+
+// 1 -> clear error counters and bits (requested by host by writing to
+//      Ethernet control register)
+reg clearErrors;
 
 // wire[47:0] UdpMulticastMac;      // MAC address for UDP Multicast
 // assign UdpMulticastMac = { `UDP_MULTICAST, UdpMulticastFpga[23:0] };
@@ -857,6 +861,12 @@ reg[31:0] SwitchData_latched;
 always @(posedge sysclk)
 begin
     SwitchData_latched <= SwitchData[reg_raddr[4:0]];
+    if (reg_wen_ctrl) begin
+       clearErrors <= clearErrorBit;
+    end
+    else begin
+       clearErrors <= 0;
+   end
 end
 
 // Switch data: 4090-40bf (currently, only 40a0-40bf used)

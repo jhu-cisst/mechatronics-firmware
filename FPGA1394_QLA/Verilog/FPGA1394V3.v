@@ -476,14 +476,13 @@ assign Eth_IRQn[2] = E2_IRQn;
 //    7:0    (8 bits)  Port 1 status
 // Note that the eth_status_io bits are intermingled for backward
 // compatible bit assignments.
-// TODO: decide whether to keep clk125_ok in Eth_Result
 
 wire[7:0] eth_status_phy[1:2];   // Status bits for Ethernet ports 1 and 2
 wire[7:0] eth_status_io;         // Status bits from EthernetIO
-assign Eth_Result = { 2'b01, clk125_ok, eth_status_io[7:3],                  // 31:24
-                      1'b0, eth_status_io[2], clk200_ok, eth_status_io[0],   // 23:20
-                      3'd0, eth_active_ps,                                   // 19:16
-                      eth_status_phy[2], eth_status_phy[1] };                // 15:0
+assign Eth_Result = { 2'b01, 1'b0, eth_status_io[7:3],                          // 31:24
+                      clk125_ok, eth_status_io[2], clk200_ok, eth_status_io[0], // 23:20
+                      3'd0, eth_active_ps,                                      // 19:16
+                      eth_status_phy[2], eth_status_phy[1] };                   // 15:0
 
 // We detect FPGA V3.0 by checking whether the IRQ line is connected to the
 // RTL8211F PHY (it is not connected in V3.0). There should only be two
@@ -535,6 +534,7 @@ wire       eth_active_ps;       // Whether PS Ethernet enabled
 wire[1:0]  link_speed[1:2];     // Link speed
 
 wire       eth_wdog_refresh;    // Additional watchdog refresh from Ethernet
+wire       eth_ctrl_wen;        // Write enable to Ethernet control register
 wire       eth_clear_errors;    // Clear EthernetIO and EthRtInterface errors
 
 wire       recv_ready_rt;       // Whether RT ready for input data from switch
@@ -609,12 +609,10 @@ EthSwitch eth_switch (
     .isHub(isHub),                   // 1 -> this board (probably) is the Ethernet hub
     .isBcHub(isBcHub),               // 1 -> this board is the Ethernet broadcast read hub
 
-    // TODO: Define a separate bit for clearing EthSwitch errors
-    // For now, uses clearErrors from EthernetIO
-    .clearErrors(eth_clear_errors),
-
     // For debugging
     .sysclk(sysclk),                 // clock for read signals
+    .reg_wen_ctrl(eth_ctrl_wen),     // in: write enable to Ethernet control register
+    .clearErrorBit(reg_wdata[30]),   // in: bit for clearing switch errors
     .reg_raddr(reg_raddr),           // read address
     .reg_rdata(reg_rdata_esw)        // register read data
 );
@@ -659,7 +657,6 @@ assign reg_rdata_eth_ll = (reg_raddr[11:8] == 4'd1) ? reg_rdata_rtl[1] :   // Et
                           32'd0;
 
 // Write to Ethernet control register
-wire eth_ctrl_wen;
 assign eth_ctrl_wen = (reg_waddr == {`ADDR_MAIN, 8'h0, `REG_ETHSTAT}) ? reg_wen : 1'b0;
 
 genvar k;
@@ -706,7 +703,7 @@ for (k = 1; k <= 2; k = k + 1) begin : eth_loop
 end
 endgenerate
 
-// TODO: Add this to VirtualPhy
+// TODO: Add this to VirtualPhy, or remove it from block design
 wire PS_Eth_RSTn;            // Reset signal from PS (ARM)
 
 VirtualPhy VPhy(
@@ -716,7 +713,8 @@ VirtualPhy VPhy(
     .mdc(mdio_clk_ps),       // mdc (clock) from PS
 
     .ctrl_wen(eth_ctrl_wen),
-    .reg_wdata(reg_wdata),
+    .link_on_mask(reg_wdata[25]),
+    .link_on_bit(reg_wdata[16]),
     .link_on(eth_active_ps),
 
     // For debugging

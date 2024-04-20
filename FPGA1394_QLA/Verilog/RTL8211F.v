@@ -59,9 +59,7 @@ module RTL8211F
 
     // Feedback bits
     output wire[7:0] eth_status,      // Ethernet status bits
-    output reg hasIRQ,                // 1 -> PHY IRQn available (FPGA V3.1+)
-
-    output reg clearErrors            // Clear error flags  (TODO: No longer used)
+    output reg hasIRQ                 // 1 -> PHY IRQn available (FPGA V3.1+)
 );
 
 initial RSTn = 1'b1;
@@ -337,10 +335,6 @@ begin
         resetRequest <= validChannel&reg_wdata[26]&reg_wdata[BIT_OFFSET+7]&RSTn;
         IRQn_disable <= validChannel&reg_wdata[27]&reg_wdata[BIT_OFFSET+6];
         IRQ_sw <= validChannel&reg_wdata[28]&reg_wdata[BIT_OFFSET+5];
-        clearErrors <= validChannel&reg_wdata[28]&reg_wdata[BIT_OFFSET+4];
-    end
-    else begin
-        clearErrors <= 0;
     end
 
     // Request write to RTL8211F register via MDIO, address = 4xa0,
@@ -479,7 +473,6 @@ begin
 end
 
 // Ethernet status bits for this port
-//assign eth_status = { initOK, hasIRQ, linkOK, linkSpeed, recv_fifo_error, send_fifo_overflow, ps_eth_enable };
 assign eth_status = { initOK, hasIRQ, linkOK, linkSpeed, 1'b0, 1'b0, 1'b1 };
 
 assign reg_rdata = (reg_raddr[7:0] == 8'ha0) ? mdio_result : 32'd0;
