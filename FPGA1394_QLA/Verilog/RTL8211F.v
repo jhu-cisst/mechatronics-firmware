@@ -214,8 +214,7 @@ localparam[3:0]
     ST_WAIT_MDIO_RESULT = 4'd4,
     ST_INIT_CHECK_CHIPID1 = 4'd5,
     ST_INIT_CHECK_CHIPID2 = 4'd6,
-    ST_GET_PHYSR_DATA = 4'd7,
-    ST_SET_GMII_SPEED = 4'd8;
+    ST_GET_PHYSR_DATA = 4'd7;
 
 reg[3:0] state = ST_RESET_ASSERT;
 
@@ -227,10 +226,6 @@ localparam[4:0]
         ADDR_PHYSR = 5'd26,     // PHY Specific Status Register, page 0xa43
         ADDR_INSR = 5'd29,      // Interrupt Status Register, page 0xa43
         ADDR_PAGSR = 5'd31;     // Page Select Register, 0xa43
-
-// Speed bits in BMCR (and GMII control register)
-`define SPEED_LSB 13
-`define SPEED_MSB  6
 
 //***************************************************************************************
 // Microcode for RTL8211F register access
@@ -260,39 +255,38 @@ localparam CMD_WRITE = 1'b0,        // Write to register
 localparam[4:0] PHY_RTL  = 5'd1,    // PHY address for RTL8211F
                 PHY_GMII = 5'd8;    // PHY address for GMII core
 
-// Program for initialization (0-10) and IRQ handler (4-10)
-reg[26:0] RunProgram[0:10];
+// Program for initialization (0-9) and IRQ handler (4-9)
+wire[26:0] RunProgram[0:9];
 reg[3:0] runPC;    // Program counter for RunProgram
+
+// Data to write to GMII register (to set speed)
+reg[15:0] phy_gmii_data;
 
 localparam[3:0] PC_RESET_BEGIN = 4'd0,   // Program counter for starting reset handler
                 PC_IRQ_BEGIN = 4'd4,     // Program counter for starting IRQ handler
-                PC_END = 4'd10;          // End (also used for MDIO requests from PC)
+                PC_END = 4'd9;           // End (also used for MDIO requests from PC)
 
-initial begin
-    // Read Chip ID1 (should be 001c)
-    RunProgram[0] = {CMD_READ,  PHY_RTL, ADDR_PHYID1, 12'd0, ST_INIT_CHECK_CHIPID1};
-    // Read Chip ID2 (should be c916)
-    RunProgram[1] = {CMD_READ,  PHY_RTL, ADDR_PHYID2, 12'd0, ST_INIT_CHECK_CHIPID2};
-    // Change page to 0xa42 to access INER
-    RunProgram[2] = {CMD_WRITE, PHY_RTL, ADDR_PAGSR, 16'h0a42};
-    // Enable link change interrupt
-    RunProgram[3] = {CMD_WRITE, PHY_RTL, ADDR_INER, 16'h0010};
-    // Change page to 0xa43 to access INSR
-    RunProgram[4] = {CMD_WRITE, PHY_RTL, ADDR_PAGSR, 16'h0a43};
-    // Read interrupt status register (clears interrupt)
-    RunProgram[5] = {CMD_READ,  PHY_RTL, ADDR_INSR, 12'd0, ST_RUN_PROGRAM_EXECUTE};
-    // Read PHYSR to get link status
-    RunProgram[6] = {CMD_READ,  PHY_RTL, ADDR_PHYSR, 12'd0, ST_GET_PHYSR_DATA};
-    // Change page to 0 to access BMCR (might not be necessary)
-    RunProgram[7] = {CMD_WRITE, PHY_RTL, ADDR_PAGSR, 16'd0};
-    // Read BMCR to get speed bits, which are used to update RunProgram[9]
-    // Note that speed bits are also available in PHYSR.
-    RunProgram[8] = {CMD_READ,  PHY_RTL, ADDR_BMCR, 12'd0, ST_SET_GMII_SPEED};
-    // Write speed bits to GMII core register 16 (ST_SET_GMII_SPEED updates the data field)
-    RunProgram[9] = {CMD_WRITE, PHY_GMII, 5'd16, 16'd0};
-    // Change page to 0xa42 since that is the default page (probably not necessary)
-    RunProgram[10] = {CMD_WRITE, PHY_RTL, ADDR_PAGSR, 16'h0a42};
-end
+// Read Chip ID1 (should be 001c)
+assign RunProgram[0] = {CMD_READ,  PHY_RTL, ADDR_PHYID1, 12'd0, ST_INIT_CHECK_CHIPID1};
+// Read Chip ID2 (should be c916)
+assign RunProgram[1] = {CMD_READ,  PHY_RTL, ADDR_PHYID2, 12'd0, ST_INIT_CHECK_CHIPID2};
+// Change page to 0xa42 to access INER
+assign RunProgram[2] = {CMD_WRITE, PHY_RTL, ADDR_PAGSR, 16'h0a42};
+// Enable link change interrupt; could also enable auto-negotiation complete interrupt,
+// but it does not seem to be necessary (i.e., we get the correct speed in PHYSR)
+assign RunProgram[3] = {CMD_WRITE, PHY_RTL, ADDR_INER, 16'h0010};
+// Change page to 0xa43 to access INSR
+assign RunProgram[4] = {CMD_WRITE, PHY_RTL, ADDR_PAGSR, 16'h0a43};
+// Read interrupt status register (clears interrupt)
+assign RunProgram[5] = {CMD_READ,  PHY_RTL, ADDR_INSR, 12'd0, ST_RUN_PROGRAM_EXECUTE};
+// Read PHYSR to get link status
+assign RunProgram[6] = {CMD_READ,  PHY_RTL, ADDR_PHYSR, 12'd0, ST_GET_PHYSR_DATA};
+// Change page to 0 to access BMCR (might not be necessary)
+assign RunProgram[7] = {CMD_WRITE, PHY_RTL, ADDR_PAGSR, 16'd0};
+// Write speed bits to GMII core register 16 (ST_GET_PHYSR_DATA updates the data field)
+assign RunProgram[8] = {CMD_WRITE, PHY_GMII, 5'd16, phy_gmii_data};
+// Change page to 0xa42 since that is the default page (probably not necessary)
+assign RunProgram[9] = {CMD_WRITE, PHY_RTL, ADDR_PAGSR, 16'h0a42};
 
 reg[23:0] initCount;
 reg resetRequest;            // 1 -> Request PHY reset
@@ -453,13 +447,7 @@ begin
     begin
         linkOK <= read_data[2];
         linkSpeed <= read_data[5:4];
-        state <= ST_RUN_PROGRAM_EXECUTE;
-    end
-
-    ST_SET_GMII_SPEED:
-    begin
-        RunProgram[runPC][`SPEED_LSB] <= read_data[`SPEED_LSB];
-        RunProgram[runPC][`SPEED_MSB] <= read_data[`SPEED_MSB];
+        phy_gmii_data <= { 2'd0, read_data[4], 6'd0, read_data[5], 6'd0 };
         state <= ST_RUN_PROGRAM_EXECUTE;
     end
 
@@ -475,6 +463,8 @@ end
 // Ethernet status bits for this port
 assign eth_status = { initOK, hasIRQ, linkOK, linkSpeed, 3'd0 };
 
-assign reg_rdata = (reg_raddr[7:0] == 8'ha0) ? mdio_result : 32'd0;
+assign reg_rdata = (reg_raddr[7:0] == 8'ha0) ? mdio_result :
+                   (reg_raddr[7:0] == 8'ha1) ? { 8'd0, numReset, 8'd0, numIRQ }
+                                             : 32'd0;
 
 endmodule

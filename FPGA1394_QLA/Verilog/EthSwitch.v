@@ -107,9 +107,11 @@ localparam INDEX_ETH2 = 1;
 localparam INDEX_PS = 2;
 localparam INDEX_RT = 3;
 
-// TODO: make this configurable
-reg[31:0] UdpMulticastFpga;
-initial UdpMulticastFpga = `UDP_MULTICAST_FPGA_DEFAULT;
+// Currently, UDP multicast address is hard-coded to 224.0.0.100 (see Constants.v);
+// could be configurable for FPGA V3, but a bit more difficult for FPGA V2, where
+// hash value would need to be computed and written to register.
+wire[31:0] UdpMulticastFpga;
+assign UdpMulticastFpga = `UDP_MULTICAST_FPGA_DEFAULT;
 
 // 1 -> clear error counters and bits (requested by host by writing to
 //      Ethernet control register)
@@ -324,7 +326,7 @@ genvar out;
 
 generate
 
-for (in = 0; in < 4; in = in + 1) begin : fifo__int_loop
+for (in = 0; in < 4; in = in + 1) begin : fifo_int_loop
 
   // crc registers
   wire[7:0] recv_crc_data;    // data into crc module to compute crc on
