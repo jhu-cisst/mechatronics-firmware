@@ -590,7 +590,7 @@ EthSwitch eth_switch (
 
     // Port3: RT
     .P3_Active(1'b1),                // Port3 active (e.g., link on)
-    .P3_Fast(ETH_RT_FAST),           // Port3 currently slow
+    .P3_Fast(ETH_RT_FAST),           // Port3 speed
     .P3_RecvReady(recv_ready_rt),    // Port3 client ready for data
     .P3_DataReady(data_ready_rt),    // Port3 client providing valid data
     .P3_RxClk(gmii_rx_clk[4]),       // Port3 receive clock

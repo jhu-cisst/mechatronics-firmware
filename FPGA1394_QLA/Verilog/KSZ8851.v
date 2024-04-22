@@ -1316,7 +1316,7 @@ wire[31:0] SwitchData[0:31];
 assign SwitchData[0]  = "0WSE";  // ESW0 byte-swapped
 // Port configuration and forwarding info
 assign SwitchData[1]  = { 4'b1001, 20'd0,                 // Ports 3 (RT) and 0 (ETH) exist
-                          4'd0,                           // All port are slow
+                          4'd0,                           // All ports are slow
                           1'd1, 2'd0, linkStatus };       // Port 3 active, Port 0 depends on linkStatus
 assign SwitchData[2]  = MacAddrHost[47:16];
 assign SwitchData[3]  = { MacAddrHost[15:0], 16'd0 };
