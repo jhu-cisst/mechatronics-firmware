@@ -590,10 +590,7 @@ wire[15:0] board_mask;                        // Board mask sent with quadlet wr
 assign board_mask = FireWireQuadlet[15:0];    // Only valid for a limited time
 reg isBoardMasked;
 
-if (IS_V3)
-   assign hubSend = FireWirePacketFresh & quadWrite & addrHubReg & isLocal & (~isRemote) & isBoardMasked;
-else
-    assign hubSend = 1'b0;
+assign hubSend = FireWirePacketFresh & quadWrite & addrHubReg & isLocal & (~isRemote) & isBoardMasked;
 
 //**************************** Firewire Control Word ************************************
 // The Raw or UDP header is followed by one control word, which includes the expected Firewire
@@ -998,7 +995,9 @@ else
 
 // reg_wen_hub_local is set from the SEND process, when sending the multicast
 // packet (hubSend) to the other FPGA boards, so that the local real-time block
-// data is also written to the local Hub memory.
+// data is also written to the local Hub memory (FPGA V3).
+// For FPGA V2, we do not maintain the local hub memory because a V2 board should
+// never be the hub.
 reg reg_wen_hub_local;
 
 // The following signals are set from the RECEIVE process, when:
@@ -1014,6 +1013,12 @@ reg reg_wen_hub_quad;
 wire[5:0] fw_tl_reply;
 
 if (IS_V3) begin
+
+   // Although it would technically be correct to support the local hub for FPGA V2, it
+   // would require more FPGA resources and there is little practical use for this feature.
+   // In a system with FPGA V2 and V3 boards, the system should read from the hub memory on
+   // a V3 board. For a system with only V2 boards, the Ethernet/Firewire bridge should be used
+   // instead, because Ethernet-only would be very slow and would require an external switch.
 
    wire reg_wen_hub_remote;
    assign reg_wen_hub_remote = localHubWrite & mem_wen;
@@ -1163,10 +1168,19 @@ if (IS_V3) begin
 
 end
 else begin
+
+   reg[15:0] sequence;
+   always @(posedge RxClk)
+   begin
+      if (reg_wen_hub_quad) begin
+         sequence <= fw_quadlet_data[31:16];
+      end
+   end
+
    // Assign some default values for FPGA V2
    assign reg_rdata_hub = 32'd0;
    assign reg_rwait_hub = 1'b0;
-   assign bc_sequence = 16'd0;
+   assign bc_sequence = sequence;
    assign bc_resp_length = 16'd0;
    assign bcRespReady = 1'b0;
    assign bcBoardMask = 16'd0;
@@ -1365,7 +1379,7 @@ reg bw_active_sys;          // register write active in sysclk domain
 // output wire bw_active (actually in RxTxClk domain)
 
 reg  br_request_rxtx;       // request register read into br_packet memory from RxTxClk domain
-wire br_request;            // request register read into br_packet_memory in sysclk domain
+wire br_request;            // request register read into br_packet memory in sysclk domain
 
 reg  br_ack;                // Acknowledge br_request
 wire br_ack_rxtx;           // br_ack in RxTxClk domain
