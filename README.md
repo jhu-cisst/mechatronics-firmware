@@ -28,8 +28,7 @@ subdirectory contains all files to support these boards.
 In the future, it may make sense to create separate subdirectories for functionality
 specific to the FPGA1394 boards and to the different companion boards.
 
-The project can be built using CMake and the Xilinx command line tools (strongly preferred), or by loading
-one of the project files (FPGA1394V1-QLA.xise or FPGA1394V2-QLA.xise) into Xilinx ISE.
+The project should be built using CMake and the Xilinx command line tools.
 See the [wiki build instructions](https://github.com/jhu-cisst/mechatronics-firmware/wiki/FPGA-Build-Instructions).
 
 Note that in March 2023, the V1 firmware designation was changed from FPGA1394-QLA to FPGA1394V1-QLA and

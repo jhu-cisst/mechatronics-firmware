@@ -89,11 +89,14 @@ module EthSwitch
     output wire[1:0] P3_TxSrc,  // Port3 source port (0-2)
 
     input wire[3:0] board_id,   // Board id (used for MAC addresses)
+    input wire[15:0] bcBoardMask,  // Broadcast read board mask
     output wire isHub,          // Whether this switch directly connected to host PC
-
-    input wire clearErrors,
+    output wire isBcHub,        // Whether this board should be the broadcast read hub
 
     // For external monitoring
+    input wire sysclk,
+    input wire reg_wen_ctrl,
+    input wire clearErrorBit,
     input wire[15:0] reg_raddr,
     output wire[31:0] reg_rdata
 );
@@ -103,6 +106,19 @@ localparam INDEX_ETH1 = 0;
 localparam INDEX_ETH2 = 1;
 localparam INDEX_PS = 2;
 localparam INDEX_RT = 3;
+
+// Currently, UDP multicast address is hard-coded to 224.0.0.100 (see Constants.v);
+// could be configurable for FPGA V3, but a bit more difficult for FPGA V2, where
+// hash value would need to be computed and written to register.
+wire[31:0] UdpMulticastFpga;
+assign UdpMulticastFpga = `UDP_MULTICAST_FPGA_DEFAULT;
+
+// 1 -> clear error counters and bits (requested by host by writing to
+//      Ethernet control register)
+reg clearErrors;
+
+// wire[47:0] UdpMulticastMac;      // MAC address for UDP Multicast
+// assign UdpMulticastMac = { `UDP_MULTICAST, UdpMulticastFpga[23:0] };
 
 // Create arrays from input parameters
 
@@ -256,33 +272,17 @@ for (bd = 0; bd < 16; bd = bd + 1) begin : bd_loop
 end
 endgenerate
 
-// Ethernet broadcast MAC address
-localparam[47:0] BroadcastMAC = 48'hFFFFFFFFFFFF;
-
-// FPGA MAC addresses contain the LCSR Company ID (CID) as the first 24-bits,
-// followed by 16-bits for the RT or PS interface, followed by 8-bits for the board-id.
-localparam[23:0] LCSR_CID    = 24'hfa610e;
-localparam[15:0] FPGA_RT_MAC = 16'h1394;
-localparam[15:0] FPGA_PS_MAC = 16'h0300;
-// Lowest 8-bits contain board-id
-
-// FPGA multicast MAC address. Currently, only used for RT, but implementation supports
-// it for PS (or any other middle 16-bits), since we only check for a match on
-// LCSR_CID_MULTICAST and the lower 8-bits (8'hff).
-localparam[23:0] MULTICAST_BIT = 24'h010000;
-localparam[23:0] LCSR_CID_MULTICAST = LCSR_CID | MULTICAST_BIT;
-
 // For saving MAC address of host (on Eth1 or Eth2)
 reg[47:0] MacAddrHost[INDEX_ETH1:INDEX_ETH2];
-initial MacAddrHost[INDEX_ETH1] = BroadcastMAC;
-initial MacAddrHost[INDEX_ETH2] = BroadcastMAC;
+initial MacAddrHost[INDEX_ETH1] = `BROADCAST_MAC;
+initial MacAddrHost[INDEX_ETH2] = `BROADCAST_MAC;
 
 // Primary MAC address to use for routing (indexed by out-port)
 wire[47:0] MacAddrPrimary[0:3];
 assign MacAddrPrimary[INDEX_ETH1] = MacAddrHost[INDEX_ETH1];
 assign MacAddrPrimary[INDEX_ETH2] = MacAddrHost[INDEX_ETH2];
-assign MacAddrPrimary[INDEX_PS] = { LCSR_CID, FPGA_PS_MAC, 4'd0, board_id };
-assign MacAddrPrimary[INDEX_RT] = { LCSR_CID, FPGA_RT_MAC, 4'd0, board_id };
+assign MacAddrPrimary[INDEX_PS] = { `LCSR_CID, `FPGA_PS_MAC, 4'd0, board_id };
+assign MacAddrPrimary[INDEX_RT] = { `LCSR_CID, `FPGA_RT_MAC, 4'd0, board_id };
 
 // Destination address of current packet on each in-port
 wire[47:0] DestMac[0:3];
@@ -326,7 +326,7 @@ genvar out;
 
 generate
 
-for (in = 0; in < 4; in = in + 1) begin : fifo__int_loop
+for (in = 0; in < 4; in = in + 1) begin : fifo_int_loop
 
   // crc registers
   wire[7:0] recv_crc_data;    // data into crc module to compute crc on
@@ -394,7 +394,7 @@ for (in = 0; in < 4; in = in + 1) begin : fifo__int_loop
       if ((in == INDEX_ETH1) || (in == INDEX_ETH2)) begin
           // If Eth1 or Eth2 not active, reset forwarding database
           if (~PortActive[in]) begin
-              MacAddrHost[in] <= BroadcastMAC;
+              MacAddrHost[in] <= `BROADCAST_MAC;
               PortForwardFpga[in] <= 16'd0;
           end
       end
@@ -436,7 +436,7 @@ for (in = 0; in < 4; in = in + 1) begin : fifo__int_loop
                       // there is an FPGA board accessible via that port.
                       // For this purpose, it does not matter whether the middle
                       // 16-bits are FPGA_RT_MAC or FPGA_PS_MAC.
-                      if (SrcMac[47:24] == LCSR_CID)
+                      if (SrcMac[47:24] == `LCSR_CID)
                           PortForwardFpga[in][SrcMac[3:0]] <= 1'b1;
                       else
                           MacAddrHost[in] <= SrcMac;
@@ -511,10 +511,20 @@ for (in = 0; in < 4; in = in+1) begin : fifo_loop_in
   assign TxSt_Switch[in][in] = 2'd0;
   assign TxD_Switch[in][in] = 8'd0;
   assign TxInfo_Switch[in][in] = 4'd0;
-  wire isBroadcast;
-  assign isBroadcast = (DestMac[in] == BroadcastMAC) ? 1'b1 : 1'b0;
-  wire isMulticast;
-  assign isMulticast = (DestMac[in][47:24] == LCSR_CID_MULTICAST) && (DestMac[in][7:0] == 8'hff) ? 1'b1 : 1'b0;
+  wire isBroadcast;        // 1 -> Ethernet broadcast packet
+  assign isBroadcast = (DestMac[in] == `BROADCAST_MAC) ? 1'b1 : 1'b0;
+  wire isMulticastUdp;     // 1 -> any UDP multicast packet
+  assign isMulticastUdp = (DestMac[in][47:24] == `UDP_MULTICAST) ? 1'b1 : 1'b0;
+  wire isMulticastFpga;    // 1 -> multicast packet to RT (raw Ethernet or UDP multicast)
+  assign isMulticastFpga = ((DestMac[in][47:24] == `LCSR_CID_MULTICAST) && (DestMac[in][7:0] == 8'hff)) ||
+                            (isMulticastUdp && (DestMac[in][23:0] == UdpMulticastFpga[23:0])) ? 1'b1 : 1'b0;
+  wire isLcsr;             // 1 -> destination MAC address is for LCSR (PS or RT), including raw Ethernet multicast
+  assign isLcsr = ((DestMac[in][47:24]&(~`MULTICAST_BIT)) == `LCSR_CID) ? 1'b1 : 1'b0;
+  wire isMulticastLcsr;    // 1 -> raw Ethernet multicast with destination MAC address for LCSR (RT)
+  assign isMulticastLcsr = isLcsr & DestMac[in][40];
+  wire isNoPrimaryMatch;
+  assign isNoPrimaryMatch = ~(MacAddrPrimaryMatch[in][(in+1)%4] | MacAddrPrimaryMatch[in][(in+2)%4] |
+                              MacAddrPrimaryMatch[in][(in+3)%4]);
 
   wire isFirstByteIn;
   assign isFirstByteIn = (RxSt[in] == 2'b01) ? 1'b1 : 1'b0;
@@ -535,19 +545,28 @@ for (in = 0; in < 4; in = in+1) begin : fifo_loop_in
       wire RxFwd;         // Whether to forward packet from port "in" to port "out"
       if (((out%4) == INDEX_ETH1) || ((out%4) == INDEX_ETH2)) begin
           wire isFpgaMatch;
-          // Mask with ~MULTICAST_BIT to allow Ethernet multicast
-          assign isFpgaMatch = ((DestMac[in][47:24]&(~MULTICAST_BIT)) == LCSR_CID) ?
-                               PortForwardFpgaAction[DestMac[in][3:0]][out%4] : 1'b0;
-          wire isNoPrimaryMatch;
-          assign isNoPrimaryMatch = ~(MacAddrPrimaryMatch[in][(in+1)%4] | MacAddrPrimaryMatch[in][(in+2)%4] |
-                                      MacAddrPrimaryMatch[in][(in+3)%4]);
+          assign isFpgaMatch = ((isLcsr & PortForwardFpgaAction[DestMac[in][3:0]][out%4]) |
+                                isMulticastLcsr | isMulticastFpga) ? 1'b1 : 1'b0;
           wire  isNoMatch;
           assign isNoMatch = isNoPrimaryMatch & (~isFpgaMatch);
+          // For ETH1 and ETH2, we forward all broadcast packets, all UDP multicast packets,
+          // all packets that match the primary MAC address, all packets destined for FPGA
+          // boards accessible through that port, and all packets where we do not otherwise
+          // have a match (i.e., we flood unknown packets).
           assign RxFwd = RxValid_Int[in] & PortActive[out%4] &
-                         (isBroadcast|isMulticast|isPrimaryMatch|isFpgaMatch|isNoMatch);
+                         (isBroadcast|isMulticastUdp|isPrimaryMatch|isFpgaMatch|isNoMatch);
       end
-      else begin
-          assign RxFwd = RxValid_Int[in] & PortActive[out%4] & (isBroadcast|isMulticast|isPrimaryMatch);
+      else if ((out%4) == INDEX_PS) begin
+          // For PS, we forward all broadcast packets, any UDP multicast packets that are
+          // not for RT (~isMulticastFpga), and packets that match the primary MAC address
+          // (we do not need to check isLcsr because the primary MAC address covers that).
+          assign RxFwd = RxValid_Int[in] & PortActive[out%4] &
+                         (isBroadcast|(isMulticastUdp&(~isMulticastFpga))|isPrimaryMatch);
+      end
+      else if ((out%4) == INDEX_RT) begin
+          // For RT, we forward all broadcast packets, any raw or UDP multicast packets for RT (isMulticastFpga),
+          // and packets that match the primary MAC address (which covers isLcsr).
+          assign RxFwd = RxValid_Int[in] & PortActive[out%4] & (isBroadcast|isMulticastFpga|isPrimaryMatch);
       end
 
       // fifo_overflow indicates that we could not write due to a full FIFO; once that has happened, there
@@ -581,7 +600,7 @@ for (in = 0; in < 4; in = in+1) begin : fifo_loop_in
           .empty(fifo_empty[in][out%4])
       );
 
-      // Fifo_Info is 4-bits wide and has a depth of 128 bytes, which should be enough
+      // Fifo_Info is 4-bits wide and has a depth of 128, which should be enough
       // since the data FIFO (above) has a depth of 8192 bytes and the minimum Ethernet
       // packet size is 64 bytes.
       fifo_4x128 Fifo_Info(
@@ -765,6 +784,15 @@ for (out = 0; out < 4; out = out + 1) begin : fifo_loop_mux
                        (curInput == INDEX_ETH2) ? ((PortForwardFpga[INDEX_ETH2] == 16'd0) ? 1'b1 : 1'b0 ) :
                        (curInput == INDEX_PS)   ? 1'b1
                                                 : 1'b0;
+        // This board is the broadcast read hub if the message is received from an Ethernet port that does
+        // not have any other participating boards in its port forwarding database, or if the message is
+        // received from the PS. Note that this should only be used for broadcast read, where bcBoardMask
+        // is non-zero.
+        assign isBcHub = (curInput == INDEX_ETH1) ?
+                             (((PortForwardFpga[INDEX_ETH1]&bcBoardMask) == 16'd0) ? 1'b1 : 1'b0 ) :
+                         (curInput == INDEX_ETH2) ?
+                             (((PortForwardFpga[INDEX_ETH2]&bcBoardMask) == 16'd0) ? 1'b1 : 1'b0 ) :
+                         (curInput == INDEX_PS)   ? 1'b1 : 1'b0;
     end
 end
 endgenerate
@@ -800,7 +828,7 @@ assign SwitchData[2]  = MacAddrPrimary[0][47:16];
 assign SwitchData[3]  = { MacAddrPrimary[0][15:0], MacAddrPrimary[1][47:32] };
 assign SwitchData[4]  = MacAddrPrimary[1][31:0];
 assign SwitchData[5]  = { PortForwardFpga[INDEX_ETH2], PortForwardFpga[INDEX_ETH1] };
-assign SwitchData[6]  = 32'd0;
+assign SwitchData[6]  = UdpMulticastFpga;
 // Port-specific data [in] or [out]
 assign SwitchData[7]  = { 24'd0,
                          DataReady[3],  DataReady[2],  DataReady[1],  DataReady[0],
@@ -831,7 +859,19 @@ assign SwitchData[29] = 32'd0;
 assign SwitchData[30] = 32'd0;
 assign SwitchData[31] = 32'd0;
 
+reg[31:0] SwitchData_latched;
+always @(posedge sysclk)
+begin
+    SwitchData_latched <= SwitchData[reg_raddr[4:0]];
+    if (reg_wen_ctrl) begin
+       clearErrors <= clearErrorBit;
+    end
+    else begin
+       clearErrors <= 0;
+   end
+end
+
 // Switch data: 4090-40bf (currently, only 40a0-40bf used)
-assign reg_rdata = (reg_raddr[11:5] == 7'b0000101) ? SwitchData[reg_raddr[4:0]] : 32'd0;
+assign reg_rdata = (reg_raddr[11:5] == 7'b0000101) ? SwitchData_latched : 32'd0;
 
 endmodule

@@ -297,9 +297,11 @@ assign eth_send_addr_mux = eth_send_ack ? eth_send_addr : reg_raddr[8:0];
 
 // phy-link interface
 PhyLinkInterface
-    #(.NUM_BC_READ_QUADS(NUM_BC_READ_QUADS))
+    #(.NUM_BC_READ_QUADS(NUM_BC_READ_QUADS),
+      .USE_ETH_CLK(0))
 phy(
     .sysclk(sysclk),         // in: global clk  
+    .ethclk(sysclk),         // in: Ethernet clk (not used)
     .board_id(board_id),     // in: board id (rotary switch)
     .node_id(node_id),       // out: phy node id
 
@@ -471,8 +473,13 @@ assign ip_reg_wen = (reg_waddr == {`ADDR_MAIN, 8'h0, `REG_IPADDR}) ? reg_wen : 1
 wire   eth_ctrl_wen;
 assign eth_ctrl_wen = (reg_waddr == {`ADDR_MAIN, 8'h0, `REG_ETHSTAT}) ? reg_wen : 1'b0;
 
-EthernetIO EthernetTransfers(
+EthernetIO
+    #(.IPv4_CSUM(0), .IS_V3(0),
+      .NUM_BC_READ_QUADS(NUM_BC_READ_QUADS),
+      .USE_RXTX_CLK(0))
+EthernetTransfers(
     .sysclk(sysclk),          // in: global clock
+    .RxTxClk(sysclk),         // in: Rx/Tx clock (only used for FPGA V3)
 
     .board_id(board_id),      // in: board id (rotary switch)
     .node_id(node_id),        // in: phy node id
@@ -493,7 +500,7 @@ EthernetIO EthernetTransfers(
     .reg_raddr(eth_reg_raddr),         // out: reg read addr
     .req_read_bus(eth_req_read_bus),   // out: read bus request
     .grant_read_bus(eth_grant_read_bus),  // in: read bus grant
-    .reg_rvalid(reg_rvalid),           //  in: indicates that reg_rdata is valid
+    .reg_rvalid(reg_rvalid),           // in: indicates that reg_rdata is valid
     .reg_wdata(eth_reg_wdata),         // out: reg write data
     .eth_reg_waddr(eth_reg_waddr),     // out: reg write addr
     .eth_reg_wen(eth_reg_wen),         // out: reg write enable
@@ -543,6 +550,7 @@ EthernetIO EthernetTransfers(
     .timeNow(eth_time_now),           // Running time counter since start of packet receive
     .srcPort(2'd0),                   // Source port (0 for KSZ8851)
     .isHub(isHub),                    // Whether this board might be Ethernet hub
+    .isBcHub(1'b0),                   // V2 cannot be Ethernet broadcast read hub
     .bw_active(eth_bw_active),        // Indicates that block write module is active
     .ethLLError(eth_InternalError),   // Error summary bit to EthernetIO
     .eth_status(eth_status_io)        // EthernetIO status register
@@ -592,6 +600,7 @@ BoardRegs chan0(
     .wdog_period_led(wdog_period_led),
     .wdog_period_status(wdog_period_status),
     .wdog_timeout(wdog_timeout),
+    .wdog_refresh(reg_wen),
     .wdog_clear(wdog_clear)
 );
 

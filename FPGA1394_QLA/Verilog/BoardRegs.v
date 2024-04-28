@@ -42,6 +42,7 @@ module BoardRegs
     output reg wdog_period_led,    // 1 -> LED1 displays wdog_period_status
     output reg[2:0] wdog_period_status,
     output reg wdog_timeout,       // watchdog timeout status flag
+    input  wire wdog_refresh,      // watchdog refresh
     input  wire wdog_clear         // clear watchdog timeout (e.g., on powerup)
 );
 
@@ -169,8 +170,8 @@ begin
         wdog_count <= 24'd0;                    // clear the timer counter
         wdog_timeout <= 1'd0;                   // clear wdog_timeout
     end
-    else if (reg_wen) begin
-        // clear counter on any reg write
+    else if (wdog_refresh) begin
+        // clear counter on wdog_refresh (e.g., any register write)
         wdog_count <= 24'd0;                    // clear the timer counter
     end
     else if (wdog_period != 16'd0) begin

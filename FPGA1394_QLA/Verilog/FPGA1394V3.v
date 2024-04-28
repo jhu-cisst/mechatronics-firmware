@@ -95,6 +95,22 @@ localparam NUM_RT_READ_QUADS = (4 + 2*NUM_MOTORS + 5*NUM_ENCODERS);
 // Number of quadlets in broadcast real-time block; includes sequence number
 localparam NUM_BC_READ_QUADS = (1+NUM_RT_READ_QUADS);
 
+// ETH_RT_FAST:
+//   0:   Use sysclk for Ethernet RT interface Rx/Tx
+//   1:   Use clk_125MHz for Ethernet RT interface Rx/Tx, which requires clock
+//        domain crossing (to sysclk) when accessing FPGA registers
+localparam ETH_RT_FAST = 1'b1;
+
+wire clk_125MHz;
+
+// Clock to use for RT Ethernet Rx/Tx (EthRtInterface and EthernetIO)
+wire rt_clk;
+
+if (ETH_RT_FAST)
+   assign rt_clk = clk_125MHz;
+else
+   assign rt_clk = sysclk;
+
 // 1394 phy low reset, never reset
 assign reset_phy = 1'b1;
 
@@ -226,7 +242,8 @@ assign isAddrMain = ((reg_raddr[15:12]==`ADDR_MAIN) && (reg_raddr[7:4]==4'd0)) ?
 // reg_rwait indicates when reg_rdata is valid
 //   0 --> same sysclk as reg_raddr (e.g., register read)
 //   1 --> one sysclk after reg_raddr set (e.g., reading from memory)
-// For ADDR_ETH, set reg_rwait=1 (worst-case) even though it could be 0 in some cases
+// For ADDR_ETH, set reg_rwait=1 (worst-case) even though it could be 0 in some cases (note,
+// however, that setting it to 1 is necessary when there is clock domain crossing)
 assign {reg_rdata, reg_rwait} =
                    ((reg_raddr[15:12]==`ADDR_HUB) ? {reg_rdata_hub, reg_rwait_hub} :
                     (reg_raddr[15:12]==`ADDR_PROM) ? {reg_rdata_prom, 1'b0} :
@@ -305,6 +322,7 @@ end
 // --------------------------------------------------------------------------
 
 wire[15:0] bc_sequence;
+wire[15:0] bc_board_mask;
 wire       hub_write_trig;
 wire       hub_write_trig_reset;
 wire       fw_idle;
@@ -347,9 +365,11 @@ assign eth_send_addr_mux = eth_send_ack ? eth_send_addr : reg_raddr[8:0];
 
 // phy-link interface
 PhyLinkInterface
-    #(.NUM_BC_READ_QUADS(NUM_BC_READ_QUADS))
+    #(.NUM_BC_READ_QUADS(NUM_BC_READ_QUADS),
+      .USE_ETH_CLK(ETH_RT_FAST))
 phy(
     .sysclk(sysclk),         // in: global clk  
+    .ethclk(rt_clk),         // in: Ethernet clk
     .board_id(board_id),     // in: board id (rotary switch)
     .node_id(node_id),       // out: phy node id
 
@@ -432,8 +452,9 @@ PhyRequest phyreq(
 // are connected to the GMII to RGMII core, and then the MDIO and MDC signals
 // from the core are connected to the RTL8211F PHY.
 
+wire clk125_ok;    // Whether the 125 MHz clock (from PS) seems to be running
 wire clk200_ok;    // Whether the 200 MHz clock (from PS) seems to be running
-assign LED = clk200_ok;
+assign LED = clk125_ok & clk200_ok;
 
 // Ethernet reset (to PHY)
 wire Eth_RSTn[1:2];        // Reset signal from PL (FPGA)
@@ -455,14 +476,13 @@ assign Eth_IRQn[2] = E2_IRQn;
 //    7:0    (8 bits)  Port 1 status
 // Note that the eth_status_io bits are intermingled for backward
 // compatible bit assignments.
-wire eth_port;                   // Current ethernet port
-assign eth_port = 1'b0;          // TODO: no longer used
+
 wire[7:0] eth_status_phy[1:2];   // Status bits for Ethernet ports 1 and 2
 wire[7:0] eth_status_io;         // Status bits from EthernetIO
-assign Eth_Result = { 2'b01, eth_port, eth_status_io[7:3],                   // 31:24
-                      1'b0, eth_status_io[2], clk200_ok, eth_status_io[0],   // 23:20
-                      3'd0, eth_active_ps,                                   // 19:16
-                      eth_status_phy[2], eth_status_phy[1] };                // 15:0
+assign Eth_Result = { 2'b01, 1'b0, eth_status_io[7:3],                          // 31:24
+                      clk125_ok, eth_status_io[2], clk200_ok, eth_status_io[0], // 23:20
+                      3'd0, eth_active_ps,                                      // 19:16
+                      eth_status_phy[2], eth_status_phy[1] };                   // 15:0
 
 // We detect FPGA V3.0 by checking whether the IRQ line is connected to the
 // RTL8211F PHY (it is not connected in V3.0). There should only be two
@@ -513,6 +533,8 @@ wire       eth_active_ps;       // Whether PS Ethernet enabled
 
 wire[1:0]  link_speed[1:2];     // Link speed
 
+wire       eth_wdog_refresh;    // Additional watchdog refresh from Ethernet
+wire       eth_ctrl_wen;        // Write enable to Ethernet control register
 wire       eth_clear_errors;    // Clear EthernetIO and EthRtInterface errors
 
 wire       recv_ready_rt;       // Whether RT ready for input data from switch
@@ -568,7 +590,7 @@ EthSwitch eth_switch (
 
     // Port3: RT
     .P3_Active(1'b1),                // Port3 active (e.g., link on)
-    .P3_Fast(1'b0),                  // Port3 currently slow
+    .P3_Fast(ETH_RT_FAST),           // Port3 speed
     .P3_RecvReady(recv_ready_rt),    // Port3 client ready for data
     .P3_DataReady(data_ready_rt),    // Port3 client providing valid data
     .P3_RxClk(gmii_rx_clk[4]),       // Port3 receive clock
@@ -583,13 +605,14 @@ EthSwitch eth_switch (
     .P3_TxSrc(txsrc_rt),             // Port3 packet info
 
     .board_id(board_id),             // Board ID (for MAC addresses)
+    .bcBoardMask(bc_board_mask),     // Broadcast read board mask
     .isHub(isHub),                   // 1 -> this board (probably) is the Ethernet hub
-
-    // TODO: Define a separate bit for clearing EthSwitch errors
-    // For now, uses clearErrors from EthernetIO
-    .clearErrors(eth_clear_errors),
+    .isBcHub(isBcHub),               // 1 -> this board is the Ethernet broadcast read hub
 
     // For debugging
+    .sysclk(sysclk),                 // clock for read signals
+    .reg_wen_ctrl(eth_ctrl_wen),     // in: write enable to Ethernet control register
+    .clearErrorBit(reg_wdata[30]),   // in: bit for clearing switch errors
     .reg_raddr(reg_raddr),           // read address
     .reg_rdata(reg_rdata_esw)        // register read data
 );
@@ -606,7 +629,7 @@ wire       mdio_busy_rt[1:2];   // OUT from RTL8211F module (MDIO busy)
 wire       mdio_clk_rt[1:2];    // OUT from RTL8211F module, IN to GMII core
 wire       mdio_clk_ps;         // OUT from Zynq PS, IN to VirtualPhy
 
-// Wires between EthSwitchRt and EthernetIO
+// Wires between EthRtInterface and EthernetIO
 wire resetActive_e[1:2];        // Ethernet port reset active
 wire eth_isForward;             // Indicates that FireWire receiver is forwarding to Ethernet
 wire eth_responseRequired;      // Indicates that the received packet requires a response
@@ -619,6 +642,8 @@ wire eth_sendRequest;           // Request EthernetIO to get ready to start send
 wire eth_sendBusy;              // EthernetIO send state machine busy
 wire eth_sendReady;             // Request EthernetIO to provide next send_word
 wire[15:0] eth_send_word;       // Word to send via Ethernet (SDRegDWR for KSZ8851)
+wire bc_resp_ready;             // Broadcast read response is ready to be sent
+wire bc_resp;                   // Broadcast read response active
 wire[15:0] eth_time_recv;       // Time when receive portion finished
 wire[15:0] eth_time_now;        // Running time counter since start of packet receive
 wire eth_bw_active;             // Indicates that block write module is active
@@ -632,7 +657,6 @@ assign reg_rdata_eth_ll = (reg_raddr[11:8] == 4'd1) ? reg_rdata_rtl[1] :   // Et
                           32'd0;
 
 // Write to Ethernet control register
-wire eth_ctrl_wen;
 assign eth_ctrl_wen = (reg_waddr == {`ADDR_MAIN, 8'h0, `REG_ETHSTAT}) ? reg_wen : 1'b0;
 
 genvar k;
@@ -679,7 +703,7 @@ for (k = 1; k <= 2; k = k + 1) begin : eth_loop
 end
 endgenerate
 
-// TODO: Add this to VirtualPhy
+// TODO: Add this to VirtualPhy, or remove it from block design
 wire PS_Eth_RSTn;            // Reset signal from PS (ARM)
 
 VirtualPhy VPhy(
@@ -689,7 +713,8 @@ VirtualPhy VPhy(
     .mdc(mdio_clk_ps),       // mdc (clock) from PS
 
     .ctrl_wen(eth_ctrl_wen),
-    .reg_wdata(reg_wdata),
+    .link_on_mask(reg_wdata[25]),
+    .link_on_bit(reg_wdata[16]),
     .link_on(eth_active_ps),
 
     // For debugging
@@ -697,38 +722,17 @@ VirtualPhy VPhy(
     .reg_rdata(reg_rdata_vp)    // register read data
 );
 
-`ifdef CLOCK_250
+// Provide 125 MHz clock for gmii_rx_clk[3] and gmii_tx_clk[3].
+// Inverting clock to provide delay between Tx src and dest.
+// In the future, this can be replaced by a Tx clk with a 90 degree
+// phase shift, which can be obtained from a more recent gmii_to_rgmii
+// IP core (provided with Vivado).
 
-// Provide 125 MHz clock for gmii_rx_clk[3:4] and gmii_tx_clk[3:4]
-// Would be easier to have PS generate a 125 MHz clock and then
-// invert it for the second clock. One advantage of the following
-// approach is that there should be less skew between the clocks,
-// though perhaps that does not matter.
-
-wire clk_250MHz;
-
-reg clk_125A;
-reg clk_125B;
-initial clk_125A = 1'b0;
-initial clk_125B = 1'b1;
-// Could use BUFG for clocks, though perhaps not needed since
-// the fanout is low.
-
-always @(posedge clk_250MHz)
-begin
-   clk_125A <= ~clk_125A;
-   clk_125B <= ~clk_125B;
-end
-
-`else
-
-// TEMP: 250 MHz clock not working, so using Eth1 Rx clock
 wire clk_125A;
 wire clk_125B;
-assign clk_125A = gmii_rx_clk[1];
-assign clk_125B = ~gmii_rx_clk[1];
 
-`endif
+assign clk_125A = clk_125MHz;
+assign clk_125B = ~clk_125MHz;
 
 assign gmii_rx_clk[3] = clk_125A;
 
@@ -736,8 +740,11 @@ assign gmii_tx_clk3_src = clk_125B;
 assign gmii_tx_clk3_dest = clk_125A;
 
 EthRtInterface eth_rti(
-    .clk(sysclk),
+    .clk(rt_clk),
 
+    // These signals are in the sysclk domain, but are just used
+    // for reading debug registers
+    .sysclk(sysclk),
     .reg_raddr(reg_raddr),
     .reg_rdata(reg_rdata_rti),
 
@@ -760,9 +767,10 @@ EthRtInterface eth_rti(
     .PacketInfo(txinfo_rt),    // Packet information
 
     // Interface from Firewire (for sending packets via Ethernet)
+    // This signal is in the sysclk domain
     .sendReq(eth_send_req),
 
-    // Interface to EthernetIO
+    // Interface to EthernetIO (assumed to be in rt_clk domain)
     .isForward(eth_isForward),        // Indicates that FireWire receiver is forwarding to Ethernet
     .responseRequired(eth_responseRequired),   // Indicates that the received packet requires a response
     .responseByteCount(eth_responseByteCount), // Number of bytes in required response
@@ -774,6 +782,8 @@ EthRtInterface eth_rti(
     .sendBusy(eth_sendBusy),          // To KSZ8851
     .sendReady(eth_sendReady),        // Request EthernetIO to provide next send_word
     .send_word(eth_send_word),        // Word to send via Ethernet (SDRegDWR for KSZ8851)
+    .bcRespReady(bc_resp_ready),      // Broadcast read response is ready
+    .bcResp(bc_resp),                 // Broadcast read response active
     .timestamp(timestamp),            // Timestamp input
     .timeReceive(eth_time_recv),      // Time when receive portion finished
     .timeNow(eth_time_now),           // Running time counter since start of packet receive
@@ -786,9 +796,12 @@ wire   ip_reg_wen;
 assign ip_reg_wen = (reg_waddr == {`ADDR_MAIN, 8'h0, `REG_IPADDR}) ? reg_wen : 1'b0;
 
 EthernetIO
-    #(.IPv4_CSUM(1), .IS_V3(1))
+    #(.IPv4_CSUM(1), .IS_V3(1),
+      .NUM_BC_READ_QUADS(NUM_BC_READ_QUADS),
+      .USE_RXTX_CLK(ETH_RT_FAST))
 EthernetTransfers(
     .sysclk(sysclk),          // in: global clock
+    .RxTxClk(rt_clk),         // in: Rx/Tx clock (if USE_RXTX_CLK)
 
     .board_id(board_id),      // in: board id (rotary switch)
     .node_id(node_id),        // in: phy node id
@@ -807,7 +820,7 @@ EthernetTransfers(
     // to respond to quadlet read and block read commands.
     .reg_rdata(reg_rdata),             //  in: reg read data
     .reg_raddr(eth_reg_raddr),         // out: reg read addr
-    .req_read_bus(eth_req_read_bus),   // out: reg read enable
+    .req_read_bus(eth_req_read_bus),   // out: read bus request
     .grant_read_bus(eth_grant_read_bus),  // in: read bus grant
     .reg_rvalid(reg_rvalid),           // in: indicates that reg_rdata is valid
     .reg_wdata(eth_reg_wdata),         // out: reg write data
@@ -820,6 +833,7 @@ EthernetTransfers(
     .req_blk_rt_rd(eth_req_blk_rt_rd), // out: real-time block read request
     .req_write_bus(eth_req_write_bus), // out: request write bus
     .grant_write_bus(eth_grant_write_bus), // in: write bus grant
+    .wdog_refresh(eth_wdog_refresh),   // out: wdog refresh (for Ethernet-only broadcast read)
 
     // Interface to FireWire module (for sending packets via FireWire)
     .eth_send_fw_req(eth_send_fw_req), // out: req to send fw pkt
@@ -830,7 +844,7 @@ EthernetTransfers(
     .host_fw_addr(eth_host_fw_addr),   // out: eth fw host address (e.g., ffd0)
 
     // Interface from Firewire (for sending packets via Ethernet)
-    // Note that sendReq(eth_send_req) is in KSZ8851
+    // Note that sendReq(eth_send_req) is in EthRtInterface
     .sendAck(eth_send_ack),
     .sendAddr(eth_send_addr),
     .sendData(reg_rdata_fw),
@@ -855,10 +869,14 @@ EthernetTransfers(
     .sendBusy(eth_sendBusy),          // To KSZ8851
     .sendReady(eth_sendReady),        // Request EthernetIO to provide next send_word
     .send_word(eth_send_word),        // Word to send via Ethernet (SDRegDWR for KSZ8851)
+    .bcRespReady(bc_resp_ready),      // Broadcast read response is ready
+    .bcResp(bc_resp),                 // Broadcast read response active
+    .bcBoardMask(bc_board_mask),      // Broadcast read boardmask
     .timeReceive(eth_time_recv),      // Time when receive portion finished
     .timeNow(eth_time_now),           // Running time counter since start of packet receive
     .srcPort(txsrc_rt),               // Source port (from Ethernet Switch)
     .isHub(isHub),                    // Whether this board is Ethernet hub (from Ethernet Switch)
+    .isBcHub(isBcHub),                // Whether this board is the Ethernet broadcast read hub
     .bw_active(eth_bw_active),        // Indicates that block write module is active
     .ethLLError(eth_InternalError),   // Error summary bit to EthernetIO
     .eth_status(eth_status_io),       // EthernetIO status register
@@ -936,6 +954,7 @@ BoardRegs chan0(
     .wdog_period_led(wdog_period_led),
     .wdog_period_status(wdog_period_status),
     .wdog_timeout(wdog_timeout),
+    .wdog_refresh(eth_wdog_refresh | reg_wen),
     .wdog_clear(wdog_clear)
 );
 
@@ -954,7 +973,7 @@ fpgav3 zynq_ps7(
     .processing_system7_0_GPIO_O_pin(emio_ps_out),
     .processing_system7_0_GPIO_T_pin(emio_ps_tri),
     .processing_system7_0_FCLK_CLK0_pin(clk_200MHz),
-    .processing_system7_0_FCLK_CLK1_pin(clk_250MHz),
+    .processing_system7_0_FCLK_CLK1_pin(clk_125MHz),
 
     .gmii_to_rgmii_1_rgmii_txd_pin(E1_TxD),
     .gmii_to_rgmii_1_rgmii_tx_ctl_pin(E1_TxEN),
@@ -1049,30 +1068,54 @@ EmioBus PS_EMIO(
 
 reg[7:0] cnt_200;     // Counter incremented by clk_200MHz
 reg[7:0] sysclk200;   // Counter increment by sysclk, sampled and cleared every 128 clk_200MHz
-reg[7:0] clk200per;   // Last measured half-period of clk_200MHz (should be about 31 sysclks)
-reg cur_msb;
-reg last_msb;
+reg[7:0] clk200per;   // Last measured half-period of 128*clk_200MHz (should be about 31 sysclks, 49.152*128/200)
+reg cur_msb_200;
+reg last_msb_200;
 
 always @(posedge clk_200MHz)
 begin
     cnt_200 <= cnt_200 + 8'd1;
 end
 
+reg[7:0] cnt_125;     // Counter incremented by clk_125MHz
+reg[7:0] sysclk125;   // Counter increment by sysclk, sampled and cleared every 128 clk_125MHz
+reg[7:0] clk125per;   // Last measured half-period of 128*clk_125MHz (should be about 50 sysclks, 49.152*128/125)
+reg cur_msb_125;
+reg last_msb_125;
+
+always @(posedge clk_125MHz)
+begin
+    cnt_125 <= cnt_125 + 8'd1;
+end
+
 always @(posedge sysclk)
 begin
-    cur_msb <= cnt_200[7];
-    last_msb <= cur_msb;
-    if (cur_msb != last_msb) begin
+    cur_msb_200 <= cnt_200[7];
+    last_msb_200 <= cur_msb_200;
+    if (cur_msb_200 != last_msb_200) begin
        sysclk200 <= 8'd0;
        clk200per <= sysclk200;
     end
     else begin
        sysclk200 <= sysclk200 + 8'd1;
     end
+
+    cur_msb_125 <= cnt_125[7];
+    last_msb_125 <= cur_msb_125;
+    if (cur_msb_125 != last_msb_125) begin
+       sysclk125 <= 8'd0;
+       clk125per <= sysclk125;
+    end
+    else begin
+       sysclk125 <= sysclk125 + 8'd1;
+    end
 end
 
 // Empirically verified that clk200per is either 30 or 31
 assign clk200_ok = ((clk200per == 6'd30) || (clk200per == 6'd31)) ? 1'b1 : 1'b0;
+
+// Empirically verified that clk125per is either 49 or 50
+assign clk125_ok = ((clk125per == 6'd49) || (clk125per == 6'd50)) ? 1'b1 : 1'b0;
 
 // *** END: TEST code for PS clocks
 

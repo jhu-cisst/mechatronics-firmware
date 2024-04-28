@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2013-2022 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2013-2024 ERC CISST, Johns Hopkins University.
  *
  * Module: HubReg
  *
@@ -17,7 +17,9 @@
 
 `include "Constants.v"
 
-module HubReg(
+module HubReg
+    #(parameter USE_FW = 1)        // Whether or not to trigger Firewire transactions
+(
     input  wire sysclk,            // system clk
     input  wire reg_wen,           // hub memory write enable
     input  wire[15:0] reg_raddr,   // hub reg addr 9-bit
@@ -30,7 +32,9 @@ module HubReg(
     output reg        write_trig,  // request to broadcast this board's info via FireWire
     input wire        write_trig_reset, // reset write_trig
     input wire        fw_idle,     // whether Firewire state machine is idle
-    output wire       updated      // hub has been updated since last query (write to 0x1800)
+    output wire       updated,     // hub has been updated since last query (write to 0x1800)
+    output wire[8:0]  bc_quads,    // available data length (in quadlets)
+    output wire[15:0] board_mask_ext    // board mask (0 if this board not included)
 );
 
 // Writing to hub register or memory
@@ -59,15 +63,19 @@ wire[8:0] write_addr;
 assign write_addr = ((reg_waddr[7:0] == 8'd0) && !offset_updated) ? (reg_waddr_offset + {1'b0, block_size})
                                                                   : (reg_waddr_offset + {1'b0, reg_waddr[7:0]});
 
-// Saves last write address (last_write_addr+1 is the number of quadlets written)
-reg[8:0] last_write_addr;
-
+// Number of quadlets written (assumes that last block was written)
 wire[8:0] num_written;
-assign num_written = last_write_addr + 9'd1;
+assign num_written = reg_waddr_offset + {1'b0, block_size};
+
+// Add 1 for timing info
+assign bc_quads = num_written + 9'd1;
 
 // For timing measurements. Cleared when broadcast query command received (i.e., quadlet write to 0x1800).
-reg[13:0] bcTimer;
-reg[13:0] bcReadStart;
+// Firmware Rev 9 increased timer from 14-bits to 16-bits
+// 16 bits measures up to 1333.3 us when sysclk is 49.152 MHz and up to 524.3 us when sysclk is 125 MHz
+// Note that the update times (times when data written to Hub memory) are the lower 15 bits
+reg[15:0] bcTimer;
+reg[15:0] bcReadStart;
 
 // Whether write_trig has been asserted for this broadcast read cycle
 reg write_trig_done;
@@ -81,9 +89,14 @@ reg[15:0] board_updated;
 assign updated = (board_updated == board_mask) ? 1'b1 : 1'b0;
 
 wire[15:0] board_mask_lower;  // only boards with lower board ids
-assign board_mask_lower = ((16'b1 << board_id) - 16'b1) & board_mask;
+if (USE_FW)
+    assign board_mask_lower = ((16'b1 << board_id) - 16'b1) & board_mask;
+else
+    assign board_mask_lower = 16'd0;
 
 assign board_selected = board_mask[board_id];
+
+assign board_mask_ext = board_selected ? board_mask : 16'd0;
 
 wire hub_reg_raddr;
 // Hub register read address space is 0x1800 - 0x1803
@@ -100,25 +113,23 @@ assign {reg_rdata, reg_rwait} =
 
 always @(posedge(sysclk))
 begin
-    bcTimer <=  bcTimer + 14'd1;
+    bcTimer <=  bcTimer + 16'd1;
     if (hub_reg_wen) begin
         sequence <= reg_wdata[31:16];
         board_mask <= reg_wdata[15:0];
-        bcTimer <=  14'd0;
+        bcTimer <=  16'd0;
         board_updated <= 16'd0;
         write_trig <= 0;
         write_trig_done <= 0;
         // Initialize for writing to memory
         reg_waddr_offset <= 9'd0;
         last_reg_waddr <= 8'hff;
-        last_write_addr <= 9'h1ff;
         block_size <= 8'd0;
         offset_updated <= 0;
     end
     else if (hub_mem_wen) begin
         if (reg_waddr[7:0] != last_reg_waddr) begin
             last_reg_waddr <= reg_waddr[7:0];
-            last_write_addr <= write_addr;
             offset_updated <= 0;
             if (reg_waddr[7:0] == 8'd0) begin
                 // Writing of header. Get block size from bits 7:0
@@ -138,24 +149,26 @@ begin
         bcReadStart <= bcTimer;
     end
 
-    if (write_trig_reset) begin
-       write_trig <= 0;
-    end
-    else if (board_selected && !write_trig_done) begin
-       // write_trig is sent to Firewire module to start broadcast write of real-time block data from this board to all
-       // other boards; while doing this, the Firewire module also writes the real-time block data to the hub memory (hub_mem).
-       // Note that writing is done sequentially, by board number.
-       if (board_mask_lower == 16'd0) begin
-          // First board: wait 150 cycles (~3 usec)
-          if (bcTimer == 14'd150) begin
-             write_trig <= 1;
-             write_trig_done <= 1;
-          end
-       end
-       else if ((board_updated == board_mask_lower) && fw_idle) begin
-          write_trig <= 1;
-          write_trig_done <= 1;
-       end
+    if (USE_FW) begin
+        if (write_trig_reset) begin
+            write_trig <= 0;
+        end
+        else if (board_selected && !write_trig_done) begin
+            // write_trig is sent to Firewire module to start broadcast write of real-time block data from this board to all
+            // other boards; while doing this, the Firewire module also writes the real-time block data to the hub memory (hub_mem).
+            // Note that writing is done sequentially, by board number.
+            if (board_mask_lower == 16'd0) begin
+                // First board: wait 150 cycles (~3 usec)
+                if (bcTimer == 16'd150) begin
+                    write_trig <= 1;
+                    write_trig_done <= 1;
+                end
+            end
+            else if ((board_updated == board_mask_lower) && fw_idle) begin
+                write_trig <= 1;
+                write_trig_done <= 1;
+            end
+        end
     end
 end
 
@@ -171,7 +184,7 @@ assign read_addr_ok = (reg_raddr[8:0] < num_written) ? 1'b1 : 1'b0;
 wire[31:0] reg_rdata_mem;
 
 assign {reg_rdata_hub, reg_rwait_hub} =
-                       is_extra ? { 2'b0, bcReadStart, 2'b0, bcTimer, 1'b0 } :
+                       is_extra ? { bcReadStart, bcTimer, 1'b0 } :
                        read_addr_ok ? {reg_rdata_mem, 1'b1} : {32'd0, 1'b0};
 
 // When writing first board quadlet, rearrange bits to obtain following:
@@ -179,19 +192,18 @@ assign {reg_rdata_hub, reg_rwait_hub} =
 // Block Size (bits 31:24) is the size of the block in quadlets (including this header quadlet)
 // Sequence LSB (bits 23:16) is the lowest byte of the 16-bit sequence number sent by the PC
 // Seq Error (bit 15) is 1 if the full 16-bit sequence numbers do not match
-// Reserved (bit 14) is not used and should be set to 0
-// Update Time (bits 13:0) indicate the time when the board was updated (relative to the query command)
+// Update Time (bits 14:0) indicate the time when the board was updated (relative to the query command)
 wire[31:0] reg_wdata_mem;
 wire sequence_error;
 assign sequence_error = (sequence == reg_wdata[31:16]) ? 1'b0 : 1'b1;
-assign reg_wdata_mem = (reg_waddr[7:0] == 8'd0) ? { reg_wdata[7:0], reg_wdata[23:16], sequence_error, 1'b0, bcTimer }
+assign reg_wdata_mem = (reg_waddr[7:0] == 8'd0) ? { reg_wdata[7:0], reg_wdata[23:16], sequence_error, bcTimer[14:0] }
                                                 : reg_wdata;
 
 //********************************* Hub memory **************************************
 // NOTE
 //   port a: write port
 //   port b: read port
-hub_mem_gen hub_mem(
+DPRAM_32x512_sclk hub_mem(
     .clka(sysclk),
     .wea(hub_mem_wen),
     .addra(write_addr),

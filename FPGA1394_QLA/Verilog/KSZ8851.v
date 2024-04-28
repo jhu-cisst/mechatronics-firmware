@@ -73,6 +73,7 @@ endmodule
 `define ETH_ADDR_ISR     8'h92     // Interrupt Status Reg
 `define ETH_ADDR_RXFCTR  8'h9C     // RX Frame Count and Threshold Reg
 `define ETH_ADDR_MAHTR1  8'hA2     // MAC Address Hash Table Reg 1
+`define ETH_ADDR_MAHTR2  8'hA4     // MAC Address Hash Table Reg 2
 `define ETH_ADDR_CIDER   8'hC0     // Chip ID and Enable Reg
 `define ETH_ADDR_PMECR   8'hD4     // Power management event control register
 `define ETH_ADDR_P1SR    8'hF8     // Port 1 status register
@@ -129,6 +130,10 @@ module KSZ8851(
     output wire isHub,                // Whether this board directly connected to host PC
     output wire ethInternalError      // Error summary bit to EthernetIO
 );
+
+// FPGA MAC address
+wire[47:0] fpga_mac;
+assign fpga_mac = { `LCSR_CID, `FPGA_RT_MAC, 4'd0, board_id };
 
 reg initOK;            // 1 -> Initialization successful
 reg isWrite;           // 0 -> Read, 1 -> Write
@@ -249,17 +254,7 @@ reg ethStateError;     // 1 -> Invalid Ethernet state in top-level state machine
 // Summary of internal error bits
 assign ethInternalError = ethStateError;
 
-`ifdef DEBOUNCE_STATES
-reg[7:0] numStateGlitch;    // Number of invalid states (for debugging)
-`endif
 reg[7:0] numReset;          // Number of times reset called
-
-`ifdef HAS_DEBUG_DATA
-`ifdef DEBOUNCE_STATES
-// For debugging
-reg[31:0] errorInfo;
-`endif
-`endif
 
 reg resetRequest;      // 1 -> reset requested (e.g., when Ethernet cable unplugged)
 
@@ -323,14 +318,12 @@ localparam[4:0]
 reg[4:0] state = ST_RESET_ASSERT;
 // Next state
 reg[4:0] nextState;
-`ifdef DEBOUNCE_STATES
-reg[4:0] nextStateLatched = ST_RESET_ASSERT;
-`endif
 // State to return to after ST_WAVEFORM_DATA
 reg[4:0] retState = ST_IDLE;
 
 // Debugging support
-assign eth_io_isIdle = (state == ST_IDLE) ? 1'd1 : 1'd0;
+wire eth_ksz_isIdle;
+assign eth_ksz_isIdle = (state == ST_IDLE) ? 1'd1 : 1'd0;
 
 // Keep track of areas where state machine may wait
 // for unknown amount of time (for debugging)
@@ -360,7 +353,7 @@ assign eth_status[6] = ethFwReqError;    // 1 -> Could not access KSZ registers 
 assign eth_status[5] = initOK;           // 1 -> Initialization OK
 assign eth_status[4] = ethStateError;    // 1 -> Invalid state detected
 assign eth_status[3] = linkStatus;       // Link status
-assign eth_status[2] = eth_io_isIdle;    // Ethernet I/O state machine is idle
+assign eth_status[2] = eth_ksz_isIdle;   // KSZ8851 state machine is idle
 assign eth_status[1:0] = waitInfo;       // Wait points in KSZ8851.v
 
 reg isInIRQ;           // True if IRQ handle routing
@@ -377,9 +370,6 @@ reg[15:0] timeSend;          // Time when send portion finished
 reg[15:0] numPacketValid;    // Number of valid Ethernet frames received
 reg[7:0]  numPacketInvalid;  // Number of invalid Ethernet frames received
 reg[7:0] numPacketSent;      // Number of packets sent to host PC
-`endif
-
-`ifdef HAS_DEBUG_DATA
 reg[9:0] bw_wait;
 `endif
 
@@ -392,19 +382,14 @@ assign DebugData[0]  = "2GBD";  // DBG2 byte-swapped
 assign DebugData[1]  = { isDMAWrite, sendRequest, ~ETH_IRQn, isInIRQ,     // 31:28
                          linkStatus, 3'd0,                                // 27:24
                          24'd0 };
-assign DebugData[2]  = { 3'd0, state, 3'd0, retState, 3'd0, nextState, 3'd0, runPC }; // 5, 5, 5, 5
+assign DebugData[2]  = { 3'd0, state, 3'd0, retState, 3'd0, nextState, 2'd0, runPC }; // 5, 5, 5, 5
 assign DebugData[3]  = { responseByteCount, RegISROther};                 // 16, 16
 assign DebugData[4]  = { 6'd0, bw_wait, FrameCount, numPacketSent};       // 10, 8, 8
 assign DebugData[5]  = { 4'd0, txPktWords, 4'd0, rxPktWords };            // 12, 12
 assign DebugData[6]  = { timeSend, timeReceive };                         // 16, 16
 assign DebugData[7]  = { numReset, numPacketInvalid, numPacketValid };    // 8, 8, 16
-`ifdef DEBOUNCE_STATES
-assign DebugData[8] = { 16'd0, numStateGlitch, 3'd0, nextStateLatched };  // 8, 5
-assign DebugData[9] = errorInfo;
-`else
 assign DebugData[8] = 32'd0;
 assign DebugData[9] = 32'd0;
-`endif
 assign DebugData[10] = 32'd0;
 assign DebugData[11] = 32'd0;
 assign DebugData[12] = 32'd0;
@@ -453,39 +438,39 @@ localparam CMD_WRITE = 1'd1,  // Write to register
 `define DATA_BITS 15:0
 `define NEXT_BITS 4:0
 
-// Program for initialization (0-16) and run-time (16-31)
-wire[25:0] RunProgram[0:31];
+// Program for initialization (0-17) and run-time (17-32)
+wire[25:0] RunProgram[0:32];
 reg[25:0] ClearInterrupt;
 
 // Some useful indices
-localparam[4:0]
-   ID_CHIP_ID = 5'd0,
-   ID_MAC_LOW = 5'd1,
-   ID_MAC_MID = 5'd2,
-   ID_MAC_HIGH = 5'd3,
-   ID_READ_PORT1SR = 5'd16,
-   ID_READ_INTERRUPT = 5'd17,
-   ID_DISABLE_INTERRUPT = 5'd18,
-   ID_CLEAR_INTERRUPT = 5'd19,
-   ID_READ_FRAME_COUNT = 5'd20,
-   ID_READ_FRAME_STATUS = 5'd21,
-   ID_READ_FRAME_LENGTH = 5'd22,
-   ID_SET_FRAME_POINTER = 5'd23,
-   ID_ENABLE_DMA_RECV = 5'd24,
-   ID_FLUSH_FRAME = 5'd25,
-   ID_READ_CMD_REG = 5'd26,
-   ID_ENABLE_INTERRUPT = 5'd27,
-   ID_ENABLE_DMA_SEND = 5'd28,
-   ID_DISABLE_DMA = 5'd29,
-   ID_TXQ_ENQUEUE = 5'd30,
-   ID_TXQ_READ = 5'd31;
+localparam[5:0]
+   ID_CHIP_ID = 6'd0,
+   ID_MAC_LOW = 6'd1,
+   ID_MAC_MID = 6'd2,
+   ID_MAC_HIGH = 6'd3,
+   ID_READ_PORT1SR = 6'd17,
+   ID_READ_INTERRUPT = 6'd18,
+   ID_DISABLE_INTERRUPT = 6'd19,
+   ID_CLEAR_INTERRUPT = 6'd20,
+   ID_READ_FRAME_COUNT = 6'd21,
+   ID_READ_FRAME_STATUS = 6'd22,
+   ID_READ_FRAME_LENGTH = 6'd23,
+   ID_SET_FRAME_POINTER = 6'd24,
+   ID_ENABLE_DMA_RECV = 6'd25,
+   ID_FLUSH_FRAME = 6'd26,
+   ID_READ_CMD_REG = 6'd27,
+   ID_ENABLE_INTERRUPT = 6'd28,
+   ID_ENABLE_DMA_SEND = 6'd29,
+   ID_DISABLE_DMA = 6'd30,
+   ID_TXQ_ENQUEUE = 6'd31,
+   ID_TXQ_READ = 6'd32;
 
 // Read Chip ID
 assign RunProgram[ID_CHIP_ID] = {CMD_READ, CMD_NOP, `ETH_ADDR_CIDER, 11'd0, ST_INIT_CHECK_CHIPID};
 // Set MAC address (4 LSB below should be set to board_id)
-assign RunProgram[ID_MAC_LOW] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_MARL, 12'h940, board_id};
-assign RunProgram[ID_MAC_MID] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_MARM, 16'h0E13};
-assign RunProgram[ID_MAC_HIGH] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_MARH, 16'hFA61};
+assign RunProgram[ID_MAC_LOW] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_MARL, fpga_mac[15:0]};
+assign RunProgram[ID_MAC_MID] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_MARM, fpga_mac[31:16]};
+assign RunProgram[ID_MAC_HIGH] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_MARH, fpga_mac[47:32]};
 // Enable QMU transmit frame data pointer auto increment
 assign RunProgram[4] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_TXFDPR, 16'h4000};
 assign RunProgram[5] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_TXCR, ETH_VALUE_TXCR};
@@ -519,20 +504,23 @@ assign RunProgram[9] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_RXCR2, 16'h001C};
 // the register and the next four bits to determine which bit to set.
 // See code in mainEth1394.cpp.
 assign RunProgram[10] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_MAHTR1, 16'h0008};
+// Following is hard-coded value for UDP multicast address 224.0.0.100 (also see
+// code in mainEth1394.cpp).
+assign RunProgram[11] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_MAHTR2, 16'h0020};
 // RXQCR value
 // B5: RXFCTE enable QMU frame count threshold (1)
 // B4: ADRFE  auto-dequeue
 // Not enabling auto-dequeue because we flush packet
 // instead of reading to end.
-assign RunProgram[11] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_RXQCR, ETH_VALUE_RXQCR};
+assign RunProgram[12] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_RXQCR, ETH_VALUE_RXQCR};
 // Clear all pending interrupts
-assign RunProgram[12] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_ISR, 16'hFFFF};
+assign RunProgram[13] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_ISR, 16'hFFFF};
 // Enable receive and link change interrupts
-assign RunProgram[13] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_IER, ETH_VALUE_IER};
+assign RunProgram[14] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_IER, ETH_VALUE_IER};
 // Enable transmit
-assign RunProgram[14] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_TXCR, ETH_VALUE_TXCR[15:1], 1'd1};
+assign RunProgram[15] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_TXCR, ETH_VALUE_TXCR[15:1], 1'd1};
 // Enable receive
-assign RunProgram[15] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_RXCR1, ETH_VALUE_RXCR1[15:1], 1'd1};
+assign RunProgram[16] = {CMD_WRITE, CMD_NOP, `ETH_ADDR_RXCR1, ETH_VALUE_RXCR1[15:1], 1'd1};
 // Check link status. This is the last command for initialization, but will also be called
 // in response to a link change interrupt. Note that ST_HANDLE_PORT_STATUS will transition
 // to ST_IDLE if called during initialization and to ST_IRQ_DISPATCH if called as a result
@@ -559,7 +547,7 @@ assign RunProgram[ID_DISABLE_DMA]       = {CMD_WRITE, CMD_NOP, `ETH_ADDR_RXQCR, 
 assign RunProgram[ID_TXQ_ENQUEUE]       = {CMD_WRITE, CMD_NOP, `ETH_ADDR_TXQCR, 16'h0001};
 assign RunProgram[ID_TXQ_READ]          = {CMD_READ,  CMD_NOP, `ETH_ADDR_TXQCR, 11'd0, ST_SEND_TXQ_ENQUEUE_WAIT};
 
-reg[4:0] runPC;    // Program counter for RunProgram
+reg[5:0] runPC;    // Program counter for RunProgram
 
 // Reg_CMD is 0 except when writing address to the KSZ8851
 assign Reg_CMD = (state == ST_WAVEFORM_ADDR) ? 1'd1 : 1'd0;
@@ -794,25 +782,7 @@ always @(posedge sysclk) begin
 
    timeSinceIRQ <= timeSinceIRQ + 16'd1;
 
-`ifdef DEBOUNCE_STATES
-   nextStateLatched <= nextState;
-
-   if (nextState != nextStateLatched) begin
-      // Record state glitch
-      if (state != nextStateLatched) begin
-         numStateGlitch <= numStateGlitch + 8'd1;
-`ifdef HAS_DEBUG_DATA
-         errorInfo <= { 3'd0, state, 3'd0, nextState, 3'd0, nextStateLatched, 3'd0, runPC };
-`endif
-      end
-
-   end
-   else begin
-
-   state <= nextStateLatched;
-`else
    state <= nextState;
-`endif
 
    case (state)
 
@@ -916,7 +886,7 @@ always @(posedge sysclk) begin
       isWrite <= RunProgram[runPC][`WRITE_BIT];
       RegAddr <= RunProgram[runPC][`ADDR_BITS];
       WriteData <= RunProgram[runPC][`DATA_BITS];
-      runPC <= runPC + 5'd1;
+      runPC <= runPC + 6'd1;
 
       if (RunProgram[runPC][`MOD_BIT])
          retState <= ST_IRQ_DISPATCH;
@@ -1292,21 +1262,9 @@ always @(posedge sysclk) begin
 
    endcase // case (state)
 
-`ifdef DEBOUNCE_STATES
-   end
-`endif
-
 end
 
 //************** Emulate some features of FPGA V3 EthSwitch ****************
-
-// Ethernet broadcast MAC address
-localparam[47:0] BroadcastMAC = 48'hFFFFFFFFFFFF;
-
-// FPGA MAC addresses contain the LCSR Company ID (CID) as the first 24-bits,
-// followed by 16-bits for the RT or PS interface, followed by 8-bits for the board-id
-// (PS interface only available in FPGA V3).
-localparam[23:0] LCSR_CID    = 24'hfa610e;
 
 // Host MAC address (typically, MAC address of PC)
 reg[47:0] MacAddrHost;
@@ -1327,7 +1285,7 @@ reg[47:0] SrcMac;
 always @(posedge sysclk)
 begin
    if (~linkStatus) begin
-      MacAddrHost <= BroadcastMAC;
+      MacAddrHost <= `BROADCAST_MAC;
       PortForwardFpga <= 16'd0;
    end
    else if (initOK & recvRequest & recvBusy) begin
@@ -1340,7 +1298,7 @@ begin
             // there is an FPGA board accessible via that port.
             // For this purpose, it does not matter whether the middle
             // 16-bits are FPGA_RT_MAC or FPGA_PS_MAC.
-            if (SrcMac[47:24] == LCSR_CID)
+            if (SrcMac[47:24] == `LCSR_CID)
                PortForwardFpga[SrcMac[3:0]] <= 1'b1;
             else
                MacAddrHost <= SrcMac;
@@ -1358,7 +1316,7 @@ wire[31:0] SwitchData[0:31];
 assign SwitchData[0]  = "0WSE";  // ESW0 byte-swapped
 // Port configuration and forwarding info
 assign SwitchData[1]  = { 4'b1001, 20'd0,                 // Ports 3 (RT) and 0 (ETH) exist
-                          4'd0,                           // All port are slow
+                          4'd0,                           // All ports are slow
                           1'd1, 2'd0, linkStatus };       // Port 3 active, Port 0 depends on linkStatus
 assign SwitchData[2]  = MacAddrHost[47:16];
 assign SwitchData[3]  = { MacAddrHost[15:0], 16'd0 };
