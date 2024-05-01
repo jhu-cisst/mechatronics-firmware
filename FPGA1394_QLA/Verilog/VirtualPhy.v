@@ -35,14 +35,19 @@ begin
     if (link_on_mask) link_on <= link_on_bit;
 end
 
-// Default register values, obtained by reading RTL8211F when cable connnected and then
-// simplifying (e.g., removing support for 10 and 100 Mbsp and extended registers).
+// Default register values, obtained by reading RTL8211F when cable connnected and then simplifying.
 // Changed PHYID1 and PHYID2 to use JHU LCSR CID (FA:61:0E), so that Linux will use
-// Generic PHY driver rather than RealTek RTL8211F driver.
+// Generic PHY driver rather than RealTek RTL8211F driver. The Xilinx standalone lwIP library
+// will assume a Marvell PHY.
 // PHYID2 also specifies a model number of 1 and a revision of 0.
 wire [15:0] regValue[0:15];
 assign regValue[0]  = 16'h1040;    // BMCR: 1GB link, auto-negotiation enabled
-assign regValue[1]  = { 12'h012, 1'b1, link_on, 2'b00 }; // BMSR: auto-negotiation complete, link on/off
+// BMSR: Xilinx standalone lwIP expects this register to at least contain 0x1808 when detecting
+//       the PHY (these bits indicate 10Base-T and auto-negotation ability).
+//       In addition, we specify 100Base-T (bits 14-13) and 1000Base-T extended status register (bit 8).
+//       We use use link_on to specify both auto-negotiation complete (bit 5) and link status (bit 2).
+assign regValue[1]  = { 8'h79, 2'b00, link_on, 1'b0,
+                        1'b1, link_on, 2'b00 };
 assign regValue[2]  = 16'h7e19;    // PHYID1 (JHU LCSR)
 assign regValue[3]  = 16'hc010;    // PHYID2 (JHU LCSR)
 assign regValue[4]  = 16'h0801;    // ANAR: asymmetric PAUSE, support IEEE 802.3
@@ -75,7 +80,7 @@ reg[31:0] mdio_data;  // save MDIO data
 
 wire mdio_st_ok;      // ST bit pattern (01) detected
 wire[1:0] mdio_rw;    // OP indicates Read (10) or Write (01)
-wire[4:0] phyAddr;    // PHY address (1 or 8)
+wire[4:0] phyAddr;    // PHY address (1)
 wire[4:0] regAddr;    // Register address
 assign mdio_st_ok = (mdio_data[31:30] == 2'b01) ? 1'b1 : 1'b0;
 assign mdio_rw = mdio_data[29:28];
@@ -85,7 +90,12 @@ assign regAddr = mdio_data[22:18];
 wire isRegStandard;    // 1 -> standard GMII register (0-15)
 wire isRegNew;         // 1 -> not a standard GMII register (not yet supported)
 assign isRegStandard = ((phyAddr == 1) && (~regAddr[4])) ? 1'b1 : 1'b0;
-assign isRegNew = ((phyAddr == 1) && regAddr[4]) ? 1'b1 : 1'b0;
+// Support register 17 (IEEE_SPECIFIC_STATUS_REG) because it is used by
+// the Xilinx standalone lwIP library, which assumes a Marvell PHY for
+// any unknown PHYID.
+wire isReg17;          // 1 -> Register 17
+assign isReg17 = ((phyAddr == 1) && (regAddr == 5'd17)) ? 1'b1 : 1'b0;
+assign isRegNew = ((phyAddr == 1) && regAddr[4] && !isReg17) ? 1'b1 : 1'b0;
 reg[4:0] regNew;       // Register not yet supported (for debugging)
 
 // Data to write to host via mdio_i.
@@ -96,8 +106,8 @@ reg[4:0] regNew;       // Register not yet supported (for debugging)
 // prevent it from interfering during a register write.
 wire[31:0] replyData;
 assign replyData[31:16] = 16'd0;
-assign replyData[15:0] = (phyAddr == 8) ? 16'h0040 :
-                         isRegStandard ? regValue[regAddr[3:0]] :
+assign replyData[15:0] = isRegStandard ? regValue[regAddr[3:0]] :
+                         (isReg17 & link_on) ? 16'hac00 :   // 1GB, full-duplex, link_on
                          16'd0;    // Unknown register (see regNew)
 
 reg doRead;           // 1 -> read from mdio_i (more reliable than checking mdio_t)
