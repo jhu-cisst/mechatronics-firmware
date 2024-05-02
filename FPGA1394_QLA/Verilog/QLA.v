@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2011-2023 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2011-2024 ERC CISST, Johns Hopkins University.
  *
  * This module contains common code for the QLA and used with all FPGA versions
  *
@@ -85,8 +85,9 @@ wire[31:0] reg_rdata_ioexp;    // reads from MAX7317 I/O expander (QLA 1.5+)
 // reg_rwait indicates when reg_rdata is valid
 //   0 --> same sysclk as reg_raddr (e.g., register read)
 //   1 --> one sysclk after reg_raddr set (e.g., reading from memory)
+// reg_rdata_prom_qla should be fine with rwait=0, but EMIO interface seems work better with rwait=1
 assign {reg_rdata, reg_rwait} =
-                   (reg_raddr[15:12]==`ADDR_PROM_QLA) ? {reg_rdata_prom_qla, 1'b0} :
+                   (reg_raddr[15:12]==`ADDR_PROM_QLA) ? {reg_rdata_prom_qla, 1'b1} :
                    (reg_raddr[15:12]==`ADDR_DS) ? {reg_rdata_ds, 1'b0} :
                    (reg_raddr[15:12]==`ADDR_DATA_BUF) ? {reg_rdata_databuf, reg_rwait_databuf} :
                    (reg_raddr[15:12]==`ADDR_WAVEFORM) ? {reg_rtable, 1'b1} :

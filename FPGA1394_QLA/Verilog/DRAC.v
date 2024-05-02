@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2011-2022 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2011-2024 ERC CISST, Johns Hopkins University.
  *
  * This module contains common code for the QLA and used with all FPGA versions
  *
@@ -199,7 +199,7 @@ reg [31:0] reg_espm_bram;
 
 always @(*) begin
     case (reg_raddr[15:12])
-        `ADDR_PROM_QLA: {reg_rdata, reg_rwait} = {reg_rdata_prom_qla, 1'b0};
+        `ADDR_PROM_QLA: {reg_rdata, reg_rwait} = {reg_rdata_prom_qla, 1'b1};
         `ADDR_DATA_BUF: {reg_rdata, reg_rwait} = {reg_rdata_databuf, reg_rwait_databuf};
         `ADDR_MOTOR_CONTROL: {reg_rdata, reg_rwait} = {reg_rdata_motor_control, 1'b0};
         `ADDR_ESPM: {reg_rdata, reg_rwait} = {reg_espm_bram, 1'b0};
