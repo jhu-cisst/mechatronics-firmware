@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2023 Johns Hopkins University.
+ * Copyright(C) 2023-2024 Johns Hopkins University.
  *
  * This module handles the PS EMIO bus interface.
  *
@@ -128,7 +128,7 @@ reg  reg_op_done;
 //   ps_reg_addr          output from PS (not sync with sysclk)
 //   ps_reg_addr_latched  latched version of ps_reg_addr
 //   reg_addr             latched version of ps_reg_addr_latched, used externally
-//                        (might be changed for real-time block write)
+//                        (becomes reg_raddr or reg_waddr)
 //
 // Note that this module drives both the read and write address register (reg_raddr and
 // reg_waddr), which is fine since reading and writing never occur at the same time.
@@ -312,11 +312,16 @@ begin
         // Latch reg_rdata when we get the bus and data is valid
         if (req_read_bus & grant_read_bus) begin
             if (addr_next) begin
-                // Latch next address (for block read)
-                reg_addr[11:0] <= reg_addr[11:0] + 12'd1;
-                reg_addr_lsb <= ps_addr_lsb_latched;
                 reg_op_done <= 1'b0;
                 req_read_bus_next <= ps_blk_start_latched & (~ps_blk_end_latched);
+                // Check for ~reg_op_done to delay setting reg_addr_lsb, which
+                // causes addr_next to be cleared. This ensures that reg_op_done is
+                // cleared before addr_next is cleared.
+                if (~reg_op_done) begin
+                    // Latch next address (for block read)
+                    reg_addr[11:0] <= reg_addr[11:0] + 12'd1;
+                    reg_addr_lsb <= ps_addr_lsb_latched;
+                end
             end
             else if (reg_rvalid) begin
                 reg_rdata_latched <= timestamp_rd ? timestamp_latched : reg_rdata;
@@ -367,14 +372,19 @@ begin
             end
             else if (addr_next) begin
                 // New data available
-                reg_addr[11:0] <= reg_addr[11:0] + 12'd1;
-                reg_addr_lsb <= ps_addr_lsb_latched;
                 reg_wdata <= ps_reg_wdata;
                 reg_wen <= 1'b0;
                 reg_wen_next <= 1'b1;
                 reg_op_done <= 1'b0;
                 reg_op_done_next <= ~ps_blk_end_latched;
                 blk_cnt <= 2'd0;
+                // Check for ~reg_op_done to delay setting reg_addr_lsb, which
+                // causes addr_next to be cleared. This ensures that reg_op_done is
+                // cleared before addr_next is cleared.
+                if (~reg_op_done) begin
+                    reg_addr[11:0] <= reg_addr[11:0] + 12'd1;
+                    reg_addr_lsb <= ps_addr_lsb_latched;
+                end
             end
             else begin
                 reg_wen <= reg_wen_next;
