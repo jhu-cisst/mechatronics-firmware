@@ -89,7 +89,6 @@ reg[15:0] reg_addr;         // Either the read or write address
 //  starting address to be 0.
 reg reg_addr_lsb;
 reg reg_wen;
-reg reg_rvalid_latched;
 
 assign reg_raddr = reg_addr;
 
@@ -247,8 +246,6 @@ begin
     // Synchronize blk_end with sysclk
     ps_blk_end_latched <= ps_blk_end;
 
-    reg_rvalid_latched <= reg_rvalid;
-
     // req_blk_rt_rd is asserted for just one sysclk
     req_blk_rt_rd <= 1'b0;
 
@@ -321,7 +318,7 @@ begin
                 reg_op_done <= 1'b0;
                 req_read_bus_next <= ps_blk_start_latched & (~ps_blk_end_latched);
             end
-            else if (reg_rvalid & reg_rvalid_latched) begin
+            else if (reg_rvalid) begin
                 reg_rdata_latched <= timestamp_rd ? timestamp_latched : reg_rdata;
                 reg_op_done <= 1'b1;
                 req_read_bus <= req_read_bus_next;
