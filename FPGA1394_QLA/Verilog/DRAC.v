@@ -199,7 +199,7 @@ reg [31:0] reg_espm_bram;
 
 always @(*) begin
     case (reg_raddr[15:12])
-        `ADDR_PROM_QLA: {reg_rdata, reg_rwait} = {reg_rdata_prom_qla, 1'b1};
+        `ADDR_PROM_QLA: {reg_rdata, reg_rwait} = {reg_rdata_prom_qla, 1'b0};
         `ADDR_DATA_BUF: {reg_rdata, reg_rwait} = {reg_rdata_databuf, reg_rwait_databuf};
         `ADDR_MOTOR_CONTROL: {reg_rdata, reg_rwait} = {reg_rdata_motor_control, 1'b0};
         `ADDR_ESPM: {reg_rdata, reg_rwait} = {reg_espm_bram, 1'b0};
@@ -255,17 +255,17 @@ wire [31:0] motor_status [1:10];
 
 // mapping from channel number to hardware channel number.
 // each DRV8432 chip has two channels, so there are 5 DRV8432 chips.
-reg [16:0] channel_to_motor_driver [1:10];
-initial channel_to_motor_driver[8] = 1;
-initial channel_to_motor_driver[9] = 1;
-initial channel_to_motor_driver[10] = 2;
-initial channel_to_motor_driver[1] = 2;
-initial channel_to_motor_driver[5] = 3;
-initial channel_to_motor_driver[2] = 3;
-initial channel_to_motor_driver[6] = 4;
-initial channel_to_motor_driver[3] = 4;
-initial channel_to_motor_driver[7] = 5;
-initial channel_to_motor_driver[4] = 5;
+wire [2:0] channel_to_motor_driver [1:10];
+assign channel_to_motor_driver[8] = 1;
+assign channel_to_motor_driver[9] = 1;
+assign channel_to_motor_driver[10] = 2;
+assign channel_to_motor_driver[1] = 2;
+assign channel_to_motor_driver[5] = 3;
+assign channel_to_motor_driver[2] = 3;
+assign channel_to_motor_driver[6] = 4;
+assign channel_to_motor_driver[3] = 4;
+assign channel_to_motor_driver[7] = 5;
+assign channel_to_motor_driver[4] = 5;
 
 wire [1:10] motor_channel_fault; // 1 if any fault is asserted.
 wire [1:10] motor_channel_clear_fault; // 1 to clear fault state.
@@ -311,7 +311,6 @@ endgenerate
 // --------------------------------------------------------------------------
 // Power control
 // --------------------------------------------------------------------------
-wire reg_rdata_power_control;
 
 wire espm_comm_good; // RX from ESPM is good
 wire esii_escc_comm_good; // ESII/ESCC -> ESPM is good. Invalid when espm_comm_good is 0.
@@ -325,11 +324,9 @@ wire any_amp_enable_pending; // 1 if PC requested to enable any motor channel bu
 PowerControl #(.NUM_INTERLOCKS(5)) PowerControl_instance
 (
     .sysclk(sysclk),
-    .reg_raddr(reg_raddr),
     .reg_waddr(reg_waddr),
     .reg_wdata(reg_wdata),
     .reg_wen(reg_wen),
-    .reg_rdata(reg_rdata_power_control),
     .interlocks(interlocks),
     .motor_channel_fault(motor_channel_fault),
     .motor_channel_clear_fault(motor_channel_clear_fault),
@@ -500,7 +497,7 @@ end
 wire [31:0] rdata_espm;
 wire  [9:0] rdata_sel_espm;
 wire        load_rdata_espm;
-wire [31:0] framed_espm;
+wire        framed_espm;   // Not used
 wire        crc_good_espm;
 wire        eof_espm;
 reg  [31:0] crc_err_count;
@@ -554,9 +551,9 @@ always @(posedge LVDS_RCLK) begin
     if (load_rdata_espm) begin
         espm_bram_pre_crc_wdata <= rdata_espm;
         espm_bram_pre_crc_waddr <= rdata_sel_espm;
-        espm_bram_pre_crc_we <= 'b1;
+        espm_bram_pre_crc_we <= 1'b1;
     end else begin
-        espm_bram_pre_crc_we <= 'b0;
+        espm_bram_pre_crc_we <= 1'b0;
     end
 end
 
@@ -589,11 +586,11 @@ always @(posedge sysclk) begin
             end
         end
         1: begin
-            espm_bram_pre_crc_raddr <= espm_bram_pre_crc_raddr + 'b1;
+            espm_bram_pre_crc_raddr <= espm_bram_pre_crc_raddr + 6'b1;
             if (espm_bram_waddr == ESPM_BRAM_SIZE - 'b1) begin
                 espm_bram_we <= 'b0;
                 copy_state <= 'b0;
-                espm_bram_pre_crc_raddr <= 'b0;
+                espm_bram_pre_crc_raddr <= 6'b0;
             end
 
             if (espm_bram_waddr[2:0] != 'b0) begin
@@ -646,7 +643,7 @@ begin
     if (reg_wen && (reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[3:0]==`OFF_ENC_LOAD)) begin
         encoder_preload[reg_waddr[7:4]] <= reg_wdata[23:0];
         encoder_preload_offset[reg_waddr[7:4]] <= reg_wdata[23:0] - rdata_pos[reg_waddr[7:4]];
-        preload_count <= preload_count + 'b1;
+        preload_count <= preload_count + 5'b1;
         encoder_overflow[reg_waddr[7:4]] <= 'b0;
     end else begin
         for (encoder_overflow_i = 1; encoder_overflow_i < 8; encoder_overflow_i = encoder_overflow_i + 1) begin
