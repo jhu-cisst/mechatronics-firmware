@@ -175,15 +175,33 @@ wire[63:0] emio_ps_tri;    // EMIO tristate from PS (1 -> input to PS, 0 -> outp
 
 //********************* Read Bus Arbitration *************************************
 // Firewire gets bus when requested, and has it when system is idle
-// Ethernet gets bus when not requested by Firewire and when not already granted to PS
-//   (i.e., Ethernet will not interrupt PS)
-// PS EMIO gets bus when not requested by (and granted to) Firewire or granted to Ethernet
+// Ethernet gets bus when not requested by Firewire and when not requested by, and already
+//   granted to, PS (i.e., Ethernet will not interrupt PS)
+// PS EMIO gets bus when not requested by Firewire or Ethernet; once granted, it keeps bus
+//   even if requested by Ethernet
 
 always @(posedge sysclk)
 begin
-    fw_grant_read_bus <= fw_req_read_bus | (~(eth_req_read_bus|ps_req_read_bus));
-    eth_grant_read_bus <= (~fw_req_read_bus) & eth_req_read_bus & (~ps_grant_read_bus);
-    ps_grant_read_bus <= (~fw_req_read_bus) & (~eth_grant_read_bus) & ps_req_read_bus;
+    if (fw_req_read_bus) begin
+        fw_grant_read_bus <= 1'b1;
+        eth_grant_read_bus <= 1'b0;
+        ps_grant_read_bus <= 1'b0;
+    end
+    else if (eth_req_read_bus & ~(ps_req_read_bus&ps_grant_read_bus)) begin
+       fw_grant_read_bus <= 1'b0;
+       eth_grant_read_bus <= 1'b1;
+       ps_grant_read_bus <= 1'b0;
+    end
+    else if (ps_req_read_bus) begin
+       fw_grant_read_bus <= 1'b0;
+       eth_grant_read_bus <= 1'b0;
+       ps_grant_read_bus <= 1'b1;
+    end
+    else begin
+       fw_grant_read_bus <= 1'b1;
+       eth_grant_read_bus <= 1'b0;
+       ps_grant_read_bus <= 1'b0;
+    end
 end
 
 wire[15:0] host_reg_raddr;
@@ -275,15 +293,33 @@ ReadDataValid rdata_valid
 
 //********************* Write Bus Arbitration *************************************
 // Firewire gets bus when requested, and has it when system is idle
-// Ethernet gets bus when not requested by Firewire and when not already granted to PS
-//   (i.e., Ethernet will not interrupt PS)
-// PS EMIO gets bus when not requested by (and granted to) Firewire or granted to Ethernet
+// Ethernet gets bus when not requested by Firewire and when not requested by, and already
+//   granted to, PS (i.e., Ethernet will not interrupt PS)
+// PS EMIO gets bus when not requested by Firewire or Ethernet; once granted, it keeps bus
+//   even if requested by Ethernet
 
 always @(posedge sysclk)
 begin
-   fw_grant_write_bus <= fw_req_write_bus | (~(eth_req_write_bus|ps_req_write_bus));
-   eth_grant_write_bus <= (~fw_req_write_bus) & eth_req_write_bus & (~ps_grant_write_bus);
-   ps_grant_write_bus <= (~fw_req_write_bus) & (~eth_grant_write_bus) & ps_req_write_bus;
+    if (fw_req_write_bus) begin
+        fw_grant_write_bus <= 1'b1;
+        eth_grant_write_bus <= 1'b0;
+        ps_grant_write_bus <= 1'b0;
+    end
+    else if (eth_req_write_bus & ~(ps_req_write_bus&ps_grant_write_bus)) begin
+       fw_grant_write_bus <= 1'b0;
+       eth_grant_write_bus <= 1'b1;
+       ps_grant_write_bus <= 1'b0;
+    end
+    else if (ps_req_write_bus) begin
+       fw_grant_write_bus <= 1'b0;
+       eth_grant_write_bus <= 1'b0;
+       ps_grant_write_bus <= 1'b1;
+    end
+    else begin
+       fw_grant_write_bus <= 1'b1;
+       eth_grant_write_bus <= 1'b0;
+       ps_grant_write_bus <= 1'b0;
+    end
 end
 
 reg blk_rt_wr;             // real-time block write (not currently used)
