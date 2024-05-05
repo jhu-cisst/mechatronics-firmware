@@ -3,7 +3,7 @@
 
 /*******************************************************************************    
  *
- * Copyright(C) 2020-2021 Johns Hopkins University.
+ * Copyright(C) 2020-2024 Johns Hopkins University.
  *
  * This module implements a data collection buffer.
  *
@@ -27,6 +27,7 @@ module DataBuffer(
     input  wire       reg_wen,      // register write enable
     input  wire[15:0] reg_raddr,    // register read address
     output wire[31:0] reg_rdata,    // read data
+    output wire reg_rwait,          // read wait state
     // Status
     output wire[15:0] databuf_status,
     // Timestamp
@@ -64,11 +65,12 @@ wire[31:0] mem_read;
 //   7400-77ff  memory (wrapping for circular buffer)
 //   7800       status register
 // all other addresses return 0
-assign reg_rdata = (reg_raddr[11] == 1'b0) ? mem_read :
-                   (reg_raddr[11:0] == 12'h800) ? { 16'd0, databuf_status }
-                   : 32'd0;
+assign {reg_rdata, reg_rwait} =
+                   (reg_raddr[11] == 1'b0) ? {mem_read, 1'b1} :
+                   (reg_raddr[11:0] == 12'h800) ? { 16'd0, databuf_status, 1'b0 }
+                   : {32'd0, 1'b0};
 
-Dual_port_RAM_32X1024 Dual_port_RAM_32X1024(
+DPRAM_32x1024_sclk DPRAM_32x1024(
     .clka(clk),
     .ena(1'b1),
     .wea(buf_wr),

@@ -51,6 +51,7 @@ module BoardRegsDRAC
     input  wire[15:0] reg_raddr,     // register read address
     input  wire[15:0] reg_waddr,     // register write address
     output reg[31:0] reg_rdata,      // register read data
+    output wire reg_rwait,           // register read wait state
     input  wire[31:0] reg_wdata,     // register write data
     input  wire reg_wen,             // write enable from FireWire module
 
@@ -97,19 +98,22 @@ always @(posedge(sysclk))
         end
         endcase
     end
-
-    // return register data for reads
-    //    REG_PROMSTAT, REG_PROMRES, REG_IPADDR and REG_ETHRES handled by FPGA module
-    else begin
-        case (reg_raddr[3:0])
-        `REG_STATUS: reg_rdata <= reg_status;
-        `REG_VERSION: reg_rdata <= VERSION;
-        `REG_TEMPSNS: reg_rdata <= temp_sense;
-        `REG_DIGIN: reg_rdata <= reg_digin;
-        default:  reg_rdata <= 32'd0;
-        endcase
-    end
 end
+
+// return register data for reads
+//    REG_PROMSTAT, REG_PROMRES, REG_IPADDR and REG_ETHRES handled by FPGA module
+always @(*) begin
+    case (reg_raddr[3:0])
+        `REG_STATUS: reg_rdata = reg_status;
+        `REG_VERSION: reg_rdata = VERSION;
+        `REG_TEMPSNS: reg_rdata = temp_sense;
+        `REG_DIGIN: reg_rdata = reg_digin;
+        default:  reg_rdata = 32'd0;
+    endcase
+end
+
+// Register reads have 0 wait
+assign reg_rwait = 1'b0;
 
 // The clock resolution is 5.208333 us (2^8 / 49.152 MHz), since
 // we use a 24-bit counter and compare the upper 16 bits to 7680

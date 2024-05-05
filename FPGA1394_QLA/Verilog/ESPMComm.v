@@ -1,6 +1,6 @@
 /*******************************************************************************
  *
- * Copyright(C) 2017-2023 ERC CISST, Johns Hopkins University
+ * Copyright(C) 2017-2024 ERC CISST, Johns Hopkins University
  *
  * Module: ESPMComm
  *
@@ -35,8 +35,8 @@ module ESPMRX (input wire clock,                 // bit clock for ESPM chain
     // internal variables
     wire [15:0] crc_data;
 
-    reg [14:0] bit_ctr = 'd0;
-    assign rdata_sel   = bit_ctr[14:5] - 'd2;
+    reg [14:0] bit_ctr = 15'd0;
+    assign rdata_sel   = bit_ctr[14:5] - 10'd2;
     wire [4:0] bit_sel = bit_ctr[4:0];
     wire load_crc = bit_sel[2:0] == 'b111 && cfsm != R_CRC;
     assign load_rdata = bit_sel == 'd31 && cfsm == R_DATA;
@@ -44,8 +44,8 @@ module ESPMRX (input wire clock,                 // bit clock for ESPM chain
     reg [31:0] rdata_shift;
     assign rdata = rdata_shift;
 
-    reg [5:0] recovery_extra_delay = 'd0;
-    reg recovery_extra_delay_en = 'b0;
+    reg [5:0] recovery_extra_delay = 6'd0;
+    reg recovery_extra_delay_en = 1'b0;
 
 
     localparam FRAME = 2'h0,
@@ -60,7 +60,7 @@ module ESPMRX (input wire clock,                 // bit clock for ESPM chain
     //----------------------------------------------------------------------------------------------
     always @(posedge clock)
     begin
-        bit_ctr <= cfsm == FRAME ? 'd32 : bit_ctr + 'b1;
+        bit_ctr <= (cfsm == FRAME) ? 15'd32 : bit_ctr + 15'b1;
 
         case (cfsm)
             FRAME: begin
@@ -75,7 +75,7 @@ module ESPMRX (input wire clock,                 // bit clock for ESPM chain
             R_HEADER: begin
                 if (bit_sel == 'd31) begin
                     cfsm <= R_DATA;
-                    length <= rdata_shift[9:0] + (recovery_extra_delay_en ? recovery_extra_delay : 'd0);
+                    length <= rdata_shift[9:0] + (recovery_extra_delay_en ? recovery_extra_delay : 10'd0);
                     page <= rdata_shift[31:16];
                 end
             end
@@ -93,11 +93,11 @@ module ESPMRX (input wire clock,                 // bit clock for ESPM chain
                     cfsm    <= FRAME;
                     if (crc_data == rdata_shift[15:0]) begin
                         crc_good       <= 'b1;
-                        recovery_extra_delay_en <= 'b0;
+                        recovery_extra_delay_en <= 1'b0;
                         recovery_extra_delay <= 'd0;
                     end else begin
-                        recovery_extra_delay_en <= recovery_extra_delay > 'd3 ? ~recovery_extra_delay_en : 'b0;
-                        recovery_extra_delay <= recovery_extra_delay + 'd1;
+                        recovery_extra_delay_en <= (recovery_extra_delay > 6'd3) ? ~recovery_extra_delay_en : 1'b0;
+                        recovery_extra_delay <= recovery_extra_delay + 6'd1;
                     end
                 end
             end
@@ -140,7 +140,7 @@ module ESPMTX (
 
     // There are 2 quadlets before the payload, but here we advance the tdata_sel by 1
     // to give some timing margin for the data source.
-    assign tdata_sel   = bit_ctr[14:5] - 'd1;
+    assign tdata_sel   = bit_ctr[14:5] - 10'd1;
     wire [4:0] bit_sel = bit_ctr[4:0];
 
     reg [15:0] page_latched;

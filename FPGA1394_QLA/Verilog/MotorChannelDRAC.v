@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2022-2023 Johns Hopkins University.
+ * Copyright(C) 2022-2024 Johns Hopkins University.
  *
  * This module handles a motor channel for the dRAC
  */
@@ -197,9 +197,9 @@ always @(posedge pwmclk) begin
         current_error_counter <= current_error_counter_top;
     end else if (ap_done) begin
         case (current_error_counter)
-        0: current_error_counter <= current_bad ? 0 : 1'b1;
-        current_error_counter_top: current_error_counter <= current_bad ? current_error_counter_top - 1 : current_error_counter_top;
-        default: current_error_counter <= current_bad ? current_error_counter - 1 : current_error_counter + 1;
+        0: current_error_counter <= current_bad ? 12'd0 : 12'd1;
+        current_error_counter_top: current_error_counter <= current_bad ? current_error_counter_top - 12'd1 : current_error_counter_top;
+        default: current_error_counter <= current_bad ? current_error_counter - 12'd1 : current_error_counter + 12'd1;
         endcase
     end
 end
@@ -224,7 +224,7 @@ always @(posedge pwmclk) begin
             cur_cmd_tuning <= cur_cmd_normal;
         end else begin
             if (tuning_counter != 0) begin
-                tuning_counter <= tuning_counter - 1;
+                tuning_counter <= tuning_counter - 16'd1;
             end else begin
             cur_cmd_tuning <= 16'h8000;
             if (!tuning_req) tuning_ack <= 0;
@@ -234,35 +234,40 @@ always @(posedge pwmclk) begin
 end
 
 // pc interface
+
+always @(*)
+begin
+    if (reg_raddr[7:4]== CHANNEL) begin
+        case (reg_raddr[3:0])
+            `OFF_MOTOR_CONTROL_MODE: reg_rdata = {12'b0, control_mode};
+            `OFF_MOTOR_CONTROL_CURRENT_KP: reg_rdata = kp;
+            `OFF_MOTOR_CONTROL_CURRENT_KI: reg_rdata = ki;
+            `OFF_MOTOR_CONTROL_CURRENT_KD: reg_rdata = kd;
+            `OFF_MOTOR_CONTROL_CURRENT_FF_RESISTIVE: reg_rdata = ff_resistive;
+            `OFF_MOTOR_CONTROL_CURRENT_I_TERM_LIMIT: reg_rdata = i_term_limit;
+            `OFF_MOTOR_CONTROL_CURRENT_OUTPUT_LIMIT: reg_rdata = output_limit;
+            `OFF_MOTOR_CONTROL_DUTY_CYCLE: reg_rdata = duty_cycle_sysclk;
+            `OFF_MOTOR_CONTROL_FAULT: reg_rdata = fault_latched_sysclk;
+            `OFF_MOTOR_CONTROL_TUNE: reg_rdata = {16'b0, tuning_pulse_width};
+            default: reg_rdata = 32'hcccccccc;
+        endcase
+    end
+    else begin
+        reg_rdata = 32'b0;
+    end
+end
+
 always @(posedge sysclk)
 begin
     duty_cycle_sysclk <= duty_cycle;
     fault_latched_sysclk <= fault_latched;
     fault_code <=
-        fault_latched[0] ? 1 :
-        fault_latched[1] ? 2 :
-        fault_latched[2] ? 3 : 0;
+        fault_latched[0] ? 4'd1 :
+        fault_latched[1] ? 4'd2 :
+        fault_latched[2] ? 4'd3 : 4'd0;
     cur_cmd_fb <= cur_cmd;
     if (~enable_pin) begin
         cur_cmd_normal <= 'h8000;
-    end
-    if (reg_raddr[7:4]== CHANNEL) begin
-        case (reg_raddr[3:0])
-            `OFF_MOTOR_CONTROL_MODE: reg_rdata <= {12'b0, control_mode};
-            `OFF_MOTOR_CONTROL_CURRENT_KP: reg_rdata <= kp;
-            `OFF_MOTOR_CONTROL_CURRENT_KI: reg_rdata <= ki;
-            `OFF_MOTOR_CONTROL_CURRENT_KD: reg_rdata <= kd;
-            `OFF_MOTOR_CONTROL_CURRENT_FF_RESISTIVE: reg_rdata <= ff_resistive;
-            `OFF_MOTOR_CONTROL_CURRENT_I_TERM_LIMIT: reg_rdata <= i_term_limit;
-            `OFF_MOTOR_CONTROL_CURRENT_OUTPUT_LIMIT: reg_rdata <= output_limit;
-            `OFF_MOTOR_CONTROL_DUTY_CYCLE: reg_rdata <= duty_cycle_sysclk;
-            `OFF_MOTOR_CONTROL_FAULT: reg_rdata <= fault_latched_sysclk;
-            `OFF_MOTOR_CONTROL_TUNE: reg_rdata <= {16'b0, tuning_pulse_width};
-            default: reg_rdata <= 32'hcccccccc;
-        endcase
-    end
-    else begin
-        reg_rdata <= 32'b0;
     end
 
     if (reg_waddr[15:12]==`ADDR_MOTOR_CONTROL && reg_waddr[7:4]== CHANNEL && reg_wen) begin
@@ -298,7 +303,7 @@ end
 
 // Decimate the current reading by averaging. To be replaced with a proper filter.
 
-reg [5:0] decimate_counter = 0;
+reg [5:0] decimate_counter = 6'd0;
 reg [21:0] decimate_sum;
 reg adc_data_latched;
 reg[15:0] cur_fb_filtered_pwmclk;
@@ -306,8 +311,8 @@ reg[15:0] cur_fb_filtered_pwmclk;
 always @ (posedge pwmclk) begin
     adc_data_latched <= adc_data_ready;
     if (adc_data_latched) begin
-        decimate_counter <= decimate_counter + 1;
-        if (decimate_counter == 0) begin
+        decimate_counter <= decimate_counter + 6'd1;
+        if (decimate_counter == 6'd0) begin
             decimate_sum <= measured_motor_current;
         end
         else if (decimate_counter == 63) begin

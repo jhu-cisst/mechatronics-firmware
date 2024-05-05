@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2011-2023 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2011-2024 ERC CISST, Johns Hopkins University.
  *
  * This module contains code for the DQLA (dual QLA) interface
  *
@@ -36,29 +36,13 @@ module DQLA(
     input wire[15:0]  reg_waddr,
     output wire[31:0] reg_rdata,
     input wire[31:0]  reg_wdata,
+    output wire reg_rwait,
     input wire reg_wen,
     input wire blk_wen,
     input wire blk_wstart,
 
-    // Block write support
-    output wire bw_write_en,
-    output wire[7:0] bw_reg_waddr,
-    output wire[31:0] bw_reg_wdata,
-    output wire bw_reg_wen,
-    output wire bw_blk_wen,
-    output wire bw_blk_wstart,
-
-    // Real-time write support
-    input wire  rt_wen,
-    input wire[3:0]  rt_waddr,
-    input wire[31:0] rt_wdata,
-
-    // Sampling support
-    input wire sample_start,        // Start sampling read data
-    output wire sample_busy,        // Sampling in process
-    input wire[5:0] sample_raddr,   // Address in sample_data buffer
-    output wire[31:0] sample_rdata, // Output from sample_data buffer
-    output wire[31:0] timestamp,    // Timestamp used when sampling
+    // Timestamp
+    output reg[31:0] timestamp,
 
     // Watchdog support
     input wire wdog_period_led,     // 1 -> external LED displays wdog_period_status
@@ -279,13 +263,12 @@ module DQLA(
 // hardware description
 //
 
-wire[3:0]  sample_chan;          // Channel for sampling
-
 wire[31:0] reg_rdata_prom_qla;   // reads from QLA prom
 wire[31:0] reg_rdata_prom_qla1;  // reads from QLA 1 prom
 wire[31:0] reg_rdata_prom_qla2;  // reads from QLA 2 prom
 wire[31:0] reg_rdata_ds;         // for DS2505 memory access
 wire[31:0] reg_rdata_chan0;      // 'channel 0' is a special axis that contains various board I/Os
+wire       reg_rwait_chan0;      // 'channel 0' read wait state
 reg[31:0]  reg_rdata_ioexp;      // reads from MAX7317 I/O expander (QLA 1.5+)
 wire[31:0] reg_rdata_ioexp_1;    // reads from MAX7317 I/O expander (QLA 1.5+)
 wire[31:0] reg_rdata_ioexp_2;    // reads from MAX7317 I/O expander (QLA 1.5+)
@@ -309,12 +292,19 @@ end
 
 // Mux routing read data based on read address
 //   See Constants.v for details
-//     addr[15:12]  main | hub | prom | prom_qla | eth | firewire | dallas | databuf | waveform
-assign reg_rdata = (reg_raddr[15:12]==`ADDR_PROM_QLA) ? (reg_rdata_prom_qla) :
-                   (reg_raddr[15:12]==`ADDR_DS) ? (reg_rdata_ds) :
-                   (reg_raddr[15:12]==`ADDR_WAVEFORM) ? (reg_rtable) :
-                   (reg_raddr[7:4]!=4'd0) ? (reg_rd[reg_raddr[3:0]]) :
-                   (reg_raddr[3:0]==`REG_IO_EXP) ? (reg_rdata_ioexp) : (reg_rdata_chan0);
+//     addr[15:12]  main | hub | prom | prom_qla | eth | firewire | dallas | waveform
+// reg_rwait indicates when reg_rdata is valid
+//   0 --> same sysclk as reg_raddr (e.g., register read)
+//   1 --> one sysclk after reg_raddr set (e.g., reading from memory)
+// reg_rdata_ds is latched, so rwait=1
+assign {reg_rdata, reg_rwait} =
+                   (reg_raddr[15:12]==`ADDR_PROM_QLA) ? {reg_rdata_prom_qla, 1'b0} :
+                   (reg_raddr[15:12]==`ADDR_DS) ? {reg_rdata_ds, 1'b1} :
+                   (reg_raddr[15:12]==`ADDR_WAVEFORM) ? {reg_rtable, 1'b1} :
+                   ((reg_raddr[15:12]==`ADDR_MAIN) && (reg_raddr[7:4]!=4'd0)) ? {reg_rd[reg_raddr[3:0]], 1'b0} :
+                   ((reg_raddr[15:12]==`ADDR_MAIN) && (reg_raddr[3:0]==`REG_IO_EXP)) ? {reg_rdata_ioexp, 1'b0} :
+                   (reg_raddr[15:12]==`ADDR_MAIN) ? {reg_rdata_chan0, reg_rwait_chan0} :
+                   {32'd0, 1'b0};
 
 // Unused channel offsets
 assign reg_rd[`OFF_UNUSED_02] = 32'd0;
@@ -322,6 +312,14 @@ assign reg_rd[`OFF_UNUSED_03] = 32'd0;
 assign reg_rd[`OFF_UNUSED_13] = 32'd0;
 assign reg_rd[`OFF_UNUSED_14] = 32'd0;
 assign reg_rd[`OFF_UNUSED_15] = 32'd0;
+
+// -------------------------------------------------------------------------
+// Timestamp: just a free-running counter
+// -------------------------------------------------------------------------
+always @(posedge sysclk)
+begin
+   timestamp <= timestamp + 32'd1;
+end
 
 // --------------------------------------------------------------------------
 // adcs: pot + current 
@@ -513,29 +511,52 @@ assign Q2_disable[2] = amp_disable_pin[6];
 assign Q2_disable[3] = amp_disable_pin[7];
 assign Q2_disable[4] = amp_disable_pin[8];
 
+// Write to global status register
+wire reg_waddr_status;
+assign reg_waddr_status = ((reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[7:4] == 4'd0) &&
+                           (reg_waddr[3:0]==`REG_STATUS)) ? 1'd1 : 1'd0;
+
 // Check for non-zero channel number (reg_waddr[7:4]) to ignore write to global register.
 // It would be even better to check that channel number is 1-4.
 wire reg_waddr_dac;
 assign reg_waddr_dac = ((reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[7:4] != 4'd0) &&
                         (reg_waddr[3:0]==`OFF_DAC_CTRL)) ? 1'd1 : 1'd0;
 
-// Following handles case where a single DAC is updated (e.g., via a quadlet write),
-// since reg_wen and blk_wen are asserted at the same time.
-wire dac_update_single;
-assign dac_update_single = reg_wen&reg_wdata[31];
+// Following indicates whether at least one DAC has been updated (via a block write)
+// since the last write.
+reg dac_update;
 
-wire dac_update_block;    // Any DAC was updated in WriteRtData
+// Following indicates whether DAC value is valid (bit 31 set), assuming
+// reg_waddr_dac is 1. This will work for either a block write or a single quadlet
+// write because in both cases reg_wen is set.
+wire dac_valid;
+assign dac_valid = reg_wen & reg_wdata[31];
+
 wire dac_busy;
 reg  cur_cmd_req;
 reg  cur_cmd_updated;
 
 always @(posedge(sysclk))
 begin
-    if (reg_waddr_dac&blk_wen&(dac_update_block|dac_update_single)) begin
-        cur_cmd_req <= dac_busy;
-        cur_cmd_updated <= ~dac_busy;
+    // We check both reg_waddr_dac and reg_waddr_status because in a block write, the last
+    // write is to the status/control register.
+    if (reg_waddr_dac | reg_waddr_status) begin
+        // For block write, dac_update will be set if any DAC was valid prior to blk_wen
+        // For quadlet write, need to check (dac_valid&reg_waddr_dac) because blk_wen and
+        // reg_wen occur at the same time
+        if (blk_wen) begin
+            dac_update <= 1'b0;
+            if (dac_update|(dac_valid&reg_waddr_dac)) begin
+                cur_cmd_req <= dac_busy;
+                cur_cmd_updated <= ~dac_busy;
+            end
+        end
+        else if (dac_valid) begin
+            // This condition is only possible for block write
+            dac_update <= 1'b1;
+        end
     end
-    else if (cur_cmd_req&(~dac_busy)) begin
+    if (cur_cmd_req&(~dac_busy)) begin
         cur_cmd_req <= 0;
         cur_cmd_updated <= 1;
     end
@@ -587,20 +608,13 @@ wire[31:0] reg_qtr1_data;
 wire[31:0] reg_qtr5_data;
 wire[31:0] reg_run_data;
 
-// Encoder read address channel
-// For now, this is multiplexed between the normal reg_raddr and sample_chan,
-// without any check for collision (i.e., will not correctly handle simulaneous
-// read via sampling and Firewire/Ethernet, which should never happen).
-wire[3:0] enc_raddr_chan;
-assign enc_raddr_chan = sample_busy ? sample_chan : reg_raddr[7:4];
-
 // encoder controller: the thing that manages encoder reads and preloads
 CtrlEnc #(.NUM_ENC(8)) enc(
     .sysclk(sysclk),
     .enc_a({Q1_enc_a, Q2_enc_a}),
     .enc_b({Q1_enc_b, Q2_enc_b}),
     .enc_i({Q1_enc_i, Q2_enc_i}),
-    .reg_raddr_chan(enc_raddr_chan),
+    .reg_raddr_chan(reg_raddr[7:4]),
     .reg_waddr(reg_waddr),
     .reg_wdata(reg_wdata),
     .reg_wen(reg_wen),
@@ -943,8 +957,6 @@ DS2505 ds_instrument(
 // miscellaneous board I/Os
 // --------------------------------------------------------------------------
 
-wire[31:0] reg_status;    // Status register
-wire[31:0] reg_digio;     // Digital I/O register
 wire[15:0] Q1_tempsense;  // Temperature sensor
 wire[15:0] Q2_tempsense;  // Temperature sensor
 
@@ -984,56 +996,13 @@ BoardRegsDQLA chan0(
     .reg_raddr(reg_raddr),
     .reg_waddr(reg_waddr),
     .reg_rdata(reg_rdata_chan0),
+    .reg_rwait(reg_rwait_chan0),
     .reg_wdata(reg_wdata),
     .reg_wen(reg_wen),
     .ds_status(ds_status),
     .pwr_enable_cmd(pwr_enable_cmd),
     .mv_amp_disable({Q2_mv_amp_disable, Q1_mv_amp_disable}),
-    .reg_status(reg_status),
-    .reg_digin(reg_digio),
     .wdog_timeout(wdog_timeout)
-);
-
-// --------------------------------------------------------------------------
-// Sample data for block read
-// --------------------------------------------------------------------------
-
-SampleData #(.NUM_CHAN(8)) sampler(
-    .clk(sysclk),
-    .doSample(sample_start),
-    .isBusy(sample_busy),
-    .reg_status(reg_status),
-    .reg_digio(reg_digio),
-    .reg_temp({Q2_tempsense, Q1_tempsense}),
-    .chan(sample_chan),
-    .adc_in({pot_fb[sample_chan], cur_fb[sample_chan]}),
-    .enc_pos(reg_quad_data),
-    .enc_period(reg_perd_data),
-    .enc_qtr1(reg_qtr1_data),
-    .enc_qtr5(reg_qtr5_data),
-    .enc_run(reg_run_data),
-    .motor_status(motor_status[sample_chan]),
-    .blk_addr(sample_raddr),
-    .blk_data(sample_rdata),
-    .timestamp(timestamp)
-);
-
-// --------------------------------------------------------------------------
-// Write data for real-time block
-// --------------------------------------------------------------------------
-
-WriteRtData #(.NUM_MOTORS(8)) rt_write(
-    .clk(sysclk),
-    .rt_write_en(rt_wen),       // Write enable
-    .rt_write_addr(rt_waddr),   // Write address
-    .rt_write_data(rt_wdata),   // Write data
-    .bw_write_en(bw_write_en),
-    .bw_reg_wen(bw_reg_wen),
-    .bw_block_wen(bw_blk_wen),
-    .bw_block_wstart(bw_blk_wstart),
-    .bw_reg_waddr(bw_reg_waddr),
-    .bw_reg_wdata(bw_reg_wdata),
-    .dac_update(dac_update_block)
 );
 
 //------------------------------------------------------------------------------

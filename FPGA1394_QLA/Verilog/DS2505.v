@@ -154,22 +154,24 @@ reg[3:0]    progCnt;                 // Program counter
 //                                  next programmer state.
 //     bits 25:21 -> current state indication
 // Programmer funtions:
-//     0 -> Reset 1-wire in CMD mode
-//     1 -> Enter DATA mode
-//     2 -> Skip ROM check
-//     3 -> Read memory command
-//     4 -> Memory read start addr, upper byte
-//     5 -> Memory read start addr, lower byte 
-//     6 -> Enter CMD mode
-//     7 -> Flush & reset DS2480B, 1-wire reset
+//     0 -> Calibrate baud rate
+//     1 -> 1-wire reset
+//     2 -> Enter DATA mode
+//     3 -> Skip ROM check
+//     4 -> Read memory command
+//     5 -> Memory read start addr, upper byte
+//     6 -> Memory read start addr, lower byte 
+//     7 -> Enter CMD mode
+//     8 -> Flush & reset DS2480B, 1-wire reset
 assign ds_program[0] = { DS_PROGRAMMER, DS_PROGRAMMER      , 8'hC1, 8'h00 };
-assign ds_program[1] = { DS_PROGRAMMER, DS_PROGRAMMER      , 8'hE1, 8'h00 };
-assign ds_program[2] = { DS_READ_BYTE , DS_TEST_FAMILY     , 8'h33, 8'h33 };
-assign ds_program[3] = { DS_READ_BYTE , DS_PROGRAMMER      , 8'hF0, 8'hF0 };
-assign ds_program[4] = { DS_READ_BYTE , DS_PROGRAMMER      , mem_addr[7:0], mem_addr[7:0] };
-assign ds_program[5] = { DS_READ_BYTE , DS_READ_MEM_REQUEST, {5'd0, mem_addr[10:8]}, {5'd0, mem_addr[10:8]} };
-assign ds_program[6] = { DS_PROGRAMMER, DS_PROGRAMMER      , 8'hE3, 8'h00 };
-assign ds_program[7] = { DS_IDLE      , DS_IDLE            , 8'hC1, 8'hCD };
+assign ds_program[1] = { DS_READ_BYTE, DS_PROGRAMMER       , 8'hC1, 8'h00 };
+assign ds_program[2] = { DS_PROGRAMMER, DS_PROGRAMMER      , 8'hE1, 8'h00 };
+assign ds_program[3] = { DS_READ_BYTE , DS_TEST_FAMILY     , 8'h33, 8'h33 };
+assign ds_program[4] = { DS_READ_BYTE , DS_PROGRAMMER      , 8'hF0, 8'hF0 };
+assign ds_program[5] = { DS_READ_BYTE , DS_PROGRAMMER      , mem_addr[7:0], mem_addr[7:0] };
+assign ds_program[6] = { DS_READ_BYTE , DS_READ_MEM_REQUEST, {5'd0, mem_addr[10:8]}, {5'd0, mem_addr[10:8]} };
+assign ds_program[7] = { DS_PROGRAMMER, DS_PROGRAMMER      , 8'hE3, 8'h00 };
+assign ds_program[8] = { DS_IDLE      , DS_IDLE            , 8'hC1, 8'hCD };
 
 // UART instantiation
 wire        recv_done;          // recv data loading done flag 

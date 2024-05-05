@@ -78,11 +78,6 @@ module FPGA1394V3DRAC
     parameter NUM_MOTORS = 10;
     parameter NUM_ENCODERS = 7;
 
-    // Number of quadlets in real-time block read (not including Firewire header and CRC)
-    localparam NUM_RT_READ_QUADS = (4 + 2*NUM_MOTORS + 5*NUM_ENCODERS);
-    // Number of quadlets in broadcast real-time block; includes sequence number
-    localparam NUM_BC_READ_QUADS = (1+NUM_RT_READ_QUADS);
-
     // System clock
     wire sysclk;
     BUFG clksysclk(.I(clk1394), .O(sysclk));
@@ -99,30 +94,15 @@ module FPGA1394V3DRAC
     wire[15:0] reg_waddr;       // 16-bit reg write address
     wire[31:0] reg_rdata;       // reg read data
     wire[31:0] reg_wdata;       // reg write data
+    wire reg_rwait;             // reg read wait state
     wire reg_wen;               // register write signal
     wire blk_wen;               // block write enable
     wire blk_wstart;            // block write start
+    wire req_blk_rt_rd;         // real-time block read request
+    wire blk_rt_rd;             // real-time block read
 
-    // Wires for block write
-    wire bw_reg_wen;            // register write signal from WriteRtData
-    wire bw_blk_wen;            // block write enable from WriteRtData
-    wire bw_blk_wstart;         // block write start from WriteRtData
-    wire[7:0] bw_reg_waddr;     // 16-bit reg write address from WriteRtData
-    wire[31:0] bw_reg_wdata;    // reg write data from WriteRtData
-    wire bw_write_en;           // 1 -> WriteRtData (real-time block write) is driving write bus
-
-    // Wires for real-time write
-    wire  rt_wen;
-    wire [3:0] rt_waddr;
-    wire [31:0] rt_wdata;
-
-    // Wires for sampling block read data
-    wire sample_start;        // Start sampling read data
-    wire sample_busy;         // Sampling in process
-    wire[5:0] sample_raddr;   // Address in sample_data buffer
-    wire[31:0] sample_rdata;  // Output from sample_data buffer
-    wire sample_read;
-    wire[31:0] timestamp;     // Timestamp used when sampling
+    // Timestamp
+    wire[31:0] timestamp;
 
     // Wires for watchdog
     wire wdog_period_led;     // 1 -> external LED displays wdog_period_status
@@ -148,7 +128,7 @@ assign LED = isV30 ? 1'bz : LED_Out;        // FPGA V3.1 (pin U13)
 
 // FPGA module, including Firewire and Ethernet
 FPGA1394V3
-    #(.NUM_BC_READ_QUADS(NUM_BC_READ_QUADS))
+    #(.NUM_MOTORS(NUM_MOTORS), .NUM_ENCODERS(NUM_ENCODERS))
 fpga(
     .sysclk(sysclk),
     .board_id(board_id),
@@ -191,34 +171,19 @@ fpga(
     .PS_CLK(PS_CLK),
     .PS_PORB(PS_PORB),
 
-     // Read/write bus
+    // Read/write bus
     .reg_raddr(reg_raddr),
     .reg_waddr(reg_waddr),
     .reg_rdata_ext(reg_rdata),
     .reg_wdata(reg_wdata),
+    .reg_rwait_ext(reg_rwait),
     .reg_wen(reg_wen),
     .blk_wen(blk_wen),
     .blk_wstart(blk_wstart),
+    .req_blk_rt_rd(req_blk_rt_rd),
+    .blk_rt_rd(blk_rt_rd),
 
-    // Block write support
-    .bw_reg_waddr(bw_reg_waddr),
-    .bw_reg_wdata(bw_reg_wdata),
-    .bw_reg_wen(bw_reg_wen),
-    .bw_blk_wen(bw_blk_wen),
-    .bw_blk_wstart(bw_blk_wstart),
-    .bw_write_en(bw_write_en),
-
-    // Real-time write support
-    .rt_wen(rt_wen),
-    .rt_waddr(rt_waddr),
-    .rt_wdata(rt_wdata),
-
-    // Sampling support
-    .sample_start(sample_start),
-    .sample_busy(sample_busy),
-    .sample_raddr(sample_raddr),
-    .sample_rdata(sample_rdata),
-    .sample_read(sample_read),
+    // Timestamp
     .timestamp(timestamp),
 
     // Watchdog support
@@ -259,33 +224,18 @@ DRAC drac(
     .io_extra({IO2[39], IO2[0], IO1[33], IO1[0]}),
 
     // Read/write bus
-    .reg_raddr_non_sample(reg_raddr),
+    .reg_raddr(reg_raddr),
     .reg_waddr(reg_waddr),
     .reg_rdata(reg_rdata),
     .reg_wdata(reg_wdata),
+    .reg_rwait(reg_rwait),
     .reg_wen(reg_wen),
     .blk_wen(blk_wen),
     .blk_wstart(blk_wstart),
+    .sample_start(req_blk_rt_rd),
+    .sample_read(blk_rt_rd),
 
-    // Block write support
-    .bw_reg_waddr(bw_reg_waddr),
-    .bw_reg_wdata(bw_reg_wdata),
-    .bw_reg_wen(bw_reg_wen),
-    .bw_blk_wen(bw_blk_wen),
-    .bw_blk_wstart(bw_blk_wstart),
-    .bw_write_en(bw_write_en),
-
-    // Real-time write support
-    .rt_wen(rt_wen),
-    .rt_waddr(rt_waddr),
-    .rt_wdata(rt_wdata),
-
-    // Sampling support
-    .sample_start(sample_start),
-    .sample_busy(sample_busy),
-    .sample_raddr(sample_raddr),
-    .sample_rdata(sample_rdata),
-    .sample_read(sample_read),
+    // Timestamp
     .timestamp(timestamp),
 
     // Watchdog support
@@ -306,11 +256,11 @@ ODDR #(
 ) adc_sck_oddr (
    .Q(SCLK_ADC),   // 1-bit DDR output
    .C(adc_sck),   // 1-bit clock input
-   .CE('b1), // 1-bit clock enable input
-   .D1('b1), // 1-bit data input (positive edge)
-   .D2('b0), // 1-bit data input (negative edge)
-   .R('b0),   // 1-bit reset
-   .S('b0)    // 1-bit set
+   .CE(1'b1), // 1-bit clock enable input
+   .D1(1'b1), // 1-bit data input (positive edge)
+   .D2(1'b0), // 1-bit data input (negative edge)
+   .R(1'b0),   // 1-bit reset
+   .S(1'b0)    // 1-bit set
 );
 
 ODDR #(
@@ -320,11 +270,11 @@ ODDR #(
 ) lvds_tx_oddr (
    .Q(LVDS_TCLK),   // 1-bit DDR output
    .C(lvds_tx_clk),   // 1-bit clock input
-   .CE('b1), // 1-bit clock enable input
-   .D1('b1), // 1-bit data input (positive edge)
-   .D2('b0), // 1-bit data input (negative edge)
-   .R('b0),   // 1-bit reset
-   .S('b0)    // 1-bit set
+   .CE(1'b1), // 1-bit clock enable input
+   .D1(1'b1), // 1-bit data input (positive edge)
+   .D2(1'b0), // 1-bit data input (negative edge)
+   .R(1'b0),   // 1-bit reset
+   .S(1'b0)    // 1-bit set
 );
 
 endmodule

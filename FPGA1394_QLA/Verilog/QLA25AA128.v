@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2012-2023 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2012-2024 ERC CISST, Johns Hopkins University.
  *
  * Module: QLA25AA128
  *
@@ -138,24 +138,23 @@ assign prom_sclk = seqn[3];    // sysclk/8
 assign this_busy = ~io_disabled;
 
 // -----------------------------------------
-// read/write request
-// Not necessary for this to be clocked
+// read request
 // ------------------------------------------
-always @(posedge(clk))
+always @(*)
 begin
     if (reg_raddr[11:8] == 4'h0) begin
         case (reg_raddr[3:0])
-        `REG_PROM_RESULT: reg_rdata <= prom_result;
-        `REG_PROM_STATUS: reg_rdata <= {16'd0, prom_status};
+        `REG_PROM_RESULT: reg_rdata = prom_result;
+        `REG_PROM_STATUS: reg_rdata = {16'd0, prom_status};
         // return 32'd0 by default
-        default: reg_rdata <= 32'd0;
+        default: reg_rdata = 32'd0;
         endcase
     end
     else if (reg_raddr[11:8] == 4'h1) begin
-        reg_rdata <= data_block[reg_raddr[3:0]];
+        reg_rdata = data_block[reg_raddr[3:0]];
     end
     else begin
-        reg_rdata <= 32'd0;
+        reg_rdata = 32'd0;
     end
 end
 

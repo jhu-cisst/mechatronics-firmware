@@ -3,7 +3,7 @@
 
 /*******************************************************************************    
  *
- * Copyright(C) 2022 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2022-2024 ERC CISST, Johns Hopkins University.
  *
  * Handles board and per-motor power control.
  * All signals in `interlocks` must be asserted for axis power to be enabled.
@@ -31,9 +31,7 @@ module PowerControl
     output wire wdog_clear,
 
     // register file interface
-    input  wire[15:0] reg_raddr,     // register read address
     input  wire[15:0] reg_waddr,     // register write address
-    output reg[31:0] reg_rdata,      // register read data
     input  wire[31:0] reg_wdata,     // register write data
     input  wire reg_wen              // write enable from FireWire module
 );
@@ -83,7 +81,7 @@ always @(posedge sysclk) begin
 
     if (reg_waddr[15:12]==`ADDR_BOARD_SPECIFIC && reg_wen) begin
         case (reg_waddr[11:0])
-            'h100: bypass_interlocks <= reg_wdata;
+            'h100: bypass_interlocks <= reg_wdata[NUM_INTERLOCKS-1:0];
         endcase
     end
 end

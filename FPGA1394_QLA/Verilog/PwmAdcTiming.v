@@ -25,9 +25,9 @@ parameter integer t_en = 20 / clk_period + 1;
 // Refer page 7. https://www.analog.com/media/en/technical-documentation/data-sheets/AD4000-4004-4008.pdf
 parameter integer n_sck_pulses = 16;
 
-reg [15:0] adc_timing_counter = 0;
-reg [10:0] adc_conv_phase = 'd511;
-reg [3:0] current_loop_divider = 0;
+reg [15:0] adc_timing_counter = 16'd0;
+reg [10:0] adc_conv_phase = 11'd511;
+reg [3:0] current_loop_divider = 4'd0;
 
 reg adc_data_ready_adcclk;
 
@@ -66,37 +66,37 @@ always @ (posedge adc_sck_div) begin
     STATE_IDLE: begin
         adc_data_ready_adcclk <= 0;
         if (adc_cnv_pulse_adc_sck) begin
-            adc_timing_counter <= 0;
+            adc_timing_counter <= 16'd0;
             adc_cnv <= 1;
             state <= STATE_CONV;
         end
     end
     STATE_CONV: begin
         if (adc_timing_counter == t_cnv) begin
-            adc_timing_counter <= 0;
+            adc_timing_counter <= 16'd0;
             adc_cnv <= 0;
             state <= STATE_EN;
-        end else adc_timing_counter <= adc_timing_counter + 1; 
+        end else adc_timing_counter <= adc_timing_counter + 16'd1;
     end
     STATE_EN: begin
         if (adc_timing_counter == t_en) begin
             adc_timing_counter <= 0;
             state <= STATE_SHIFT;
-        end else adc_timing_counter <= adc_timing_counter + 1; 
+        end else adc_timing_counter <= adc_timing_counter + 16'd1;
     end
     STATE_SHIFT: begin
 
         if (adc_timing_counter == n_sck_pulses - 1) begin
             adc_timing_counter <= 0;
             state <= STATE_DONE;
-        end else adc_timing_counter <= adc_timing_counter + 1; 
+        end else adc_timing_counter <= adc_timing_counter + 16'd1;
     end
     STATE_DONE: begin
         if (adc_timing_counter == 'h4) begin
             adc_data_ready_adcclk <= 1;
             adc_timing_counter <= 0;
             state <= STATE_IDLE;
-        end else adc_timing_counter <= adc_timing_counter + 1; 
+        end else adc_timing_counter <= adc_timing_counter + 16'd1;
     end
     endcase
 end
@@ -112,9 +112,9 @@ reg [3:0] current_loop_div_counter;
 always @(posedge clk) begin
     if (pwm_cycle_start) begin
         if (current_loop_div_counter == current_loop_divider) begin
-            current_loop_div_counter <= 'd0;
+            current_loop_div_counter <= 4'd0;
         end else begin
-            current_loop_div_counter <= current_loop_div_counter + 'd1;
+            current_loop_div_counter <= current_loop_div_counter + 4'd1;
         end
     end
 end
@@ -122,14 +122,14 @@ end
 cdc_pulse adc_data_ready_cdc (.clk_a(adc_sck_div), .data_a(adc_data_ready_adcclk), .clk_b(clk), .data_b(adc_data_ready));
 
 assign pwm_cycle_start = counter_unfolded == {{COUNTER_WIDTH + 1'b1}{1'b1}};
-assign feedback_calculation_start = (counter_unfolded == {{COUNTER_WIDTH + 1'b1}{1'b1}} - 50) && (current_loop_div_counter == 'd0);
+assign feedback_calculation_start = (counter_unfolded == {{COUNTER_WIDTH + 1'b1}{1'b1}} - 50) && (current_loop_div_counter == 4'd0);
 
 always @(posedge sysclk)
 begin
     if (reg_wen && reg_waddr[15:12]==`ADDR_MOTOR_CONTROL && reg_waddr[7:4]== 4'b0) begin
         case (reg_waddr[3:0])
             4'h1: adc_sdi_buffer <= reg_wdata[15:0];
-            4'h2: adc_conv_phase <= reg_wdata[11:0];
+            4'h2: adc_conv_phase <= reg_wdata[10:0];
             4'h3: current_loop_divider <= reg_wdata[3:0];
         endcase
     end

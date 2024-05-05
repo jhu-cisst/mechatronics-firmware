@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2011-2023 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2011-2024 ERC CISST, Johns Hopkins University.
  *
  * This module contains common code for FPGA V1 and does not make any assumptions
  * about which board is connected.
@@ -15,7 +15,8 @@
 `include "Constants.v"
 
 module FPGA1394V1
-    #(parameter NUM_BC_READ_QUADS = 33)
+    #(parameter NUM_MOTORS = 4,
+      parameter NUM_ENCODERS = 4)
 (
     // global clock
     input wire       sysclk,
@@ -48,32 +49,18 @@ module FPGA1394V1
 
     // Read/Write bus
     output wire[15:0] reg_raddr,
-    output reg[15:0]  reg_waddr,
+    output wire[15:0] reg_waddr,
     input wire[31:0]  reg_rdata_ext,
-    output reg[31:0]  reg_wdata,
-    output reg reg_wen,
-    output reg blk_wen,
-    output reg blk_wstart,
+    output wire[31:0] reg_wdata,
+    input wire reg_rwait_ext,
+    output wire reg_wen,
+    output wire blk_wen,
+    output wire blk_wstart,
+    output wire req_blk_rt_rd,    // request for real-time block read
+    output wire blk_rt_rd,        // real-time block read in process
 
-    // Block write support
-    input wire bw_write_en,
-    input wire[7:0] bw_reg_waddr,
-    input wire[31:0] bw_reg_wdata,
-    input wire bw_reg_wen,
-    input wire bw_blk_wen,
-    input wire bw_blk_wstart,
-
-    // Real-time write support
-    output wire rt_wen,
-    output wire[3:0] rt_waddr,
-    output wire[31:0] rt_wdata,
-
-    // Sampling support
-    output wire sample_start,       // Start sampling read data
-    input wire sample_busy,         // Sampling in process
-    output wire[5:0] sample_raddr,  // Address in sample_data buffer
-    input wire[31:0] sample_rdata,  // Output from sample_data buffer
-    input wire[31:0] timestamp,     // Timestamp used when sampling
+    // Timestamp
+    input wire[31:0] timestamp,
 
     // Watchdog support
     output wire wdog_period_led,    // 1 -> external LED displays wdog_period_status
@@ -82,8 +69,13 @@ module FPGA1394V1
     input  wire wdog_clear          // clear watchdog timeout (e.g., on powerup)
 );
 
+// Number of quadlets in real-time block read (not including Firewire header and CRC)
+localparam NUM_RT_READ_QUADS = (4 + 2*NUM_MOTORS + 5*NUM_ENCODERS);
+// Number of quadlets in broadcast real-time block; includes sequence number
+localparam NUM_BC_READ_QUADS = (1+NUM_RT_READ_QUADS);
+
 // 1394 phy low reset, never reset
-assign reset_phy = 1'b1; 
+assign reset_phy = 1'b1;
 
     // -------------------------------------------------------------------------
     // local wires to tie the instantiated modules and I/Os
@@ -91,10 +83,17 @@ assign reset_phy = 1'b1;
 
     wire reboot;                // FPGA reboot request
     wire lreq_trig;             // phy request trigger
+    wire fw_lreq_trig;          // phy request trigger from FireWire
+    wire reg_lreq_trig;         // phy request trigger from register write
     wire[2:0] lreq_type;        // phy request type
+    wire[2:0] fw_lreq_type;     // phy request type from FireWire
+    wire[2:0] reg_lreq_type;    // phy request type from register write
     wire fw_reg_wen;            // register write signal from FireWire
     wire fw_blk_wen;            // block write enable from FireWire
     wire fw_blk_wstart;         // block write start from FireWire
+    wire fw_req_blk_rt_rd;      // real-time block read request from FireWire
+    wire fw_blk_rt_rd;          // real-time block read from FireWire
+    wire fw_blk_rt_wr;          // real-time block write from FireWire
     wire[15:0] fw_reg_raddr;    // 16-bit reg read address from FireWire
     wire[15:0] fw_reg_waddr;    // 16-bit reg write address from FireWire
     wire[31:0] fw_reg_wdata;    // reg write data from FireWire
@@ -108,36 +107,30 @@ assign reset_phy = 1'b1;
 assign  Eth_Result = 32'b0;
 assign ip_address = 32'hffffffff;
 
-// For data sampling
-wire fw_sample_start;
-assign sample_start = fw_sample_start & ~sample_busy;
+//*********************** Read Address Translation *******************************
 
-assign reg_raddr = fw_reg_raddr;
+// Read bus address translation (to support real-time block read).
+// This could instead be instantiated in the either the FPGAV1 or QLA modules
+// (FPGAV1 module would need NUM_MOTORS and NUM_ENCODERS).
 
-// Multiplexing of write bus between WriteRtData (bw = real-time block write module)
-// and Firewire.
-always @(*)
-begin
-   if (bw_write_en) begin
-      reg_wen = bw_reg_wen;
-      blk_wen = bw_blk_wen;
-      blk_wstart = bw_blk_wstart;
-      reg_waddr = {8'd0, bw_reg_waddr};
-      reg_wdata = bw_reg_wdata;
-   end
-   else begin
-      reg_wen = fw_reg_wen;
-      blk_wen = fw_blk_wen;
-      blk_wstart = fw_blk_wstart;
-      reg_waddr = fw_reg_waddr;
-      reg_wdata = fw_reg_wdata;
-   end
-end
+assign req_blk_rt_rd = fw_req_blk_rt_rd;
+assign blk_rt_rd = fw_blk_rt_rd;
+
+ReadAddressTranslation
+    #(.NUM_MOTORS(NUM_MOTORS), .NUM_ENCODERS(NUM_ENCODERS))
+ReadAddr(
+    .reg_raddr_in(fw_reg_raddr),
+    .reg_raddr_out(reg_raddr),
+    .blk_rt_rd(blk_rt_rd)
+);
 
 wire[31:0] reg_rdata;
 wire[31:0] reg_rdata_hub;      // reg_rdata_hub is for hub memory
 wire[31:0] reg_rdata_prom;     // reg_rdata_prom is for block reads from PROM
 wire[31:0] reg_rdata_chan0;    // for reads from board registers
+
+wire reg_rwait;                // read wait state
+wire reg_rwait_chan0;
 
 wire isAddrMain;
 assign isAddrMain = ((reg_raddr[15:12]==`ADDR_MAIN) && (reg_raddr[7:4]==4'd0)) ? 1'b1 : 1'b0;
@@ -145,22 +138,35 @@ assign isAddrMain = ((reg_raddr[15:12]==`ADDR_MAIN) && (reg_raddr[7:4]==4'd0)) ?
 // Mux routing read data based on read address
 //   See Constants.v for details
 //     addr[15:12]  main | hub | prom | prom_qla | eth | firewire | dallas | databuf | waveform
-assign reg_rdata = (reg_raddr[15:12]==`ADDR_HUB) ? (reg_rdata_hub) :
-                   (reg_raddr[15:12]==`ADDR_PROM) ? (reg_rdata_prom) :
-                   isAddrMain ? reg_rdata_chan0 : reg_rdata_ext;
+// reg_rwait indicates when reg_rdata is valid
+//   0 --> same sysclk as reg_raddr (e.g., register read)
+//   1 --> one sysclk after reg_raddr set (e.g., reading from memory)
+assign {reg_rdata, reg_rwait} =
+                   ((reg_raddr[15:12]==`ADDR_HUB) ? {reg_rdata_hub, reg_rwait_hub} :
+                    (reg_raddr[15:12]==`ADDR_PROM) ? {reg_rdata_prom, 1'b0} :
+                    isAddrMain ? {reg_rdata_chan0 | reg_rdata_chan0_ext, reg_rwait_chan0} :
+                    {32'd0, 1'b0}) | {reg_rdata_ext, reg_rwait_ext};
 
 // Data for channel 0 (board registers) is distributed across several FPGA modules, as well
-// as coming from the external board (e.g., QLA). In the following, we mux these together
-// and then provide it as input to BoardRegs, which muxes a few additional registers,
-// and provides the final result as reg_rdata_chan0, which is muxed to reg_rdata above.
+// as coming from the external board (e.g., QLA).
 // It is not necessary to check isAddrMain in the following because it is done above.
+// Also, reg_rwait = 0 for all of these.
 wire[31:0] reg_rdata_chan0_ext;
 assign reg_rdata_chan0_ext =
                    (reg_raddr[3:0]==`REG_PROMSTAT) ? prom_status :
                    (reg_raddr[3:0]==`REG_PROMRES) ? prom_result :
                    (reg_raddr[3:0]==`REG_IPADDR) ? ip_address :
                    (reg_raddr[3:0]==`REG_ETHSTAT) ? Eth_Result :
-                   reg_rdata_ext;
+                   32'd0;
+
+//******************************* Write Bus **************************************
+// No arbitration since only Firewire interface
+
+assign reg_wen = fw_reg_wen;
+assign blk_wen = fw_blk_wen;
+assign blk_wstart = fw_blk_wstart;
+assign reg_waddr = fw_reg_waddr;
+assign reg_wdata = fw_reg_wdata;
 
 // --------------------------------------------------------------------------
 // hub register module
@@ -178,6 +184,7 @@ HubReg hub(
     .reg_waddr(reg_waddr),
     .reg_rdata(reg_rdata_hub),
     .reg_wdata(reg_wdata),
+    .reg_rwait(reg_rwait_hub),
     .sequence(bc_sequence),
     .board_id(board_id),
     .write_trig(hub_write_trig),
@@ -200,35 +207,43 @@ phy(
     .ctl_ext(ctl),           // bi: phy ctl lines
     .data_ext(data),         // bi: phy data lines
     
-    .reg_wen(fw_reg_wen),       // out: reg write signal
+    .fw_reg_wen(fw_reg_wen),    // out: reg write signal
     .blk_wen(fw_blk_wen),       // out: block write signal
     .blk_wstart(fw_blk_wstart), // out: block write is starting
+    .req_blk_rt_rd(fw_req_blk_rt_rd),  // out: real-time block read request
+    .blk_rt_rd(fw_blk_rt_rd),   // out: real-time block read in process
+    .blk_rt_wr(fw_blk_rt_wr),   // out: real-time block write in process
 
     .reg_raddr(fw_reg_raddr),  // out: register address
-    .reg_waddr(fw_reg_waddr),  // out: register address
+    .fw_reg_waddr(fw_reg_waddr),  // out: register address
     .reg_rdata(reg_rdata),     // in:  read data to external register
     .reg_wdata(fw_reg_wdata),  // out: write data to external register
 
-    .lreq_trig(lreq_trig),   // out: phy request trigger
-    .lreq_type(lreq_type),   // out: phy request type
+    .grant_read_bus(1'b1),     // in: always have read bus
+    .grant_write_bus(1'b1),    // in: always have write bus
+
+    .lreq_trig(fw_lreq_trig),  // out: phy request trigger
+    .lreq_type(fw_lreq_type),  // out: phy request type
 
     .rx_bc_sequence(bc_sequence),  // in: broadcast sequence num
     .write_trig(hub_write_trig),   // in: 1 -> broadcast write this board's hub data
     .write_trig_reset(hub_write_trig_reset),
     .fw_idle(fw_idle),
 
-    // Interface for real-time block write
-    .fw_rt_wen(rt_wen),
-    .fw_rt_waddr(rt_waddr),
-    .fw_rt_wdata(rt_wdata),
-
-    // Interface for sampling data (for block read)
-    .sample_start(fw_sample_start),   // 1 -> start sampling for block read
-    .sample_busy(sample_busy),        // Sampling in process
-    .sample_raddr(sample_raddr),      // Read address for sampled data
-    .sample_rdata(sample_rdata)       // Sampled data (for block read)
+    // Timestamp
+    .timestamp(timestamp)
 );
 
+
+// Special case: register write to FireWire PHY register.
+// Note that in addition to the register write, the Firewire module also makes direct requests,
+// using fw_lreq_trig, fw_lreq_type, and reg_wdata.
+
+assign reg_lreq_trig = (reg_waddr == { `ADDR_MAIN, 8'h0, `REG_PHYCTRL}) ? reg_wen : 1'b0;
+assign reg_lreq_type = reg_wdata[12] ? `LREQ_REG_WR : `LREQ_REG_RD;
+
+assign lreq_trig = fw_lreq_trig | reg_lreq_trig;
+assign lreq_type = fw_lreq_trig ? fw_lreq_type : reg_lreq_type;
 
 // phy request module
 PhyRequest phyreq(
@@ -275,13 +290,14 @@ BoardRegs chan0(
     .reg_raddr(reg_raddr),
     .reg_waddr(reg_waddr),
     .reg_rdata(reg_rdata_chan0),
+    .reg_rwait(reg_rwait_chan0),
     .reg_wdata(reg_wdata),
     .reg_wen(reg_wen),
-    .reg_rdata_ext(reg_rdata_chan0_ext),
 
     .wdog_period_led(wdog_period_led),
     .wdog_period_status(wdog_period_status),
     .wdog_timeout(wdog_timeout),
+    .wdog_refresh(reg_wen),
     .wdog_clear(wdog_clear)
 );
 
