@@ -92,6 +92,9 @@ reg reg_wen;
 
 assign reg_raddr = reg_addr;
 
+// 1 -> reg_rdata contains valid data for PS
+reg reg_rdata_valid;
+
 reg[31:0]  reg_rdata_latched;
 wire[15:0] ps_reg_addr;
 wire[31:0] ps_reg_wdata;
@@ -265,6 +268,7 @@ begin
         blk_wen <= 1'b0;
         blk_wstart <= 1'b0;
         blk_cnt <= 2'd0;
+        reg_rdata_valid <= 1'b0;
         // Wait for rising edge of ps_req_bus
         if (ps_req_bus_1 & (~ps_req_bus_2)) begin
             first_quad <= 1'b1;
@@ -312,6 +316,7 @@ begin
         // Latch reg_rdata when we get the bus and data is valid
         if (req_read_bus & grant_read_bus) begin
             if (addr_next) begin
+                reg_rdata_valid <= 1'b0;
                 reg_op_done <= 1'b0;
                 req_read_bus_next <= ps_blk_start_latched & (~ps_blk_end_latched);
                 // Check for ~reg_op_done to delay setting reg_addr_lsb, which
@@ -325,8 +330,12 @@ begin
             end
             else if (reg_rvalid) begin
                 reg_rdata_latched <= timestamp_rd ? timestamp_latched : reg_rdata;
-                reg_op_done <= 1'b1;
-                req_read_bus <= req_read_bus_next;
+                reg_rdata_valid <= 1'b1;
+                if (reg_rdata_valid) begin
+                    // Wait an extra clock to make sure reg_rdata_latched is stable
+                    reg_op_done <= 1'b1;
+                    req_read_bus <= req_read_bus_next;
+                end
             end
         end
         // Will stay in this state until falling edge of ps_req_bus
