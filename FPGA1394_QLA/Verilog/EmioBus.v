@@ -314,7 +314,7 @@ begin
     ST_READ:
     begin
         // Latch reg_rdata when we get the bus and data is valid
-        if (req_read_bus & grant_read_bus) begin
+        if (req_read_bus & grant_read_bus & reg_rvalid) begin
             if (addr_next) begin
                 reg_rdata_valid <= 1'b0;
                 reg_op_done <= 1'b0;
@@ -328,7 +328,7 @@ begin
                     reg_addr_lsb <= ps_addr_lsb_latched;
                 end
             end
-            else if (reg_rvalid) begin
+            else begin
                 reg_rdata_latched <= timestamp_rd ? timestamp_latched : reg_rdata;
                 reg_rdata_valid <= 1'b1;
                 if (reg_rdata_valid) begin
