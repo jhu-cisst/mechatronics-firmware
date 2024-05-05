@@ -2415,22 +2415,24 @@ begin
 
    BR_READ:
    begin
-      if (br_wen) begin
-         br_wen <= 1'b0;
-         if (quadRead ||
-             ((blockRead | hubSend) && (br_addr_in == (block_data_length[10:2] - 9'd1)))) begin
-            // Release bus after quadlet read or last quadlet of block read
-            req_read_bus <= 1'b0;
+      if (req_read_bus & grant_read_bus & reg_rvalid) begin
+         if (br_wen) begin
+            br_wen <= 1'b0;
+            if (quadRead ||
+                ((blockRead | hubSend) && (br_addr_in == (block_data_length[10:2] - 9'd1)))) begin
+               // Release bus after quadlet read or last quadlet of block read
+               req_read_bus <= 1'b0;
+            end
+            else begin
+               // 12-bit address increment, even though Firewire limited to 512 quadlets (9 bits)
+               // because this way we can support non-zero starting addresses.
+               reg_raddr[11:0] <= reg_raddr[11:0] + 12'd1;
+               br_addr_in <= br_addr_in + 9'd1;
+            end
          end
          else begin
-            // 12-bit address increment, even though Firewire limited to 512 quadlets (9 bits)
-            // because this way we can support non-zero starting addresses.
-            reg_raddr <= reg_raddr + 12'd1;
-            br_addr_in <= br_addr_in + 9'd1;
+            br_wen <= 1'b1;
          end
-      end
-      else if (req_read_bus & grant_read_bus & reg_rvalid) begin
-         br_wen <= 1'b1;
       end
       else if ((~req_read_bus) & (~br_request)) begin
          // Wait until br_request cleared (for handshake)
