@@ -704,7 +704,7 @@ end
 
 always @(*) begin
     case (reg_raddr[3:0])
-        `OFF_ADC_DATA: reg_rdata_main = {pot_data, cur_fb_filtered[reg_raddr[7:4]]};
+        `OFF_ADC_DATA: reg_rdata_main = {pot_data, cur_fb[reg_raddr[7:4]]};
         `OFF_DAC_CTRL: reg_rdata_main = {16'h0000, cur_cmd_fb[reg_raddr[7:4]]};
         `OFF_ENC_LOAD: reg_rdata_main = encoder_preload[reg_raddr[7:4]];
         `OFF_ENC_DATA: reg_rdata_main = {7'b0, encoder_overflow[reg_raddr[7:4]], rdata_pos[reg_raddr[7:4]][23:0] + encoder_preload_offset[reg_raddr[7:4]]};
