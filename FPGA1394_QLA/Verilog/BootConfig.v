@@ -132,7 +132,7 @@ wire[31:0] reg_rdata_chan0;      // 'channel 0' is a special axis that contains 
 wire isAddrMain;
 assign isAddrMain = (reg_raddr[15:8] == {`ADDR_MAIN, 4'd0}) ? 1'b1 : 1'b0;
 wire isAddrPromQla;
-assign isAddrPromQla = (reg_raddr[15:8] == {`ADDR_PROM_QLA, 4'd0}) ? 1'b1 : 1'b0;
+assign isAddrPromQla = (reg_raddr[15:12] == `ADDR_PROM_QLA) ? 1'b1 : 1'b0;
 
 // Mux routing read data based on read address
 //   See Constants.v for details
