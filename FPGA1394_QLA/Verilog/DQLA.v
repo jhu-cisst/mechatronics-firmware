@@ -780,6 +780,8 @@ QLA25AA128 Q1_prom_qla(
     .blk_wen(blk_wen),       // not used
     .blk_wstart(blk_wstart), // not used
 
+    .cs_wait(1'b0),          // no additional wait
+
     // spi interface
     .prom_mosi(Q1_prom_mosi),
     .prom_miso(miso1),
@@ -805,6 +807,8 @@ QLA25AA128 Q2_prom_qla(
     .reg_wen(reg_wen_prom_qla2),
     .blk_wen(blk_wen),       // not used
     .blk_wstart(blk_wstart), // not used
+
+    .cs_wait(1'b0),          // no additional wait
 
     // spi interface
     .prom_mosi(Q2_prom_mosi),

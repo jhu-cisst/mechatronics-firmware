@@ -72,6 +72,8 @@ module QLA25AA128(
     input  wire blk_wen,           // block write enable (not used)
     input  wire blk_wstart,        // block write start (not used)
 
+    input  wire cs_wait,           // 1 -> extra wait after /CS asserted
+
     // spi pins
     output prom_mosi,              // Serial out to 25AA128
     input  prom_miso,              // Serial in from 25AA128
@@ -87,17 +89,19 @@ initial prom_cs = 1'bz;
 localparam [2:0]
     ST_IDLE = 0,
     ST_CHIP_SELECT = 1,
-    ST_WRITE = 2,
-    ST_WRITE_BLOCK = 3,
-    ST_READ = 4,
-    ST_CHIP_DESELECT = 5,
-    ST_IO_DISABLE = 6;
+    ST_CS_WAIT = 2,
+    ST_WRITE = 3,
+    ST_WRITE_BLOCK = 4,
+    ST_READ = 5,
+    ST_CHIP_DESELECT = 6,
+    ST_IO_DISABLE = 7;
 
 reg       io_disabled;
 initial   io_disabled = 1'b1;
 reg[2:0]  state;
 initial   state = ST_IDLE;
 reg[8:0]  seqn;            // 9-bit counter for sequencing operation (clock)
+reg[6:0]  wait_cnt;        // 7-bit counter for wait
 reg[8:0]  SendCnt;         // (2*NumBits)*8-1
 reg[8:0]  RecvCnt;         // (2*NumBits)*8-1 (0 if no bits to receive)
 reg[3:0]  RecvQuadCnt;     // Number of quadlets to read, minus 1
@@ -174,6 +178,7 @@ begin
 
       if (prom_reg_wen) begin
         seqn <= 9'd0;
+        wait_cnt <= 7'd0;
         blk_wrt <= 1'b0;
         wr_index <= 5'd0;
         rd_index <= 5'd0;
@@ -257,7 +262,19 @@ begin
        io_disabled <= other_busy;
        prom_cs     <= other_busy;
        prom_result <= 32'd0;
-       state <= other_busy ? ST_CHIP_SELECT : ST_WRITE;
+       // 25AA128 requires 100 ns between /CS asserted and SCLK rising edge.
+       // Going direct to ST_WRITE will give 180 ns (8 sysclks).
+       // The MFG TEST board requires 1.25 us, so in that case cs_wait is
+       // asserted and we instead go to ST_CS_WAIT.
+       state <= other_busy ? ST_CHIP_SELECT :
+                cs_wait ? ST_CS_WAIT : ST_WRITE;
+    end
+
+    ST_CS_WAIT: begin
+       // Wait for 64+32 counts (1.95 us)
+       wait_cnt <= wait_cnt + 7'd1;
+       if (wait_cnt[6] & wait_cnt[5])
+          state <= ST_WRITE;
     end
 
     ST_WRITE: begin

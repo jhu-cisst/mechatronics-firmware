@@ -491,6 +491,8 @@ QLA25AA128 prom_qla(
     .blk_wen(blk_wen),       // not used
     .blk_wstart(blk_wstart), // not used
 
+    .cs_wait(1'b0),          // no additional wait
+
     // spi interface
     .prom_mosi(qla_prom_mosi),
     .prom_miso(IO1[1]),

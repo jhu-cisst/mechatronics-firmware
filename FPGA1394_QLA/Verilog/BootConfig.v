@@ -42,6 +42,14 @@ module BootConfig(
     output reg[31:0] timestamp
 );
 
+//****************** Board detection results **********************
+
+reg isNONE;
+reg isTEST;
+reg isQLA;
+reg isDQLA;
+reg isDRAC;
+
 //******************* I/O pin mappings ****************************
 // For the BCFG firmware, channels 1-4 are used to control the FPGA
 // I/O pins, IO1[0:33] and IO2[0:39]. This is intended to be used
@@ -206,6 +214,8 @@ QLA25AA128 prom(
     .blk_wen(blk_wen),       // not used
     .blk_wstart(blk_wstart), // not used
 
+    .cs_wait(isTEST),        // additional wait for TEST board
+
     // spi interface
     .prom_mosi(prom_mosi),
     .prom_miso(prom_miso),
@@ -232,12 +242,10 @@ QLA25AA128 prom(
 //---------------------------------------------------------------------------------
 
 // NONE: all IO have pull-ups
-reg isNONE;
 
 // TEST: manufacturing test board (loopbacks on I/O)
 wire TESTzeros;
 wire TESTones;
-reg isTEST;
 // IO1[31]=1 for DQLA, IO2[32]=IO2[36]=1 for DRAC, all IOs are 1 for NONE
 assign TESTzeros = ~(IO1[30]|IO1[31]|IO2[32]|IO2[36]);
 // IO1[0]=0 for QLA, DQLA, IO1[9]=IO1[12]=0 for DRAC, IO1[32]=IO2[34]=0 for QLA, DRAC
@@ -246,14 +254,12 @@ assign TESTones = IO1[0]&IO1[9]&IO1[12]&IO1[32]&IO2[34];
 // QLA: it is sufficient to check the 0 values because IO1[31]=1 for DQLA
 //      and there are many that are 1 for DRAC and NONE
 wire QLAzeros;
-reg isQLA;
 assign QLAzeros = ~(IO1[0]|IO1[31]|IO1[32]|IO2[1]|IO2[3]|IO2[5]|IO2[7]|IO2[11]|
                     IO2[31]|IO2[32]|IO2[33]|IO2[34]|IO2[35]|IO2[36]|IO2[37]|IO2[38]);
 
 // DQLA
 wire DQLAzeros;
 wire DQLAones;
-reg isDQLA;
 // IO1[0]=1 for TEST, NONE
 assign DQLAzeros = ~IO1[0];
 // IO1[12]=0 for DRAC and IO1[31]=0 for QLA, TEST
@@ -262,7 +268,6 @@ assign DQLAones = IO1[12]&IO1[31];
 // DRAC
 wire DRACzeros;
 wire DRACones;
-reg isDRAC;
 // IO1[12]=1 for DQLA, TEST; all IOs are 1 for NONE
 assign DRACzeros = ~(IO1[9]|IO1[12]|IO1[19]|IO1[21]|IO1[23]|IO1[32]|
                      IO2[10]|IO2[15]|IO2[22]|IO2[28]|IO2[29]|IO2[34]);
