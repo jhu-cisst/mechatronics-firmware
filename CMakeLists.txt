@@ -8,16 +8,22 @@ set (FIRMWARE_VERSION 9)
 
 set (FIRMWARE_CMAKE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 set (CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${FIRMWARE_CMAKE_PATH})
-find_package(XilinxISE)
+find_package (XilinxISE)
+find_package (Vivado)
 
-if (XilinxISE_FOUND)
+if (XilinxISE_FOUND OR Vivado_FOUND)
 
-  include(${XILINX_ISE_USE_FILE})
+  if (XilinxISE_FOUND)
+    include(${XILINX_ISE_USE_FILE})
+  endif ()
+  if (Vivado_FOUND)
+    include(${VIVADO_USE_FILE})
+  endif ()
 
   add_subdirectory(FPGA1394_QLA)
 
-else (XilinxISE_FOUND)
+else ()
 
-  message(SEND_ERROR "Xilinx ISE not found")
+  message(SEND_ERROR "Xilinx ISE and/or Vivado not found")
 
-endif (XilinxISE_FOUND)
+endif ()

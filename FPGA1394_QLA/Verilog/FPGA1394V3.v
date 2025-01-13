@@ -1000,6 +1000,60 @@ BoardRegs chan0(
 
 wire clk_200MHz;
 
+`ifdef USE_VIVADO
+
+// TODO: add processing_system7_0
+
+gmii_to_rgmii_1 g2r1(
+    .rgmii_txd(E1_TxD),
+    .rgmii_tx_ctl(E1_TxEN),
+    .rgmii_txc(E1_TxCLK),
+    .rgmii_rxd(E1_RxD),
+    .rgmii_rx_ctl(E1_RxVAL),
+    .rgmii_rxc(E1_RxCLK),
+    .gmii_rxd(gmii_rxd[1]),
+    .gmii_rx_dv(gmii_rx_dv[1]),
+    .gmii_rx_er(gmii_rx_err[1]),
+    .gmii_rx_clk(gmii_rx_clk[1]),
+    .mdio_gem_mdc(mdio_clk_rt[1]),  // MDIO clock from RTL8211F module
+    .mdio_gem_i(mdio_i_rt[1]),      // OUT from GMII core, IN to RTL8211F module
+    .mdio_gem_o(mdio_o_rt[1]),      // IN to GMII core, OUT from RTL8211F module
+    .mdio_gem_t(mdio_t_rt[1]),      // Tristate control from RTL8211F module
+    .gmii_txd(gmii_txd[1]),
+    .gmii_tx_en(gmii_tx_en[1]),
+    .gmii_tx_clk(gmii_tx_clk[1]),
+    .gmii_tx_er(gmii_tx_err[1]),
+    .mdio_phy_mdc(E1_MDIO_C),       // MDIO clock from GMII core (derived from mdio_clk_rt[1])
+    .clock_speed(clock_speed[1]),   // Clock speed (Rx)
+    .speed_mode(speed_mode[1])      // Speed mode (Tx)
+);
+
+gmii_to_rgmii_2 g2r2(
+    .rgmii_txd(E2_TxD),
+    .rgmii_tx_ctl(E2_TxEN),
+    .rgmii_txc(E2_TxCLK),
+    .rgmii_rxd(E2_RxD),
+    .rgmii_rx_ctl(E2_RxVAL),
+    .rgmii_rxc(E2_RxCLK),
+    .gmii_rxd(gmii_rxd[2]),
+    .gmii_rx_dv(gmii_rx_dv[2]),
+    .gmii_rx_er(gmii_rx_err[2]),
+    .gmii_rx_clk(gmii_rx_clk[2]),
+    .mdio_gem_mdc(mdio_clk_rt[2]),  // MDIO clock from RTL8211F module
+    .mdio_gem_i(mdio_i_rt[2]),      // OUT from GMII core, IN to RTL8211F module
+    .mdio_gem_o(mdio_o_rt[2]),      // IN to GMII core, OUT from RTL8211F module
+    .mdio_gem_t(mdio_t_rt[2]),      // Tristate control from RTL8211F module
+    .gmii_txd(gmii_txd[2]),
+    .gmii_tx_en(gmii_tx_en[2]),
+    .gmii_tx_clk(gmii_tx_clk[2]),
+    .gmii_tx_er(gmii_tx_err[2]),
+    .mdio_phy_mdc(E2_MDIO_C),       // MDIO clock from GMII core (derived from mdio_clk_rt[2])
+    .clock_speed(clock_speed[2]),   // Clock speed (Rx)
+    .speed_mode(speed_mode[2])      // Speed mode (Tx)
+);
+
+`else  // Using ISE
+
 fpgav3 zynq_ps7(
     .processing_system7_0_MIO(MIO),
     .processing_system7_0_PS_SRSTB_pin(PS_SRSTB),
@@ -1072,6 +1126,7 @@ fpgav3 zynq_ps7(
     .processing_system7_0_RESETn_PHY_0_pin(PS_Eth_RSTn)
 );
 
+`endif
 
 EmioBus PS_EMIO(
     .sysclk(sysclk),
