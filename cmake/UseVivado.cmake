@@ -17,14 +17,75 @@
 # TCL file again. This file can then be manually copied to the source directory
 # to update ${EXPORTED_TCL} in the repository.
 #
+
+# Function: vivado_block_config
+#
+# This function updates the version number in the TCL file exported from Vivado,
+# so that it can be used by different versions of Vivado.
+#
+# Parameters:
+#   - TARGET_NAME:       Name of CMake target
+#   - EXPORTED_TCL_IN:   Input file
+#
+
+function (vivado_block_config TARGET_NAME EXPORTED_TCL_IN)
+
+  if (TARGET_NAME AND EXPORTED_TCL_IN)
+
+    # Put the version check here, since the code below (FILE_UPDATE) is what needs
+    # to be tested and possibly updated for different versions of Vivado.
+    if (NOT (${Vivado_VERSION} STREQUAL "2022.2" OR
+             ${Vivado_VERSION} STREQUAL "2023.1" OR
+             ${Vivado_VERSION} STREQUAL "2023.2" OR
+             ${Vivado_VERSION} STREQUAL "2024.1" OR
+             ${Vivado_VERSION} STREQUAL "2024.2" ))
+      message (WARNING "Vivado ${Vivado_VERSION} not yet tested")
+    endif ()
+
+    get_filename_component (EXPORTED_TCL_NAME ${EXPORTED_TCL_IN} NAME)
+    set (EXPORTED_TCL_OUT "${CMAKE_CURRENT_BINARY_DIR}/${EXPORTED_TCL_NAME}")
+
+    # For now, just replace version string in file, since the only substantive difference
+    # between the TCL files exported by Vivado 2022.2, 2023.x, 2024.x are the version string
+    # (other differences include reordering of some file content).
+    # The current REGEX will match any version between "2020" and "2025", with a ".1" or ".2" suffix,
+    # but this can be changed as needed. If file differences become more substantive, alternate solutions
+    # include using CMake configure_file or having version-specific TCL files in the source tree.
+    set (FILE_UPDATE "${CMAKE_CURRENT_BINARY_DIR}/make-update.cmake")
+    file (WRITE  ${FILE_UPDATE} "# Automatically generated\n")
+    file (APPEND ${FILE_UPDATE} "file (READ ${EXPORTED_TCL_IN} FILE_CONTENTS)\n")
+    file (APPEND ${FILE_UPDATE}
+                 "string (REGEX REPLACE \"202[0-5].[1-2]\" ${Vivado_VERSION} FILE_CONTENTS \"\${FILE_CONTENTS}\")\n")
+    file (APPEND ${FILE_UPDATE} "file (WRITE ${EXPORTED_TCL_OUT} \"\${FILE_CONTENTS}\")\n")
+
+    add_custom_command (OUTPUT ${EXPORTED_TCL_OUT}
+                        COMMAND ${CMAKE_COMMAND} -P ${FILE_UPDATE}
+                        COMMENT "Updating ${EXPORTED_TCL_NAME}"
+                        DEPENDS ${EXPORTED_TCL_IN})
+
+    add_custom_target (${TARGET_NAME} ALL
+                        COMMENT "Checking ${EXPORTED_TCL_NAME}"
+                        DEPENDS ${EXPORTED_TCL_OUT})
+
+    set_property (TARGET ${TARGET_NAME}
+                         PROPERTY OUTPUT_NAME ${EXPORTED_TCL_OUT})
+
+  else ()
+
+    message (SEND_ERROR "vivado_block_config: required parameter missing")
+
+  endif ()
+
+endfunction(vivado_block_config)
+
 # Function: vivado_block_build
 #
 # Parameters:
 #   - PROJ_NAME:         project name
 #   - BD_NAME:           board name
 #   - FPGA_PARTNUM:      FPGA part number
-#   - EXPORTED_TCL       Input TCL file (exported from Vivado)
-#   - HW_FILE            Output hardware file (XSA)
+#   - BLOCK_IN           Block design input (target that updates TCL file)
+#   - HW_FILE            Output hardware file, not including path (XSA)
 #
 
 function (vivado_block_build ...)
@@ -34,7 +95,7 @@ function (vivado_block_build ...)
        PROJ_NAME
        BD_NAME
        FPGA_PARTNUM
-       EXPORTED_TCL
+       BLOCK_IN
        HW_FILE)
 
   # reset local variables
@@ -53,63 +114,35 @@ function (vivado_block_build ...)
     endif (${ARGUMENT_IS_A_KEYWORD} GREATER -1)
   endforeach (arg)
 
-  if (PROJ_NAME AND BD_NAME AND FPGA_PARTNUM AND EXPORTED_TCL AND HW_FILE)
+  if (PROJ_NAME AND BD_NAME AND FPGA_PARTNUM AND BLOCK_IN AND HW_FILE)
 
     file(TO_NATIVE_PATH ${XILINX_VIVADO} VIVADO_NATIVE)
 
-    get_filename_component (EXPORTED_TCL_NAME ${EXPORTED_TCL} NAME)
-    set (EXPORTED_TCL_BIN "${CMAKE_CURRENT_BINARY_DIR}/${EXPORTED_TCL_NAME}")
+    get_property (EXPORTED_TCL TARGET ${BLOCK_IN} PROPERTY OUTPUT_NAME)
 
-    # Put the version check here, since the code below (FILE_UPDATE) is what needs
-    # to be tested and possibly updated for different versions of Vivado.
-    if (NOT (${Vivado_VERSION} STREQUAL "2022.2" OR
-             ${Vivado_VERSION} STREQUAL "2023.1" OR
-             ${Vivado_VERSION} STREQUAL "2023.2" OR
-             ${Vivado_VERSION} STREQUAL "2024.1" OR
-             ${Vivado_VERSION} STREQUAL "2024.2" ))
-      message (WARNING "Vivado ${Vivado_VERSION} not yet tested")
-    endif ()
-
-    # For now, just replace version string in file, since the only substantive difference
-    # between the TCL files exported by Vivado 2022.2, 2023.x, 2024.x are the version string
-    # (other differences include reordering of some file content).
-    # The current REGEX will match any version between "2020" and "2025", with a ".1" or ".2" suffix,
-    # but this can be changed as needed. If file differences become more substantive, alternate solutions
-    # include using CMake configure_file or having version-specific TCL files in the source tree.
-    set (FILE_UPDATE "${CMAKE_CURRENT_BINARY_DIR}/make-update.cmake")
-    file (WRITE  ${FILE_UPDATE} "# Automatically generated\n")
-    file (APPEND ${FILE_UPDATE} "file (READ ${EXPORTED_TCL} FILE_CONTENTS)\n")
-    file (APPEND ${FILE_UPDATE}
-                 "string (REGEX REPLACE \"202[0-5].[1-2]\" ${Vivado_VERSION} FILE_CONTENTS \"\${FILE_CONTENTS}\")\n")
-    file (APPEND ${FILE_UPDATE} "file (WRITE ${EXPORTED_TCL_BIN} \"\${FILE_CONTENTS}\")\n")
-
-    add_custom_command (OUTPUT ${EXPORTED_TCL_BIN}
-                       COMMAND ${CMAKE_COMMAND}
-                       ARGS -P ${FILE_UPDATE}
-                       COMMENT "Updating ${EXPORTED_TCL_NAME}"
-                       DEPENDS ${EXPORTED_TCL})
+    set (HW_FILE_FULL "${CMAKE_CURRENT_BINARY_DIR}/${HW_FILE}")
 
     # Create TCL file
     set (TCL_FILE "${CMAKE_CURRENT_BINARY_DIR}/make-${PROJ_NAME}.tcl")
     file (WRITE  ${TCL_FILE} "create_project -force -part ${FPGA_PARTNUM} ${PROJ_NAME} ${CMAKE_CURRENT_BINARY_DIR}\n")
     file (APPEND ${TCL_FILE} "create_bd_design ${BD_NAME}\n")
-    file (APPEND ${TCL_FILE} "source ${EXPORTED_TCL_BIN}\n")
+    file (APPEND ${TCL_FILE} "source ${EXPORTED_TCL}\n")
     file (APPEND ${TCL_FILE} "make_wrapper -top -files [get_files ${BD_NAME}.bd]\n")
     file (APPEND ${TCL_FILE} "add_files ${CMAKE_CURRENT_BINARY_DIR}/${PROJ_NAME}.gen/sources_1/bd/${BD_NAME}/hdl/${BD_NAME}_wrapper.v\n")
     file (APPEND ${TCL_FILE} "generate_target all [get_files ${BD_NAME}.bd]\n")
     # Could add -minimal below
-    file (APPEND ${TCL_FILE} "write_hw_platform -fixed -force -file ${HW_FILE}\n")
+    file (APPEND ${TCL_FILE} "write_hw_platform -fixed -force -file ${HW_FILE_FULL}\n")
     file (APPEND ${TCL_FILE} "close_project\n")
 
-    add_custom_command (OUTPUT ${HW_FILE}
+    add_custom_command (OUTPUT ${HW_FILE_FULL}
                         COMMAND ${VIVADO_NATIVE} -nojournal -mode batch -source ${TCL_FILE}
-                        DEPENDS ${EXPORTED_TCL_BIN})
+                        DEPENDS ${EXPORTED_TCL})
 
     add_custom_target (${PROJ_NAME} ALL
-                       DEPENDS ${HW_FILE})
+                       DEPENDS ${HW_FILE_FULL} ${BLOCK_IN})
 
     set_property (TARGET ${PROJ_NAME}
-                         PROPERTY OUTPUT_NAME ${HW_FILE})
+                         PROPERTY OUTPUT_NAME ${HW_FILE_FULL})
   else ()
 
     message (SEND_ERROR "vivado_block_build: required parameter missing")
@@ -123,7 +156,7 @@ endfunction (vivado_block_build)
 #   - TARGET_NAME:       Target name
 #   - IP_NAME:           IP name (in catalog)
 #   - FPGA_PARTNUM:      FPGA part number
-#   - EXPORTED_TCL       Input TCL file (exported from Vivado)
+#   - BLOCK_IN           Block design input (target that updates TCL file)
 #   - IPCORE_DIR         Directory for output xci file (optional)
 
 function (vivado_block_ip)
@@ -133,7 +166,7 @@ function (vivado_block_ip)
        TARGET_NAME
        IP_NAME
        FPGA_PARTNUM
-       EXPORTED_TCL
+       BLOCK_IN
        IPCORE_DIR)
 
   # reset local variables
@@ -154,29 +187,11 @@ function (vivado_block_ip)
     endif (${ARGUMENT_IS_A_KEYWORD} GREATER -1)
   endforeach (arg)
 
-  if (TARGET_NAME AND IP_NAME AND FPGA_PARTNUM AND EXPORTED_TCL)
+  if (TARGET_NAME AND IP_NAME AND FPGA_PARTNUM AND BLOCK_IN)
 
-    file(TO_NATIVE_PATH ${XILINX_VIVADO} VIVADO_NATIVE)
+    file (TO_NATIVE_PATH ${XILINX_VIVADO} VIVADO_NATIVE)
 
-    # Following copied from vivado_block_build. This is allowed if the output files
-    # are created in different directories (otherwise, would have to rename).
-    # Probably would be better to have a separate target that is run once.
-    get_filename_component (EXPORTED_TCL_NAME ${EXPORTED_TCL} NAME)
-    set (EXPORTED_TCL_BIN "${CMAKE_CURRENT_BINARY_DIR}/${EXPORTED_TCL_NAME}")
-
-    set (FILE_UPDATE "${CMAKE_CURRENT_BINARY_DIR}/make-update-ip.cmake")
-    file (WRITE  ${FILE_UPDATE} "# Automatically generated\n")
-    file (APPEND ${FILE_UPDATE} "file (READ ${EXPORTED_TCL} FILE_CONTENTS)\n")
-    file (APPEND ${FILE_UPDATE}
-                 "string (REGEX REPLACE \"202[0-5].[1-2]\" ${Vivado_VERSION} FILE_CONTENTS \"\${FILE_CONTENTS}\")\n")
-    file (APPEND ${FILE_UPDATE} "file (WRITE ${EXPORTED_TCL_BIN} \"\${FILE_CONTENTS}\")\n")
-
-    add_custom_command (OUTPUT ${EXPORTED_TCL_BIN}
-                       COMMAND ${CMAKE_COMMAND}
-                       ARGS -P ${FILE_UPDATE}
-                       COMMENT "Updating ${EXPORTED_TCL_NAME}"
-                       DEPENDS ${EXPORTED_TCL})
-    # End of code copied from vivado_block_build
+    get_property (EXPORTED_TCL TARGET ${BLOCK_IN} PROPERTY OUTPUT_NAME)
 
     set (OUTPUT_DIR  "${IPCORE_DIR}/${TARGET_NAME}")
     set (OUTPUT_FILE "${OUTPUT_DIR}/${TARGET_NAME}.xci")
@@ -193,7 +208,7 @@ function (vivado_block_ip)
     set (TCL_FILE "${CMAKE_CURRENT_BINARY_DIR}/make-${TARGET_NAME}.tcl")
     file (WRITE  ${TCL_FILE} "create_project -part ${FPGA_PARTNUM} -in_memory\n")
     file (APPEND ${TCL_FILE} "create_bd_design bd_temp\n")
-    file (APPEND ${TCL_FILE} "source ${EXPORTED_TCL_BIN}\n")
+    file (APPEND ${TCL_FILE} "source ${EXPORTED_TCL}\n")
     # Copy IP to IPCORE_DIR (after deleting any existing file)
     file (APPEND ${TCL_FILE} "file delete -force ${OUTPUT_DIR}\n")
     file (APPEND ${TCL_FILE} "copy_ip -name ${TARGET_NAME} -dir ${IPCORE_DIR} [get_ips *${IP_NAME}*]\n")
@@ -213,11 +228,11 @@ function (vivado_block_ip)
     add_custom_command (OUTPUT ${OUTPUT_FILE}
                         COMMAND ${VIVADO_NATIVE} -nojournal -mode batch -source ${TCL_FILE}
                         COMMENT "Copying IP Core ${IP_NAME} from Block Design to ${TARGET_NAME}"
-			DEPENDS ${EXPORTED_TCL_BIN})
+			DEPENDS ${EXPORTED_TCL})
 
     add_custom_target (${TARGET_NAME} ALL
                        COMMENT "Checking IP Core ${TARGET_NAME} (from Block Design)"
-                       DEPENDS ${OUTPUT_FILE})
+                       DEPENDS ${OUTPUT_FILE} ${BLOCK_IN})
 
     set_property (TARGET ${TARGET_NAME}
                          PROPERTY OUTPUT_NAME ${OUTPUT_FILE})

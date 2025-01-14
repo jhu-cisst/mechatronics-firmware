@@ -274,6 +274,7 @@ if (Vivado_FOUND)
 
   # Compile the firmware -- output is FPGA1394V3-BCFG.bit
   vivado_compile_fpga (PROJ_NAME      "FPGA1394V3-BCFG"
+                       DEPENDENCIES   "VersionFile"
                        FPGA_PARTNUM   ${FPGAV3_PARTNUM}
                        VERILOG_SOURCE ${VERILOG_SOURCE_FPGAV3_BCFG}
                        # XDC_FILE       ${XDC_FILE_BCFG}
@@ -284,6 +285,7 @@ if (Vivado_FOUND)
 
   # Compile the firmware -- output is FPGA1394V3-QLA.bit
   vivado_compile_fpga (PROJ_NAME      "FPGA1394V3-QLA"
+                       DEPENDENCIES   "VersionFile"
                        FPGA_PARTNUM   ${FPGAV3_PARTNUM}
                        VERILOG_SOURCE ${VERILOG_SOURCE_FPGAV3_QLA}
                        # XDC_FILE       ${XDC_FILE_QLA}
@@ -294,6 +296,7 @@ if (Vivado_FOUND)
 
   # Compile the firmware -- output is FPGA1394V3-DQLA.bit
   vivado_compile_fpga (PROJ_NAME      "FPGA1394V3-DQLA"
+                       DEPENDENCIES   "VersionFile"
                        FPGA_PARTNUM   ${FPGAV3_PARTNUM}
                        VERILOG_SOURCE ${VERILOG_SOURCE_FPGAV3_DQLA}
                        # XDC_FILE       ${XDC_FILE_DQLA}
@@ -304,6 +307,7 @@ if (Vivado_FOUND)
 
   # Compile the firmware -- output is FPGA1394V3-DRAC.bit
   vivado_compile_fpga (PROJ_NAME      "FPGA1394V3-DRAC"
+                       DEPENDENCIES   "VersionFile"
                        FPGA_PARTNUM   ${FPGAV3_PARTNUM}
                        VERILOG_SOURCE ${VERILOG_SOURCE_FPGAV3_DRAC}
                        # XDC_FILE       ${XDC_FILE_DRAC}
@@ -380,3 +384,7 @@ file (APPEND ${CONFIG_FILE} "set (FPGAV3_BCFG_BIT_FILE \"\${FIRMWARE_BINARY_DIR}
 file (APPEND ${CONFIG_FILE} "set (FPGAV3_HW_BIT_FILES  \"\${FIRMWARE_BINARY_DIR}/FPGA1394V3-QLA.bit\"\n")
 file (APPEND ${CONFIG_FILE} "                          \"\${FIRMWARE_BINARY_DIR}/FPGA1394V3-DQLA.bit\"\n")
 file (APPEND ${CONFIG_FILE} "                          \"\${FIRMWARE_BINARY_DIR}/FPGA1394V3-DRAC.bit\")\n")
+if (Vivado_FOUND)
+  file (APPEND ${CONFIG_FILE} "\nset (Vivado_VERSION  \"${Vivado_VERSION}\")\n")
+  file (APPEND ${CONFIG_FILE} "set (HW_XSA_FILE     \"\${CMAKE_CURRENT_LIST_DIR}/zynq_block_design/${HW_XSA_FILE}\")\n")
+endif ()

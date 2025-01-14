@@ -88,17 +88,10 @@ if (Vivado_FOUND)
                  PROPERTIES  ${GMII_TO_RGMII_2_PROPS}
                  IPCORE_DIR  ${CMAKE_CURRENT_BINARY_DIR})
 
-  # TODO: Better solution for the following; probably move it here from mechatronics-embedded
-  # (along with block_design)
-  set (EXPORTED_TCL_FILE "exported-block-v31.tcl")
-  file (DOWNLOAD
-        https://github.com/jhu-cisst/mechatronics-embedded/raw/refs/heads/main/block_design/${EXPORTED_TCL_FILE}
-        "${CMAKE_CURRENT_SOURCE_DIR}/${EXPORTED_TCL_FILE}")
-
   vivado_block_ip (TARGET_NAME  "processing_system7_0"
                    IP_NAME      "processing_system7"
                    FPGA_PARTNUM ${FPGAV3_PARTNUM}
-                   EXPORTED_TCL "${CMAKE_CURRENT_SOURCE_DIR}/${EXPORTED_TCL_FILE}"
+                   BLOCK_IN     ${BLOCK_DESIGN_IN}
                    IPCORE_DIR   ${CMAKE_CURRENT_BINARY_DIR})
 else ()
   ## ISE
