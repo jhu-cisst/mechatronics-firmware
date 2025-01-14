@@ -1002,7 +1002,32 @@ wire clk_200MHz;
 
 `ifdef USE_VIVADO
 
-// TODO: add processing_system7_0
+processing_system7_0 ps7(
+    .MIO(MIO),
+    .PS_SRSTB(PS_SRSTB),
+    .PS_CLK(PS_CLK),
+    .PS_PORB(PS_PORB),
+    //.GPIO_I(emio_ps_in),
+    //.GPIO_O(emio_ps_out),
+    //.GPIO_T(emio_ps_tri),
+    .FCLK_CLK0(clk_200MHz),
+    .FCLK_CLK1(clk_125MHz),
+    .FCLK_RESET0_N(PS_Eth_RSTn),
+
+    // Note that Rx and Tx are swapped
+    .ENET0_GMII_RX_CLK(gmii_tx_clk3_dest),
+    .ENET0_GMII_RX_DV(gmii_tx_en[3]),
+    .ENET0_GMII_RX_ER(gmii_tx_err[3]),
+    .ENET0_GMII_RXD(gmii_txd[3]),
+    .ENET0_GMII_TX_EN(gmii_rx_dv[3]),
+    .ENET0_GMII_TX_ER(gmii_rx_err[3]),
+    .ENET0_GMII_TX_CLK(gmii_rx_clk[3]),
+    .ENET0_GMII_TXD(gmii_rxd[3]),
+    .ENET0_MDIO_MDC(mdio_clk_ps),
+    .ENET0_MDIO_I(mdio_i_ps),
+    .ENET0_MDIO_O(mdio_o_ps),
+    .ENET0_MDIO_T(mdio_t_ps)
+);
 
 gmii_to_rgmii_1 g2r1(
     .rgmii_txd(E1_TxD),

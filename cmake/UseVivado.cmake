@@ -186,7 +186,7 @@ function (vivado_block_ip)
     file (WRITE  ${FILE_UPDATE_XCI} "# Automatically generated\n")
     file (APPEND ${FILE_UPDATE_XCI} "file (READ ${OUTPUT_FILE} FILE_CONTENTS)\n")
     file (APPEND ${FILE_UPDATE_XCI}
-                 "string (REPLACE \"../.gen/sources_1/ip/processing_system7_0\" \"${OUTPUT_DIR}\" FILE_CONTENTS \"\${FILE_CONTENTS}\")\n")
+                 "string (REPLACE \"../.gen/sources_1/ip/${TARGET_NAME}\" \"${OUTPUT_DIR}\" FILE_CONTENTS \"\${FILE_CONTENTS}\")\n")
     file (APPEND ${FILE_UPDATE_XCI} "file (WRITE ${OUTPUT_FILE} \"\${FILE_CONTENTS}\")\n")
 
     # Create TCL file
@@ -212,11 +212,11 @@ function (vivado_block_ip)
 
     add_custom_command (OUTPUT ${OUTPUT_FILE}
                         COMMAND ${VIVADO_NATIVE} -nojournal -mode batch -source ${TCL_FILE}
-                        COMMENT "Extracting IP Core ${TARGET_NAME} from Block Design"
+                        COMMENT "Copying IP Core ${IP_NAME} from Block Design to ${TARGET_NAME}"
 			DEPENDS ${EXPORTED_TCL_BIN})
 
     add_custom_target (${TARGET_NAME} ALL
-                       COMMENT "Checking Block Design IP Core ${TARGET_NAME}"
+                       COMMENT "Checking IP Core ${TARGET_NAME} (from Block Design)"
                        DEPENDS ${OUTPUT_FILE})
 
     set_property (TARGET ${TARGET_NAME}
@@ -317,7 +317,7 @@ endfunction (vivado_ip_gen)
 #   - FPGA_PARTNUM:    the FPGA part number
 #   - VERILOG_SOURCE:  list of Verilog source code (.v)
 #   - XDC_FILE:        User constraints file(s)
-#   - IP_XCI           list of IP targets (that produce XCI files)
+#   - IP_TARGETS:      List of IP targets (that produce XCI files)
 #   - TOP_LEVEL:       Top level module name
 #   - USER_MACROS:     Macro definitions (optional)
 function (vivado_compile_fpga)
@@ -329,7 +329,7 @@ function (vivado_compile_fpga)
        FPGA_PARTNUM
        VERILOG_SOURCE
        XDC_FILE
-       IP_XCI
+       IP_TARGETS
        INCLUDE_DIRS
        TOP_LEVEL
        USER_MACROS)
@@ -370,7 +370,7 @@ function (vivado_compile_fpga)
       file (APPEND ${TCL_FILE} "read_xdc ${xfile}\n")
     endforeach (xfile)
 
-    foreach (ip ${IP_XCI})
+    foreach (ip ${IP_TARGETS})
       get_property(xci_file TARGET ${ip} PROPERTY OUTPUT_NAME)
       file (APPEND ${TCL_FILE} "read_ip ${xci_file}\n")
     endforeach (ip)
@@ -395,7 +395,7 @@ function (vivado_compile_fpga)
       DEPENDS ${VERILOG_SOURCE} ${XDC_FILE})
 
     add_custom_target (${PROJ_NAME} ALL
-                       DEPENDS ${OUTPUT_FILE} ${IP_XCI} ${DEPENDENCIES})
+                       DEPENDS ${OUTPUT_FILE} ${IP_TARGETS} ${DEPENDENCIES})
 
     set_property (TARGET ${PROJ_NAME}
                          PROPERTY OUTPUT_NAME ${OUTPUT_FILE})

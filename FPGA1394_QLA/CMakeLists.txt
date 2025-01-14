@@ -277,7 +277,7 @@ if (Vivado_FOUND)
                        FPGA_PARTNUM   ${FPGAV3_PARTNUM}
                        VERILOG_SOURCE ${VERILOG_SOURCE_FPGAV3_BCFG}
                        # XDC_FILE       ${XDC_FILE_BCFG}
-                       IP_XCI         ${IP_CORES}
+                       IP_TARGETS     ${IP_CORES}
                        INCLUDE_DIRS   ${VERILOG_INCLUDE_DIRS}
                        TOP_LEVEL      "FPGA1394V3BCFG"
                        USER_MACROS    ${VIVADO_DEFS})
@@ -287,7 +287,7 @@ if (Vivado_FOUND)
                        FPGA_PARTNUM   ${FPGAV3_PARTNUM}
                        VERILOG_SOURCE ${VERILOG_SOURCE_FPGAV3_QLA}
                        # XDC_FILE       ${XDC_FILE_QLA}
-                       IP_XCI         ${IP_CORES}
+                       IP_TARGETS     ${IP_CORES}
                        INCLUDE_DIRS   ${VERILOG_INCLUDE_DIRS}
                        TOP_LEVEL      "FPGA1394V3QLA"
                        USER_MACROS    ${VIVADO_DEFS})
@@ -297,7 +297,7 @@ if (Vivado_FOUND)
                        FPGA_PARTNUM   ${FPGAV3_PARTNUM}
                        VERILOG_SOURCE ${VERILOG_SOURCE_FPGAV3_DQLA}
                        # XDC_FILE       ${XDC_FILE_DQLA}
-                       IP_XCI         ${IP_CORES}
+                       IP_TARGETS     ${IP_CORES}
                        INCLUDE_DIRS   ${VERILOG_INCLUDE_DIRS}
                        TOP_LEVEL      "FPGA1394V3DQLA"
                        USER_MACROS    ${VIVADO_DEFS})
@@ -307,7 +307,7 @@ if (Vivado_FOUND)
                        FPGA_PARTNUM   ${FPGAV3_PARTNUM}
                        VERILOG_SOURCE ${VERILOG_SOURCE_FPGAV3_DRAC}
                        # XDC_FILE       ${XDC_FILE_DRAC}
-                       IP_XCI         ${IP_CORES}
+                       IP_TARGETS     ${IP_CORES}
                        INCLUDE_DIRS   ${VERILOG_INCLUDE_DIRS}
                        TOP_LEVEL      "FPGA1394V3DRAC"
                        USER_MACROS    ${VIVADO_DEFS})
