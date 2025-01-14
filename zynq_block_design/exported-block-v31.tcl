@@ -20,12 +20,18 @@ set script_folder [_tcl::get_script_folder]
 ################################################################
 # Check if script is running in correct Vivado version.
 ################################################################
-set scripts_vivado_version 2022.2
+set scripts_vivado_version 2024.1
 set current_vivado_version [version -short]
 
 if { [string first $scripts_vivado_version $current_vivado_version] == -1 } {
    puts ""
-   catch {common::send_gid_msg -ssname BD::TCL -id 2041 -severity "ERROR" "This script was generated using Vivado <$scripts_vivado_version> and is being run in <$current_vivado_version> of Vivado. Please run the script in Vivado <$scripts_vivado_version> then open the design in Vivado <$current_vivado_version>. Upgrade the design by running \"Tools => Report => Report IP Status...\", then run write_bd_tcl to create an updated script."}
+   if { [string compare $scripts_vivado_version $current_vivado_version] > 0 } {
+      catch {common::send_gid_msg -ssname BD::TCL -id 2042 -severity "ERROR" " This script was generated using Vivado <$scripts_vivado_version> and is being run in <$current_vivado_version> of Vivado. Sourcing the script failed since it was created with a future version of Vivado."}
+
+   } else {
+     catch {common::send_gid_msg -ssname BD::TCL -id 2041 -severity "ERROR" "This script was generated using Vivado <$scripts_vivado_version> and is being run in <$current_vivado_version> of Vivado. Please run the script in Vivado <$scripts_vivado_version> then open the design in Vivado <$current_vivado_version>. Upgrade the design by running \"Tools => Report => Report IP Status...\", then run write_bd_tcl to create an updated script."}
+
+   }
 
    return 1
 }
@@ -123,7 +129,6 @@ set bCheckIPsPassed 1
 set bCheckIPs 1
 if { $bCheckIPs == 1 } {
    set list_check_ips "\ 
-xilinx.com:ip:gmii_to_rgmii:4.1\
 xilinx.com:ip:processing_system7:5.5\
 "
 
@@ -192,51 +197,19 @@ proc create_root_design { parentCell } {
 
   set FIXED_IO [ create_bd_intf_port -mode Master -vlnv xilinx.com:display_processing_system7:fixedio_rtl:1.0 FIXED_IO ]
 
-  set MDIO_PHY_0 [ create_bd_intf_port -mode Master -vlnv xilinx.com:interface:mdio_rtl:1.0 MDIO_PHY_0 ]
-
-  set MDIO_PHY_1 [ create_bd_intf_port -mode Master -vlnv xilinx.com:interface:mdio_rtl:1.0 MDIO_PHY_1 ]
-
-  set RGMII_0 [ create_bd_intf_port -mode Master -vlnv xilinx.com:interface:rgmii_rtl:1.0 RGMII_0 ]
-
-  set RGMII_1 [ create_bd_intf_port -mode Master -vlnv xilinx.com:interface:rgmii_rtl:1.0 RGMII_1 ]
-
   set GMII_ETHERNET_0_0 [ create_bd_intf_port -mode Master -vlnv xilinx.com:interface:gmii_rtl:1.0 GMII_ETHERNET_0_0 ]
 
   set MDIO_ETHERNET_0_0 [ create_bd_intf_port -mode Master -vlnv xilinx.com:interface:mdio_rtl:1.0 MDIO_ETHERNET_0_0 ]
-
-  set GMII_0 [ create_bd_intf_port -mode Slave -vlnv xilinx.com:interface:gmii_rtl:1.0 GMII_0 ]
-
-  set MDIO_GEM_0 [ create_bd_intf_port -mode Slave -vlnv xilinx.com:interface:mdio_rtl:1.0 MDIO_GEM_0 ]
-
-  set MDIO_GEM_1 [ create_bd_intf_port -mode Slave -vlnv xilinx.com:interface:mdio_rtl:1.0 MDIO_GEM_1 ]
-
-  set GMII_1 [ create_bd_intf_port -mode Slave -vlnv xilinx.com:interface:gmii_rtl:1.0 GMII_1 ]
 
 
   # Create ports
   set RESETn_PHY_0 [ create_bd_port -dir O -type rst RESETn_PHY_0 ]
   set ENET0_EXT_INTIN_0 [ create_bd_port -dir I -type intr ENET0_EXT_INTIN_0 ]
   set FCLK_CLK1_125 [ create_bd_port -dir O -type clk FCLK_CLK1_125 ]
-  set link_status_0 [ create_bd_port -dir O link_status_0 ]
-  set link_status_1 [ create_bd_port -dir O link_status_1 ]
-  set clock_speed_0 [ create_bd_port -dir O -from 1 -to 0 clock_speed_0 ]
-  set clock_speed_1 [ create_bd_port -dir O -from 1 -to 0 clock_speed_1 ]
-  set speed_mode_0 [ create_bd_port -dir O -from 1 -to 0 speed_mode_0 ]
-  set speed_mode_1 [ create_bd_port -dir O -from 1 -to 0 speed_mode_1 ]
-
-  # Create instance: gmii_to_rgmii_0, and set properties
-  set gmii_to_rgmii_0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:gmii_to_rgmii:4.1 gmii_to_rgmii_0 ]
-  set_property CONFIG.SupportLevel {Include_Shared_Logic_in_Core} $gmii_to_rgmii_0
-
-
-  # Create instance: gmii_to_rgmii_1, and set properties
-  set gmii_to_rgmii_1 [ create_bd_cell -type ip -vlnv xilinx.com:ip:gmii_to_rgmii:4.1 gmii_to_rgmii_1 ]
-  set_property -dict [list \
-    CONFIG.C_EXTERNAL_CLOCK {false} \
-    CONFIG.C_USE_IDELAY_CTRL {false} \
-    CONFIG.SupportLevel {Include_Shared_Logic_in_Core} \
-  ] $gmii_to_rgmii_1
-
+  set FCLK_CLK0_200 [ create_bd_port -dir O -type clk FCLK_CLK0_200 ]
+  set GPIO_I_0 [ create_bd_port -dir I -from 63 -to 0 GPIO_I_0 ]
+  set GPIO_O_0 [ create_bd_port -dir O -from 63 -to 0 GPIO_O_0 ]
+  set GPIO_T_0 [ create_bd_port -dir O -from 63 -to 0 GPIO_T_0 ]
 
   # Create instance: processing_system7_0, and set properties
   set processing_system7_0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:processing_system7:5.5 processing_system7_0 ]
@@ -280,8 +253,10 @@ proc create_root_design { parentCell } {
     CONFIG.PCW_EN_EMIO_CD_SDIO0 {0} \
     CONFIG.PCW_EN_EMIO_ENET0 {1} \
     CONFIG.PCW_EN_EMIO_ENET1 {0} \
+    CONFIG.PCW_EN_EMIO_GPIO {1} \
     CONFIG.PCW_EN_ENET0 {1} \
     CONFIG.PCW_EN_ENET1 {0} \
+    CONFIG.PCW_EN_GPIO {0} \
     CONFIG.PCW_EN_QSPI {1} \
     CONFIG.PCW_EN_SDIO0 {1} \
     CONFIG.PCW_EN_UART1 {1} \
@@ -290,6 +265,10 @@ proc create_root_design { parentCell } {
     CONFIG.PCW_FPGA1_PERIPHERAL_FREQMHZ {125} \
     CONFIG.PCW_FPGA_FCLK0_ENABLE {1} \
     CONFIG.PCW_FPGA_FCLK1_ENABLE {1} \
+    CONFIG.PCW_GPIO_EMIO_GPIO_ENABLE {1} \
+    CONFIG.PCW_GPIO_EMIO_GPIO_IO {64} \
+    CONFIG.PCW_GPIO_EMIO_GPIO_WIDTH {64} \
+    CONFIG.PCW_GPIO_MIO_GPIO_ENABLE {0} \
     CONFIG.PCW_MIO_1_IOTYPE {LVCMOS 3.3V} \
     CONFIG.PCW_MIO_1_PULLUP {enabled} \
     CONFIG.PCW_MIO_1_SLEW {slow} \
@@ -363,14 +342,6 @@ proc create_root_design { parentCell } {
 
 
   # Create interface connections
-  connect_bd_intf_net -intf_net GMII_0_1 [get_bd_intf_ports GMII_0] [get_bd_intf_pins gmii_to_rgmii_0/GMII]
-  connect_bd_intf_net -intf_net GMII_1_1 [get_bd_intf_ports GMII_1] [get_bd_intf_pins gmii_to_rgmii_1/GMII]
-  connect_bd_intf_net -intf_net MDIO_GEM_0_1 [get_bd_intf_ports MDIO_GEM_0] [get_bd_intf_pins gmii_to_rgmii_0/MDIO_GEM]
-  connect_bd_intf_net -intf_net MDIO_GEM_1_1 [get_bd_intf_ports MDIO_GEM_1] [get_bd_intf_pins gmii_to_rgmii_1/MDIO_GEM]
-  connect_bd_intf_net -intf_net gmii_to_rgmii_0_MDIO_PHY [get_bd_intf_ports MDIO_PHY_0] [get_bd_intf_pins gmii_to_rgmii_0/MDIO_PHY]
-  connect_bd_intf_net -intf_net gmii_to_rgmii_0_RGMII [get_bd_intf_ports RGMII_0] [get_bd_intf_pins gmii_to_rgmii_0/RGMII]
-  connect_bd_intf_net -intf_net gmii_to_rgmii_1_MDIO_PHY [get_bd_intf_ports MDIO_PHY_1] [get_bd_intf_pins gmii_to_rgmii_1/MDIO_PHY]
-  connect_bd_intf_net -intf_net gmii_to_rgmii_1_RGMII [get_bd_intf_ports RGMII_1] [get_bd_intf_pins gmii_to_rgmii_1/RGMII]
   connect_bd_intf_net -intf_net processing_system7_0_DDR [get_bd_intf_ports DDR] [get_bd_intf_pins processing_system7_0/DDR]
   connect_bd_intf_net -intf_net processing_system7_0_FIXED_IO [get_bd_intf_ports FIXED_IO] [get_bd_intf_pins processing_system7_0/FIXED_IO]
   connect_bd_intf_net -intf_net processing_system7_0_GMII_ETHERNET_0 [get_bd_intf_ports GMII_ETHERNET_0_0] [get_bd_intf_pins processing_system7_0/GMII_ETHERNET_0]
@@ -378,15 +349,12 @@ proc create_root_design { parentCell } {
 
   # Create port connections
   connect_bd_net -net ENET0_EXT_INTIN_0_1 [get_bd_ports ENET0_EXT_INTIN_0] [get_bd_pins processing_system7_0/ENET0_EXT_INTIN]
-  connect_bd_net -net gmii_to_rgmii_0_clock_speed [get_bd_pins gmii_to_rgmii_0/clock_speed] [get_bd_ports clock_speed_1]
-  connect_bd_net -net gmii_to_rgmii_0_link_status [get_bd_pins gmii_to_rgmii_0/link_status] [get_bd_ports link_status_0]
-  connect_bd_net -net gmii_to_rgmii_0_speed_mode [get_bd_pins gmii_to_rgmii_0/speed_mode] [get_bd_ports speed_mode_0]
-  connect_bd_net -net gmii_to_rgmii_1_clock_speed [get_bd_pins gmii_to_rgmii_1/clock_speed] [get_bd_ports clock_speed_0]
-  connect_bd_net -net gmii_to_rgmii_1_link_status [get_bd_pins gmii_to_rgmii_1/link_status] [get_bd_ports link_status_1]
-  connect_bd_net -net gmii_to_rgmii_1_speed_mode [get_bd_pins gmii_to_rgmii_1/speed_mode] [get_bd_ports speed_mode_1]
-  connect_bd_net -net processing_system7_0_FCLK_CLK0 [get_bd_pins processing_system7_0/FCLK_CLK0] [get_bd_pins gmii_to_rgmii_0/clkin] [get_bd_pins gmii_to_rgmii_1/clkin]
+  connect_bd_net -net GPIO_I_0_1 [get_bd_ports GPIO_I_0] [get_bd_pins processing_system7_0/GPIO_I]
+  connect_bd_net -net processing_system7_0_FCLK_CLK0 [get_bd_pins processing_system7_0/FCLK_CLK0] [get_bd_ports FCLK_CLK0_200]
   connect_bd_net -net processing_system7_0_FCLK_CLK1 [get_bd_pins processing_system7_0/FCLK_CLK1] [get_bd_ports FCLK_CLK1_125]
   connect_bd_net -net processing_system7_0_FCLK_RESET0_N [get_bd_pins processing_system7_0/FCLK_RESET0_N] [get_bd_ports RESETn_PHY_0]
+  connect_bd_net -net processing_system7_0_GPIO_O [get_bd_pins processing_system7_0/GPIO_O] [get_bd_ports GPIO_O_0]
+  connect_bd_net -net processing_system7_0_GPIO_T [get_bd_pins processing_system7_0/GPIO_T] [get_bd_ports GPIO_T_0]
 
   # Create address segments
 

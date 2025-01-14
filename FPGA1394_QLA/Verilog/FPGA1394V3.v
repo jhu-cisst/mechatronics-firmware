@@ -1007,9 +1007,9 @@ processing_system7_0 ps7(
     .PS_SRSTB(PS_SRSTB),
     .PS_CLK(PS_CLK),
     .PS_PORB(PS_PORB),
-    //.GPIO_I(emio_ps_in),
-    //.GPIO_O(emio_ps_out),
-    //.GPIO_T(emio_ps_tri),
+    .GPIO_I(emio_ps_in),
+    .GPIO_O(emio_ps_out),
+    .GPIO_T(emio_ps_tri),
     .FCLK_CLK0(clk_200MHz),
     .FCLK_CLK1(clk_125MHz),
     .FCLK_RESET0_N(PS_Eth_RSTn),
@@ -1030,6 +1030,7 @@ processing_system7_0 ps7(
 );
 
 gmii_to_rgmii_1 g2r1(
+    .clkin(clk_200MHz),
     .rgmii_txd(E1_TxD),
     .rgmii_tx_ctl(E1_TxEN),
     .rgmii_txc(E1_TxCLK),
@@ -1054,6 +1055,7 @@ gmii_to_rgmii_1 g2r1(
 );
 
 gmii_to_rgmii_2 g2r2(
+    .clkin(clk_200MHz),
     .rgmii_txd(E2_TxD),
     .rgmii_tx_ctl(E2_TxEN),
     .rgmii_txc(E2_TxCLK),
