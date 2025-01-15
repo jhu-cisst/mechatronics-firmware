@@ -22,6 +22,7 @@ if (XilinxISE_FOUND OR Vivado_FOUND)
   if (Vivado_FOUND)
 
     include (${VIVADO_USE_FILE})
+
     option (BUILD_FPGAV30 "Build for FPGA V3.0 (instead of V3.1+)" OFF)
     mark_as_advanced (BUILD_FPGAV30)
 

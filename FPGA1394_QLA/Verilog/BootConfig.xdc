@@ -4,10 +4,10 @@
 
 # port PULLUP
 set_property PULLUP true [get_ports {IO1[0]}]
-set_property PULLUP true [get_ports {IO1[1]}]     # MISO prom
-set_property PULLUP true [get_ports {IO1[2]}]     # MOSI prom
-set_property PULLUP true [get_ports {IO1[3]}]     # SCLK prom
-set_property PULLUP true [get_ports {IO1[4]}]     # /CS prom
+set_property PULLUP true [get_ports {IO1[1]}] ;   # MISO prom
+set_property PULLUP true [get_ports {IO1[2]}] ;   # MOSI prom
+set_property PULLUP true [get_ports {IO1[3]}] ;   # SCLK prom
+set_property PULLUP true [get_ports {IO1[4]}] ;   # /CS prom
 set_property PULLUP true [get_ports {IO1[5]}]
 set_property PULLUP true [get_ports {IO1[6]}]
 set_property PULLUP true [get_ports {IO1[7]}]

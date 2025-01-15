@@ -164,7 +164,7 @@ set_property PACKAGE_PIN U12 [get_ports {IO2[35]}]
 set_property PACKAGE_PIN T11 [get_ports {IO2[36]}]
 set_property PACKAGE_PIN T10 [get_ports {IO2[37]}]
 set_property PACKAGE_PIN T12 [get_ports {IO2[38]}]
-set_property PACKAGE_PIN U17 [get_ports {IO2[39]}]   # FPGA V.1
+set_property PACKAGE_PIN U17 [get_ports {IO2[39]}] ;  # FPGA V.1
 
 ################################################################################
 # IEEE-1394 (Firewire) Interface

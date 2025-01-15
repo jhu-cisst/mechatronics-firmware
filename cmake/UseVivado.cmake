@@ -116,7 +116,7 @@ function (vivado_block_build ...)
 
   if (PROJ_NAME AND BD_NAME AND FPGA_PARTNUM AND BLOCK_IN AND HW_FILE)
 
-    file(TO_NATIVE_PATH ${XILINX_VIVADO} VIVADO_NATIVE)
+    file (TO_NATIVE_PATH ${XILINX_VIVADO} VIVADO_NATIVE)
 
     get_property (EXPORTED_TCL TARGET ${BLOCK_IN} PROPERTY OUTPUT_NAME)
 
@@ -126,7 +126,7 @@ function (vivado_block_build ...)
     set (TCL_FILE "${CMAKE_CURRENT_BINARY_DIR}/make-${PROJ_NAME}.tcl")
     file (WRITE  ${TCL_FILE} "create_project -force -part ${FPGA_PARTNUM} ${PROJ_NAME} ${CMAKE_CURRENT_BINARY_DIR}\n")
     file (APPEND ${TCL_FILE} "create_bd_design ${BD_NAME}\n")
-    file (APPEND ${TCL_FILE} "source ${EXPORTED_TCL}\n")
+    file (APPEND ${TCL_FILE} "source -notrace ${EXPORTED_TCL}\n")
     file (APPEND ${TCL_FILE} "make_wrapper -top -files [get_files ${BD_NAME}.bd]\n")
     file (APPEND ${TCL_FILE} "add_files ${CMAKE_CURRENT_BINARY_DIR}/${PROJ_NAME}.gen/sources_1/bd/${BD_NAME}/hdl/${BD_NAME}_wrapper.v\n")
     file (APPEND ${TCL_FILE} "generate_target all [get_files ${BD_NAME}.bd]\n")
@@ -135,7 +135,7 @@ function (vivado_block_build ...)
     file (APPEND ${TCL_FILE} "close_project\n")
 
     add_custom_command (OUTPUT ${HW_FILE_FULL}
-                        COMMAND ${VIVADO_NATIVE} -nojournal -mode batch -source ${TCL_FILE}
+                        COMMAND ${VIVADO_NATIVE} -nojournal -mode batch -log ${PROJ_NAME}.log -source ${TCL_FILE} -notrace
                         DEPENDS ${EXPORTED_TCL})
 
     add_custom_target (${PROJ_NAME} ALL
@@ -220,13 +220,14 @@ function (vivado_block_ip)
     # file (APPEND ${TCL_FILE} "set_property CUSTOMIZED_DEFAULT_IP_LOCATION ${OUTPUT_DIR} [current_project]\n")
     file (APPEND ${TCL_FILE} "read_ip ${OUTPUT_FILE}\n")
     # Generate targets and synthesize IP core
+    file (APPEND ${TCL_FILE} "puts \"Synthesizing ${TARGET_NAME}\"\n")
     file (APPEND ${TCL_FILE} "set_property GENERATE_SYNTH_CHECKPOINT true [get_files ${TARGET_NAME}.xci]\n")
     file (APPEND ${TCL_FILE} "generate_target -force {instantiation_template synthesis} [get_ips ${TARGET_NAME}]\n")
     file (APPEND ${TCL_FILE} "synth_ip -force [get_ips ${TARGET_NAME}]\n")
     file (APPEND ${TCL_FILE} "close_project\n")
 
     add_custom_command (OUTPUT ${OUTPUT_FILE}
-                        COMMAND ${VIVADO_NATIVE} -nojournal -mode batch -source ${TCL_FILE}
+                        COMMAND ${VIVADO_NATIVE} -nojournal -mode batch -log ${TARGET_NAME}.log -source ${TCL_FILE} -notrace
                         COMMENT "Copying IP Core ${IP_NAME} from Block Design to ${TARGET_NAME}"
 			DEPENDS ${EXPORTED_TCL})
 
@@ -293,7 +294,7 @@ function (vivado_ip_gen)
     file (APPEND ${TCL_FILE} "set ip_version [lindex [split \${ip_vlnv} \":\"] 3]\n")
     file (APPEND ${TCL_FILE} "puts \"Found ${IP_NAME}, version \${ip_version}\"\n")
     # Create the IP in the specified directory (IPCORE_DIR). Note that IP will be created
-    # in a subdirectory named TARGET_NAM.
+    # in a subdirectory named TARGET_NAME.
     file (APPEND ${TCL_FILE} "create_ip -vlnv \${ip_vlnv} -module_name ${TARGET_NAME} -dir ${IPCORE_DIR} -force\n")
     # Set properties for IP core
     foreach (prop ${PROPERTIES})
@@ -301,13 +302,14 @@ function (vivado_ip_gen)
     endforeach (prop)
     # Generate targets and synthesize IP core
     file (APPEND ${TCL_FILE} "generate_target -force {instantiation_template synthesis} [get_ips ${TARGET_NAME}]\n")
+    file (APPEND ${TCL_FILE} "puts \"Synthesize IP ${TARGET_NAME}\"\n")
     file (APPEND ${TCL_FILE} "synth_ip -force [get_ips ${TARGET_NAME}]\n")
     file (APPEND ${TCL_FILE} "close_project\n")
 
     set (OUTPUT_FILE "${IPCORE_DIR}/${TARGET_NAME}/${TARGET_NAME}.xci")
 
     add_custom_command (OUTPUT ${OUTPUT_FILE}
-                        COMMAND ${VIVADO_NATIVE} -nojournal -mode batch -source ${TCL_FILE}
+                        COMMAND ${VIVADO_NATIVE} -nojournal -mode batch -log ${TARGET_NAME}.log -source ${TCL_FILE} -notrace
                         COMMENT "Creating IP Core ${TARGET_NAME}")
 
     add_custom_target (${TARGET_NAME} ALL
@@ -369,10 +371,12 @@ function (vivado_compile_fpga)
 
   if (PROJ_NAME AND FPGA_PARTNUM AND VERILOG_SOURCE AND XDC_FILE AND TOP_LEVEL)
 
-    file(TO_NATIVE_PATH ${XILINX_VIVADO} VIVADO_NATIVE)
+    file (TO_NATIVE_PATH ${XILINX_VIVADO} VIVADO_NATIVE)
 
     set (OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/${PROJ_NAME}")
     file (MAKE_DIRECTORY ${OUTPUT_DIR})
+    set (REPORT_DIR "${OUTPUT_DIR}/reports")
+    file (MAKE_DIRECTORY ${REPORT_DIR})
 
     # Create TCL file
     set (TCL_FILE "${CMAKE_CURRENT_BINARY_DIR}/make-${PROJ_NAME}.tcl")
@@ -392,6 +396,8 @@ function (vivado_compile_fpga)
       file (APPEND ${TCL_FILE} "read_ip ${xci_file}\n")
     endforeach (ip)
 
+    # Synthesize
+    file (APPEND ${TCL_FILE} "puts \"Starting synthesis of ${PROJ_NAME}\"\n")
     file (APPEND ${TCL_FILE} "synth_design -top ${TOP_LEVEL}")
     if (INCLUDE_DIRS)
       file (APPEND ${TCL_FILE} " -include_dirs \"")
@@ -404,11 +410,36 @@ function (vivado_compile_fpga)
       file (APPEND ${TCL_FILE} " -verilog_define ${def}")
     endforeach (def)
     file (APPEND ${TCL_FILE} "\n")
+    file (APPEND ${TCL_FILE} "puts \"Finished synthesis, writing checkpoint (post_synth)\"\n")
+    file (APPEND ${TCL_FILE} "write_checkpoint -force {${REPORT_DIR}/post_synth}\n")
+    # file (APPEND ${TCL_FILE} "report_timing_summary -file {${REPORT_DIR}/post_synth_timing.rpt}\n")
+
+    # Optimize and place
+    file (APPEND ${TCL_FILE} "puts \"Starting to optimize and place ${PROJ_NAME}\"\n")
+    file (APPEND ${TCL_FILE} "opt_design\n")
+    file (APPEND ${TCL_FILE} "place_design\n")
+    file (APPEND ${TCL_FILE} "phys_opt_design\n")
+    file (APPEND ${TCL_FILE} "puts \"Finished optimize and place, writing checkpoint (post_place)\"\n")
+    file (APPEND ${TCL_FILE} "write_checkpoint -force {${REPORT_DIR}/post_place}\n")
+    # file (APPEND ${TCL_FILE} "report_timing_summary -file {${REPORT_DIR}/post_place_timing.rpt}\n")
+
+    # Route
+    file (APPEND ${TCL_FILE} "puts \"Starting to route ${PROJ_NAME}\"\n")
+    file (APPEND ${TCL_FILE} "route_design\n")
+    file (APPEND ${TCL_FILE} "puts \"Finished route, writing checkpoint and reports (post_route)\"\n")
+    file (APPEND ${TCL_FILE} "write_checkpoint -force {${REPORT_DIR}/post_route}\n")
+    file (APPEND ${TCL_FILE} "report_timing_summary -file {${REPORT_DIR}/post_route_timing_summary.rpt}\n")
+    file (APPEND ${TCL_FILE} "report_utilization -file {${REPORT_DIR}/post_route_util.rpt}\n")
+    file (APPEND ${TCL_FILE} "write_xdc -no_fixed_only -force {${REPORT_DIR}/${PROJ_NAME}_impl.xdc}\n")
+
+    file (APPEND ${TCL_FILE} "puts \"Generating bitstream for ${PROJ_NAME}\"\n")
+    file (APPEND ${TCL_FILE} "write_bitstream -force ${PROJ_NAME}.bit\n")
+    file (APPEND ${TCL_FILE} "close_project\n")
 
     set (OUTPUT_FILE "${CMAKE_CURRENT_BINARY_DIR}/${PROJ_NAME}.bit")
 
     add_custom_command (OUTPUT ${OUTPUT_FILE}
-      COMMAND ${VIVADO_NATIVE} -nojournal -mode batch -source ${TCL_FILE}
+      COMMAND ${VIVADO_NATIVE} -nojournal -mode batch -log ${PROJ_NAME}.log -source ${TCL_FILE} -notrace
       DEPENDS ${VERILOG_SOURCE} ${XDC_FILE})
 
     add_custom_target (${PROJ_NAME} ALL
