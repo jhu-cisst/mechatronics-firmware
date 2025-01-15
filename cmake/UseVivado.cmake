@@ -289,7 +289,7 @@ function (vivado_ip_gen)
     set (TCL_FILE "${CMAKE_CURRENT_BINARY_DIR}/make-${TARGET_NAME}.tcl")
     file (WRITE  ${TCL_FILE} "create_project -part ${FPGAV3_PARTNUM} -in_memory\n")
     # Find the IP by searching repository based on IP_NAME
-    file (APPEND ${TCL_FILE} "set ip_vlnv [get_ipdefs *${IP_NAME}*]\n")
+    file (APPEND ${TCL_FILE} "set ip_vlnv [get_ipdefs *:${IP_NAME}:* -filter {UPGRADE_VERSIONS == \"\"}]\n")
     # Display the version found (not required -- for information only)
     file (APPEND ${TCL_FILE} "set ip_version [lindex [split \${ip_vlnv} \":\"] 3]\n")
     file (APPEND ${TCL_FILE} "puts \"Found ${IP_NAME}, version \${ip_version}\"\n")
@@ -303,6 +303,8 @@ function (vivado_ip_gen)
     # Generate targets and synthesize IP core
     file (APPEND ${TCL_FILE} "generate_target -force {instantiation_template synthesis} [get_ips ${TARGET_NAME}]\n")
     file (APPEND ${TCL_FILE} "puts \"Synthesize IP ${TARGET_NAME}\"\n")
+    # For some reason, Vivado complains that it cannot overwrite dcp file
+    file (APPEND ${TCL_FILE} "file delete -force \"${IPCORE_DIR}/${TARGET_NAME}/${TARGET_NAME}.dcp\"\n")
     file (APPEND ${TCL_FILE} "synth_ip -force [get_ips ${TARGET_NAME}]\n")
     file (APPEND ${TCL_FILE} "close_project\n")
 

@@ -88,6 +88,22 @@ if (Vivado_FOUND)
                  PROPERTIES  ${GMII_TO_RGMII_2_PROPS}
                  IPCORE_DIR  ${CMAKE_CURRENT_BINARY_DIR})
 
+  set (PWM_CLK_GEN_ZYNQ_PROPS
+       "CONFIG.PRIMARY_PORT CLK_IN1"
+       "CONFIG.CLK_OUT1_PORT CLK_OUT1"
+       "CONFIG.CLKIN1_JITTER_PS 100"
+       "CONFIG.CLKOUT1_REQUESTED_OUT_FREQ 147.456"
+       "CONFIG.JITTER_OPTIONS PS"
+       "CONFIG.PRIM_IN_FREQ 49.152"
+       "CONFIG.PRIM_SOURCE No_buffer"
+       "CONFIG.USE_LOCKED false"
+       "CONFIG.USE_RESET false")
+
+  vivado_ip_gen (TARGET_NAME "pwm_clk_gen_zynq"
+                 IP_NAME     "clk_wiz"
+                 PROPERTIES  ${PWM_CLK_GEN_ZYNQ_PROPS}
+                 IPCORE_DIR  ${CMAKE_CURRENT_BINARY_DIR})
+
   vivado_block_ip (TARGET_NAME  "processing_system7_0"
                    IP_NAME      "processing_system7"
                    FPGA_PARTNUM ${FPGAV3_PARTNUM}

@@ -315,7 +315,7 @@ if (Vivado_FOUND)
                        VERILOG_SOURCE ${VERILOG_SOURCE_FPGAV3_DRAC}
                        XDC_FILE       "${VERILOG_SOURCE_DIR}/XC7Z020.xdc"
                        BOARD_XDC_FILE "${VERILOG_SOURCE_DIR}/DRAC.xdc"
-                       IP_TARGETS     ${IP_CORES}
+                       IP_TARGETS     ${IP_CORES} "pwm_clk_gen_zynq"
                        INCLUDE_DIRS   ${VERILOG_INCLUDE_DIRS}
                        TOP_LEVEL      "FPGA1394V3DRAC"
                        USER_MACROS    ${VIVADO_DEFS})
