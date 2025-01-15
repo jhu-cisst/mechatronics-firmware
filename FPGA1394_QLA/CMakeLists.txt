@@ -277,7 +277,8 @@ if (Vivado_FOUND)
                        DEPENDENCIES   "VersionFile"
                        FPGA_PARTNUM   ${FPGAV3_PARTNUM}
                        VERILOG_SOURCE ${VERILOG_SOURCE_FPGAV3_BCFG}
-                       # XDC_FILE       ${XDC_FILE_BCFG}
+                       XDC_FILE       "${VERILOG_SOURCE_DIR}/XC7Z020.xdc"
+                       BOARD_XDC_FILE "${VERILOG_SOURCE_DIR}/BootConfig.xdc"
                        IP_TARGETS     ${IP_CORES}
                        INCLUDE_DIRS   ${VERILOG_INCLUDE_DIRS}
                        TOP_LEVEL      "FPGA1394V3BCFG"
@@ -288,7 +289,8 @@ if (Vivado_FOUND)
                        DEPENDENCIES   "VersionFile"
                        FPGA_PARTNUM   ${FPGAV3_PARTNUM}
                        VERILOG_SOURCE ${VERILOG_SOURCE_FPGAV3_QLA}
-                       # XDC_FILE       ${XDC_FILE_QLA}
+                       XDC_FILE       "${VERILOG_SOURCE_DIR}/XC7Z020.xdc"
+                       BOARD_XDC_FILE "${VERILOG_SOURCE_DIR}/QLA.xdc"
                        IP_TARGETS     ${IP_CORES}
                        INCLUDE_DIRS   ${VERILOG_INCLUDE_DIRS}
                        TOP_LEVEL      "FPGA1394V3QLA"
@@ -299,7 +301,8 @@ if (Vivado_FOUND)
                        DEPENDENCIES   "VersionFile"
                        FPGA_PARTNUM   ${FPGAV3_PARTNUM}
                        VERILOG_SOURCE ${VERILOG_SOURCE_FPGAV3_DQLA}
-                       # XDC_FILE       ${XDC_FILE_DQLA}
+                       XDC_FILE       "${VERILOG_SOURCE_DIR}/XC7Z020.xdc"
+                       BOARD_XDC_FILE "${VERILOG_SOURCE_DIR}/DQLA.xdc"
                        IP_TARGETS     ${IP_CORES}
                        INCLUDE_DIRS   ${VERILOG_INCLUDE_DIRS}
                        TOP_LEVEL      "FPGA1394V3DQLA"
@@ -310,7 +313,8 @@ if (Vivado_FOUND)
                        DEPENDENCIES   "VersionFile"
                        FPGA_PARTNUM   ${FPGAV3_PARTNUM}
                        VERILOG_SOURCE ${VERILOG_SOURCE_FPGAV3_DRAC}
-                       # XDC_FILE       ${XDC_FILE_DRAC}
+                       XDC_FILE       "${VERILOG_SOURCE_DIR}/XC7Z020.xdc"
+                       BOARD_XDC_FILE "${VERILOG_SOURCE_DIR}/DRAC.xdc"
                        IP_TARGETS     ${IP_CORES}
                        INCLUDE_DIRS   ${VERILOG_INCLUDE_DIRS}
                        TOP_LEVEL      "FPGA1394V3DRAC"

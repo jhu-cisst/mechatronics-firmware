@@ -331,7 +331,8 @@ endfunction (vivado_ip_gen)
 #   - DEPENDENCIES:    dependencies for this target (e.g., IP cores)
 #   - FPGA_PARTNUM:    the FPGA part number
 #   - VERILOG_SOURCE:  list of Verilog source code (.v)
-#   - XDC_FILE:        User constraints file(s)
+#   - XDC_FILE:        Primary user constraints file
+#   - BOARD_XDC_FILE:  User constraints file for attached board (optional)
 #   - IP_TARGETS:      List of IP targets (that produce XCI files)
 #   - TOP_LEVEL:       Top level module name
 #   - USER_MACROS:     Macro definitions (optional)
@@ -344,6 +345,7 @@ function (vivado_compile_fpga)
        FPGA_PARTNUM
        VERILOG_SOURCE
        XDC_FILE
+       BOARD_XDC_FILE
        IP_TARGETS
        INCLUDE_DIRS
        TOP_LEVEL
@@ -365,8 +367,7 @@ function (vivado_compile_fpga)
     endif (${ARGUMENT_IS_A_KEYWORD} GREATER -1)
   endforeach (arg)
 
-  #if (PROJ_NAME AND FPGA_PARTNUM AND VERILOG_SOURCE AND XDC_FILE AND TOP_LEVEL)
-  if (PROJ_NAME AND FPGA_PARTNUM AND VERILOG_SOURCE AND TOP_LEVEL)
+  if (PROJ_NAME AND FPGA_PARTNUM AND VERILOG_SOURCE AND XDC_FILE AND TOP_LEVEL)
 
     file(TO_NATIVE_PATH ${XILINX_VIVADO} VIVADO_NATIVE)
 
@@ -381,9 +382,10 @@ function (vivado_compile_fpga)
       file (APPEND ${TCL_FILE} "read_verilog ${vfile}\n")
     endforeach (vfile)
 
-    foreach (xfile ${XDC_FILE})
-      file (APPEND ${TCL_FILE} "read_xdc ${xfile}\n")
-    endforeach (xfile)
+    file (APPEND ${TCL_FILE} "read_xdc ${XDC_FILE}\n")
+    if (BOARD_XDC_FILE)
+      file (APPEND ${TCL_FILE} "read_xdc ${BOARD_XDC_FILE}\n")
+    endif ()
 
     foreach (ip ${IP_TARGETS})
       get_property(xci_file TARGET ${ip} PROPERTY OUTPUT_NAME)
