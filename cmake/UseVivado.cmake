@@ -297,9 +297,11 @@ function (vivado_ip_gen)
     # in a subdirectory named TARGET_NAME.
     file (APPEND ${TCL_FILE} "create_ip -vlnv \${ip_vlnv} -module_name ${TARGET_NAME} -dir ${IPCORE_DIR} -force\n")
     # Set properties for IP core
+    file (APPEND ${TCL_FILE} "set_property -dict [list \\\n")
     foreach (prop ${PROPERTIES})
-      file (APPEND ${TCL_FILE} "set_property ${prop} [get_ips ${TARGET_NAME}]\n")
+      file (APPEND ${TCL_FILE} "    ${prop} \\\n")
     endforeach (prop)
+    file (APPEND ${TCL_FILE} "    ] [get_ips ${TARGET_NAME}]\n")
     # Generate targets and synthesize IP core
     file (APPEND ${TCL_FILE} "generate_target -force {instantiation_template synthesis} [get_ips ${TARGET_NAME}]\n")
     file (APPEND ${TCL_FILE} "puts \"Synthesize IP ${TARGET_NAME}\"\n")
