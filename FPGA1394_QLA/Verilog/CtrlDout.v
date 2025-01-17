@@ -67,6 +67,12 @@ reg[NUM_DOUT-1:0] dout_waveform_en;
 wire dout_waveform_any;
 assign dout_waveform_any = (dout_waveform_en == {NUM_DOUT{1'b0}}) ? 1'b0 : 1'b1;
 
+// Whether a valid table entry
+wire entry_valid;
+assign entry_valid = table_rdata[31];
+
+reg[9:0] table_raddr;     // Table read address (10 bits)
+
 genvar i;
 generate
 for (i = 0; i < NUM_DOUT; i = i + 1) begin : dout_loop
@@ -93,13 +99,7 @@ assign dout[31] = dout_waveform_any;
 wire dout_table_wen;
 assign dout_table_wen = (reg_wen && (reg_waddr[15:12]==`ADDR_WAVEFORM)) ? 1'd1 : 1'd0;
 
-reg[9:0] table_raddr;     // Table read address (10 bits)
-
 reg[22:0] table_cnt;      // Used to count duration of table output
-
-// Whether a valid table entry
-wire entry_valid;
-assign entry_valid = table_rdata[31];
 
 // Last count for table entry (23 bits):
 //    0        -> 1 sysclk (~20.3 ns)
@@ -148,6 +148,9 @@ begin
    end
 end
 
+wire dout_ctrl;           // write to control register (hi/low times)
+wire dout_ctrl_en[1:NUM_DOUT];   // enable signal for each digital output control register
+
 genvar j;
 generate
 for (j = 1; j <= NUM_DOUT; j = j + 1) begin : ctrl_loop
@@ -155,9 +158,7 @@ for (j = 1; j <= NUM_DOUT; j = j + 1) begin : ctrl_loop
 end
 endgenerate
 
-wire dout_ctrl;           // write to control register (hi/low times)
 assign dout_ctrl = (reg_wen && (reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[3:0]==`OFF_DOUT_CTRL)) ? 1'd1 : 1'd0;
-wire dout_ctrl_en[1:NUM_DOUT];   // enable signal for each digital output control register
 
 wire [31:0] reg_rd[1:NUM_DOUT];  // read control register (hi/low times)
 assign reg_rdata = (reg_raddr[3:0] == `OFF_DOUT_CTRL) ? reg_rd[reg_raddr[7:4]] : 32'd0;

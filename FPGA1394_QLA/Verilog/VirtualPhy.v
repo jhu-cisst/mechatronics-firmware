@@ -74,6 +74,7 @@ initial mdioState = ST_MDIO_IDLE;
 
 reg[4:0] cnt;         // 5-bit counter (0-31)
 
+wire[31:0] replyData;
 assign mdio_i = replyData[~cnt];
 
 reg[31:0] mdio_data;  // save MDIO data
@@ -104,7 +105,6 @@ reg[4:0] regNew;       // Register not yet supported (for debugging)
 // and bits 15:0 correspond to the register data. It should not hurt to write
 // it all the time, since the tri-state control from the host (mdio_t) should
 // prevent it from interfering during a register write.
-wire[31:0] replyData;
 assign replyData[31:16] = 16'd0;
 assign replyData[15:0] = isRegStandard ? regValue[regAddr[3:0]] :
                          (isReg17 & link_on) ? 16'hac00 :   // 1GB, full-duplex, link_on

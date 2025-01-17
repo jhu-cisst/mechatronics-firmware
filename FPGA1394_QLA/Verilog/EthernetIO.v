@@ -254,6 +254,11 @@ assign sendExtra = fwPacketDropped;
 
 wire[15:0] Eth_EtherType;
 wire[15:0] UDP_Length; // UDP packet length (bytes)
+wire isUDP;
+wire isEcho;
+wire sendARP;
+wire ipWrite;
+wire hubSend;
 
 wire[9:0] maxCountFW;  // Maximum count (of words) when reading FireWire packets
 // Maximum count, in words, is (nBytes/2-1), assuming nBytes is an even number
@@ -339,6 +344,8 @@ localparam[4:0]
 
 reg[15:0] PacketBuffer[0:31];
 
+reg FireWirePacketFresh;   // 1 -> FireWirePacket data is valid (fresh)
+
 // Following is data that is used when constructing the Reply packet
 localparam[3:0]
    ID_Reply_Begin       = 0,                 // ****** Start of Reply Data (0) *********
@@ -362,6 +369,7 @@ localparam[3:0]
    ID_Reply_End         = ID_Reply_Begin+15; // ******** End of all data (15) ***********
 
 wire[15:0] ReplyBuffer[0:15];
+wire[15:0] IPv4_Length;
 
 // Following elements of ReplyBuffer are variable
 wire[15:0] Reply_Frame_Length;
@@ -489,11 +497,11 @@ assign isARPValid = (PacketBuffer[ID_ARP_HTYPE] == 16'h0001) &&
                     (PacketBuffer[ID_ARP_Oper] == 16'h0001);
 
 // Whether ARP IP address matches this board
+wire is_ip_unassigned;
 wire isARP_ip_equal = (!is_ip_unassigned && (ip_address == ARP_fpgaIP)) ? 1'd1 : 1'd0;
 
 // Whether we should send an ARP response. This will be valid before it is first used in ST_RECEIVE_FLUSH_WAIT,
 // and should not get checked in ST_SEND states if isForward is 1.
-wire sendARP;
 assign sendARP = isARP & isARPValid & isARP_ip_equal;
 
 //******************************** IPv4 HEADER *************************************
@@ -515,7 +523,6 @@ assign IPv4_Version = PacketBuffer[ID_IPv4_Word0][15:12];
 wire [3:0] IPv4_IHL;
 assign IPv4_IHL = PacketBuffer[ID_IPv4_Word0][11:8];
 `endif
-wire[15:0] IPv4_Length;
 assign IPv4_Length = PacketBuffer[ID_IPv4_Length];
 wire[7:0] IPv4_Protocol;
 assign IPv4_Protocol = PacketBuffer[ID_IPv4_Protocol][7:0];
@@ -530,7 +537,6 @@ wire is_IPv4_Short;
 assign is_IPv4_Short = (isIPv4 && !is_IPv4_Long && (IPv4_IHL != 4'd5)) ? 1'd1 : 1'd0;
 `endif
 
-wire isUDP;
 assign isUDP = (isIPv4 && (IPv4_Protocol == 8'd17)) ? 1'd1 : 1'd0;
 
 wire isICMP;
@@ -550,7 +556,6 @@ reg[15:0] Port_Unknown;
 // (i.e., IPv4_Length includes 20 bytes for IPv4 Header and 12 bytes for ICMP Header).
 // This data is received in ST_RECEIVE_DMA_ICMP_Data.
 
-wire isEcho;
 // Echo request (ping) has Type=8, Code=0
 assign isEcho = (isICMP && (PacketBuffer[ID_ICMP_TypeCode] == 16'h0800)) ? 1'd1 : 1'd0;
 
@@ -579,13 +584,11 @@ else begin
 end
 
 // Special case handling of write to IP address register.
-wire ipWrite;
 assign ipWrite = FireWirePacketFresh && quadWrite && (fw_dest_offset == {`ADDR_MAIN, 8'h0, `REG_IPADDR}) ? 1'b1 : 1'b0;
 
 // Special case for broadcast read on an Ethernet-only network: writing to the Hub register
 // (0x1800) causes this module to send an Ethernet multicast write packet to update the
 // hub memory on this board and other FPGA boards.
-wire hubSend;
 wire[15:0] board_mask;                        // Board mask sent with quadlet write to Hub register
 assign board_mask = FireWireQuadlet[15:0];    // Only valid for a limited time
 reg isBoardMasked;
@@ -759,7 +762,6 @@ reg[7:0] numMulticastWrite;  // Number of multicast packets written (ipWrite or 
 
 reg[7:0] numPacketError;     // Number of packet errors (Frame, IPv4 or UDP error)
 
-wire is_ip_unassigned;
 assign is_ip_unassigned = (ip_address == IP_UNASSIGNED) ? 1'd1 : 1'd0;
 
 // Variables used by block write process. Originally, this was only for the RT block
@@ -1012,6 +1014,9 @@ reg reg_wen_hub_quad;
 
 wire[5:0] fw_tl_reply;
 
+// Accessing br_packet memory
+wire[31:0] br_data_out;
+
 if (IS_V3) begin
 
    // Although it would technically be correct to support the local hub for FPGA V2, it
@@ -1190,8 +1195,6 @@ else begin
    end
    assign fw_tl_reply = fw_tl;
 end
-
-reg FireWirePacketFresh;   // 1 -> FireWirePacket data is valid (fresh)
 
 // Following data is accessible via block read from address `ADDR_ETH (0x4000),
 // where 'x' specifies the port number.
@@ -1476,7 +1479,6 @@ assign responseRequired = ((FireWirePacketFresh &
 
 // Previously (up to Firmware Rev 8), set all bits of ip_address (e.g., 169.254.0.100)
 // Firmware 9+: Add board_id to last 8 bits (e.g., 169.254.0.{100+board_id})
-wire[31:0] desired_ip_address;
 assign desired_ip_address = { (reg_wdata_in == IP_UNASSIGNED) ? reg_wdata_in[31:24]
                                                               : (reg_wdata_in[31:24] + {4'd0, board_id}),
                               reg_wdata_in[23:0] };
@@ -1889,9 +1891,6 @@ localparam[3:0]
     ST_SEND_DMA_FINISH = 4'd13;
 
 reg[3:0] sendState = ST_SEND_DMA_IDLE;
-
-// Accessing br_packet memory
-wire[31:0] br_data_out;
 
 reg[9:0] sfw_count;     // Counts words in FireWire packets (max is 1024 words, or 2048 bytes)
 reg[1:0] xcnt;          // Counts words in extra packet

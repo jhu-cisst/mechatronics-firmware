@@ -41,8 +41,8 @@ module FPGA1394V3
     output wire      E1_MDIO_C,   // eth1 MDIO clock
     output wire      E2_MDIO_C,   // eth2 MDIO clock
     // Following two directly connected in GMII to RGMII core
-    // inout wire       E1_MDIO_D,   // eth1 MDIO data
-    // inout wire       E2_MDIO_D,   // eth2 MDIO data
+    inout wire       E1_MDIO_D,   // eth1 MDIO data
+    inout wire       E2_MDIO_D,   // eth2 MDIO data
     output wire      E1_RSTn,     // eth1 PHY reset
     output wire      E2_RSTn,     // eth2 PHY reset
     input wire       E1_IRQn,     // eth1 IRQ (FPGA V3.1+)
@@ -246,9 +246,11 @@ wire[31:0] reg_rdata_vp;       // for eth memory access (low-level: VirtualPhy)
 wire[31:0] reg_rdata_esw;      // for eth memory access (EthSwitch)
 wire[31:0] reg_rdata_fw;       // for fw memory access
 wire[31:0] reg_rdata_chan0;    // for reads from board registers
+wire[31:0] reg_rdata_chan0_ext;
 
 wire reg_rwait;                // read wait state
 wire reg_rwait_chan0;
+wire reg_rwait_hub;
 wire reg_rvalid;               // reg_rdata is valid (based on reg_rwait)
 
 wire isAddrMain;
@@ -274,7 +276,6 @@ assign {reg_rdata, reg_rwait} =
 // as coming from the external board (e.g., QLA).
 // It is not necessary to check isAddrMain in the following because it is done above.
 // Also, reg_rwait = 0 for all of these.
-wire[31:0] reg_rdata_chan0_ext;
 assign reg_rdata_chan0_ext =
                    (reg_raddr[3:0]==`REG_PROMSTAT) ? prom_status :
                    (reg_raddr[3:0]==`REG_PROMRES) ? prom_result :
@@ -515,6 +516,7 @@ assign Eth_IRQn[2] = E2_IRQn;
 
 wire[7:0] eth_status_phy[1:2];   // Status bits for Ethernet ports 1 and 2
 wire[7:0] eth_status_io;         // Status bits from EthernetIO
+wire      eth_active_ps;         // Whether PS Ethernet enabled
 assign Eth_Result = { 2'b01, 1'b0, eth_status_io[7:3],                          // 31:24
                       clk125_ok, eth_status_io[2], clk200_ok, eth_status_io[0], // 23:20
                       3'd0, eth_active_ps,                                      // 19:16
@@ -538,6 +540,7 @@ assign isV30 = (hasIRQ_e[1]|hasIRQ_e[2]) ? 1'b0 : 1'b1;
 // drive RxD[1] high during reset. The other three bits do not need
 // to be driven, but the code below drives them to their default values.
 //
+wire resetActive_e[1:2];        // Ethernet port reset active
 assign E1_RxD[3:0] = resetActive_e[1] ? 4'b1011 : 4'bzzzz;
 assign E2_RxD[3:0] = resetActive_e[2] ? 4'b1011 : 4'bzzzz;
 
@@ -559,15 +562,13 @@ wire       gmii_rx_clk[1:4];
 
 wire[1:0]  clock_speed[1:2];
 wire[1:0]  speed_mode[1:2];
+wire[1:0]  link_speed[1:2];     // Link speed
 
 wire eth_fast[1:2];             // Whether Eth1, Eth2 are fast (1 GB)
 assign eth_fast[1] = link_speed[1][1]&(~link_speed[1][0]);   // 2'b10 --> 1 GB
 assign eth_fast[2] = link_speed[2][1]&(~link_speed[2][0]);   // 2'b10 --> 1 GB
 
 wire       eth_active[1:2];     // Whether Eth1, Eth2 link is on
-wire       eth_active_ps;       // Whether PS Ethernet enabled
-
-wire[1:0]  link_speed[1:2];     // Link speed
 
 wire       eth_wdog_refresh;    // Additional watchdog refresh from Ethernet
 wire       eth_ctrl_wen;        // Write enable to Ethernet control register
@@ -578,6 +579,7 @@ wire       data_ready_rt;       // Whether RT providing valid data to switch
 wire[3:0]  txinfo_rt;           // Packet information from Ethernet Switch
 wire[1:0]  txsrc_rt;            // Source port from Ethernet Switch
 wire       isHub;               // 1 -> this board may be the Ethernet Hub
+wire       isBcHub;             // 1 -> this board is the Ethernet broadcast read hub
 
 // Ethernet 4-port switch
 EthSwitch eth_switch (
@@ -666,7 +668,6 @@ wire       mdio_clk_rt[1:2];    // OUT from RTL8211F module, IN to GMII core
 wire       mdio_clk_ps;         // OUT from Zynq PS, IN to VirtualPhy
 
 // Wires between EthRtInterface and EthernetIO
-wire resetActive_e[1:2];        // Ethernet port reset active
 wire eth_isForward;             // Indicates that FireWire receiver is forwarding to Ethernet
 wire eth_responseRequired;      // Indicates that the received packet requires a response
 wire[15:0] eth_responseByteCount;   // Number of bytes in required response

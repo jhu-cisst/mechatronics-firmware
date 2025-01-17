@@ -86,6 +86,8 @@ assign motor_config = { disable_safety, force_disable_f, 4'd0, ioexp_present, 1'
 // Also, can only have voltage control if ioexp_present (QLA 1.5+).
 assign cur_ctrl = (ioexp_present && (ctrl_mode == 4'd1)) ? 1'b0 : 1'b1;
 
+wire safety_amp_disable;   // from SafetyCheck module
+
 // If we are attempting to enable power (amp_disable == 0) and an amplifier fault
 // has occurred (amp_fault == 0)
 wire amp_fault_fb;
@@ -101,9 +103,8 @@ reg[7:0] amp_enable_cnt;
 reg reg_disable;
 initial reg_disable = 1'b1;
 
-wire safety_amp_disable;   // from SafetyCheck module
-
 // Safety-related disable (updates reg_disable)
+wire safety_disable;
 assign safety_disable = wdog_timeout | safety_amp_disable;
 
 wire amp_disable;

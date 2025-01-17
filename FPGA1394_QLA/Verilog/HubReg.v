@@ -94,6 +94,7 @@ if (USE_FW)
 else
     assign board_mask_lower = 16'd0;
 
+wire board_selected;
 assign board_selected = board_mask[board_id];
 
 assign board_mask_ext = board_selected ? board_mask : 16'd0;

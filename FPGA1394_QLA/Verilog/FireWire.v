@@ -252,6 +252,28 @@ module PhyLinkInterface
     input wire[31:0] timestamp
 );
 
+    // state machine states
+    localparam[3:0]
+        ST_IDLE = 0,              // wait for phy event
+        ST_STATUS = 1,            // receive status from phy
+        ST_RX_D_ON = 2,           // rx state, data-on indication
+        ST_RX_DATA = 3,           // rx state, receiving bits
+        ST_TX = 4,                // tx state, phy gives phy-link bus to link
+        ST_TX_DRIVE = 5,          // tx state, link drives phy-link bus
+        ST_TX_ACK1 = 6,           // tx state, link transmits acknowledgement
+        ST_TX_ACK2 = 7,           // tx state, link cleans up after ack
+        ST_TX_QUAD = 8,           // tx state, link transmits quadlet response
+        ST_TX_HEAD = 9,           // tx state, link transmits block read header
+        ST_TX_HEAD_BC = 10,       // tx state, link transmits block read header for broadcast to PC
+        ST_TX_DATA = 11,          // tx state, link transmits block data (including read from hub?)
+        ST_TX_DATA_HUB = 12,      // tx state, link transmits hub block data (NOT USED?)
+`ifdef HAS_ETHERNET
+        ST_TX_FWD = 13,           // tx state, link transmits forward data from eth
+`endif
+        ST_TX_DONE1 = 14,         // tx state, link finalizes transmission
+        ST_TX_DONE2 = 15;         // tx state, phy regains phy-link bus
+
+
     // -------------------------------------------------------------------------
     // registered outputs
     //
@@ -581,28 +603,6 @@ assign fw_reg_waddr[15:8] = reg_waddr[15:8];
                 split_timeout_125usec <= reg_wdata[31:19];
         end
     end
-
-    // state machine states
-    localparam[3:0]
-        ST_IDLE = 0,              // wait for phy event
-        ST_STATUS = 1,            // receive status from phy
-        ST_RX_D_ON = 2,           // rx state, data-on indication
-        ST_RX_DATA = 3,           // rx state, receiving bits
-        ST_TX = 4,                // tx state, phy gives phy-link bus to link
-        ST_TX_DRIVE = 5,          // tx state, link drives phy-link bus
-        ST_TX_ACK1 = 6,           // tx state, link transmits acknowledgement
-        ST_TX_ACK2 = 7,           // tx state, link cleans up after ack
-        ST_TX_QUAD = 8,           // tx state, link transmits quadlet response
-        ST_TX_HEAD = 9,           // tx state, link transmits block read header
-        ST_TX_HEAD_BC = 10,       // tx state, link transmits block read header for broadcast to PC
-        ST_TX_DATA = 11,          // tx state, link transmits block data (including read from hub?)
-        ST_TX_DATA_HUB = 12,      // tx state, link transmits hub block data (NOT USED?)
-`ifdef HAS_ETHERNET
-        ST_TX_FWD = 13,           // tx state, link transmits forward data from eth
-`endif
-        ST_TX_DONE1 = 14,         // tx state, link finalizes transmission
-        ST_TX_DONE2 = 15;         // tx state, phy regains phy-link bus
-
 
     // real-time feedback broadcast packet size, in bits, including Firewire header/CRC
     //    32*[FW_header (4) + header_CRC (1) + seq (1) + data (N) + data_CRC (1)] = 32*(N+7)

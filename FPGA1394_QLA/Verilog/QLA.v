@@ -78,6 +78,8 @@ wire[31:0] reg_rdata_ds;       // for DS2505 memory access
 wire[31:0] reg_rdata_chan0;    // 'channel 0' is a special axis that contains various board I/Os
 wire reg_rwait_chan0;          // 'channel 0' read wait state
 wire[31:0] reg_rdata_ioexp;    // reads from MAX7317 I/O expander (QLA 1.5+)
+wire[31:0] reg_rdata_databuf;
+wire reg_rwait_databuf;
 
 // Mux routing read data based on read address
 //   See Constants.v for details
@@ -615,8 +617,6 @@ BoardRegsQLA chan0(
 // Data Buffer
 // --------------------------------------------------------------------------
 wire[3:0] data_channel;
-wire[31:0] reg_rdata_databuf;
-wire reg_rwait_databuf;
 
 DataBuffer data_buffer(
     .clk(sysclk),

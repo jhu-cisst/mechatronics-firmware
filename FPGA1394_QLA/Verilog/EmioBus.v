@@ -105,6 +105,10 @@ wire ps_req_bus;
 // adds significant overhead. Therefore, we instead use a separate line.
 wire ps_addr_lsb;
 
+wire ps_reg_wen;
+wire ps_blk_start;
+wire ps_blk_end;
+
 // Following are not synchronized with sysclk, but should be stable
 // since they are not used until the read or write bus is granted
 // (some are synchronized with sysclk below).

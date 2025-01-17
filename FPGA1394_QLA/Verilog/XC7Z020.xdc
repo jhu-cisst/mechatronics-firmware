@@ -214,7 +214,8 @@ set_property PULLUP true [get_ports {data[7]}]
 
 # port clk1394
 create_clock -period 20.345 -name CLK_IN1394x -waveform {0.000 10.1725} [get_ports clk1394]
-set_input_jitter CLK_IN1394x 0.1  # ns (100 ps)
+# input jitter is 100 ps (0.1 ns)
+set_input_jitter CLK_IN1394x 0.1
 
 ################################################################################
 # LED Output
