@@ -55,7 +55,7 @@ function (vivado_block_config TARGET_NAME EXPORTED_TCL_IN)
     file (WRITE  ${FILE_UPDATE} "# Automatically generated\n")
     file (APPEND ${FILE_UPDATE} "file (READ ${EXPORTED_TCL_IN} FILE_CONTENTS)\n")
     file (APPEND ${FILE_UPDATE}
-                 "string (REGEX REPLACE \"202[0-5].[1-2]\" ${Vivado_VERSION} FILE_CONTENTS \"\${FILE_CONTENTS}\")\n")
+                 "string (REGEX REPLACE \"version 202[0-5].[1-2]\" \"version ${Vivado_VERSION}\" FILE_CONTENTS \"\${FILE_CONTENTS}\")\n")
     file (APPEND ${FILE_UPDATE} "file (WRITE ${EXPORTED_TCL_OUT} \"\${FILE_CONTENTS}\")\n")
 
     add_custom_command (OUTPUT ${EXPORTED_TCL_OUT}
@@ -212,7 +212,7 @@ function (vivado_block_ip)
     # Copy IP to IPCORE_DIR (after deleting any existing file)
     file (APPEND ${TCL_FILE} "file delete -force ${OUTPUT_DIR}\n")
     file (APPEND ${TCL_FILE} "copy_ip -name ${TARGET_NAME} -dir ${IPCORE_DIR} [get_ips *${IP_NAME}*]\n")
-    file (APPEND ${TCL_FILE} "exec ${CMAKE_COMMAND} -P ${FILE_UPDATE_XCI}\n")
+    file (APPEND ${TCL_FILE} "exec {${CMAKE_COMMAND}} -P ${FILE_UPDATE_XCI}\n")
     file (APPEND ${TCL_FILE} "close_project\n")
     file (APPEND ${TCL_FILE} "create_project -part ${FPGA_PARTNUM} -in_memory\n")
     # Following does not seem to work (does not change where IP output is generated), so the update-xci.cmake

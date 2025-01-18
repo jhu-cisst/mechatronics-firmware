@@ -44,6 +44,9 @@ set (IPCORE_BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/ipcore_dir")
 set (IPCOREV3_BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/ipcorev3_dir")
 set (XPSCORE_BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/ipcorev3_dir/xps")
 
+# Git is used by CreateVersions.cmake, which is used to generate Versions.v
+find_package (Git REQUIRED)
+
 if (XilinxISE_FOUND)
     add_subdirectory(ipcore_dir)
 endif ()
@@ -64,10 +67,12 @@ add_custom_command (OUTPUT "${VERILOG_BINARY_DIR}/Versions-New.v"
                     COMMAND ${CMAKE_COMMAND} -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
                                              -DFIRMWARE_VERSION=${FIRMWARE_VERSION}
                                              -DOUTPUT_FILE="${VERILOG_BINARY_DIR}/Versions-New.v"
+                                             -DGIT_EXECUTABLE=${GIT_EXECUTABLE}
                                              -P "${FIRMWARE_CMAKE_PATH}/CreateVersions.cmake"
                     COMMENT "Creating Versions.v")
 
 add_custom_target (VersionFile ALL
+                   BYPRODUCTS "${VERILOG_BINARY_DIR}/Versions.v"
                    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${VERILOG_BINARY_DIR}/Versions-New.v"
                                                                  "${VERILOG_BINARY_DIR}/Versions.v"
                    COMMAND ${CMAKE_COMMAND} -E remove -f "${VERILOG_BINARY_DIR}/Versions-New.v"
