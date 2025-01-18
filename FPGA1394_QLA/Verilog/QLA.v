@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2011-2024 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2011-2025 ERC CISST, Johns Hopkins University.
  *
  * This module contains common code for the QLA and used with all FPGA versions
  *
@@ -80,6 +80,7 @@ wire reg_rwait_chan0;          // 'channel 0' read wait state
 wire[31:0] reg_rdata_ioexp;    // reads from MAX7317 I/O expander (QLA 1.5+)
 wire[31:0] reg_rdata_databuf;
 wire reg_rwait_databuf;
+wire[31:0] reg_rtable;
 
 // Mux routing read data based on read address
 //   See Constants.v for details
@@ -380,7 +381,6 @@ assign reg_rd[`OFF_RUN_DATA] = reg_run_data;     // running counter
 
 wire[31:0] reg_rdout;
 assign reg_rd[`OFF_DOUT_CTRL] = reg_rdout;
-wire[31:0] reg_rtable;
 
 // DOUT hardware configuration
 wire dout_config_valid;

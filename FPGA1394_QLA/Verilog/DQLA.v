@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2011-2024 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2011-2025 ERC CISST, Johns Hopkins University.
  *
  * This module contains code for the DQLA (dual QLA) interface
  *
@@ -273,6 +273,7 @@ reg[31:0]  reg_rdata_ioexp;      // reads from MAX7317 I/O expander (QLA 1.5+)
 wire[31:0] reg_rdata_ioexp_1;    // reads from MAX7317 I/O expander (QLA 1.5+)
 wire[31:0] reg_rdata_ioexp_2;    // reads from MAX7317 I/O expander (QLA 1.5+)
 wire[31:0] reg_rdata_ioexp_3;    // reads from MAX7301 I/O expander (DQLA)
+wire[31:0] reg_rtable;
 
 assign reg_rdata_prom_qla = (reg_raddr[7:4] == 4'd1) ? reg_rdata_prom_qla1 :
                             (reg_raddr[7:4] == 4'd2) ? reg_rdata_prom_qla2 :
@@ -639,11 +640,12 @@ assign reg_rd[`OFF_RUN_DATA] = reg_run_data;     // running counter
 
 wire[31:0] reg_rdout;
 assign reg_rd[`OFF_DOUT_CTRL] = reg_rdout;
-wire[31:0] reg_rtable;
 
 // DOUT hardware configuration
-wire dout_config_valid;
-wire dout_config_bidir;
+wire Q1_dout_config_valid;
+wire Q2_dout_config_valid;
+wire Q1_dout_config_bidir;
+wire Q2_dout_config_bidir;
 wire dout_config_reset;
 wire[31:0] dout;
 wire Q1_dir12_cd;

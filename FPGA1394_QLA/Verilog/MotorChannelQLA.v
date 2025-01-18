@@ -3,7 +3,7 @@
 
 /*******************************************************************************    
  *
- * Copyright(C) 2022-2023 Johns Hopkins University.
+ * Copyright(C) 2022-2025 Johns Hopkins University.
  *
  * This module handles a motor channel for the QLA
  *
@@ -87,6 +87,7 @@ assign motor_config = { disable_safety, force_disable_f, 4'd0, ioexp_present, 1'
 assign cur_ctrl = (ioexp_present && (ctrl_mode == 4'd1)) ? 1'b0 : 1'b1;
 
 wire safety_amp_disable;   // from SafetyCheck module
+wire amp_disable;
 
 // If we are attempting to enable power (amp_disable == 0) and an amplifier fault
 // has occurred (amp_fault == 0)
@@ -107,7 +108,6 @@ initial reg_disable = 1'b1;
 wire safety_disable;
 assign safety_disable = wdog_timeout | safety_amp_disable;
 
-wire amp_disable;
 assign amp_disable = reg_disable|mv_amp_disable;
 
 // Signal to disable follower op amp (QLA Rev 1.5+)

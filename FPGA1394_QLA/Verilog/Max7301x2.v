@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2022-2023 Johns Hopkins University.
+ * Copyright(C) 2022-2025 Johns Hopkins University.
  *
  * Module: Max7301x2
  *
@@ -231,6 +231,7 @@ assign PollCommands[3] = 16'h0000;    // NOP
 // Interface to host PC is used for testing (not needed during normal operation)
 
 // Externally-generated write (e.g., from PC)
+wire ioexp_reg_wen;
 assign ioexp_reg_wen = (reg_waddr == {`ADDR_MAIN, 8'd0, `REG_IO_EXP}) ? reg_wen : 1'b0;
 
 reg last_ioexp_reg_wen;       // Used to detect initial edge of ioexp_reg_wen

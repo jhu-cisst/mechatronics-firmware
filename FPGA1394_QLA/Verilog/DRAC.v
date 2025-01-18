@@ -340,6 +340,8 @@ PowerControl #(.NUM_INTERLOCKS(5)) PowerControl_instance
 // BoardRegs
 // --------------------------------------------------------------------------
 
+wire mv_amp_disable;
+
 wire[31:0] reg_status;    // Status register
 wire[31:0] reg_digin;     // Digital I/O register
 wire[15:0] tempsense;     // Temperature sensor
@@ -356,7 +358,7 @@ BoardRegsDRAC chan0(
     .mv_amp_disable(mv_amp_disable),
     .safety_fb(SAFETY_CHAIN_GOOD),
     .board_id(board_id),
-    .temp_sense({(blk_rt_rd ? reg_databuf : 16'd0), tempsense}),
+    .temp_sense({(sample_read ? reg_databuf : 16'd0), tempsense}),
     .is_ecm(is_ecm),
     .reg_status12(reg_status12),
     .reg_raddr(reg_raddr),
@@ -565,8 +567,6 @@ reg [5:0] espm_bram_pre_crc_raddr;
 reg espm_bram_we;
 cdc_pulse crc_good_espm_cdc (LVDS_RCLK, crc_good_espm, sysclk, crc_good_espm_sysclk);
 reg copy_state;
-
-assign reg_rdata_espm_debug = 'd0;
 
 always @(posedge sysclk) begin
     if (espm_bram_we) begin
@@ -836,6 +836,8 @@ ws2811 #(.NUM_LEDS(7),.SYSTEM_CLOCK(49_152_000)) ws2811_instance (
 //    - TEMP version, interface subject to future change
 // --------------------------------------------------------------------------
 
+wire qla_prom_mosi;
+wire qla_prom_sclk;
 assign IO1[2] = qla_prom_mosi;
 assign IO1[3] = qla_prom_sclk;
 wire qla_prom_busy;
