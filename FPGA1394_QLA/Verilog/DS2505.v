@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2018-2022 Johns Hopkins University.
+ * Copyright(C) 2018-2025 Johns Hopkins University.
  *
  * Module: DS2505
  *
@@ -35,7 +35,7 @@
 
 module DS2505(
     input  wire clk,                 // input clock (49.152 MHz)
-    input  wire[15:0] reg_raddr,     // read address
+    input  wire[5:0] reg_raddr,      // read address (lowest 6 bits)
     input  wire[15:0] reg_waddr,     // write address
     output reg[31:0]  reg_rdata,     // read data (to Firewire)
     input  wire[31:0] reg_wdata,     // write data (from Firewire)

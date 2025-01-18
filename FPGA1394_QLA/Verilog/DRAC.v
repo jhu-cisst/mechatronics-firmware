@@ -413,7 +413,8 @@ DataBuffer data_buffer(
     .chan(data_channel),
     // cpu interface
     .reg_waddr(reg_waddr),          // write address
-    .reg_wdata(reg_wdata),          // write data
+    .collect_bit(reg_wdata[30]),    // collect bit
+    .reg_wdata(reg_wdata[15:0]),    // write data
     .reg_wen(reg_wen),              // write enable
     .reg_raddr(reg_raddr),          // read address
     .reg_rdata(reg_rdata_databuf),  // read data

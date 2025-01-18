@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2008-2023 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2008-2025 ERC CISST, Johns Hopkins University.
  *
  * This module contains a register file dedicated to general board parameters
  * for the QLA.
@@ -64,7 +64,7 @@ module BoardRegsQLA
     input  wire[11:0] reg_status12, // lowest 12-bits of status register (amplifier-related)
 
     // register file interface
-    input  wire[15:0] reg_raddr,     // register read address
+    input  wire[3:0] reg_raddr,      // register read address (lowest 4 bits)
     input  wire[15:0] reg_waddr,     // register write address
     output reg[31:0] reg_rdata,      // register read data
     output wire reg_rwait,           // register read wait state
@@ -109,7 +109,7 @@ module BoardRegsQLA
 //
 
 wire write_main;
-assign write_main = ((reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[7:4]==4'd0) && reg_wen) ? 1'b1 : 1'b0;
+assign write_main = ((reg_waddr[15:4]=={`ADDR_MAIN,8'd0}) && reg_wen) ? 1'b1 : 1'b0;
 wire write_status;
 assign write_status = (write_main && (reg_waddr[3:0] == `REG_STATUS)) ? 1'b1 : 1'b0;
 

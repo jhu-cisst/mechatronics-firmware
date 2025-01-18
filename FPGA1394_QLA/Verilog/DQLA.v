@@ -942,7 +942,7 @@ DS2505 ds_instrument(
     .clk(sysclk),
 
     // address & wen
-    .reg_raddr(reg_raddr),
+    .reg_raddr(reg_raddr[5:0]),
     .reg_waddr(reg_waddr),
     .reg_wdata(reg_wdata),
     .reg_rdata(reg_rdata_ds),

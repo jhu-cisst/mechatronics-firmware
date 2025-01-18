@@ -551,7 +551,7 @@ DS2505 ds_instrument(
     .clk(sysclk),
 
     // address & wen
-    .reg_raddr(reg_raddr),
+    .reg_raddr(reg_raddr[5:0]),
     .reg_waddr(reg_waddr),
     .reg_wdata(reg_wdata),
     .reg_rdata(reg_rdata_ds),
@@ -602,7 +602,7 @@ BoardRegsQLA chan0(
     .board_id(board_id),
     .temp_sense({(blk_rt_rd ? reg_databuf : 16'd0), tempsense}),
     .reg_status12(reg_status12),
-    .reg_raddr(reg_raddr),
+    .reg_raddr(reg_raddr[3:0]),
     .reg_waddr(reg_waddr),
     .reg_rdata(reg_rdata_chan0),
     .reg_rwait(reg_rwait_chan0),
@@ -626,7 +626,8 @@ DataBuffer data_buffer(
     .chan(data_channel),
     // cpu interface
     .reg_waddr(reg_waddr),          // write address
-    .reg_wdata(reg_wdata),          // write data
+    .collect_bit(reg_wdata[30]),    // collect bit
+    .reg_wdata(reg_wdata[15:0]),    // write data
     .reg_wen(reg_wen),              // write enable
     .reg_raddr(reg_raddr),          // read address
     .reg_rdata(reg_rdata_databuf),  // read data

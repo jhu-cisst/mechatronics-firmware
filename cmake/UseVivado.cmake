@@ -158,6 +158,10 @@ endfunction (vivado_block_build)
 #   - FPGA_PARTNUM:      FPGA part number
 #   - BLOCK_IN           Block design input (target that updates TCL file)
 #   - IPCORE_DIR         Directory for output xci file (optional)
+#
+# This functions sets two properties on the TARGET:
+#   SOURCES      ${TARGET_NAME}.xci
+#   OUTPUT_NAME  ${TARGET_NAME}_stub.v
 
 function (vivado_block_ip)
 
@@ -194,15 +198,16 @@ function (vivado_block_ip)
     get_property (EXPORTED_TCL TARGET ${BLOCK_IN} PROPERTY OUTPUT_NAME)
 
     set (OUTPUT_DIR  "${IPCORE_DIR}/${TARGET_NAME}")
-    set (OUTPUT_FILE "${OUTPUT_DIR}/${TARGET_NAME}.xci")
+    set (OUTPUT_FILE_XCI     "${OUTPUT_DIR}/${TARGET_NAME}.xci")
+    set (OUTPUT_FILE_VERILOG "${OUTPUT_DIR}/${TARGET_NAME}_stub.v")
 
     # CMake file to fix directories (gen_directory and OUTPUTDIR) in xci file
     set (FILE_UPDATE_XCI "${CMAKE_CURRENT_BINARY_DIR}/update-xci.cmake")
     file (WRITE  ${FILE_UPDATE_XCI} "# Automatically generated\n")
-    file (APPEND ${FILE_UPDATE_XCI} "file (READ ${OUTPUT_FILE} FILE_CONTENTS)\n")
+    file (APPEND ${FILE_UPDATE_XCI} "file (READ ${OUTPUT_FILE_XCI} FILE_CONTENTS)\n")
     file (APPEND ${FILE_UPDATE_XCI}
                  "string (REPLACE \"../.gen/sources_1/ip/${TARGET_NAME}\" \".\" FILE_CONTENTS \"\${FILE_CONTENTS}\")\n")
-    file (APPEND ${FILE_UPDATE_XCI} "file (WRITE ${OUTPUT_FILE} \"\${FILE_CONTENTS}\")\n")
+    file (APPEND ${FILE_UPDATE_XCI} "file (WRITE ${OUTPUT_FILE_XCI} \"\${FILE_CONTENTS}\")\n")
 
     # Create TCL file
     set (TCL_FILE "${CMAKE_CURRENT_BINARY_DIR}/make-${TARGET_NAME}.tcl")
@@ -218,7 +223,9 @@ function (vivado_block_ip)
     # Following does not seem to work (does not change where IP output is generated), so the update-xci.cmake
     # approach was used instead (see above).
     # file (APPEND ${TCL_FILE} "set_property CUSTOMIZED_DEFAULT_IP_LOCATION ${OUTPUT_DIR} [current_project]\n")
-    file (APPEND ${TCL_FILE} "read_ip ${OUTPUT_FILE}\n")
+    # Disable message 12-13650 (IP moved from original location) because it is not important
+    file (APPEND ${TCL_FILE} "set_msg_config -id {Vivado 12-13650} -suppress\n")
+    file (APPEND ${TCL_FILE} "read_ip ${OUTPUT_FILE_XCI}\n")
     # Generate targets and synthesize IP core
     file (APPEND ${TCL_FILE} "puts \"Synthesizing ${TARGET_NAME}\"\n")
     file (APPEND ${TCL_FILE} "set_property GENERATE_SYNTH_CHECKPOINT true [get_files ${TARGET_NAME}.xci]\n")
@@ -226,17 +233,20 @@ function (vivado_block_ip)
     file (APPEND ${TCL_FILE} "synth_ip -force [get_ips ${TARGET_NAME}]\n")
     file (APPEND ${TCL_FILE} "close_project\n")
 
-    add_custom_command (OUTPUT ${OUTPUT_FILE}
+    add_custom_command (OUTPUT ${OUTPUT_FILE_XCI} ${OUTPUT_FILE_VERILOG}
                         COMMAND ${VIVADO_NATIVE} -nojournal -mode batch -log ${TARGET_NAME}.log -source ${TCL_FILE} -notrace
                         COMMENT "Copying IP Core ${IP_NAME} from Block Design to ${TARGET_NAME}"
 			DEPENDS ${EXPORTED_TCL})
 
     add_custom_target (${TARGET_NAME} ALL
                        COMMENT "Checking IP Core ${TARGET_NAME} (from Block Design)"
-                       DEPENDS ${OUTPUT_FILE} ${BLOCK_IN})
+                       DEPENDS ${OUTPUT_FILE_XCI} ${OUTPUT_FILE_VERILOG} ${BLOCK_IN})
 
     set_property (TARGET ${TARGET_NAME}
-                         PROPERTY OUTPUT_NAME ${OUTPUT_FILE})
+                         PROPERTY SOURCES ${OUTPUT_FILE_XCI})
+
+    set_property (TARGET ${TARGET_NAME}
+                         PROPERTY OUTPUT_NAME ${OUTPUT_FILE_VERILOG})
 
   else ()
 
@@ -252,6 +262,10 @@ endfunction (vivado_block_ip)
 #   - IP_NAME:            IP name (in catalog)
 #   - PROPERTIES:         list of properties for IP core (optional)
 #   - IPCORE_DIR          directory for output file (xci)
+#
+# This functions sets two properties on the TARGET:
+#   SOURCES      ${TARGET_NAME}.xci
+#   OUTPUT_NAME  ${TARGET_NAME}_stub.v
 
 function (vivado_ip_gen)
 
@@ -312,18 +326,23 @@ function (vivado_ip_gen)
     file (APPEND ${TCL_FILE} "synth_ip -force [get_ips ${TARGET_NAME}]\n")
     file (APPEND ${TCL_FILE} "close_project\n")
 
-    set (OUTPUT_FILE "${IPCORE_DIR}/${TARGET_NAME}/${TARGET_NAME}.xci")
+    set (OUTPUT_DIR  "${IPCORE_DIR}/${TARGET_NAME}")
+    set (OUTPUT_FILE_XCI     "${OUTPUT_DIR}/${TARGET_NAME}.xci")
+    set (OUTPUT_FILE_VERILOG "${OUTPUT_DIR}/${TARGET_NAME}_stub.v")
 
-    add_custom_command (OUTPUT ${OUTPUT_FILE}
+    add_custom_command (OUTPUT ${OUTPUT_FILE_XCI} ${OUTPUT_FILE_VERILOG}
                         COMMAND ${VIVADO_NATIVE} -nojournal -mode batch -log ${TARGET_NAME}.log -source ${TCL_FILE} -notrace
                         COMMENT "Creating IP Core ${TARGET_NAME}")
 
     add_custom_target (${TARGET_NAME} ALL
                        COMMENT "Checking IP Core ${TARGET_NAME}"
-                       DEPENDS ${OUTPUT_FILE})
+                       DEPENDS ${OUTPUT_FILE_XCI} ${OUTPUT_FILE_VERILOG})
 
     set_property (TARGET ${TARGET_NAME}
-                         PROPERTY OUTPUT_NAME ${OUTPUT_FILE})
+                         PROPERTY SOURCES ${OUTPUT_FILE_XCI})
+
+    set_property (TARGET ${TARGET_NAME}
+                         PROPERTY OUTPUT_NAME ${OUTPUT_FILE_VERILOG})
 
   else ()
 
@@ -399,9 +418,12 @@ function (vivado_compile_fpga)
       file (APPEND ${TCL_FILE} "read_xdc ${BOARD_XDC_FILE}\n")
     endif ()
 
+    set (IP_SOURCE "")
     foreach (ip ${IP_TARGETS})
-      get_property(xci_file TARGET ${ip} PROPERTY OUTPUT_NAME)
+      get_property(xci_file TARGET ${ip} PROPERTY SOURCES)
       file (APPEND ${TCL_FILE} "read_ip ${xci_file}\n")
+      get_property(verilog_file TARGET ${ip} PROPERTY OUTPUT_NAME)
+      set (IP_SOURCE ${IP_SOURCE} ${verilog_file})
     endforeach (ip)
 
     # Synthesize
@@ -448,7 +470,7 @@ function (vivado_compile_fpga)
 
     add_custom_command (OUTPUT ${OUTPUT_FILE}
       COMMAND ${VIVADO_NATIVE} -nojournal -mode batch -log ${PROJ_NAME}.log -source ${TCL_FILE} -notrace
-      DEPENDS ${VERILOG_SOURCE} ${XDC_FILE})
+      DEPENDS ${VERILOG_SOURCE} ${IP_SOURCE} ${XDC_FILE})
 
     add_custom_target (${PROJ_NAME} ALL
                        DEPENDS ${OUTPUT_FILE} ${IP_TARGETS} ${DEPENDENCIES})
