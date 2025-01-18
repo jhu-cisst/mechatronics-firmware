@@ -3,9 +3,9 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2011-2024 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2011-2025 ERC CISST, Johns Hopkins University.
  *
- * This module contains common code for the QLA and used with all FPGA versions
+ * This module contains common code for the DRAC
  *
  * Revision history
  *     1/1/23    Keshuai Xu   Initial version adapted from QLA.v
@@ -638,6 +638,14 @@ end
 
 reg [4:0] preload_count;
 reg [4:0] preload_count_prev;
+wire [23:0] pos_plus_preload [1:7];
+genvar pos_i;
+generate
+for (pos_i = 1; pos_i < 8; pos_i = pos_i+1) begin : plus_loop
+    assign pos_plus_preload[pos_i] = rdata_pos[pos_i][23:0] + encoder_preload_offset[pos_i];
+end
+endgenerate
+
 integer encoder_overflow_i;
 always @(posedge sysclk)
 begin
@@ -648,8 +656,8 @@ begin
         encoder_overflow[reg_waddr[7:4]] <= 'b0;
     end else begin
         for (encoder_overflow_i = 1; encoder_overflow_i < 8; encoder_overflow_i = encoder_overflow_i + 1) begin
-            if ({rdata_pos[encoder_overflow_i][23:0] + encoder_preload_offset[encoder_overflow_i]}[23:12] == 'h0 ||
-             {rdata_pos[encoder_overflow_i][23:0] + encoder_preload_offset[encoder_overflow_i]}[23:12] == 'hfff) begin
+            if ((pos_plus_preload[encoder_overflow_i][23:12] == 'h0) ||
+                (pos_plus_preload[encoder_overflow_i][23:12] == 'hfff)) begin
                 encoder_overflow[encoder_overflow_i] <= 'b1;
             end
         end
