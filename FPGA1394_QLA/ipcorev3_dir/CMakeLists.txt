@@ -51,7 +51,9 @@ if (Vivado_FOUND)
        "CONFIG.Input_Data_Width 10"
        "CONFIG.Input_Depth 8192"
        "CONFIG.Underflow_Flag true"
-       "CONFIG.Valid_Flag true")
+       "CONFIG.Valid_Flag true"
+       "CONFIG.WRITE_CLK.FREQ_HZ 125000000"
+       "CONFIG.READ_CLK.FREQ_HZ  125000000")
 
   vivado_ip_gen (TARGET_NAME "fifo_10x8192"
                  IP_NAME     "fifo_generator"
@@ -64,7 +66,9 @@ if (Vivado_FOUND)
        "CONFIG.Full_Flags_Reset_Value 0"
        "CONFIG.Input_Data_Width 4"
        "CONFIG.Input_Depth 128"
-       "CONFIG.Valid_Flag true")
+       "CONFIG.Valid_Flag true"
+       "CONFIG.WRITE_CLK.FREQ_HZ 125000000"
+       "CONFIG.READ_CLK.FREQ_HZ  125000000")
 
   vivado_ip_gen (TARGET_NAME "fifo_4x128"
                  IP_NAME     "fifo_generator"

@@ -40,7 +40,7 @@ module FPGA1394V3
     // Ethernet PHYs (RTL8211F)
     output wire      E1_MDIO_C,   // eth1 MDIO clock
     output wire      E2_MDIO_C,   // eth2 MDIO clock
-    // Following two directly connected in GMII to RGMII core
+    // Following two directly connected in GMII to RGMII core (in ISE)
     inout wire       E1_MDIO_D,   // eth1 MDIO data
     inout wire       E2_MDIO_D,   // eth2 MDIO data
     output wire      E1_RSTn,     // eth1 PHY reset
@@ -1027,8 +1027,15 @@ processing_system7_0 ps7(
     .ENET0_MDIO_MDC(mdio_clk_ps),
     .ENET0_MDIO_I(mdio_i_ps),
     .ENET0_MDIO_O(mdio_o_ps),
-    .ENET0_MDIO_T(mdio_t_ps)
+    .ENET0_MDIO_T(mdio_t_ps),
+    .ENET0_EXT_INTIN(1'b0),   // No interrupts
+    .ENET0_GMII_COL(1'b0),    // No collisions
+    .ENET0_GMII_CRS(1'b0)     // No carrier-sense
 );
+
+wire E1_mdio_i;
+wire E1_mdio_o;
+wire E1_mdio_t;
 
 gmii_to_rgmii_1 g2r1(
     .clkin(clk_200MHz),
@@ -1051,9 +1058,26 @@ gmii_to_rgmii_1 g2r1(
     .gmii_tx_clk(gmii_tx_clk[1]),
     .gmii_tx_er(gmii_tx_err[1]),
     .mdio_phy_mdc(E1_MDIO_C),       // MDIO clock from GMII core (derived from mdio_clk_rt[1])
+    .mdio_phy_i(E1_mdio_i),
+    .mdio_phy_o(E1_mdio_o),
+    .mdio_phy_t(E1_mdio_t),
     .clock_speed(clock_speed[1]),   // Clock speed (Rx)
-    .speed_mode(speed_mode[1])      // Speed mode (Tx)
+    .speed_mode(speed_mode[1]),     // Speed mode (Tx)
+    .tx_reset(1'b0),
+    .rx_reset(1'b0)
 );
+
+// Note that I and O intentionally swapped
+IOBUF g2r1buf(
+    .I(E1_mdio_o),
+    .O(E1_mdio_i),
+    .T(E1_mdio_t),
+    .IO(E1_MDIO_D)
+);
+
+wire E2_mdio_i;
+wire E2_mdio_o;
+wire E2_mdio_t;
 
 gmii_to_rgmii_2 g2r2(
     .clkin(clk_200MHz),
@@ -1076,8 +1100,21 @@ gmii_to_rgmii_2 g2r2(
     .gmii_tx_clk(gmii_tx_clk[2]),
     .gmii_tx_er(gmii_tx_err[2]),
     .mdio_phy_mdc(E2_MDIO_C),       // MDIO clock from GMII core (derived from mdio_clk_rt[2])
+    .mdio_phy_i(E2_mdio_i),
+    .mdio_phy_o(E2_mdio_o),
+    .mdio_phy_t(E2_mdio_t),
     .clock_speed(clock_speed[2]),   // Clock speed (Rx)
-    .speed_mode(speed_mode[2])      // Speed mode (Tx)
+    .speed_mode(speed_mode[2]),     // Speed mode (Tx)
+    .tx_reset(1'b0),
+    .rx_reset(1'b0)
+);
+
+// Note that I and O intentionally swapped
+IOBUF g2r2buf(
+    .I(E2_mdio_o),
+    .O(E2_mdio_i),
+    .T(E2_mdio_t),
+    .IO(E2_MDIO_D)
 );
 
 `else  // Using ISE

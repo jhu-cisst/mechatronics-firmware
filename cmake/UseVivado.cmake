@@ -201,7 +201,7 @@ function (vivado_block_ip)
     file (WRITE  ${FILE_UPDATE_XCI} "# Automatically generated\n")
     file (APPEND ${FILE_UPDATE_XCI} "file (READ ${OUTPUT_FILE} FILE_CONTENTS)\n")
     file (APPEND ${FILE_UPDATE_XCI}
-                 "string (REPLACE \"../.gen/sources_1/ip/${TARGET_NAME}\" \"${OUTPUT_DIR}\" FILE_CONTENTS \"\${FILE_CONTENTS}\")\n")
+                 "string (REPLACE \"../.gen/sources_1/ip/${TARGET_NAME}\" \".\" FILE_CONTENTS \"\${FILE_CONTENTS}\")\n")
     file (APPEND ${FILE_UPDATE_XCI} "file (WRITE ${OUTPUT_FILE} \"\${FILE_CONTENTS}\")\n")
 
     # Create TCL file
@@ -288,6 +288,8 @@ function (vivado_ip_gen)
     # Create TCL file
     set (TCL_FILE "${CMAKE_CURRENT_BINARY_DIR}/make-${TARGET_NAME}.tcl")
     file (WRITE  ${TCL_FILE} "create_project -part ${FPGAV3_PARTNUM} -in_memory\n")
+    # Disable message 12-13650 (IP moved from original location) because it is not important
+    file (APPEND ${TCL_FILE} "set_msg_config -id {Vivado 12-13650} -suppress\n")
     # Find the IP by searching repository based on IP_NAME
     file (APPEND ${TCL_FILE} "set ip_vlnv [get_ipdefs *:${IP_NAME}:* -filter {UPGRADE_VERSIONS == \"\"}]\n")
     # Display the version found (not required -- for information only)
@@ -386,6 +388,8 @@ function (vivado_compile_fpga)
     set (TCL_FILE "${CMAKE_CURRENT_BINARY_DIR}/make-${PROJ_NAME}.tcl")
     file (WRITE  ${TCL_FILE} "create_project -part ${FPGAV3_PARTNUM} -in_memory\n")
 
+    # Disable message 12-13650 (IP moved from original location) because it is not important
+    file (APPEND ${TCL_FILE} "set_msg_config -id {Vivado 12-13650} -suppress\n")
     foreach (vfile ${VERILOG_SOURCE})
       file (APPEND ${TCL_FILE} "read_verilog ${vfile}\n")
     endforeach (vfile)
