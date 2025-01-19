@@ -784,9 +784,9 @@ VirtualPhy VPhy(
 
 // Provide 125 MHz clock for gmii_rx_clk[3] and gmii_tx_clk[3].
 // Inverting clock to provide delay between Tx src and dest.
-// In the future, this can be replaced by a Tx clk with a 90 degree
-// phase shift, which can be obtained from a more recent gmii_to_rgmii
-// IP core (provided with Vivado).
+// In Vivado, this could be replaced by a Tx clk with a 90 degree
+// phase shift, which can be obtained from the gmii_to_rgmii
+// IP core (CONFIG.RGMII_TXC_SKEW 2).
 
 wire clk_125A;
 wire clk_125B;
@@ -1026,6 +1026,22 @@ wire clk_200MHz;
 
 `ifdef USE_VIVADO
 
+// For Vivado, need to add a register to improve timing; it appears that the
+// FIFO output is too slow. The FIFO can be configured to include an output
+// register (CONFIG.Use_Embedded_Registers true), with CONFIG.Output_Register_Type
+// set to Fabric_Reg (or Embedded_Reg or even Both), but since the FIFO is used
+// in many other places, we add the register here instead.
+reg gmii_tx_en_3;
+reg gmii_tx_err_3;
+reg[7:0] gmii_txd_3;
+
+always @(posedge gmii_tx_clk3_src)
+begin
+    gmii_tx_en_3 <= gmii_tx_en[3];
+    gmii_tx_err_3 <= gmii_tx_err[3];
+    gmii_txd_3 <= gmii_txd[3];
+end
+
 processing_system7_0 ps7(
     .MIO(MIO),
     .DDR_CAS_n(DDR_CAS_n),
@@ -1057,9 +1073,9 @@ processing_system7_0 ps7(
 
     // Note that Rx and Tx are swapped
     .ENET0_GMII_RX_CLK(gmii_tx_clk3_dest),
-    .ENET0_GMII_RX_DV(gmii_tx_en[3]),
-    .ENET0_GMII_RX_ER(gmii_tx_err[3]),
-    .ENET0_GMII_RXD(gmii_txd[3]),
+    .ENET0_GMII_RX_DV(gmii_tx_en_3),
+    .ENET0_GMII_RX_ER(gmii_tx_err_3),
+    .ENET0_GMII_RXD(gmii_txd_3),
     .ENET0_GMII_TX_EN(gmii_rx_dv[3]),
     .ENET0_GMII_TX_ER(gmii_rx_err[3]),
     .ENET0_GMII_TX_CLK(gmii_rx_clk[3]),
@@ -1076,10 +1092,10 @@ processing_system7_0 ps7(
 // Following wires are for shared logic between gmii_to_rgmii_1
 // and gmii_to_rgmii_2.
 wire shared_clk_200;
+wire shared_mmcm_lock;
 wire shared_clk_125;
 wire shared_clk_25;
 wire shared_clk_2p5;
-wire shared_mmcm_lock;
 
 // Eth1 MDIO
 wire E1_mdio_i;
