@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2011-2024 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2011-2025 ERC CISST, Johns Hopkins University.
  *
  * This module contains common code for FPGA V3 and does not make any assumptions
  * about which board is connected.
@@ -1073,12 +1073,26 @@ processing_system7_0 ps7(
     .ENET0_GMII_CRS(1'b0)     // No carrier-sense
 );
 
+// Following wires are for shared logic between gmii_to_rgmii_1
+// and gmii_to_rgmii_2.
+wire shared_clk_200;
+wire shared_clk_125;
+wire shared_clk_25;
+wire shared_clk_2p5;
+wire shared_mmcm_lock;
+
+// Eth1 MDIO
 wire E1_mdio_i;
 wire E1_mdio_o;
 wire E1_mdio_t;
 
 gmii_to_rgmii_1 g2r1(
     .clkin(clk_200MHz),
+    .ref_clk_out(shared_clk_200),
+    .mmcm_locked_out(shared_mmcm_lock),
+    .gmii_clk_125m_out(shared_clk_125),
+    .gmii_clk_25m_out(shared_clk_25),
+    .gmii_clk_2_5m_out(shared_clk_2p5),
     .rgmii_txd(E1_TxD),
     .rgmii_tx_ctl(E1_TxEN),
     .rgmii_txc(E1_TxCLK),
@@ -1115,12 +1129,17 @@ IOBUF g2r1buf(
     .IO(E1_MDIO_D)
 );
 
+// Eth2 MDIO
 wire E2_mdio_i;
 wire E2_mdio_o;
 wire E2_mdio_t;
 
 gmii_to_rgmii_2 g2r2(
-    .clkin(clk_200MHz),
+    .ref_clk_in(shared_clk_200),
+    .mmcm_locked_in(shared_mmcm_lock),
+    .gmii_clk_125m_in(shared_clk_125),
+    .gmii_clk_25m_in(shared_clk_25),
+    .gmii_clk_2_5m_in(shared_clk_2p5),
     .rgmii_txd(E2_TxD),
     .rgmii_tx_ctl(E2_TxEN),
     .rgmii_txc(E2_TxCLK),

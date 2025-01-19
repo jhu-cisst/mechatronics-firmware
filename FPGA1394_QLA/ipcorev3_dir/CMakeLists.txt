@@ -75,6 +75,8 @@ if (Vivado_FOUND)
                  PROPERTIES  ${FIFO_4x128_PROPS}
                  IPCORE_DIR  ${CMAKE_CURRENT_BINARY_DIR})
 
+  # gmii_to_rgmii_1 includes shared logic in core; it also handles
+  # the idelay_ctrl
   set (GMII_TO_RGMII_1_PROPS
        "CONFIG.SupportLevel Include_Shared_Logic_in_Core")
 
@@ -83,8 +85,8 @@ if (Vivado_FOUND)
                  PROPERTIES  ${GMII_TO_RGMII_1_PROPS}
                  IPCORE_DIR  ${CMAKE_CURRENT_BINARY_DIR})
 
+  # gmii_to_rgmii_2 uses shared logic from gmii_to_rgmii_1
   set (GMII_TO_RGMII_2_PROPS
-       "CONFIG.SupportLevel Include_Shared_Logic_in_Core"
        "CONFIG.C_USE_IDELAY_CTRL false")
 
   vivado_ip_gen (TARGET_NAME "gmii_to_rgmii_2"
