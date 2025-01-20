@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2011-2025 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2011-2025 Johns Hopkins University.
  *
  * This module contains common code for the DRAC
  *
@@ -342,7 +342,6 @@ PowerControl #(.NUM_INTERLOCKS(5)) PowerControl_instance
 
 wire mv_amp_disable;
 
-wire[31:0] reg_status;    // Status register
 wire[31:0] reg_digin;     // Digital I/O register
 wire[15:0] tempsense;     // Temperature sensor
 wire[15:0] reg_databuf;   // Data collection status
@@ -367,7 +366,6 @@ BoardRegsDRAC chan0(
     .reg_rwait(reg_rwait_chan0),
     .reg_wdata(reg_wdata),
     .reg_wen(reg_wen),
-    .reg_status(reg_status),
     .reg_digin(reg_digin),
     .wdog_timeout(wdog_timeout)
 );

@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2008-2025 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2008-2025 Johns Hopkins University.
  *
  * This module contains a register file dedicated to general board parameters
  * for the QLA.
@@ -77,8 +77,6 @@ module BoardRegsQLA
     // Signals used to clear error flags
     output wire pwr_enable_cmd,
 
-    output wire[31:0] reg_status,  // Status register (for reading)
-    output wire[31:0] reg_digin,   // Digital I/O register (for reading)
     input wire wdog_timeout        // Watchdog timeout status flag
 );
 
@@ -86,9 +84,11 @@ module BoardRegsQLA
     // define wires and registers
     //
 
+    // Status register (for reading)
     // PROGRAMMER NOTE: The higher-level software requires board_id to be in bits [27:24]
     //                  and wdog_timeout to be bit 23. By convention, bits [31:28] specify
     //                  the number of channels. Other bits are board-specific.
+    wire [31:0] reg_status;
     assign reg_status = {
                 // Byte 3: num channels, board id
                 NUM_CHAN, board_id,
@@ -101,6 +101,8 @@ module BoardRegsQLA
                 // lowest 12-bits are for amplifier feedback
                 reg_status12 };
 
+    // Digital I/O register (for reading)
+    wire [31:0]  reg_digin;
     // dout[31] indicates that waveform table is driving at least one DOUT
     assign reg_digin = {v_fault, 1'b0, dout[31], mv_fb, enc_a, enc_b, enc_i, dout[3:0], neg_limit, pos_limit, home};
 

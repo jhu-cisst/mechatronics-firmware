@@ -315,6 +315,7 @@ integer k;
 initial begin
     // Initialize diagonals to avoid some compiler warnings
     for (k = 0; k < 4; k = k + 1) begin
+        NumPacketFwd[k][k] = 8'd0;
         PacketDropped[k][k] = 1'b0;
         PacketTruncated[k][k] = 1'b0;
     end

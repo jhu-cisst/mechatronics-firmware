@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2008-2023 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2008-2025 Johns Hopkins University.
  *
  * This module contains a register file dedicated to general board parameters
  * for the DQLA (dual QLA)
@@ -73,8 +73,6 @@ module BoardRegsDQLA
     // Signal used to delay amplifier enable after board power detected
     output reg[2:1] mv_amp_disable,
 
-    output wire[31:0] reg_status,  // Status register (for reading)
-    output wire[31:0] reg_digin,   // Digital I/O register (for reading)
     input wire wdog_timeout        // Watchdog timeout status flag
 );
 
@@ -82,9 +80,11 @@ module BoardRegsDQLA
     // define wires and registers
     //
 
+    // Status register (for reading)
     // PROGRAMMER NOTE: The higher-level software requires board_id to be in bits [27:24]
     //                  and wdog_timeout to be bit 23. By convention, bits [31:28] specify
     //                  the number of channels. Other bits are board-specific.
+    wire[31:0] reg_status;
     assign reg_status = {
                 // Byte 3: num channels, board id
                 NUM_CHAN, board_id,
@@ -98,6 +98,8 @@ module BoardRegsDQLA
                 // dout[31] indicates that waveform table is driving at least one DOUT
                 safety_fb, mv_fb, dout[31], 1'b0, ioexp_present };
 
+    // Digital I/O register (for reading)
+    wire [31:0] reg_digin;
     assign reg_digin = {dout[7:4], neg_limit[7:4], pos_limit[7:4], home[7:4],
                         dout[3:0], neg_limit[3:0], pos_limit[3:0], home[3:0]};
 

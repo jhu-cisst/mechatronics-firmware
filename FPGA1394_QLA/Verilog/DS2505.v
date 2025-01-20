@@ -136,7 +136,7 @@ assign      ds_status[2:1]   = ds_reset;
 assign      ds_status[0]     = ds_enable;
 
 // DS2480B programmer, configure DS2480B to read DS2505 memory data
-wire[25:0]  ds_program[0:8];         // Program arguments
+wire[25:0]  ds_program[0:7];         // Program arguments
 reg[3:0]    progCnt;                 // Program counter
 
 // Programmer structure:  

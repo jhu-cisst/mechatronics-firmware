@@ -402,6 +402,8 @@ function (vivado_compile_fpga)
     file (MAKE_DIRECTORY ${OUTPUT_DIR})
     set (REPORT_DIR "${OUTPUT_DIR}/reports")
     file (MAKE_DIRECTORY ${REPORT_DIR})
+    set (CHECKPOINT_DIR "${OUTPUT_DIR}/checkpoints")
+    file (MAKE_DIRECTORY ${CHECKPOINT_DIR})
 
     # Create TCL file
     set (TCL_FILE "${CMAKE_CURRENT_BINARY_DIR}/make-${PROJ_NAME}.tcl")
@@ -441,26 +443,31 @@ function (vivado_compile_fpga)
     endforeach (def)
     file (APPEND ${TCL_FILE} "\n")
     file (APPEND ${TCL_FILE} "puts \"Finished synthesis, writing checkpoint (post_synth)\"\n")
-    file (APPEND ${TCL_FILE} "write_checkpoint -force {${REPORT_DIR}/post_synth}\n")
-    # file (APPEND ${TCL_FILE} "report_timing_summary -file {${REPORT_DIR}/post_synth_timing.rpt}\n")
+    file (APPEND ${TCL_FILE} "write_checkpoint -force {${CHECKPOINT_DIR}/post_synth}\n")
+    file (APPEND ${TCL_FILE} "report_timing_summary -file {${REPORT_DIR}/post_synth_timing_summary.rpt}\n")
 
     # Optimize and place
     file (APPEND ${TCL_FILE} "puts \"Starting to optimize and place ${PROJ_NAME}\"\n")
+    # Suppress INFO message 32-702 (optimization did not improve timing on net)
+    file (APPEND ${TCL_FILE} "set_msg_config -id {Physopt 32-702} -suppress\n")
     file (APPEND ${TCL_FILE} "opt_design\n")
     file (APPEND ${TCL_FILE} "place_design\n")
     file (APPEND ${TCL_FILE} "phys_opt_design\n")
     file (APPEND ${TCL_FILE} "puts \"Finished optimize and place, writing checkpoint (post_place)\"\n")
-    file (APPEND ${TCL_FILE} "write_checkpoint -force {${REPORT_DIR}/post_place}\n")
-    # file (APPEND ${TCL_FILE} "report_timing_summary -file {${REPORT_DIR}/post_place_timing.rpt}\n")
+    file (APPEND ${TCL_FILE} "write_checkpoint -force {${CHECKPOINT_DIR}/post_place}\n")
+    file (APPEND ${TCL_FILE} "report_timing_summary -file {${REPORT_DIR}/post_place_timing_summary.rpt}\n")
 
     # Route
     file (APPEND ${TCL_FILE} "puts \"Starting to route ${PROJ_NAME}\"\n")
     file (APPEND ${TCL_FILE} "route_design\n")
     file (APPEND ${TCL_FILE} "puts \"Finished route, writing checkpoint and reports (post_route)\"\n")
-    file (APPEND ${TCL_FILE} "write_checkpoint -force {${REPORT_DIR}/post_route}\n")
+    file (APPEND ${TCL_FILE} "write_checkpoint -force {${CHECKPOINT_DIR}/post_route}\n")
     file (APPEND ${TCL_FILE} "report_timing_summary -file {${REPORT_DIR}/post_route_timing_summary.rpt}\n")
+    file (APPEND ${TCL_FILE} "report_timing -sort_by group -max_paths 100 -path_type summary -file {${REPORT_DIR}/post_route_timing.rpt}\n")
+    file (APPEND ${TCL_FILE} "report_drc -file {${REPORT_DIR}/post_route_drc.rpt}\n")
     file (APPEND ${TCL_FILE} "report_utilization -file {${REPORT_DIR}/post_route_util.rpt}\n")
-    file (APPEND ${TCL_FILE} "write_xdc -no_fixed_only -force {${REPORT_DIR}/${PROJ_NAME}_impl.xdc}\n")
+    file (APPEND ${TCL_FILE} "report_clock_utilization -file {${REPORT_DIR}/clock_util.rpt}\n")
+    file (APPEND ${TCL_FILE} "write_xdc -force {${REPORT_DIR}/${PROJ_NAME}_impl.xdc}\n")
 
     file (APPEND ${TCL_FILE} "puts \"Generating bitstream for ${PROJ_NAME}\"\n")
     file (APPEND ${TCL_FILE} "write_bitstream -force ${PROJ_NAME}.bit\n")
@@ -469,7 +476,7 @@ function (vivado_compile_fpga)
     set (OUTPUT_FILE "${CMAKE_CURRENT_BINARY_DIR}/${PROJ_NAME}.bit")
 
     add_custom_command (OUTPUT ${OUTPUT_FILE}
-      COMMAND ${VIVADO_NATIVE} -nojournal -mode batch -log ${PROJ_NAME}.log -source ${TCL_FILE} -notrace
+      COMMAND ${VIVADO_NATIVE} -nojournal -mode batch -log "${OUTPUT_DIR}/${PROJ_NAME}.log" -source ${TCL_FILE} -notrace
       DEPENDS ${VERILOG_SOURCE} ${IP_SOURCE} ${XDC_FILE})
 
     add_custom_target (${PROJ_NAME} ALL

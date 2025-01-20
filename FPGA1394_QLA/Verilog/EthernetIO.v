@@ -3,7 +3,7 @@
 
 /*******************************************************************************    
  *
- * Copyright(C) 2014-2025 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2014-2025 Johns Hopkins University.
  *
  * This module implements the higher-level (network layer) Ethernet I/O, which
  * interfaces to the link layer for the KSZ8851 MAC/PHY chip (FPGA V2) or the
@@ -826,6 +826,7 @@ else begin
 end
 endgenerate
 
+`ifdef HAS_DEBUG_DATA
 reg      bw_err;     // Block write error (block write not active when expected)
 reg[8:0] bw_left;    // Number of quadlets left to write when processing last Firewire quadlet
 
@@ -833,6 +834,7 @@ reg      fw_err;     // Firewire forward error (Firewire forward not active when
 reg[8:0] fw_left;    // Number of quadlets left to forward when processing last quadlet
 
 reg[7:0] fw_wait_cnt;   // Number of clocks waiting for Firewire forward to finish
+`endif
 
 reg[1:0] srcPortReg;    // Source port from Ethernet Switch (FPGA V3); 0 for FPGA V2
 
@@ -1445,7 +1447,9 @@ assign recvFinish = ((~recvRequest) & ~(recvReady|dataValid|recvTransition)) ? 1
 reg[5:0] recvCnt;       // Index into PacketBuffer
 reg[5:0] rebootCnt;     // Counter used to delay reboot command (could reuse recvCnt)
 
+`ifdef HAS_DEBUG_DATA
 reg[7:0] br_wait_cnt;   // Number of clocks waiting for block read to finish
+`endif
 
 assign responseRequired = ((FireWirePacketFresh &
                             ((quadRead | blockRead) & (isLocal | sendExtra)) | ((ipWrite | hubSend) & isLocal))
@@ -1703,6 +1707,7 @@ begin
                req_blk_rt_rd <= 1'b1;
             end
             if (isLocal & blockWrite & (~(addrHub & (~isRemote)))) begin
+`ifdef HAS_DEBUG_DATA
                // writeRequest should have been set earlier (using writeRequestTrigger) for all
                // local block writes (even broadcast). We expect write to still be active.
                // The one exception is when we receive a multicast write to the Hub memory.
@@ -1710,15 +1715,19 @@ begin
                // Number of quadlets left to write to registers; should be greater than 1,
                // otherwise the register writer may have overtaken the Ethernet reader.
                bw_left <= bwEnd - local_raddr;
+`endif
             end
             else if (isLocal & (quadRead | blockRead | hubSend)) begin
                br_request_rxtx <= 1'b1;
+`ifdef HAS_DEBUG_DATA
                br_wait_cnt <= 8'd0;
+`endif
             end
             if (hubSend) begin
                // Set block_data_length to the size of the hubSend packet
                block_data_length <= SZ_BBC_BYTES;
             end
+`ifdef HAS_DEBUG_DATA
             if (isRemote) begin
                // Request to forward should already have been set (using fwRequestTrigger).
                // We expect that it would still be active.
@@ -1727,6 +1736,7 @@ begin
                // otherwise the Firewire writer may have overtaken the Ethernet reader.
                fw_left <= eth_fwpkt_len[10:2] - eth_fwpkt_raddr;
             end
+`endif
          end
          else begin
             nextRecvState <= ST_RECEIVE_DMA_FIREWIRE_PACKET;
@@ -1737,8 +1747,10 @@ begin
          end
          if ((rfw_count == fwRequestTrigger) && isRemote) begin
             eth_send_fw_req_rxtx <= 1'b1;
-            fw_wait_cnt <= 8'd0;
             host_fw_addr <= fw_src_id;
+`ifdef HAS_DEBUG_DATA
+            fw_wait_cnt <= 8'd0;
+`endif
          end
          else if (eth_send_fw_ack_rxtx) begin
             eth_send_fw_req_rxtx <= 1'b0;
@@ -1751,16 +1763,20 @@ begin
       if (eth_send_fw_req_rxtx | eth_send_fw_ack_rxtx | br_request_rxtx | br_ack_rxtx) begin
          // Clear eth_send_fw_req if eth_send_fw_ack asserted
          if (eth_send_fw_ack_rxtx) eth_send_fw_req_rxtx <= 1'b0;
+`ifdef HAS_DEBUG_DATA
          if (eth_send_fw_req_rxtx | eth_send_fw_ack_rxtx) begin
             // Waiting for Ethernet forward to finish
             fw_wait_cnt <= fw_wait_cnt + 8'd1;
          end
+`endif
          // Clear br_request if br_ack asserted
          if (br_ack_rxtx) br_request_rxtx <= 1'b0;
+`ifdef HAS_DEBUG_DATA
          if (br_request_rxtx | br_ack_rxtx) begin
             // Wait until read from registers finished
             br_wait_cnt <= br_wait_cnt + 8'd1;
          end
+`endif
       end
       else begin
 `ifdef HAS_DEBUG_DATA

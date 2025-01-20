@@ -3,7 +3,7 @@
 
 /*******************************************************************************    
  *
- * Copyright(C) 2024 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2024-2025 Johns Hopkins University.
  *
  * This module implements a virtual Ethernet PHY.
  *
@@ -19,6 +19,7 @@ module VirtualPhy(
     input  wire mdio_t,   // mdio_t from PS
     input  wire mdc,      // mdc (clock) from PS
 
+    input  wire sysclk,           // System clock
     input  wire ctrl_wen,         // write to Ethernet control register
     input  wire link_on_mask,     // mask for setting link_on
     input  wire link_on_bit,      // value for setting link_on
@@ -30,9 +31,9 @@ module VirtualPhy(
     output wire[31:0] reg_rdata    // register read data
 );
 
-always @(posedge ctrl_wen)
+always @(posedge sysclk)
 begin
-    if (link_on_mask) link_on <= link_on_bit;
+    if (ctrl_wen & link_on_mask) link_on <= link_on_bit;
 end
 
 // Default register values, obtained by reading RTL8211F when cable connnected and then simplifying.

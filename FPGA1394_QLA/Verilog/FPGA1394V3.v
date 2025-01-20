@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2011-2025 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2011-2025 Johns Hopkins University.
  *
  * This module contains common code for FPGA V3 and does not make any assumptions
  * about which board is connected.
@@ -772,6 +772,7 @@ VirtualPhy VPhy(
     .mdio_t(mdio_t_ps),      // mdio_t from PS
     .mdc(mdio_clk_ps),       // mdc (clock) from PS
 
+    .sysclk(sysclk),
     .ctrl_wen(eth_ctrl_wen),
     .link_on_mask(reg_wdata[25]),
     .link_on_bit(reg_wdata[16]),

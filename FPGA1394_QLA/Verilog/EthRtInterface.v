@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2023-2024 Johns Hopkins University.
+ * Copyright(C) 2023-2025 Johns Hopkins University.
  *
  * Module: EthRtInterface
  *
@@ -393,9 +393,9 @@ begin
                  send_crc_in[28], send_crc_in[29], send_crc_in[30], send_crc_in[31]};
         send_crc_in <= {send_crc_in[23:0], send_crc_in[31:24]};
         if (tx_cnt == 3'd3) begin
-            timeSend <= timeNow;
             txState <= ST_TX_IDLE;
 `ifdef HAS_DEBUG_DATA
+            timeSend <= timeNow;
             numSent <= numSent + 8'd1;
 `endif
         end
