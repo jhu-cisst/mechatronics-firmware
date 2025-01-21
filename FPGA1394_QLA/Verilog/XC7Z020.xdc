@@ -394,5 +394,5 @@ set_clock_groups -async -group [get_clocks E1_RxCLK]
 set_clock_groups -async -group [get_clocks E2_RxCLK]
 
 # Following clocks are defined in processing_system7
-set_clock_groups -async -group [get_clocks fpga_clk_0]
-set_clock_groups -async -group [get_clocks fpga_clk_1]
+set_clock_groups -async -group [get_clocks clk_fpga_0]
+set_clock_groups -async -group [get_clocks clk_fpga_1]
