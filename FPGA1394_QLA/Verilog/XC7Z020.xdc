@@ -217,9 +217,17 @@ create_clock -period 20.345 -name CLK_IN1394x -waveform {0.000 10.1725} [get_por
 # input jitter is 100 ps (0.1 ns)
 set_input_jitter CLK_IN1394x 0.1
 
-# timing constraints on FPGA input (output from TSB41AB2)
-set_input_delay -clock [get_clocks CLK_IN1394x] 2.0 [get_ports {ctl[*]}]
-set_input_delay -clock [get_clocks CLK_IN1394x] 2.0 [get_ports {data[*]}]
+# Timing constraints on FPGA input (output from TSB41AB2).
+# The ctl and data lines should be valid before the clock; for now, arbitrarily
+# assume that they will be valid 10.345 ns before the rising edge.
+# The TSB41AB2 datasheet specifies an "output delay" (t_d) of 2 ns, but this probably
+# means that data is valid until 2n after the clock edge (i.e., data hold time).
+# Vivado uses the "max" delay when checking the setup timing and the "min" delay
+# when checking the hold timing. The max input delay is therefore 20.345-10.345 = 10.0.
+set_input_delay -clock [get_clocks CLK_IN1394x] -min   2.0 [get_ports {ctl[*]}]
+set_input_delay -clock [get_clocks CLK_IN1394x] -max  10.0 [get_ports {ctl[*]}]
+set_input_delay -clock [get_clocks CLK_IN1394x] -min   2.0 [get_ports {data[*]}]
+set_input_delay -clock [get_clocks CLK_IN1394x] -max  10.0 [get_ports {data[*]}]
 
 # timing constraints on FPGA output (input to TSB41AB2)
 #    5.0 is setup time, -2.0 is hold time
@@ -365,9 +373,6 @@ set_property SLEW FAST [get_ports {E2_TxD[0]}]
 # port DRIVE
 # Xilinx GMII to RGMII v1.00a Product Brief (PB014) recommends DRIVE=24
 # for all Tx signals except TxCLK.
-# TODO: Why DRIVE=24 for E1_TxCLK
-set_property DRIVE 24 [get_ports E1_TxCLK]
-#set_property DRIVE 24 [get_ports E2_TxCLK]
 set_property DRIVE 24 [get_ports E1_TxEN]
 set_property DRIVE 24 [get_ports E2_TxEN]
 set_property DRIVE 24 [get_ports {E1_TxD[3]}]
@@ -394,5 +399,7 @@ set_clock_groups -async -group [get_clocks E1_RxCLK]
 set_clock_groups -async -group [get_clocks E2_RxCLK]
 
 # Following clocks are defined in processing_system7
-set_clock_groups -async -group [get_clocks clk_fpga_0]
-set_clock_groups -async -group [get_clocks clk_fpga_1]
+# This works, but without -quiet it produces warnings in the log file,
+# probably due to ordering of xdc files
+set_clock_groups -quiet -async -group [get_clocks -quiet clk_fpga_0]
+set_clock_groups -quiet -async -group [get_clocks -quiet clk_fpga_1]

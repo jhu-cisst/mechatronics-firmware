@@ -415,11 +415,6 @@ function (vivado_compile_fpga)
       file (APPEND ${TCL_FILE} "read_verilog ${vfile}\n")
     endforeach (vfile)
 
-    file (APPEND ${TCL_FILE} "read_xdc ${XDC_FILE}\n")
-    if (BOARD_XDC_FILE)
-      file (APPEND ${TCL_FILE} "read_xdc ${BOARD_XDC_FILE}\n")
-    endif ()
-
     set (IP_SOURCE "")
     foreach (ip ${IP_TARGETS})
       get_property(xci_file TARGET ${ip} PROPERTY SOURCES)
@@ -427,6 +422,11 @@ function (vivado_compile_fpga)
       get_property(verilog_file TARGET ${ip} PROPERTY OUTPUT_NAME)
       set (IP_SOURCE ${IP_SOURCE} ${verilog_file})
     endforeach (ip)
+
+    file (APPEND ${TCL_FILE} "read_xdc ${XDC_FILE}\n")
+    if (BOARD_XDC_FILE)
+      file (APPEND ${TCL_FILE} "read_xdc ${BOARD_XDC_FILE}\n")
+    endif ()
 
     # Synthesize
     file (APPEND ${TCL_FILE} "puts \"Starting synthesis of ${PROJ_NAME}\"\n")
