@@ -55,7 +55,9 @@ set_property PULLUP true [get_ports {IO2[36]}] ;  # Q1-ENC-B4
 set_property PULLUP true [get_ports {IO2[37]}] ;  # Q2-ENC-B3
 set_property PULLUP true [get_ports {IO2[38]}] ;  # Q2-ENC-B4
 
+#---------------------------------------------------------------------
 # Create generated clocks
+#---------------------------------------------------------------------
 create_generated_clock -name clk_12m -source [get_ports clk1394] -divide_by [expr {2**2}] [get_pins div2clk/clkout_reg/Q]
 
 create_generated_clock -name clk400k -source [get_ports clk1394] -divide_by 122 [get_pins divtemp/clkout_reg/Q]
@@ -69,3 +71,9 @@ create_generated_clock -name led_clk_768khz -source [get_ports clk1394] -divide_
 create_generated_clock -name led_clk_pwm -source [get_ports clk1394] -divide_by [expr {2**18}] [get_pins dqla/qla_led/divpwm/clkout_reg/Q]
 
 create_generated_clock -name led_clk_pwm_width -source [get_ports clk1394] -divide_by [expr {2**19}] [get_pins dqla/qla_led/divpw/clkout_reg/Q]
+
+#---------------------------------------------------------------------
+# Clock groups (each group is asynchronous with respect to the others)
+#   - see also clock groups in FPGA xdc file (XC7Z020.xdc)
+#---------------------------------------------------------------------
+set_clock_groups -async -group [get_clocks -include_generated_clocks CLK_IN1394x]

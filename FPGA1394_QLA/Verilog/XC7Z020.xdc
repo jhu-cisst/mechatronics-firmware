@@ -385,3 +385,14 @@ set_property DRIVE 24 [get_ports {E2_TxD[0]}]
 # -----------------------------------------------------------
 create_clock -period 8.000 -name E1_RxCLK -waveform {0.000 4.000} [get_ports E1_RxCLK]
 create_clock -period 8.000 -name E2_RxCLK -waveform {0.000 4.000} [get_ports E2_RxCLK]
+
+#---------------------------------------------------------------------
+# Clock groups (each group is asynchronous with respect to the others)
+#   - see also clock groups in board xdc files
+#---------------------------------------------------------------------
+set_clock_groups -async -group [get_clocks E1_RxCLK]
+set_clock_groups -async -group [get_clocks E2_RxCLK]
+
+# Following clocks are defined in processing_system7
+set_clock_groups -async -group [get_clocks fpga_clk_0]
+set_clock_groups -async -group [get_clocks fpga_clk_1]
