@@ -1368,10 +1368,10 @@ wire br_ack_rxtx;           // br_ack in RxTxClk domain
 
 if (USE_RXTX_CLK) begin
    // Synchronize signals from sysclk to RxTxClk
-   reg clearErrors_latched;
-   reg eth_send_fw_ack_latched;
-   reg bw_active_sys_latched;
-   reg br_ack_latched;
+   (* ASYNC_REG="TRUE" *) reg clearErrors_latched;
+   (* ASYNC_REG="TRUE" *) reg eth_send_fw_ack_latched;
+   (* ASYNC_REG="TRUE" *) reg bw_active_sys_latched;
+   (* ASYNC_REG="TRUE" *) reg br_ack_latched;
    always @(posedge RxTxClk)
    begin
       clearErrors_latched <= clearErrors;
@@ -1384,11 +1384,11 @@ if (USE_RXTX_CLK) begin
    assign bw_active = bw_active_sys_latched;
    assign br_ack_rxtx = br_ack_latched;
    // Synchronize signals from RxTxClk to sysclk
-   reg eth_send_fw_req_rxtx_latched;
-   reg sendAck_rxtx_latched;
-   reg writeRequest_rxtx_latched;
-   reg br_request_rxtx_latched;
-   reg reg_wen_hub_quad_latched;
+   (* ASYNC_REG="TRUE" *) reg eth_send_fw_req_rxtx_latched;
+   (* ASYNC_REG="TRUE" *) reg sendAck_rxtx_latched;
+   (* ASYNC_REG="TRUE" *) reg writeRequest_rxtx_latched;
+   (* ASYNC_REG="TRUE" *) reg br_request_rxtx_latched;
+   (* ASYNC_REG="TRUE" *) reg reg_wen_hub_quad_latched;
    always @(posedge sysclk)
    begin
       eth_send_fw_req_rxtx_latched <= eth_send_fw_req_rxtx;

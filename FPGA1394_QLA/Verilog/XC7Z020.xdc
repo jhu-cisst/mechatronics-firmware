@@ -217,6 +217,19 @@ create_clock -period 20.345 -name CLK_IN1394x -waveform {0.000 10.1725} [get_por
 # input jitter is 100 ps (0.1 ns)
 set_input_jitter CLK_IN1394x 0.1
 
+# timing constraints on FPGA input (output from TSB41AB2)
+set_input_delay -clock [get_clocks CLK_IN1394x] 2.0 [get_ports {ctl[*]}]
+set_input_delay -clock [get_clocks CLK_IN1394x] 2.0 [get_ports {data[*]}]
+
+# timing constraints on FPGA output (input to TSB41AB2)
+#    5.0 is setup time, -2.0 is hold time
+set_output_delay -clock [get_clocks CLK_IN1394x] -max  5.0 [get_ports {ctl[*]}]
+set_output_delay -clock [get_clocks CLK_IN1394x] -min -2.0 [get_ports {ctl[*]}]
+set_output_delay -clock [get_clocks CLK_IN1394x] -max  5.0 [get_ports {data[*]}]
+set_output_delay -clock [get_clocks CLK_IN1394x] -min -2.0 [get_ports {data[*]}]
+set_output_delay -clock [get_clocks CLK_IN1394x] -max  5.0 [get_ports {lreq}]
+set_output_delay -clock [get_clocks CLK_IN1394x] -min -2.0 [get_ports {lreq}]
+
 ################################################################################
 # LED Output
 ################################################################################

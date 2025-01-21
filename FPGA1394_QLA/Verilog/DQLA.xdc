@@ -54,3 +54,12 @@ set_property PULLUP true [get_ports {IO2[35]}] ;  # Q2-ENC-B2
 set_property PULLUP true [get_ports {IO2[36]}] ;  # Q1-ENC-B4
 set_property PULLUP true [get_ports {IO2[37]}] ;  # Q2-ENC-B3
 set_property PULLUP true [get_ports {IO2[38]}] ;  # Q2-ENC-B4
+
+# Create generated clocks
+create_generated_clock -name clk_12m -source [get_ports clk1394] -divide_by [expr {2**2}] [get_pins div2clk/clkout_reg/Q]
+
+create_generated_clock -name clk400k -source [get_ports clk1394] -divide_by 122 [get_pins divtemp/clkout_reg/Q]
+
+create_generated_clock -name clk_delay -source [get_ports clk1394] -divide_by [expr {2**10}] [get_pins dqla/div32clk/clkout_reg/Q]
+
+create_generated_clock -name clk_12hz -source [get_ports clk1394] -divide_by [expr {2**22}] [get_pins dqla/divclk12/clkout_reg/Q]

@@ -306,7 +306,7 @@ reg[7:0]  numSent;           // Number of packets sent to host PC
 // sendReq is provided by the Firewire module, and is in the sysclk domain. We assume
 // that TxClk is different from sysclk (which is the case if ETH_RT_FAST=1) and
 // therefore implement clock domain crossing.
-reg sendReq_latched;
+(* ASYNC_REG="TRUE" *) reg sendReq_latched;
 
 always @(posedge TxClk)
 begin

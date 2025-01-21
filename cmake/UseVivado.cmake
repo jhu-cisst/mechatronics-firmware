@@ -477,7 +477,7 @@ function (vivado_compile_fpga)
 
     add_custom_command (OUTPUT ${OUTPUT_FILE}
       COMMAND ${VIVADO_NATIVE} -nojournal -mode batch -log "${OUTPUT_DIR}/${PROJ_NAME}.log" -source ${TCL_FILE} -notrace
-      DEPENDS ${VERILOG_SOURCE} ${IP_SOURCE} ${XDC_FILE})
+      DEPENDS ${VERILOG_SOURCE} ${IP_SOURCE} ${XDC_FILE} ${BOARD_XDC_FILE})
 
     add_custom_target (${PROJ_NAME} ALL
                        DEPENDS ${OUTPUT_FILE} ${IP_TARGETS} ${DEPENDENCIES})

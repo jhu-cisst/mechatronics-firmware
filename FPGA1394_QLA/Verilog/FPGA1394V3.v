@@ -1301,8 +1301,8 @@ EmioBus PS_EMIO(
 reg[7:0] cnt_200;     // Counter incremented by clk_200MHz
 reg[7:0] sysclk200;   // Counter increment by sysclk, sampled and cleared every 128 clk_200MHz
 reg[7:0] clk200per;   // Last measured half-period of 128*clk_200MHz (should be about 31 sysclks, 49.152*128/200)
-reg cur_msb_200;
-reg last_msb_200;
+(* ASYNC_REG="TRUE" *) reg cur_msb_200;
+(* ASYNC_REG="TRUE" *) reg last_msb_200;
 
 always @(posedge clk_200MHz)
 begin
@@ -1312,8 +1312,8 @@ end
 reg[7:0] cnt_125;     // Counter incremented by clk_125MHz
 reg[7:0] sysclk125;   // Counter increment by sysclk, sampled and cleared every 128 clk_125MHz
 reg[7:0] clk125per;   // Last measured half-period of 128*clk_125MHz (should be about 50 sysclks, 49.152*128/125)
-reg cur_msb_125;
-reg last_msb_125;
+(* ASYNC_REG="TRUE" *) reg cur_msb_125;
+(* ASYNC_REG="TRUE" *) reg last_msb_125;
 
 always @(posedge clk_125MHz)
 begin
