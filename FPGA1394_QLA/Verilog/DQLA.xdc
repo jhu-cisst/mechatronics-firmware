@@ -63,3 +63,9 @@ create_generated_clock -name clk400k -source [get_ports clk1394] -divide_by 122 
 create_generated_clock -name clk_delay -source [get_ports clk1394] -divide_by [expr {2**10}] [get_pins dqla/div32clk/clkout_reg/Q]
 
 create_generated_clock -name clk_12hz -source [get_ports clk1394] -divide_by [expr {2**22}] [get_pins dqla/divclk12/clkout_reg/Q]
+
+create_generated_clock -name led_clk_768khz -source [get_ports clk1394] -divide_by [expr {2**6}] [get_pins dqla/qla_led/div768khz/clkout_reg/Q]
+
+create_generated_clock -name led_clk_pwm -source [get_ports clk1394] -divide_by [expr {2**18}] [get_pins dqla/qla_led/divpwm/clkout_reg/Q]
+
+create_generated_clock -name led_clk_pwm_width -source [get_ports clk1394] -divide_by [expr {2**19}] [get_pins dqla/qla_led/divpw/clkout_reg/Q]

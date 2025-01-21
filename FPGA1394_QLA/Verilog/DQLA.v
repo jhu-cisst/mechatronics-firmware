@@ -1016,7 +1016,7 @@ BoardRegsDQLA chan0(
 wire clk_12hz;
 ClkDiv divclk12(sysclk, clk_12hz); defparam divclk12.width = 22;  // 49.152 MHz / 2**22 ==> 11.71875 Hz
 
-CtrlLED Q1_led(
+CtrlLED qla_led(
     .sysclk(sysclk),
     .clk_12hz(clk_12hz),
     .wdog_period_led(wdog_period_led),
@@ -1028,16 +1028,10 @@ CtrlLED Q1_led(
     .led2_red(Q1_led2_red)
 );
 
-CtrlLED Q2_led(
-    .sysclk(sysclk),
-    .clk_12hz(clk_12hz),
-    .wdog_period_led(wdog_period_led),
-    .wdog_period_status(wdog_period_status),
-    .wdog_timeout(wdog_timeout),
-    .led1_grn(Q2_led1_grn),
-    .led1_red(Q2_led1_red),
-    .led2_grn(Q2_led2_grn),
-    .led2_red(Q2_led2_red)
-);
+// QLA 2 shows same LED pattern as QLA 1
+assign Q2_led1_grn = Q1_led1_grn;
+assign Q2_led1_red = Q1_led1_red;
+assign Q2_led2_grn = Q1_led2_grn;
+assign Q2_led2_red = Q1_led2_red;
 
 endmodule
