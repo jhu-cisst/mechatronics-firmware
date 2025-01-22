@@ -153,11 +153,12 @@ endfunction (vivado_block_build)
 
 # Function: vivado_block_ip
 # Parameters:
-#   - TARGET_NAME:       Target name
-#   - IP_NAME:           IP name (in catalog)
-#   - FPGA_PARTNUM:      FPGA part number
+#   - TARGET_NAME        Target name
+#   - IP_NAME            IP name (in catalog)
+#   - FPGA_PARTNUM       FPGA part number
 #   - BLOCK_IN           Block design input (target that updates TCL file)
 #   - IPCORE_DIR         Directory for output xci file (optional)
+#   - CREATE_ONLY        If ON, only create IP xci file (default OFF)
 #
 # This functions sets two properties on the TARGET:
 #   SOURCES      ${TARGET_NAME}.xci
@@ -171,12 +172,14 @@ function (vivado_block_ip)
        IP_NAME
        FPGA_PARTNUM
        BLOCK_IN
-       IPCORE_DIR)
+       IPCORE_DIR
+       CREATE_ONLY)
 
   # reset local variables
   foreach(keyword ${FUNCTION_KEYWORDS})
     set (${keyword} "")
   endforeach(keyword)
+  set (CREATE_ONLY OFF)
   # Default IPCORE_DIR is current binary directory
   set (IPCORE_DIR ${CMAKE_CURRENT_BINARY_DIR})
 
@@ -200,6 +203,7 @@ function (vivado_block_ip)
     set (OUTPUT_DIR  "${IPCORE_DIR}/${TARGET_NAME}")
     set (OUTPUT_FILE_XCI     "${OUTPUT_DIR}/${TARGET_NAME}.xci")
     set (OUTPUT_FILE_VERILOG "${OUTPUT_DIR}/${TARGET_NAME}_stub.v")
+    set (OUTPUT_FILES ${OUTPUT_FILE_XCI})
 
     # CMake file to fix directories (gen_directory and OUTPUTDIR) in xci file
     set (FILE_UPDATE_XCI "${CMAKE_CURRENT_BINARY_DIR}/update-xci.cmake")
@@ -219,34 +223,39 @@ function (vivado_block_ip)
     file (APPEND ${TCL_FILE} "copy_ip -name ${TARGET_NAME} -dir ${IPCORE_DIR} [get_ips *${IP_NAME}*]\n")
     file (APPEND ${TCL_FILE} "exec {${CMAKE_COMMAND}} -P ${FILE_UPDATE_XCI}\n")
     file (APPEND ${TCL_FILE} "close_project\n")
-    file (APPEND ${TCL_FILE} "create_project -part ${FPGA_PARTNUM} -in_memory\n")
-    # Following does not seem to work (does not change where IP output is generated), so the update-xci.cmake
-    # approach was used instead (see above).
-    # file (APPEND ${TCL_FILE} "set_property CUSTOMIZED_DEFAULT_IP_LOCATION ${OUTPUT_DIR} [current_project]\n")
-    # Disable message 12-13650 (IP moved from original location) because it is not important
-    file (APPEND ${TCL_FILE} "set_msg_config -id {Vivado 12-13650} -suppress\n")
-    file (APPEND ${TCL_FILE} "read_ip ${OUTPUT_FILE_XCI}\n")
-    # Generate targets and synthesize IP core
-    file (APPEND ${TCL_FILE} "puts \"Synthesizing ${TARGET_NAME}\"\n")
-    file (APPEND ${TCL_FILE} "set_property GENERATE_SYNTH_CHECKPOINT true [get_files ${TARGET_NAME}.xci]\n")
-    file (APPEND ${TCL_FILE} "generate_target -force {instantiation_template synthesis} [get_ips ${TARGET_NAME}]\n")
-    file (APPEND ${TCL_FILE} "synth_ip -force [get_ips ${TARGET_NAME}]\n")
-    file (APPEND ${TCL_FILE} "close_project\n")
+    if (NOT CREATE_ONLY)
+      set (OUTPUT_FILES ${OUTPUT_FILES} ${OUTPUT_FILE_VERILOG})
+      file (APPEND ${TCL_FILE} "create_project -part ${FPGA_PARTNUM} -in_memory\n")
+      # Following does not seem to work (does not change where IP output is generated), so the update-xci.cmake
+      # approach was used instead (see above).
+      # file (APPEND ${TCL_FILE} "set_property CUSTOMIZED_DEFAULT_IP_LOCATION ${OUTPUT_DIR} [current_project]\n")
+      # Disable message 12-13650 (IP moved from original location) because it is not important
+      file (APPEND ${TCL_FILE} "set_msg_config -id {Vivado 12-13650} -suppress\n")
+      file (APPEND ${TCL_FILE} "read_ip ${OUTPUT_FILE_XCI}\n")
+      # Generate targets and synthesize IP core
+      file (APPEND ${TCL_FILE} "puts \"Synthesizing ${TARGET_NAME}\"\n")
+      file (APPEND ${TCL_FILE} "set_property GENERATE_SYNTH_CHECKPOINT true [get_files ${TARGET_NAME}.xci]\n")
+      file (APPEND ${TCL_FILE} "generate_target -force {instantiation_template synthesis} [get_ips ${TARGET_NAME}]\n")
+      file (APPEND ${TCL_FILE} "synth_ip -force [get_ips ${TARGET_NAME}]\n")
+      file (APPEND ${TCL_FILE} "close_project\n")
+    endif ()
 
-    add_custom_command (OUTPUT ${OUTPUT_FILE_XCI} ${OUTPUT_FILE_VERILOG}
+    add_custom_command (OUTPUT ${OUTPUT_FILES}
                         COMMAND ${VIVADO_NATIVE} -nojournal -mode batch -log ${TARGET_NAME}.log -source ${TCL_FILE} -notrace
                         COMMENT "Copying IP Core ${IP_NAME} from Block Design to ${TARGET_NAME}"
-			DEPENDS ${EXPORTED_TCL})
+                        DEPENDS ${EXPORTED_TCL})
 
     add_custom_target (${TARGET_NAME} ALL
                        COMMENT "Checking IP Core ${TARGET_NAME} (from Block Design)"
-                       DEPENDS ${OUTPUT_FILE_XCI} ${OUTPUT_FILE_VERILOG} ${BLOCK_IN})
+                       DEPENDS ${OUTPUT_FILES} ${BLOCK_IN})
 
     set_property (TARGET ${TARGET_NAME}
                          PROPERTY SOURCES ${OUTPUT_FILE_XCI})
 
-    set_property (TARGET ${TARGET_NAME}
-                         PROPERTY OUTPUT_NAME ${OUTPUT_FILE_VERILOG})
+    if (NOT CREATE_ONLY)
+      set_property (TARGET ${TARGET_NAME}
+                           PROPERTY OUTPUT_NAME ${OUTPUT_FILE_VERILOG})
+    endif ()
 
   else ()
 
@@ -258,10 +267,11 @@ endfunction (vivado_block_ip)
 
 # Function: vivado_ip_gen
 # Parameters:
-#   - TARGET_NAME:        target name
-#   - IP_NAME:            IP name (in catalog)
-#   - PROPERTIES:         list of properties for IP core (optional)
+#   - TARGET_NAME         target name
+#   - IP_NAME             IP name (in catalog)
+#   - PROPERTIES          list of properties for IP core (optional)
 #   - IPCORE_DIR          directory for output file (xci)
+#   - CREATE_ONLY         If ON, only create IP xci file (default OFF)
 #
 # This functions sets two properties on the TARGET:
 #   SOURCES      ${TARGET_NAME}.xci
@@ -274,12 +284,14 @@ function (vivado_ip_gen)
        TARGET_NAME
        IP_NAME
        PROPERTIES
-       IPCORE_DIR)
+       IPCORE_DIR
+       CREATE_ONLY)
 
   # reset local variables
   foreach(keyword ${FUNCTION_KEYWORDS})
     set (${keyword} "")
   endforeach(keyword)
+  set (CREATE_ONLY OFF)
 
   # parse input
   foreach (arg ${ARGV})
@@ -298,6 +310,11 @@ function (vivado_ip_gen)
 
     # Make sure IPCORE_DIR exists
     file (MAKE_DIRECTORY ${IPCORE_DIR})
+
+    set (OUTPUT_DIR  "${IPCORE_DIR}/${TARGET_NAME}")
+    set (OUTPUT_FILE_XCI     "${OUTPUT_DIR}/${TARGET_NAME}.xci")
+    set (OUTPUT_FILE_VERILOG "${OUTPUT_DIR}/${TARGET_NAME}_stub.v")
+    set (OUTPUT_FILES ${OUTPUT_FILE_XCI})
 
     # Create TCL file
     set (TCL_FILE "${CMAKE_CURRENT_BINARY_DIR}/make-${TARGET_NAME}.tcl")
@@ -318,31 +335,32 @@ function (vivado_ip_gen)
       file (APPEND ${TCL_FILE} "    ${prop} \\\n")
     endforeach (prop)
     file (APPEND ${TCL_FILE} "    ] [get_ips ${TARGET_NAME}]\n")
-    # Generate targets and synthesize IP core
-    file (APPEND ${TCL_FILE} "generate_target -force {instantiation_template synthesis} [get_ips ${TARGET_NAME}]\n")
-    file (APPEND ${TCL_FILE} "puts \"Synthesize IP ${TARGET_NAME}\"\n")
-    # For some reason, Vivado complains that it cannot overwrite dcp file
-    file (APPEND ${TCL_FILE} "file delete -force \"${IPCORE_DIR}/${TARGET_NAME}/${TARGET_NAME}.dcp\"\n")
-    file (APPEND ${TCL_FILE} "synth_ip -force [get_ips ${TARGET_NAME}]\n")
+    if (NOT CREATE_ONLY)
+      set (OUTPUT_FILES ${OUTPUT_FILES} ${OUTPUT_FILE_VERILOG})
+      # Generate targets and synthesize IP core
+      file (APPEND ${TCL_FILE} "generate_target -force {instantiation_template synthesis} [get_ips ${TARGET_NAME}]\n")
+      file (APPEND ${TCL_FILE} "puts \"Synthesize IP ${TARGET_NAME}\"\n")
+      # For some reason, Vivado complains that it cannot overwrite dcp file
+      file (APPEND ${TCL_FILE} "file delete -force \"${IPCORE_DIR}/${TARGET_NAME}/${TARGET_NAME}.dcp\"\n")
+      file (APPEND ${TCL_FILE} "synth_ip -force [get_ips ${TARGET_NAME}]\n")
+    endif ()
     file (APPEND ${TCL_FILE} "close_project\n")
 
-    set (OUTPUT_DIR  "${IPCORE_DIR}/${TARGET_NAME}")
-    set (OUTPUT_FILE_XCI     "${OUTPUT_DIR}/${TARGET_NAME}.xci")
-    set (OUTPUT_FILE_VERILOG "${OUTPUT_DIR}/${TARGET_NAME}_stub.v")
-
-    add_custom_command (OUTPUT ${OUTPUT_FILE_XCI} ${OUTPUT_FILE_VERILOG}
+    add_custom_command (OUTPUT ${OUTPUT_FILES}
                         COMMAND ${VIVADO_NATIVE} -nojournal -mode batch -log ${TARGET_NAME}.log -source ${TCL_FILE} -notrace
                         COMMENT "Creating IP Core ${TARGET_NAME}")
 
     add_custom_target (${TARGET_NAME} ALL
                        COMMENT "Checking IP Core ${TARGET_NAME}"
-                       DEPENDS ${OUTPUT_FILE_XCI} ${OUTPUT_FILE_VERILOG})
+                       DEPENDS ${OUTPUT_FILES})
 
     set_property (TARGET ${TARGET_NAME}
                          PROPERTY SOURCES ${OUTPUT_FILE_XCI})
 
-    set_property (TARGET ${TARGET_NAME}
-                         PROPERTY OUTPUT_NAME ${OUTPUT_FILE_VERILOG})
+    if (NOT CREATE_ONLY)
+      set_property (TARGET ${TARGET_NAME}
+                           PROPERTY OUTPUT_NAME ${OUTPUT_FILE_VERILOG})
+    endif ()
 
   else ()
 
@@ -355,7 +373,7 @@ endfunction (vivado_ip_gen)
 # vivado_compile_fpga
 #
 #   - PROJ_NAME:       the project name (most output files will use this name)
-#   - DEPENDENCIES:    dependencies for this target (e.g., IP cores)
+#   - DEPENDENCIES:    additional dependencies for this target
 #   - FPGA_PARTNUM:    the FPGA part number
 #   - VERILOG_SOURCE:  list of Verilog source code (.v)
 #   - XDC_FILE:        Primary user constraints file
@@ -363,6 +381,7 @@ endfunction (vivado_ip_gen)
 #   - IP_TARGETS:      List of IP targets (that produce XCI files)
 #   - TOP_LEVEL:       Top level module name
 #   - USER_MACROS:     Macro definitions (optional)
+#   - CREATE_ONLY:     If ON, only create Vivado project file, PROJ_NAME.xpr (default OFF)
 function (vivado_compile_fpga)
 
   # set all keywords and their values to ""
@@ -376,12 +395,14 @@ function (vivado_compile_fpga)
        IP_TARGETS
        INCLUDE_DIRS
        TOP_LEVEL
-       USER_MACROS)
+       USER_MACROS
+       CREATE_ONLY)
 
   # reset local variables
   foreach(keyword ${FUNCTION_KEYWORDS})
     set (${keyword} "")
   endforeach(keyword)
+  set (CREATE_ONLY OFF)
 
   # parse input
   foreach (arg ${ARGV})
@@ -400,80 +421,107 @@ function (vivado_compile_fpga)
 
     set (OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/${PROJ_NAME}")
     file (MAKE_DIRECTORY ${OUTPUT_DIR})
-    set (REPORT_DIR "${OUTPUT_DIR}/reports")
-    file (MAKE_DIRECTORY ${REPORT_DIR})
-    set (CHECKPOINT_DIR "${OUTPUT_DIR}/checkpoints")
-    file (MAKE_DIRECTORY ${CHECKPOINT_DIR})
+    if (NOT CREATE_ONLY)
+      set (REPORT_DIR "${OUTPUT_DIR}/reports")
+      file (MAKE_DIRECTORY ${REPORT_DIR})
+      set (CHECKPOINT_DIR "${OUTPUT_DIR}/checkpoints")
+      file (MAKE_DIRECTORY ${CHECKPOINT_DIR})
+    endif ()
 
     # Create TCL file
     set (TCL_FILE "${CMAKE_CURRENT_BINARY_DIR}/make-${PROJ_NAME}.tcl")
-    file (WRITE  ${TCL_FILE} "create_project -part ${FPGAV3_PARTNUM} -in_memory\n")
+    if (CREATE_ONLY)
+      set (CREATE_ARGS "-force ${PROJ_NAME} ${OUTPUT_DIR}")
+      set (GET_VERILOG "import_files")
+      set (GET_IP      "import_ip")
+      set (GET_XDC     "import_files -fileset constrs_1")
+    else ()
+      set (CREATE_ARGS "-in_memory")
+      set (GET_VERILOG "read_verilog")
+      set (GET_IP      "read_ip")
+      set (GET_XDC     "read_xdc")
+    endif ()
 
-    # Disable message 12-13650 (IP moved from original location) because it is not important
-    file (APPEND ${TCL_FILE} "set_msg_config -id {Vivado 12-13650} -suppress\n")
+    file (WRITE  ${TCL_FILE} "create_project -part ${FPGAV3_PARTNUM} ${CREATE_ARGS}\n")
+    if (NOT CREATE_ONLY)
+      # Disable message 12-13650 (IP moved from original location) because it is not important
+      file (APPEND ${TCL_FILE} "set_msg_config -id {Vivado 12-13650} -suppress\n")
+    endif ()
     foreach (vfile ${VERILOG_SOURCE})
-      file (APPEND ${TCL_FILE} "read_verilog ${vfile}\n")
+      file (APPEND ${TCL_FILE} "${GET_VERILOG} ${vfile}\n")
     endforeach (vfile)
 
     set (IP_SOURCE "")
     foreach (ip ${IP_TARGETS})
       get_property(xci_file TARGET ${ip} PROPERTY SOURCES)
-      file (APPEND ${TCL_FILE} "read_ip ${xci_file}\n")
+      file (APPEND ${TCL_FILE} "${GET_IP} ${xci_file}\n")
       get_property(verilog_file TARGET ${ip} PROPERTY OUTPUT_NAME)
       set (IP_SOURCE ${IP_SOURCE} ${verilog_file})
     endforeach (ip)
 
-    file (APPEND ${TCL_FILE} "read_xdc ${XDC_FILE}\n")
+    file (APPEND ${TCL_FILE} "${GET_XDC} ${XDC_FILE}\n")
     if (BOARD_XDC_FILE)
-      file (APPEND ${TCL_FILE} "read_xdc ${BOARD_XDC_FILE}\n")
+      file (APPEND ${TCL_FILE} "${GET_XDC} ${BOARD_XDC_FILE}\n")
     endif ()
 
-    # Synthesize
-    file (APPEND ${TCL_FILE} "puts \"Starting synthesis of ${PROJ_NAME}\"\n")
-    file (APPEND ${TCL_FILE} "synth_design -top ${TOP_LEVEL}")
-    if (INCLUDE_DIRS)
-      file (APPEND ${TCL_FILE} " -include_dirs \"")
-      foreach (dir ${INCLUDE_DIRS})
-        file (APPEND ${TCL_FILE} "${dir} ")
-      endforeach (dir)
-      file (APPEND ${TCL_FILE} "\"")
+    if (CREATE_ONLY)
+      file (APPEND ${TCL_FILE} "set_property top ${TOP_LEVEL} [current_fileset]\n")
+      if (USER_MACROS)
+        file (APPEND ${TCL_FILE} "set_property verilog_define {")
+        foreach (def ${USER_MACROS})
+          file (APPEND ${TCL_FILE} "${def} ")
+        endforeach (def)
+        file (APPEND ${TCL_FILE} "} [current_fileset]\n")
+      endif ()
+      set (OUTPUT_FILE "${CMAKE_CURRENT_BINARY_DIR}/${PROJ_NAME}.xpr")
+    else ()
+      # Synthesize
+      file (APPEND ${TCL_FILE} "puts \"Starting synthesis of ${PROJ_NAME}\"\n")
+      file (APPEND ${TCL_FILE} "synth_design -top ${TOP_LEVEL}")
+      if (INCLUDE_DIRS)
+        file (APPEND ${TCL_FILE} " -include_dirs \"")
+        foreach (dir ${INCLUDE_DIRS})
+          file (APPEND ${TCL_FILE} "${dir} ")
+        endforeach (dir)
+        file (APPEND ${TCL_FILE} "\"")
+      endif ()
+      foreach (def ${USER_MACROS})
+        file (APPEND ${TCL_FILE} " -verilog_define ${def}")
+      endforeach (def)
+      file (APPEND ${TCL_FILE} "\n")
+      file (APPEND ${TCL_FILE} "puts \"Finished synthesis, writing checkpoint (post_synth)\"\n")
+      file (APPEND ${TCL_FILE} "write_checkpoint -force {${CHECKPOINT_DIR}/post_synth}\n")
+      file (APPEND ${TCL_FILE} "report_timing_summary -file {${REPORT_DIR}/post_synth_timing_summary.rpt}\n")
+
+      # Optimize and place
+      file (APPEND ${TCL_FILE} "puts \"Starting to optimize and place ${PROJ_NAME}\"\n")
+      # Suppress INFO message 32-702 (optimization did not improve timing on net)
+      file (APPEND ${TCL_FILE} "set_msg_config -id {Physopt 32-702} -suppress\n")
+      file (APPEND ${TCL_FILE} "opt_design\n")
+      file (APPEND ${TCL_FILE} "place_design\n")
+      file (APPEND ${TCL_FILE} "phys_opt_design\n")
+      file (APPEND ${TCL_FILE} "puts \"Finished optimize and place, writing checkpoint (post_place)\"\n")
+      file (APPEND ${TCL_FILE} "write_checkpoint -force {${CHECKPOINT_DIR}/post_place}\n")
+      file (APPEND ${TCL_FILE} "report_timing_summary -file {${REPORT_DIR}/post_place_timing_summary.rpt}\n")
+
+      # Route
+      file (APPEND ${TCL_FILE} "puts \"Starting to route ${PROJ_NAME}\"\n")
+      file (APPEND ${TCL_FILE} "route_design\n")
+      file (APPEND ${TCL_FILE} "puts \"Finished route, writing checkpoint and reports (post_route)\"\n")
+      file (APPEND ${TCL_FILE} "write_checkpoint -force {${CHECKPOINT_DIR}/post_route}\n")
+      file (APPEND ${TCL_FILE} "report_timing_summary -file {${REPORT_DIR}/post_route_timing_summary.rpt}\n")
+      file (APPEND ${TCL_FILE} "report_timing -sort_by group -max_paths 100 -path_type summary -file {${REPORT_DIR}/post_route_timing.rpt}\n")
+      file (APPEND ${TCL_FILE} "report_drc -file {${REPORT_DIR}/post_route_drc.rpt}\n")
+      file (APPEND ${TCL_FILE} "report_utilization -file {${REPORT_DIR}/post_route_util.rpt}\n")
+      file (APPEND ${TCL_FILE} "report_clock_utilization -file {${REPORT_DIR}/clock_util.rpt}\n")
+      file (APPEND ${TCL_FILE} "write_xdc -force {${REPORT_DIR}/${PROJ_NAME}_impl.xdc}\n")
+
+      file (APPEND ${TCL_FILE} "puts \"Generating bitstream for ${PROJ_NAME}\"\n")
+      file (APPEND ${TCL_FILE} "write_bitstream -force ${PROJ_NAME}.bit\n")
+
+      set (OUTPUT_FILE "${CMAKE_CURRENT_BINARY_DIR}/${PROJ_NAME}.bit")
     endif ()
-    foreach (def ${USER_MACROS})
-      file (APPEND ${TCL_FILE} " -verilog_define ${def}")
-    endforeach (def)
-    file (APPEND ${TCL_FILE} "\n")
-    file (APPEND ${TCL_FILE} "puts \"Finished synthesis, writing checkpoint (post_synth)\"\n")
-    file (APPEND ${TCL_FILE} "write_checkpoint -force {${CHECKPOINT_DIR}/post_synth}\n")
-    file (APPEND ${TCL_FILE} "report_timing_summary -file {${REPORT_DIR}/post_synth_timing_summary.rpt}\n")
-
-    # Optimize and place
-    file (APPEND ${TCL_FILE} "puts \"Starting to optimize and place ${PROJ_NAME}\"\n")
-    # Suppress INFO message 32-702 (optimization did not improve timing on net)
-    file (APPEND ${TCL_FILE} "set_msg_config -id {Physopt 32-702} -suppress\n")
-    file (APPEND ${TCL_FILE} "opt_design\n")
-    file (APPEND ${TCL_FILE} "place_design\n")
-    file (APPEND ${TCL_FILE} "phys_opt_design\n")
-    file (APPEND ${TCL_FILE} "puts \"Finished optimize and place, writing checkpoint (post_place)\"\n")
-    file (APPEND ${TCL_FILE} "write_checkpoint -force {${CHECKPOINT_DIR}/post_place}\n")
-    file (APPEND ${TCL_FILE} "report_timing_summary -file {${REPORT_DIR}/post_place_timing_summary.rpt}\n")
-
-    # Route
-    file (APPEND ${TCL_FILE} "puts \"Starting to route ${PROJ_NAME}\"\n")
-    file (APPEND ${TCL_FILE} "route_design\n")
-    file (APPEND ${TCL_FILE} "puts \"Finished route, writing checkpoint and reports (post_route)\"\n")
-    file (APPEND ${TCL_FILE} "write_checkpoint -force {${CHECKPOINT_DIR}/post_route}\n")
-    file (APPEND ${TCL_FILE} "report_timing_summary -file {${REPORT_DIR}/post_route_timing_summary.rpt}\n")
-    file (APPEND ${TCL_FILE} "report_timing -sort_by group -max_paths 100 -path_type summary -file {${REPORT_DIR}/post_route_timing.rpt}\n")
-    file (APPEND ${TCL_FILE} "report_drc -file {${REPORT_DIR}/post_route_drc.rpt}\n")
-    file (APPEND ${TCL_FILE} "report_utilization -file {${REPORT_DIR}/post_route_util.rpt}\n")
-    file (APPEND ${TCL_FILE} "report_clock_utilization -file {${REPORT_DIR}/clock_util.rpt}\n")
-    file (APPEND ${TCL_FILE} "write_xdc -force {${REPORT_DIR}/${PROJ_NAME}_impl.xdc}\n")
-
-    file (APPEND ${TCL_FILE} "puts \"Generating bitstream for ${PROJ_NAME}\"\n")
-    file (APPEND ${TCL_FILE} "write_bitstream -force ${PROJ_NAME}.bit\n")
     file (APPEND ${TCL_FILE} "close_project\n")
-
-    set (OUTPUT_FILE "${CMAKE_CURRENT_BINARY_DIR}/${PROJ_NAME}.bit")
 
     add_custom_command (OUTPUT ${OUTPUT_FILE}
       COMMAND ${VIVADO_NATIVE} -nojournal -mode batch -log "${OUTPUT_DIR}/${PROJ_NAME}.log" -source ${TCL_FILE} -notrace
@@ -481,6 +529,7 @@ function (vivado_compile_fpga)
 
     add_custom_target (${PROJ_NAME} ALL
                        DEPENDS ${OUTPUT_FILE} ${IP_TARGETS} ${DEPENDENCIES})
+
 
     set_property (TARGET ${PROJ_NAME}
                          PROPERTY OUTPUT_NAME ${OUTPUT_FILE})

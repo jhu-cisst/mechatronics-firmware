@@ -11,7 +11,8 @@ if (Vivado_FOUND)
   vivado_ip_gen (TARGET_NAME "DPRAM_32x1024_sclk"
                  IP_NAME     "blk_mem_gen"
                  PROPERTIES  ${DPRAM_32x1024_sclk_PROPS}
-                 IPCORE_DIR  ${CMAKE_CURRENT_BINARY_DIR})
+                 IPCORE_DIR  ${CMAKE_CURRENT_BINARY_DIR}
+                 CREATE_ONLY ${CREATE_ONLY})
 
   set (DPRAM_32x512_sclk_PROPS
        "CONFIG.Assume_Synchronous_Clk true"
@@ -27,7 +28,8 @@ if (Vivado_FOUND)
   vivado_ip_gen (TARGET_NAME "DPRAM_32x512_sclk"
                  IP_NAME     "blk_mem_gen"
                  PROPERTIES  ${DPRAM_32x512_sclk_PROPS}
-                 IPCORE_DIR  ${CMAKE_CURRENT_BINARY_DIR})
+                 IPCORE_DIR  ${CMAKE_CURRENT_BINARY_DIR}
+                 CREATE_ONLY ${CREATE_ONLY})
 
   set (DPRAM_32x512_aclk_PROPS
        "CONFIG.Memory_Type Simple_Dual_Port_RAM"
@@ -42,7 +44,8 @@ if (Vivado_FOUND)
   vivado_ip_gen (TARGET_NAME "DPRAM_32x512_aclk"
                  IP_NAME     "blk_mem_gen"
                  PROPERTIES  ${DPRAM_32x512_aclk_PROPS}
-                 IPCORE_DIR  ${CMAKE_CURRENT_BINARY_DIR})
+                 IPCORE_DIR  ${CMAKE_CURRENT_BINARY_DIR}
+                 CREATE_ONLY ${CREATE_ONLY})
 
   set (FIFO_10x8192_PROPS
        "CONFIG.Fifo_Implementation Independent_Clocks_Block_RAM"
@@ -58,7 +61,8 @@ if (Vivado_FOUND)
   vivado_ip_gen (TARGET_NAME "fifo_10x8192"
                  IP_NAME     "fifo_generator"
                  PROPERTIES  ${FIFO_10x8192_PROPS}
-                 IPCORE_DIR  ${CMAKE_CURRENT_BINARY_DIR})
+                 IPCORE_DIR  ${CMAKE_CURRENT_BINARY_DIR}
+                 CREATE_ONLY ${CREATE_ONLY})
 
   set (FIFO_4x128_PROPS
        "CONFIG.Fifo_Implementation Independent_Clocks_Block_RAM"
@@ -73,7 +77,8 @@ if (Vivado_FOUND)
   vivado_ip_gen (TARGET_NAME "fifo_4x128"
                  IP_NAME     "fifo_generator"
                  PROPERTIES  ${FIFO_4x128_PROPS}
-                 IPCORE_DIR  ${CMAKE_CURRENT_BINARY_DIR})
+                 IPCORE_DIR  ${CMAKE_CURRENT_BINARY_DIR}
+                 CREATE_ONLY ${CREATE_ONLY})
 
   # gmii_to_rgmii_1 includes shared logic in core; it also handles
   # the idelay_ctrl
@@ -83,7 +88,8 @@ if (Vivado_FOUND)
   vivado_ip_gen (TARGET_NAME "gmii_to_rgmii_1"
                  IP_NAME     "gmii_to_rgmii"
                  PROPERTIES  ${GMII_TO_RGMII_1_PROPS}
-                 IPCORE_DIR  ${CMAKE_CURRENT_BINARY_DIR})
+                 IPCORE_DIR  ${CMAKE_CURRENT_BINARY_DIR}
+                 CREATE_ONLY ${CREATE_ONLY})
 
   # gmii_to_rgmii_2 uses shared logic from gmii_to_rgmii_1
   set (GMII_TO_RGMII_2_PROPS
@@ -92,7 +98,8 @@ if (Vivado_FOUND)
   vivado_ip_gen (TARGET_NAME "gmii_to_rgmii_2"
                  IP_NAME     "gmii_to_rgmii"
                  PROPERTIES  ${GMII_TO_RGMII_2_PROPS}
-                 IPCORE_DIR  ${CMAKE_CURRENT_BINARY_DIR})
+                 IPCORE_DIR  ${CMAKE_CURRENT_BINARY_DIR}
+                 CREATE_ONLY ${CREATE_ONLY})
 
   set (PWM_CLK_GEN_ZYNQ_PROPS
        "CONFIG.PRIMARY_PORT CLK_IN1"
@@ -108,13 +115,15 @@ if (Vivado_FOUND)
   vivado_ip_gen (TARGET_NAME "pwm_clk_gen_zynq"
                  IP_NAME     "clk_wiz"
                  PROPERTIES  ${PWM_CLK_GEN_ZYNQ_PROPS}
-                 IPCORE_DIR  ${CMAKE_CURRENT_BINARY_DIR})
+                 IPCORE_DIR  ${CMAKE_CURRENT_BINARY_DIR}
+                 CREATE_ONLY ${CREATE_ONLY})
 
   vivado_block_ip (TARGET_NAME  "processing_system7_0"
                    IP_NAME      "processing_system7"
                    FPGA_PARTNUM ${FPGAV3_PARTNUM}
                    BLOCK_IN     ${BLOCK_DESIGN_IN}
-                   IPCORE_DIR   ${CMAKE_CURRENT_BINARY_DIR})
+                   IPCORE_DIR   ${CMAKE_CURRENT_BINARY_DIR}
+                   CREATE_ONLY  ${CREATE_ONLY})
 else ()
   ## ISE
 

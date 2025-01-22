@@ -47,6 +47,11 @@ set (XPSCORE_BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/ipcorev3_dir/xps")
 # Git is used by CreateVersions.cmake, which is used to generate Versions.v
 find_package (Git REQUIRED)
 
+if (Vivado_FOUND)
+  option (CREATE_ONLY "Only create Vivado project (xpr) file" OFF)
+  mark_as_advanced(CREATE_ONLY)
+endif ()
+
 if (XilinxISE_FOUND)
     add_subdirectory(ipcore_dir)
 endif ()
@@ -276,6 +281,11 @@ if (Vivado_FOUND)
                 "gmii_to_rgmii_1" "gmii_to_rgmii_2" "processing_system7_0")
 
   set (VIVADO_DEFS "HAS_DEBUG_DATA" "USE_VIVADO")
+  # Following is defined in top-level file (e.g., FPGA1394V3-QLA.v), but
+  # for project mode (CREATE_ONLY) it is easier to add it here
+  if (CREATE_ONLY)
+      set (VIVADO_DEFS ${VIVADO_DEFS} "HAS_ETHERNET")
+  endif ()
 
   # Compile the firmware -- output is FPGA1394V3-BCFG.bit
   vivado_compile_fpga (PROJ_NAME      "FPGA1394V3-BCFG"
@@ -287,7 +297,8 @@ if (Vivado_FOUND)
                        IP_TARGETS     ${IP_CORES}
                        INCLUDE_DIRS   ${VERILOG_INCLUDE_DIRS}
                        TOP_LEVEL      "FPGA1394V3BCFG"
-                       USER_MACROS    ${VIVADO_DEFS})
+                       USER_MACROS    ${VIVADO_DEFS}
+                       CREATE_ONLY    ${CREATE_ONLY})
 
   # Compile the firmware -- output is FPGA1394V3-QLA.bit
   vivado_compile_fpga (PROJ_NAME      "FPGA1394V3-QLA"
@@ -299,7 +310,8 @@ if (Vivado_FOUND)
                        IP_TARGETS     ${IP_CORES}
                        INCLUDE_DIRS   ${VERILOG_INCLUDE_DIRS}
                        TOP_LEVEL      "FPGA1394V3QLA"
-                       USER_MACROS    ${VIVADO_DEFS})
+                       USER_MACROS    ${VIVADO_DEFS}
+                       CREATE_ONLY    ${CREATE_ONLY})
 
   # Compile the firmware -- output is FPGA1394V3-DQLA.bit
   vivado_compile_fpga (PROJ_NAME      "FPGA1394V3-DQLA"
@@ -311,7 +323,8 @@ if (Vivado_FOUND)
                        IP_TARGETS     ${IP_CORES}
                        INCLUDE_DIRS   ${VERILOG_INCLUDE_DIRS}
                        TOP_LEVEL      "FPGA1394V3DQLA"
-                       USER_MACROS    ${VIVADO_DEFS})
+                       USER_MACROS    ${VIVADO_DEFS}
+                       CREATE_ONLY    ${CREATE_ONLY})
 
   # Compile the firmware -- output is FPGA1394V3-DRAC.bit
   vivado_compile_fpga (PROJ_NAME      "FPGA1394V3-DRAC"
@@ -323,7 +336,8 @@ if (Vivado_FOUND)
                        IP_TARGETS     ${IP_CORES} "pwm_clk_gen_zynq"
                        INCLUDE_DIRS   ${VERILOG_INCLUDE_DIRS}
                        TOP_LEVEL      "FPGA1394V3DRAC"
-                       USER_MACROS    ${VIVADO_DEFS})
+                       USER_MACROS    ${VIVADO_DEFS}
+                       CREATE_ONLY    ${CREATE_ONLY})
 
 else ()
 

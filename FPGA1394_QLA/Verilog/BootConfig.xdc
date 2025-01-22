@@ -78,3 +78,9 @@ set_property PULLUP true [get_ports {IO2[36]}]
 set_property PULLUP true [get_ports {IO2[37]}]
 set_property PULLUP true [get_ports {IO2[38]}]
 set_property PULLUP true [get_ports {IO2[39]}]
+
+#---------------------------------------------------------------------
+# Clock groups (each group is asynchronous with respect to the others)
+#   - see also clock groups in FPGA xdc file (XC7Z020.xdc)
+#---------------------------------------------------------------------
+set_clock_groups -async -group [get_clocks -include_generated_clocks CLK_IN1394x]
