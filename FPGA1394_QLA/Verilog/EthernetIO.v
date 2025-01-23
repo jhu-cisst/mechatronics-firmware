@@ -430,8 +430,12 @@ assign ReplyBuffer[ID_Rep_ARP_Oper]      = 16'h0002;                     // ARP 
 
 generate
 if (IPv4_CSUM) begin
-    wire[18:0] Rep_IPv4_Csum19;
-    assign Rep_IPv4_Csum19 = {3'd0, ReplyBuffer[ID_Rep_IPv4_Word0]} +
+    // Several registers used to improve timing
+    reg[18:0]  Rep_IPv4_Csum19;
+    wire[18:0] Rep_IPv4_Csum19_Wire;
+
+    assign Rep_IPv4_Csum19_Wire =
+                             {3'd0, ReplyBuffer[ID_Rep_IPv4_Word0]} +
                              {3'd0, ReplyBuffer[ID_Rep_IPv4_Length]} +
                              {3'd0, ReplyBuffer[ID_Rep_IPv4_Flags]} +
                              {3'd0, ReplyBuffer[ID_Rep_IPv4_Prot]} +
@@ -445,7 +449,14 @@ if (IPv4_CSUM) begin
     assign Rep_IPv4_Csum17 = { 1'd0, Rep_IPv4_Csum19[15:0]} + {14'd0, Rep_IPv4_Csum19[18:16]};
 
     // Second part of IPv4 checksum carry, with ones complement of result
-    assign Reply_IPv4_Csum = ~(Rep_IPv4_Csum17[15:0] + {15'd0, Rep_IPv4_Csum17[16]});
+    reg[15:0] Reply_IPv4_Csum_Reg;
+    always @(posedge TxClk)
+    begin
+       Rep_IPv4_Csum19 <= Rep_IPv4_Csum19_Wire;
+       Reply_IPv4_Csum_Reg <= ~(Rep_IPv4_Csum17[15:0] + {15'd0, Rep_IPv4_Csum17[16]});
+    end
+
+    assign Reply_IPv4_Csum = Reply_IPv4_Csum_Reg;
 end
 else begin
     assign Reply_IPv4_Csum = 16'd0;
@@ -1114,8 +1125,11 @@ if (IS_V3) begin
    assign bcResponseHeader[UDP_Reply_End]       = 16'd0;
 
    if (IPv4_CSUM) begin
-       wire[18:0] bcResp_IPv4_Csum19;
-       assign bcResp_IPv4_Csum19 = {3'd0, bcResponseHeader[IPv4_Reply_Begin]} +
+       // Several registers used to improve timing
+       reg[18:0] bcResp_IPv4_Csum19;
+       wire[18:0] bcResp_IPv4_Csum19_Wire;
+       assign bcResp_IPv4_Csum19_Wire =
+                                   {3'd0, bcResponseHeader[IPv4_Reply_Begin]} +
                                    {3'd0, bcResponseHeader[IPv4_Reply_Begin+1]} +
                                    {3'd0, bcResponseHeader[IPv4_Reply_Begin+3]} +
                                    {3'd0, bcResponseHeader[IPv4_Reply_Begin+4]} +
@@ -1129,7 +1143,14 @@ if (IS_V3) begin
        assign bcResp_IPv4_Csum17 = { 1'd0, bcResp_IPv4_Csum19[15:0]} + {14'd0, bcResp_IPv4_Csum19[18:16]};
 
        // Second part of IPv4 checksum carry, with ones complement of result
-       assign bcResp_IPv4_Csum = ~(bcResp_IPv4_Csum17[15:0] + {15'd0, bcResp_IPv4_Csum17[16]});
+       reg[15:0] bcResp_IPv4_Csum_Reg;
+       always @(posedge TxClk)
+       begin
+           bcResp_IPv4_Csum19 <= bcResp_IPv4_Csum19_Wire;
+           bcResp_IPv4_Csum_Reg <= ~(bcResp_IPv4_Csum17[15:0] + {15'd0, bcResp_IPv4_Csum17[16]});
+       end
+
+       assign bcResp_IPv4_Csum = bcResp_IPv4_Csum_Reg;
    end
    else begin
        assign bcResp_IPv4_Csum = 16'd0;

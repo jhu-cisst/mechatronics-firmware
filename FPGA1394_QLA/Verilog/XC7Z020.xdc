@@ -403,3 +403,6 @@ set_clock_groups -async -group [get_clocks E2_RxCLK]
 # probably due to ordering of xdc files
 set_clock_groups -quiet -async -group [get_clocks -quiet clk_fpga_0]
 set_clock_groups -quiet -async -group [get_clocks -quiet clk_fpga_1]
+
+# Ignore wenid (board id) for timing analysis because it is not expected to change
+set_false_path -from [get_ports wenid[*]]
