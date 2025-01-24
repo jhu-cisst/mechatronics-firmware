@@ -1510,6 +1510,10 @@ begin
    // req_blk_rt_rd is asserted for just one sysclk
    req_blk_rt_rd <= 1'b0;
 
+   // Following registered to improve timing
+   responseRequired <= responseRequiredWire;
+   responseByteCount <= responseByteCountWire;
+
    if (resetActive|clearErrors_rxtx) begin
       numPacketError <= 8'd0;
       ethFrameError <= 0;
@@ -1546,7 +1550,6 @@ begin
          recvBusy <= 1;
          bwStart <= 9'd15;    // Large value to prevent early write
          FireWirePacketFresh <= 0;
-         responseRequired <= 0;
          fwPacketDropped <= 0;
          srcPortReg <= srcPort;
          recvState <= ST_RECEIVE_DMA_ETHERNET_HEADERS;
@@ -1856,9 +1859,6 @@ begin
       // and waiting for recvRequest to be cleared.
       if ((~writeRequest_rxtx) & (~bw_active)) begin
          recvBusy <= 1'b0;
-         // Following registered to improve timing
-         responseRequired <= responseRequiredWire;
-         responseByteCount <= responseByteCountWire;
          if (~recvRequest)
             recvState <= ST_RECEIVE_DMA_IDLE;
       end
