@@ -111,8 +111,8 @@ module EthernetIO
     // Note that these are assumed to be in the RxTxClk domain
     input wire resetActive,          // Indicates that reset is active
     input wire isForward,            // Indicates that FireWire receiver is forwarding to Ethernet
-    output wire responseRequired,    // Indicates that the received packet requires a response
-    output wire[15:0] responseByteCount,  // Number of bytes in required response
+    output reg responseRequired,     // Indicates that the received packet requires a response
+    output reg[15:0] responseByteCount,  // Number of bytes in required response
     // Ethernet receive
     input wire recvRequest,          // Request EthernetIO to start receiving
     output reg recvBusy,             // To KSZ8851
@@ -144,6 +144,7 @@ module EthernetIO
 );
 
 // Clocks for Rx and Tx processes
+// There is no CDC between the Rx and Tx clocks, since they are assumed to be equal
 wire RxClk;
 wire TxClk;
 if (USE_RXTX_CLK) begin
@@ -369,13 +370,17 @@ wire[15:0] ReplyBuffer[0:15];
 wire[15:0] IPv4_Length;
 
 // Following elements of ReplyBuffer are variable
-wire[15:0] Reply_Frame_Length;
-wire[15:0] Reply_IPv4_Length;
+// Note that several signals are registered to improve timing
+wire[15:0] Reply_Frame_LenWire;
+reg[15:0]  Reply_Frame_Length;
+wire[15:0] Reply_IPv4_LenWire;
+reg[15:0]  Reply_IPv4_Length;
 wire[15:0] Reply_IPv4_Csum;
 wire[15:0] Reply_IPv4_Address0;
 wire[15:0] Reply_IPv4_Address1;
 reg[15:0]  Reply_UDP_hostPort;
-wire[15:0] Reply_UDP_Length;
+wire[15:0] Reply_UDP_LenWire;
+reg[15:0]  Reply_UDP_Length;
 wire[15:0] Reply_ICMP_Checksum;
 
 assign Reply_IPv4_Address0 = { ip_address[7:0],   ip_address[15:8]  };
@@ -387,24 +392,25 @@ assign fw_resp_udp = (isUDP & (quadRead | blockRead)) | (fwUseUDP & isForward);
 wire sendUDP;
 assign sendUDP = (isEcho | fw_resp_udp | (bcResp & bcUseUDP));
 
-assign Reply_UDP_Length = isForward ? (`UDP_EXTRA_SIZE + sendLen) :
-                          sendExtra ? `UDP_EXTRA_SIZE :
-                          quadRead  ? (`UDP_EXTRA_SIZE + `FW_QRESP_SIZE)
-                                    : (`UDP_EXTRA_SIZE + `FW_BRESP_SIZE) + reply_data_length;
+assign Reply_UDP_LenWire = isForward ? (`UDP_EXTRA_SIZE + sendLen) :
+                           sendExtra ? `UDP_EXTRA_SIZE :
+                           quadRead  ? (`UDP_EXTRA_SIZE + `FW_QRESP_SIZE)
+                                     : (`UDP_EXTRA_SIZE + `FW_BRESP_SIZE) + reply_data_length;
 
-assign Reply_IPv4_Length = isEcho   ? IPv4_Length       // Same length as request
-                                    : (`IPv4_HDR_SIZE + Reply_UDP_Length);
+assign Reply_IPv4_LenWire = isEcho   ? IPv4_Length       // Same length as request
+                                     : (`IPv4_HDR_SIZE + Reply_UDP_Length);
 
-assign Reply_Frame_Length = sendARP                ? 16'h0806 :
-                            sendUDP                ? 16'h0800 :
-                            // Forwarding raw data from FireWire
-                            isForward              ? sendLen + `FW_EXTRA_SIZE :
-                            // Local raw packet
-                            ipWrite                ? (`FW_CTRL_SIZE + `FW_QWRITE_SIZE) :
-                            hubSend                ? (`FW_CTRL_SIZE + `FW_BWRITE_SIZE + SZ_BBC_BYTES) :
-                            sendExtra              ? `FW_EXTRA_SIZE :
-                            quadRead               ? (`FW_QRESP_SIZE + `FW_EXTRA_SIZE)
-                                                   : (`FW_BRESP_SIZE + `FW_EXTRA_SIZE) + reply_data_length;
+assign Reply_Frame_LenWire = sendARP                ? 16'h0806 :
+                             sendUDP                ? 16'h0800 :
+                             // Forwarding raw data from FireWire
+                             isForward              ? sendLen + `FW_EXTRA_SIZE :
+                             // Local raw packet
+                             ipWrite                ? (`FW_CTRL_SIZE + `FW_QWRITE_SIZE) :
+                             hubSend                ? (`FW_CTRL_SIZE + `FW_BWRITE_SIZE + SZ_BBC_BYTES) :
+                             sendExtra              ? `FW_EXTRA_SIZE :
+                             quadRead               ? (`FW_QRESP_SIZE + `FW_EXTRA_SIZE)
+                                                    : (`FW_BRESP_SIZE + `FW_EXTRA_SIZE) + reply_data_length;
+
 integer i;
 initial begin
    for (i = ID_Packet_Begin; i <= ID_Packet_End; i=i+1) PacketBuffer[i] = 16'd0;
@@ -555,6 +561,13 @@ assign UDP_Length = PacketBuffer[ID_UDP_Length];
 
 wire isPortValid;
 assign isPortValid = (PacketBuffer[ID_UDP_destPort] == 16'd1394) ? 1'd1 : 1'd0;
+
+// List of known ports
+// Port 123 is used by ntp.
+// Port 1534 is used by tcf-agent, which is enabled by default in Petalinux.
+wire isPortKnown;
+assign isPortKnown = ((PacketBuffer[ID_UDP_destPort] != 16'd123)) ||
+                      (PacketBuffer[ID_UDP_destPort] != 16'd1534) ? 1'b1 : 1'b0;
 
 reg[15:0] Port_Unknown;
 
@@ -1472,9 +1485,11 @@ reg[5:0] rebootCnt;     // Counter used to delay reboot command (could reuse rec
 reg[7:0] br_wait_cnt;   // Number of clocks waiting for block read to finish
 `endif
 
-assign responseRequired = ((FireWirePacketFresh &
-                            ((quadRead | blockRead) & (isLocal | sendExtra)) | ((ipWrite | hubSend) & isLocal))
-                           | sendARP | isEcho);
+wire responseRequiredWire;
+assign responseRequiredWire = ((FireWirePacketFresh &
+                              ((quadRead | blockRead) & (isLocal | sendExtra)) | ((ipWrite | hubSend) & isLocal))
+                              | sendARP | isEcho);
+wire[15:0] responseByteCountWire;
 
 // Previously (up to Firmware Rev 8), set all bits of ip_address (e.g., 169.254.0.100)
 // Firmware 9+: Add board_id to last 8 bits (e.g., 169.254.0.{100+board_id})
@@ -1531,6 +1546,7 @@ begin
          recvBusy <= 1;
          bwStart <= 9'd15;    // Large value to prevent early write
          FireWirePacketFresh <= 0;
+         responseRequired <= 0;
          fwPacketDropped <= 0;
          srcPortReg <= srcPort;
          recvState <= ST_RECEIVE_DMA_ETHERNET_HEADERS;
@@ -1572,9 +1588,8 @@ begin
          end
          else if ((recvCnt == ID_UDP_End) && isUDP) begin
             if (!isPortValid) begin
-               // Port 1534 is used by tcf-agent, which is enabled by default in Petalinux;
-               // thus, we just ignore it and do not consider it an unexpected UDP port.
-               if (PacketBuffer[ID_UDP_destPort] != 16'd1534) begin
+               // Check for any known ports (e.g., ntp, tcf-agent)
+               if (!isPortKnown) begin
                    ethUDPError <= 1'd1;
                    numPacketError <= numPacketError + 8'd1;
                    Port_Unknown <= PacketBuffer[ID_UDP_destPort];
@@ -1841,6 +1856,9 @@ begin
       // and waiting for recvRequest to be cleared.
       if ((~writeRequest_rxtx) & (~bw_active)) begin
          recvBusy <= 1'b0;
+         // Following registered to improve timing
+         responseRequired <= responseRequiredWire;
+         responseByteCount <= responseByteCountWire;
          if (~recvRequest)
             recvState <= ST_RECEIVE_DMA_IDLE;
       end
@@ -1905,8 +1923,7 @@ reg[3:0] sendState = ST_SEND_DMA_IDLE;
 
 reg[1:0] xcnt;          // Counts words in extra packet
 
-// Following needed by KSZ8851
-assign responseByteCount =
+assign responseByteCountWire =
              sendARP ? (`ETH_FRAME_SIZE + 16'd28) :                 // ARP response: 14 + 28
              sendUDP ? (`ETH_FRAME_SIZE + Reply_IPv4_Length)        // UDP or ICMP Echo packet
                      : (`ETH_FRAME_SIZE + Reply_Frame_Length);      // Raw packet
@@ -1917,6 +1934,11 @@ begin
    if (resetActive|clearErrors_rxtx) begin
       ethSendStateError <= 0;
    end
+
+   // Following registered to improve timing
+   Reply_UDP_Length <= Reply_UDP_LenWire;
+   Reply_IPv4_Length <= Reply_IPv4_LenWire;
+   Reply_Frame_Length <= Reply_Frame_LenWire;
 
    case (sendState)
 
