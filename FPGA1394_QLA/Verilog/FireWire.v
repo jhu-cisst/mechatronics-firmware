@@ -693,6 +693,16 @@ else begin
 end
 `endif
    
+`ifdef HAS_DEBUG_DATA
+reg[7:0] numHubSendReq;
+reg[7:0] numEthSendReq;
+reg[7:0] numRecv;
+reg[7:0] numTxGrant;
+reg[7:0] numPhyStatus;
+reg      recvPktNull;      // Received null packet or error
+reg      recvCtlInvalid;   // Invalid ctl when receiving data
+`endif
+
 //
 // state machine clocked by sysclk; transitions depend on ctl and data
 //
@@ -735,6 +745,9 @@ begin
                         lreq_trig <= 1;
                         lreq_type <= `LREQ_TX_PRI;
                         tx_type <= `TX_TYPE_BBC;
+`ifdef HAS_DEBUG_DATA
+                        numHubSendReq <= numHubSendReq + 8'd1;
+`endif
                     end
 `ifdef HAS_ETHERNET
                     else if (eth_send_fw_req & (~lreq_busy)) begin
@@ -743,6 +756,9 @@ begin
                         lreq_type <= `LREQ_TX_FAIR;
                         tx_type <= `TX_TYPE_FWD;
                         eth_fwpkt_raddr <= 9'h00;
+`ifdef HAS_DEBUG_DATA
+                        numEthSendReq <= numEthSendReq + 8'd1;
+`endif
                     end
 `endif
                     else begin
@@ -750,16 +766,27 @@ begin
                     end
                 end
                 
-                `CTL_PHY_RECV:
-                    begin
-                        state <= ST_RX_D_ON;         // phy data from the bus
-                        lreq_busy <= 0;              // above request canceled (will resubmit)
+                `CTL_PHY_RECV: begin
+                    state <= ST_RX_D_ON;             // phy data from the bus
+                    lreq_busy <= 0;                  // above request canceled (will resubmit)
+`ifdef HAS_DEBUG_DATA
+                    numRecv <= numRecv + 8'd1;
+`endif
                     end
-                `CTL_PHY_GRNT: state <= ST_TX;       // phy grants tx request
+                `CTL_PHY_GRNT: begin
+                    numRecv <= numRecv + 8'd1;
+                    state <= ST_TX;                  // phy grants tx request
+`ifdef HAS_DEBUG_DATA
+                    numTxGrant <= numTxGrant + 8'd1;
+`endif
+                    end
                 `CTL_PHY_STAT: begin                 // phy status transfer
                     st_buff <= {14'b0, data2b};      // clock in status bits
                     state <= ST_STATUS;              // continue status loop
                     stcount <= 2;                    // start status bit count
+`ifdef HAS_DEBUG_DATA
+                    numPhyStatus <= numPhyStatus + 8'd1;
+`endif
                     end
             endcase
         end
@@ -851,7 +878,12 @@ begin
                     pkt_mem_waddr <= (9'd0 - 9'd2); // set pkt mem addr, dump 2
 `endif
                 end
-                default: state <= ST_IDLE;          // null packet or error
+                default: begin                      // null packet or error
+                    state <= ST_IDLE;
+`ifdef HAS_DEBUG_DATA
+                    recvPktNull <= 1'b1;
+`endif
+                end
             endcase
         end
 
@@ -1149,7 +1181,13 @@ begin
                 // -------------------------------------------------------------
                 // undefined condition, go back to idle
                 //
-                default: state <= ST_IDLE;
+                default:
+                begin
+                    state <= ST_IDLE;
+`ifdef HAS_DEBUG_DATA
+                    recvCtlInvalid <= 1'b1;
+`endif
+                end
 
             endcase
         end
@@ -1525,6 +1563,28 @@ begin
     endcase
 end
 
+// For debugging
+`ifdef HAS_DEBUG_DATA
+wire[31:0] DebugData[0:3];
+assign DebugData[0]  = "2GBD";  // DBG2 byte-swapped
+assign DebugData[1] = { state, next, lreq_trig, lreq_type, lreq_busy, tx_type,
+//                        4     4       1          3          1         3
+                        req_write_bus, grant_write_bus, node_id,
+//                            1               1            6
+                        data_block, rx_speed, recvCtlInvalid, recvPktNull, 2'd0 };
+//                            1        3            1             1
+assign DebugData[2] = { numHubSendReq, numRecv, numTxGrant, numPhyStatus };
+assign DebugData[3] = { numEthSendReq, 8'd0, stcount };
+
+// DebugData is at reg_raddr_ext[11:9] == 001 because reg_raddr_ext[11:9] == 000
+// is used by EthernetIO to directly access the Firewire packet memory.
+// Note that only Ethernet can access the Firewire packet memory.
+assign reg_rdata_ext = (reg_raddr_ext[11:2] == { 3'b001, 7'd0 }) ? DebugData[reg_raddr_ext[1:0]]
+                                                                 : 32'd0;
+`else
+assign reg_rdata_ext = 32'd0;
+`endif
+
 endmodule  // PhyLinkInterface
 
 
@@ -1576,8 +1636,5 @@ begin
     else
         request <= request << 1;
 end
-
-// For debugging (TBD)
-assign reg_rdata_ext = 32'd0;
 
 endmodule  // PhyRequest
