@@ -291,7 +291,7 @@ assign {reg_rdata, reg_rwait} =
                    ((reg_raddr[15:12]==`ADDR_HUB) ? {reg_rdata_hub, reg_rwait_hub} :
                     (reg_raddr[15:12]==`ADDR_PROM) ? {reg_rdata_prom, 1'b0} :
                     (reg_raddr[15:12]==`ADDR_ETH) ? {reg_rdata_eth|reg_rdata_eth_ll|reg_rdata_esw, 1'b1} :
-                    (reg_raddr[15:12]==`ADDR_FW) ? {reg_rdata_fw, 1'b1} :
+                    (reg_raddr[15:12]==`ADDR_FW) ? {reg_rdata_fw, 1'b0} :
                     isAddrMain ? {reg_rdata_chan0 | reg_rdata_chan0_ext, reg_rwait_chan0} :
                     {32'd0, 1'b0}) | {reg_rdata_ext, reg_rwait_ext};
 
@@ -416,12 +416,10 @@ wire[15:0] eth_host_fw_addr;
 wire eth_send_req;
 wire eth_send_ack;
 wire[8:0]  eth_send_addr;
+wire[31:0] eth_send_data;
 wire[15:0] eth_send_len;
 
 wire fw_bus_reset;
-
-wire[8:0] eth_send_addr_mux;
-assign eth_send_addr_mux = eth_send_ack ? eth_send_addr : reg_raddr[8:0];
 
 // phy-link interface
 PhyLinkInterface
@@ -461,13 +459,15 @@ phy(
     .eth_fw_addr(eth_host_fw_addr),    // in: eth fw host address (e.g., ffd0)
 
     // Request from Firewire to send Ethernet packet
-    // Note that if !eth_send_ack, then the Firewire packet memory
-    // is accessible via reg_raddr/reg_rdata.
     .eth_send_req(eth_send_req),
     .eth_send_ack(eth_send_ack),
-    .eth_send_addr(eth_send_addr_mux),
-    .eth_send_data(reg_rdata_fw),
+    .eth_send_addr(eth_send_addr),
+    .eth_send_data(eth_send_data),
     .eth_send_len(eth_send_len),
+
+    // External interface (for debugging)
+    .reg_raddr_ext(reg_raddr[11:0]),
+    .reg_rdata_ext(reg_rdata_fw),
 
     // Signal indicating bus reset in process
     .fw_bus_reset(fw_bus_reset),
@@ -908,7 +908,7 @@ EthernetTransfers(
     // Note that sendReq(eth_send_req) is in EthRtInterface
     .sendAck(eth_send_ack),
     .sendAddr(eth_send_addr),
-    .sendData(reg_rdata_fw),
+    .sendData(eth_send_data),
     .sendLen(eth_send_len),
 
     // Signal from Firewire indicating bus reset in process

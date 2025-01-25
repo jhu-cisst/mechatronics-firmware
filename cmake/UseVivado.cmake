@@ -507,6 +507,8 @@ function (vivado_compile_fpga)
       # Route
       file (APPEND ${TCL_FILE} "puts \"Starting to route ${PROJ_NAME}\"\n")
       file (APPEND ${TCL_FILE} "route_design\n")
+      # Post-route phys_opt_design only runs if needed
+      file (APPEND ${TCL_FILE} "phys_opt_design\n")
       file (APPEND ${TCL_FILE} "puts \"Finished route, writing checkpoint and reports (post_route)\"\n")
       file (APPEND ${TCL_FILE} "write_checkpoint -force {${CHECKPOINT_DIR}/post_route}\n")
       file (APPEND ${TCL_FILE} "report_timing_summary -file {${REPORT_DIR}/post_route_timing_summary.rpt}\n")

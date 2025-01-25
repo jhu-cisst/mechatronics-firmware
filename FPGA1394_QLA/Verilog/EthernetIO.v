@@ -209,6 +209,7 @@ wire blockRead;
 wire blockWrite;
 
 wire addrMain;
+wire addrFwMem;
 
 wire isRebootCmd;   // 1 -> Reboot FPGA command received
 
@@ -1296,6 +1297,9 @@ assign blockWrite = (FireWirePacketFresh && (fw_tcode == `TC_BWRITE)) ? 1'd1 : 1
 assign reply_data_length = bcResp ? bc_resp_length : block_data_length;
 
 assign addrMain = (fw_dest_offset[15:12] == `ADDR_MAIN) ? 1'd1 : 1'd0;
+// Special case for reading packet memory in Firewire.v because that memory
+// is in the Ethernet clock domain (RxTxClk)
+assign addrFwMem = (fw_dest_offset[15:9] == {`ADDR_FW, 3'd0}) ? 1'd1 : 1'd0;
 
 // For local use
 reg[15:0] reg_waddr;
@@ -1756,7 +1760,7 @@ begin
                bw_left <= bwEnd - local_raddr;
 `endif
             end
-            else if (isLocal & (quadRead | blockRead | hubSend)) begin
+            else if (isLocal & (quadRead | (blockRead & (~addrFwMem)) | hubSend)) begin
                br_request_rxtx <= 1'b1;
 `ifdef HAS_DEBUG_DATA
                br_wait_cnt <= 8'd0;
@@ -2065,6 +2069,7 @@ begin
          else if (sfw_count[3:0] == 4'd9) begin  // block read
             if (blockRead | hubSend | bcResp) begin
                sfw_count <= 10'd0;
+               sendAddr <= 9'd0;
                sendState <= ST_SEND_DMA_PACKETDATA_BLOCK;
             end
             else  // Should not happen
@@ -2101,12 +2106,17 @@ begin
 
       if (sendReady) begin
          sfw_count <= sfw_count + 10'd1;
+         if (addrFwMem & sfw_count[0]) sendAddr <= sendAddr + 9'd1;
          if (sfw_count[0] == 0) begin   // even count (upper word)
-            `send_word_swapped <= localHubRead ? reg_rdata_hub[31:16] : br_data_out[31:16];
+            `send_word_swapped <= localHubRead ? reg_rdata_hub[31:16] :
+                                  addrFwMem    ? sendData[31:16] :
+                                  br_data_out[31:16];
             reg_wen_hub_local <= 1'b0;
          end
          else begin   // odd count (lower word)
-            `send_word_swapped <= localHubRead ? reg_rdata_hub[15:0] : br_data_out[15:0];
+            `send_word_swapped <= localHubRead ? reg_rdata_hub[15:0] :
+                                  addrFwMem    ? sendData[15:0] :
+                                  br_data_out[15:0];
             reg_wen_hub_local <= hubSend;
             // sfw_count is in words and reply_data_length is in bytes, but we compare in quadlets
             if ((sfw_count[9:1] + 9'd1) == reply_data_length[10:2])

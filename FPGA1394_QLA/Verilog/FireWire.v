@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2008-2024 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2008-2025 ERC CISST, Johns Hopkins University.
  *
  * This module implements the FireWire link layer state machine, which defines
  * the operation of the phy-link interface.  The state machine is triggered on
@@ -235,6 +235,10 @@ module PhyLinkInterface
     output wire[31:0] eth_send_data, // packet data bus
     output reg[15:0] eth_send_len,   // packet data len (bytes)
 `endif
+
+    // External interface (e.g., for debugging)
+    input wire[11:0] reg_raddr_ext,
+    output wire[31:0] reg_rdata_ext,
 
     output reg fw_bus_reset,         // 1 -> Firewire bus reset is in process
 
@@ -664,6 +668,7 @@ reg eth_send_req_pending;
 reg pkt_mem_wen;
 reg [8:0] pkt_mem_waddr;
 reg [31:0] pkt_mem_wdata;
+
 if (USE_ETH_CLK) begin
     DPRAM_32x512_aclk pkt_mem(
                     .clka(sysclk),
@@ -1571,5 +1576,8 @@ begin
     else
         request <= request << 1;
 end
+
+// For debugging (TBD)
+assign reg_rdata_ext = 32'd0;
 
 endmodule  // PhyRequest
