@@ -121,7 +121,12 @@
 `include "Constants.v"
 
 // constants for receive speed codes
-// See Book P237 Receiving Packets, D[0] is omitted here
+// See Book P237 Receiving Packets, D[0] is omitted here;
+// it is always 0 when indicating the speed.
+// RX_S100 is really 3'b0xx, but 3'b000 works.
+// RX_S400 is really 7'b1010000, but 3'b101 works because
+//         the other bits would be used by higher speeds.
+// Note also that bits are reversed here.
 `define RX_S100 3'b000            // 100 Mbps
 `define RX_S200 3'b001            // 200 Mbps
 `define RX_S400 3'b101            // 400 Mbps
@@ -283,14 +288,16 @@ module PhyLinkInterface
     //
     
     // phy-link interface bus
-    reg[7:0] data;                // data bus register
-    reg[1:0] ctl;                 // control register
+    reg link_active;              // 1 -> link (FPGA) is driving interface to PHY
+    wire[7:0] data_in;            // data bus (input from PHY)
+    wire[1:0] ctl_in;             // control (input from PHY)
+    reg[7:0] data_out;            // data bus register (output to PHY)
+    reg[1:0] ctl_out;             // control register (output to PHY)
 
-    initial begin
-        // bidir phy-link lines normally driven by phy (we're the link)
-        ctl = 2'bz;              // phy-link control lines
-        data = 8'bz;             // phy-link data lines
-    end
+    assign data_in = data_ext;
+    assign ctl_in = ctl_ext;
+    assign data_ext = link_active ? data_out : 8'bz;
+    assign ctl_ext = link_active ? ctl_out : 2'bz;
 
     // -------------------------------------------------------------------------
     // local wires and registers
@@ -632,14 +639,10 @@ assign fw_reg_waddr[15:8] = reg_waddr[15:8];
 // full local_id
 assign local_id = { bus_id[9:0], node_id[5:0] };   // full addr = bus_id + node_id
 
-// hack for xilinx, compiler doesn't like inout ports as registers
-assign data_ext = data;
-assign ctl_ext = ctl;
-
 // phy data lines, which are in reversed bit order
-assign data2b = { data[0], data[1] };
-assign data4b = { data[0], data[1], data[2], data[3] };
-assign data8b = { data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7] };
+assign data2b = { data_in[0], data_in[1] };
+assign data4b = { data_in[0], data_in[1], data_in[2], data_in[3] };
+assign data8b = { data_in[0], data_in[1], data_in[2], data_in[3], data_in[4], data_in[5], data_in[6], data_in[7] };
 assign txmsb8b = { buffer[24], buffer[25], buffer[26], buffer[27], buffer[28], buffer[29], buffer[30], buffer[31] };
 
 // select data to compute crc on depending on if rx or tx
@@ -699,6 +702,7 @@ reg[7:0] numEthSendReq;
 reg[7:0] numRecv;
 reg[7:0] numTxGrant;
 reg[7:0] numPhyStatus;
+reg[7:0] numPktRecv;
 reg      recvPktNull;      // Received null packet or error
 reg      recvCtlInvalid;   // Invalid ctl when receiving data
 `endif
@@ -734,10 +738,11 @@ begin
             req_write_bus <= 1'b0;                 // do not request write bus
             req_read_bus <= 1'b0;                  // do not request read bus
             crc_tx <= 0;                           // not in a transmit state
-            rx_active <= 0;                        // clear receive active     
+            rx_active <= 0;                        // clear receive active
+            link_active <= 0;                      // clear link active
 
             // monitor ctl to select next state
-            case (ctl)
+            case (ctl_in)
                 `CTL_PHY_IDLE: begin
                     state <= ST_IDLE;           // stay in monitor state
                     if (write_trig & (~lreq_busy)) begin
@@ -774,7 +779,6 @@ begin
 `endif
                     end
                 `CTL_PHY_GRNT: begin
-                    numRecv <= numRecv + 8'd1;
                     state <= ST_TX;                  // phy grants tx request
 `ifdef HAS_DEBUG_DATA
                     numTxGrant <= numTxGrant + 8'd1;
@@ -799,7 +803,7 @@ begin
         ST_STATUS:
         begin
             // do status transfer until complete or interrupted by data RX
-            case (ctl)
+            case (ctl_in)
 
                 `CTL_PHY_RECV: state <= ST_RX_D_ON;  // interrupt by RX bus data
                 `CTL_PHY_GRNT: state <= ST_IDLE;     // undefined, back to idle
@@ -862,12 +866,12 @@ begin
         // Ctrl: 00b 01b 01b 01b 01b   01b   01b   01b   01b ....   01b 00b 00b
         ST_RX_D_ON:
         begin
-            // wait out data-on until data RX starts (or null packet indicated)
+            // wait on data-on until data RX starts (or null packet indicated)
             // 01 --> CTL_PHY_RECV
-            case ({data[0], ctl})
+            case ({data_in[0], ctl_in})
                 3'b101: state <= ST_RX_D_ON;        // loop in data-on state
                 3'b001: begin                       // receiving data packet
-                    rx_speed <= data[3:1];          // latch 4-bit speed code
+                    rx_speed <= data_in[3:1];       // latch 4-bit speed code
                     state <= ST_RX_DATA;            // go to receive data loop
                     count <= 0;                     // reset receive bit count
                     tx_type <= `TX_TYPE_NULL;       // to be set during receive
@@ -876,6 +880,9 @@ begin
                     data_block <= 0;                // clear block write flag
 `ifdef HAS_ETHERNET
                     pkt_mem_waddr <= (9'd0 - 9'd2); // set pkt mem addr, dump 2
+`endif
+`ifdef HAS_DEBUG_DATA
+                    numPktRecv <= numPktRecv + 8'd1;
 `endif
                 end
                 default: begin                      // null packet or error
@@ -893,7 +900,7 @@ begin
         ST_RX_DATA:
         begin
             // receive data from phy until phy indicates completion
-            case (ctl)
+            case (ctl_in)
 
                 // -------------------------------------------------------------
                 // normal receive loop
@@ -1208,7 +1215,8 @@ begin
             crc_ini <= 0;                // normal crc operation
             crc_tx <= 1;                 // selects tx data for crc
             count <= 0;                  // prepare the bit counter
-            
+            link_active <= 1;            // link has control of interface to PHY (ctl, data)
+
             // prepare for the type of bus transmission
             case (tx_type)
             // transmit ack, to be followed by read response packet
@@ -1284,7 +1292,7 @@ begin
         //
         ST_TX_DRIVE:
         begin
-            ctl <= `CTL_HOLD;
+            ctl_out <= `CTL_HOLD;
             state <= next;
         end
 
@@ -1293,8 +1301,8 @@ begin
         //
         ST_TX_ACK1:
         begin
-            ctl <= `CTL_DATA;
-            data <= txmsb8b;
+            ctl_out <= `CTL_DATA;
+            data_out <= txmsb8b;
             state <= ST_TX_ACK2;
         end
 
@@ -1305,9 +1313,9 @@ begin
         begin
             // if response to be transmitted, hold data bus, else release it
             if (tx_type == `TX_TYPE_PEND)
-                ctl <= `CTL_HOLD;
+                ctl_out <= `CTL_HOLD;
             else
-                ctl <= `CTL_IDLE;
+                ctl_out <= `CTL_IDLE;
 
             // set tx type; this works because we do concatenated transactions
             // if rx_tcode != (TC_QREAD or TC_QWRITE), this is inconsequential
@@ -1327,17 +1335,17 @@ begin
         ST_TX_QUAD:
         begin
             if (count == `SZ_QRESP) begin
-                ctl <= `CTL_IDLE;
+                ctl_out <= `CTL_IDLE;
                 state <= ST_TX_DONE1;
                 req_read_bus <= 1'b0;        // Relinquish read bus
             end
 
             else begin
-                ctl <= `CTL_DATA;
+                ctl_out <= `CTL_DATA;
                 req_read_bus <= ~rom_addr;   // Request control of read bus (if needed)
 
                 // shift out transmit bit from buffer and update counter
-                data <= txmsb8b;
+                data_out <= txmsb8b;
                 buffer <= buffer << 8;
                 count <= count + 16'd8;
                 crc_in <= crc_8b;
@@ -1348,7 +1356,7 @@ begin
                      56: buffer <= 0;
                      88: buffer <= rom_addr ? rom_data : reg_rdata;
                     128: begin
-                        data <= ~crc_8msb;
+                        data_out <= ~crc_8msb;
                         buffer <= { ~crc_in[23:0], 8'd0 };
                     end
                 endcase
@@ -1361,10 +1369,10 @@ begin
         
         ST_TX_HEAD:
         begin
-            ctl <= `CTL_DATA;
+            ctl_out <= `CTL_DATA;
 
             // shift out transmit bit from buffer and update counter
-            data <= txmsb8b;
+            data_out <= txmsb8b;
             buffer <= buffer << 8;
             count <= count + 16'd8;
             crc_in <= (crc_ini) ? `CRC_INIT : crc_8b;
@@ -1378,7 +1386,7 @@ begin
 
                 // latch header crc, reset crc in preparation for data crc
                 128: begin
-                    data <= ~crc_8msb;
+                    data_out <= ~crc_8msb;
                     buffer <= { ~crc_in[23:0], 8'd0 };
                     crc_ini <= 1;
                 end
@@ -1405,10 +1413,10 @@ begin
 
         ST_TX_HEAD_BC:
         begin
-            ctl <= `CTL_DATA;
+            ctl_out <= `CTL_DATA;
 
             // shift out transmit bit from buffer and update counter
-            data <= txmsb8b;
+            data_out <= txmsb8b;
             buffer <= buffer << 8;
             count <= count + 16'd8;
             crc_in <= (crc_ini) ? `CRC_INIT : crc_8b;
@@ -1437,7 +1445,7 @@ begin
                 // latch header crc, reset crc in preparation for data crc
                 128: begin
                     // crc
-                    data <= ~crc_8msb;
+                    data_out <= ~crc_8msb;
                     buffer <= { ~crc_in[23:0], 8'd0 };
                     crc_ini <= 1;          // start crc
                 end
@@ -1464,7 +1472,7 @@ begin
         ST_TX_DATA:
         begin
             if (count == numbits) begin
-                ctl <= `CTL_IDLE;
+                ctl_out <= `CTL_IDLE;
                 state <= ST_TX_DONE1;
                 req_read_bus <= 1'b0;        // Relinquish read bus
                 write_trig_reset <= 1'b0;
@@ -1472,8 +1480,8 @@ begin
 
             else begin
                 // shift out transmit bit from buffer and update counter
-                ctl <= `CTL_DATA;
-                data <= txmsb8b;
+                ctl_out <= `CTL_DATA;
+                data_out <= txmsb8b;
                 buffer <= buffer << 8;
                 count <= count + 16'd8;
                 crc_in <= crc_8b;
@@ -1498,7 +1506,7 @@ begin
                 end
 
                 if (count == (numbits-16'd32)) begin
-                    data <= ~crc_8msb;
+                    data_out <= ~crc_8msb;
                     buffer <= { ~crc_in[23:0], 8'd0 };
                 end
             end 
@@ -1513,14 +1521,14 @@ begin
         begin
            if (count == numbits) begin
               // stop
-              ctl <= `CTL_IDLE;
+              ctl_out <= `CTL_IDLE;
               state <= ST_TX_DONE1;
               eth_send_fw_ack <= 0;
            end
            else begin
               // shift out transmit bit from buffer
-              ctl <= `CTL_DATA;
-              data <= txmsb8b;
+              ctl_out <= `CTL_DATA;
+              data_out <= txmsb8b;
               buffer <= buffer << 8;
               count <= count + 16'd8;
 
@@ -1538,7 +1546,7 @@ begin
         //
         ST_TX_DONE1:
         begin
-            ctl <= `CTL_IDLE;            // one cycle of idle
+            ctl_out <= `CTL_IDLE;            // one cycle of idle
             state <= ST_TX_DONE2;        // phy regains bus in next state
         end
 
@@ -1547,8 +1555,7 @@ begin
         //
         ST_TX_DONE2:
         begin
-            ctl <= 2'bz;             // allow phy to drive ctl
-            data <= 8'bz;            // allow phy to drive data
+            link_active <= 0;
             state <= ST_IDLE;        // TX done, go to idle state
         end
 
@@ -1571,10 +1578,10 @@ assign DebugData[1] = { state, next, lreq_trig, lreq_type, lreq_busy, tx_type,
 //                        4     4       1          3          1         3
                         req_write_bus, grant_write_bus, node_id,
 //                            1               1            6
-                        data_block, rx_speed, recvCtlInvalid, recvPktNull, 2'd0 };
+                        data_block, rx_speed, recvCtlInvalid, recvPktNull, link_active, 1'd0 };
 //                            1        3            1             1
 assign DebugData[2] = { numHubSendReq, numRecv, numTxGrant, numPhyStatus };
-assign DebugData[3] = { numEthSendReq, 8'd0, stcount };
+assign DebugData[3] = { numEthSendReq, numPktRecv, stcount };
 
 // DebugData is at reg_raddr_ext[11:9] == 001 because reg_raddr_ext[11:9] == 000
 // is used by EthernetIO to directly access the Firewire packet memory.
