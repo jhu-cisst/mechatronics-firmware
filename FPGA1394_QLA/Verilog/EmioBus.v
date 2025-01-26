@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2023-2024 Johns Hopkins University.
+ * Copyright(C) 2023-2025 Johns Hopkins University.
  *
  * This module handles the PS EMIO bus interface.
  *
@@ -121,10 +121,10 @@ assign ps_blk_end = emio_ps_out[52];     // emio[52]
 assign ps_addr_lsb = emio_ps_out[55];    // emio[55]
 
 // Following are synchronized with sysclk
-reg[15:0] ps_reg_addr_latched;
-reg ps_addr_lsb_latched;
-reg ps_blk_start_latched;
-reg ps_blk_end_latched;
+(* ASYNC_REG="TRUE" *) reg[15:0] ps_reg_addr_latched;
+(* ASYNC_REG="TRUE" *) reg ps_addr_lsb_latched;
+(* ASYNC_REG="TRUE" *) reg ps_blk_start_latched;
+(* ASYNC_REG="TRUE" *) reg ps_blk_end_latched;
 
 wire ps_op_done;                         // emio[49]
 wire ps_write;                           // emio[53]
@@ -216,8 +216,8 @@ initial state = ST_IDLE;
 
 // For synchronizing ps_req_bus with sysclk and generating triggers
 // on the rising and falling edges.
-reg ps_req_bus_1;
-reg ps_req_bus_2;
+(* ASYNC_REG="TRUE" *) reg ps_req_bus_1;
+(* ASYNC_REG="TRUE" *) reg ps_req_bus_2;
 
 reg req_read_bus_next;
 reg reg_wen_next;
