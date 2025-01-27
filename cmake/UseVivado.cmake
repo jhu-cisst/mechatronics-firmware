@@ -475,6 +475,8 @@ function (vivado_compile_fpga)
       endif ()
       set (OUTPUT_FILE "${CMAKE_CURRENT_BINARY_DIR}/${PROJ_NAME}.xpr")
     else ()
+      # Auto-detect any XPM macros (e.g., XPM_CDC)
+      file (APPEND ${TCL_FILE} "auto_detect_xpm\n")
       # Synthesize
       file (APPEND ${TCL_FILE} "puts \"Starting synthesis of ${PROJ_NAME}\"\n")
       file (APPEND ${TCL_FILE} "synth_design -top ${TOP_LEVEL}")
