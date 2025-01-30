@@ -62,30 +62,8 @@ module FPGA1394V3
     output wire      E2_TxEN,     // eth2 transmit enable
     output wire[3:0] E2_TxD,      // eth2 transmit data
 
-    // PS7 interface
+`ifndef USE_VIVADO
     inout wire[53:0] MIO,
-`ifdef USE_VIVADO
-    inout wire       DDR_CAS_n,
-    inout wire       DDR_CKE,
-    inout wire       DDR_Clk_n,
-    inout wire       DDR_Clk,
-    inout wire       DDR_CS_n,
-    inout wire       DDR_DRSTB,
-    inout wire       DDR_ODT,
-    inout wire       DDR_RAS_n,
-    inout wire       DDR_WEB,
-    inout wire[2:0]  DDR_BankAddr,
-    inout wire[14:0] DDR_Addr,
-    inout wire       DDR_VRN,
-    inout wire       DDR_VRP,
-    inout wire[3:0]  DDR_DM,
-    inout wire[31:0] DDR_DQ,
-    inout wire[3:0]  DDR_DQS_n,
-    inout wire[3:0]  DDR_DQS,
-    inout wire       PS_SRSTB,
-    inout wire       PS_CLK,
-    inout wire       PS_PORB,
-`else
     input wire       PS_SRSTB,
     input wire       PS_CLK,
     input wire       PS_PORB,
@@ -1043,51 +1021,29 @@ begin
     gmii_txd_3 <= gmii_txd[3];
 end
 
-processing_system7_0 ps7(
-    .MIO(MIO),
-    .DDR_CAS_n(DDR_CAS_n),
-    .DDR_CKE(DDR_CKE),
-    .DDR_Clk_n(DDR_Clk_n),
-    .DDR_Clk(DDR_Clk),
-    .DDR_CS_n(DDR_CS_n),
-    .DDR_DRSTB(DDR_DRSTB),
-    .DDR_ODT(DDR_ODT),
-    .DDR_RAS_n(DDR_RAS_n),
-    .DDR_WEB(DDR_WEB),
-    .DDR_BankAddr(DDR_BankAddr),
-    .DDR_Addr(DDR_Addr),
-    .DDR_VRN(DDR_VRN),
-    .DDR_VRP(DDR_VRP),
-    .DDR_DM(DDR_DM),
-    .DDR_DQ(DDR_DQ),
-    .DDR_DQS_n(DDR_DQS_n),
-    .DDR_DQS(DDR_DQS),
-    .PS_SRSTB(PS_SRSTB),
-    .PS_CLK(PS_CLK),
-    .PS_PORB(PS_PORB),
-    .GPIO_I(emio_ps_in),
-    .GPIO_O(emio_ps_out),
-    .GPIO_T(emio_ps_tri),
-    .FCLK_CLK0(clk_200MHz),
-    .FCLK_CLK1(clk_125MHz),
-    .FCLK_RESET0_N(PS_Eth_RSTn),
+// FpgaV31 block design
+FpgaV31_wrapper ps7_bd(
+    .GPIO_I_0(emio_ps_in),
+    .GPIO_O_0(emio_ps_out),
+    .GPIO_T_0(emio_ps_tri),
+    .FCLK_CLK0_0(clk_200MHz),
+    .FCLK_CLK1_0(clk_125MHz),
+    .FCLK_RESET0_N_0(PS_Eth_RSTn),
 
     // Note that Rx and Tx are swapped
-    .ENET0_GMII_RX_CLK(gmii_tx_clk3_dest),
-    .ENET0_GMII_RX_DV(gmii_tx_en_3),
-    .ENET0_GMII_RX_ER(gmii_tx_err_3),
-    .ENET0_GMII_RXD(gmii_txd_3),
-    .ENET0_GMII_TX_EN(gmii_rx_dv[3]),
-    .ENET0_GMII_TX_ER(gmii_rx_err[3]),
-    .ENET0_GMII_TX_CLK(gmii_rx_clk[3]),
-    .ENET0_GMII_TXD(gmii_rxd[3]),
-    .ENET0_MDIO_MDC(mdio_clk_ps),
-    .ENET0_MDIO_I(mdio_i_ps),
-    .ENET0_MDIO_O(mdio_o_ps),
-    .ENET0_MDIO_T(mdio_t_ps),
-    .ENET0_EXT_INTIN(1'b0),   // No interrupts
-    .ENET0_GMII_COL(1'b0),    // No collisions
-    .ENET0_GMII_CRS(1'b0)     // No carrier-sense
+    .ENET0_GMII_RX_CLK_0(gmii_tx_clk3_dest),
+    .ENET0_GMII_RX_DV_0(gmii_tx_en_3),
+    .ENET0_GMII_RX_ER_0(gmii_tx_err_3),
+    .ENET0_GMII_RXD_0(gmii_txd_3),
+    .ENET0_GMII_TX_EN_0(gmii_rx_dv[3]),
+    .ENET0_GMII_TX_ER_0(gmii_rx_err[3]),
+    .ENET0_GMII_TX_CLK_0(gmii_rx_clk[3]),
+    .ENET0_GMII_TXD_0(gmii_rxd[3]),
+    .ENET0_MDIO_MDC_0(mdio_clk_ps),
+    .ENET0_MDIO_I_0(mdio_i_ps),
+    .ENET0_MDIO_O_0(mdio_o_ps),
+    .ENET0_MDIO_T_0(mdio_t_ps),
+    .ENET0_EXT_INTIN_0(1'b0)   // No interrupts
 );
 
 // Following wires are for shared logic between gmii_to_rgmii_1

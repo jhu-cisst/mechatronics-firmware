@@ -273,7 +273,7 @@ if (Vivado_FOUND)
 
   set (IP_CORES "DPRAM_32x1024_sclk" "DPRAM_32x512_sclk" "DPRAM_32x512_aclk"
                 "fifo_10x8192" "fifo_4x128"
-                "gmii_to_rgmii_1" "gmii_to_rgmii_2" "processing_system7_0")
+                "gmii_to_rgmii_1" "gmii_to_rgmii_2")
 
   set (VIVADO_DEFS "HAS_DEBUG_DATA" "USE_VIVADO")
   # Following is defined in top-level file (e.g., FPGA1394V3-QLA.v), but
@@ -290,6 +290,7 @@ if (Vivado_FOUND)
                        XDC_FILE       "${VERILOG_SOURCE_DIR}/XC7Z020.xdc"
                        BOARD_XDC_FILE "${VERILOG_SOURCE_DIR}/BootConfig.xdc"
                        IP_TARGETS     ${IP_CORES}
+                       BLOCK_DESIGN   ${BLOCK_DESIGN_NAME}
                        INCLUDE_DIRS   ${VERILOG_INCLUDE_DIRS}
                        TOP_LEVEL      "FPGA1394V3BCFG"
                        USER_MACROS    ${VIVADO_DEFS}
@@ -303,6 +304,7 @@ if (Vivado_FOUND)
                        XDC_FILE       "${VERILOG_SOURCE_DIR}/XC7Z020.xdc"
                        BOARD_XDC_FILE "${VERILOG_SOURCE_DIR}/QLA.xdc"
                        IP_TARGETS     ${IP_CORES}
+                       BLOCK_DESIGN   ${BLOCK_DESIGN_NAME}
                        INCLUDE_DIRS   ${VERILOG_INCLUDE_DIRS}
                        TOP_LEVEL      "FPGA1394V3QLA"
                        USER_MACROS    ${VIVADO_DEFS}
@@ -316,6 +318,7 @@ if (Vivado_FOUND)
                        XDC_FILE       "${VERILOG_SOURCE_DIR}/XC7Z020.xdc"
                        BOARD_XDC_FILE "${VERILOG_SOURCE_DIR}/DQLA.xdc"
                        IP_TARGETS     ${IP_CORES}
+                       BLOCK_DESIGN   ${BLOCK_DESIGN_NAME}
                        INCLUDE_DIRS   ${VERILOG_INCLUDE_DIRS}
                        TOP_LEVEL      "FPGA1394V3DQLA"
                        USER_MACROS    ${VIVADO_DEFS}
@@ -329,6 +332,7 @@ if (Vivado_FOUND)
                        XDC_FILE       "${VERILOG_SOURCE_DIR}/XC7Z020.xdc"
                        BOARD_XDC_FILE "${VERILOG_SOURCE_DIR}/DRAC.xdc"
                        IP_TARGETS     ${IP_CORES} "pwm_clk_gen_zynq"
+                       BLOCK_DESIGN   ${BLOCK_DESIGN_NAME}
                        INCLUDE_DIRS   ${VERILOG_INCLUDE_DIRS}
                        TOP_LEVEL      "FPGA1394V3DRAC"
                        USER_MACROS    ${VIVADO_DEFS}

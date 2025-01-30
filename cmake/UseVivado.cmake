@@ -88,6 +88,13 @@ endfunction(vivado_block_config)
 #   - HW_FILE            Output hardware file, not including path (XSA)
 #   - CREATE_ONLY        If ON, only create project file (xpr)
 #
+# This functions sets the following properties on the TARGET:
+#   OUTPUT_NAME  Path to HW_FILE (CREATE_ONLY OFF) or xpr project file (CREATE_ONLY ON)
+#   SOURCES      Path to created board design file, ${BD_NAME}.bd
+#   WRAPPER_FILE Path to generated wrapper file
+#
+# Note that OUTPUT_NAME and SOURCES are standard CMake properties and
+# WRAPPER_FILE is a custom property.
 
 function (vivado_block_build ...)
 
@@ -123,43 +130,69 @@ function (vivado_block_build ...)
 
     get_property (EXPORTED_TCL TARGET ${BLOCK_IN} PROPERTY OUTPUT_NAME)
 
-    set (XPR_FILE     "${CMAKE_CURRENT_BINARY_DIR}/${PROJ_NAME}")
-    set (HW_FILE_FULL "${CMAKE_CURRENT_BINARY_DIR}/${HW_FILE}")
-
-    if (CREATE_ONLY)
-      set (CREATE_ARGS "-force ${PROJ_NAME} ${CMAKE_CURRENT_BINARY_DIR}")
-      set (BD_DIR      "")
-      set (OUTPUT_FILE ${XPR_FILE})
-    else ()
-      set (CREATE_ARGS "-in_memory")
-      set (BD_DIR      "-dir ${CMAKE_CURRENT_BINARY_DIR}")
-      set (OUTPUT_FILE ${HW_FILE_FULL})
-    endif ()
-
     # Create TCL file
     set (TCL_FILE "${CMAKE_CURRENT_BINARY_DIR}/make-${PROJ_NAME}.tcl")
-    file (WRITE  ${TCL_FILE} "create_project -part ${FPGA_PARTNUM} ${CREATE_ARGS}\n")
-    file (APPEND ${TCL_FILE} "create_bd_design ${BD_DIR} ${BD_NAME}\n")
+
+    if (CREATE_ONLY)
+      # CREATE_ONLY ON (Project mode):
+      #   - Output file is Vivado project file (xpr)
+      #   - Also creates board design file (bd)
+      set (OUTPUT_FILE "${CMAKE_CURRENT_BINARY_DIR}/${PROJ_NAME}.xpr")
+      set (BD_FILE     "${CMAKE_CURRENT_BINARY_DIR}/${PROJ_NAME}.srcs/sources_1/bd/${BD_NAME}/${BD_NAME}.bd")
+      set (WRAPPER_FILE "${CMAKE_CURRENT_BINARY_DIR}/${PROJ_NAME}.gen/sources_1/bd/${BD_NAME}/hdl/${BD_NAME}_wrapper.v")
+      # Create project file
+      file (WRITE  ${TCL_FILE} "create_project -part ${FPGA_PARTNUM} -force ${PROJ_NAME} ${CMAKE_CURRENT_BINARY_DIR}\n")
+      file (APPEND ${TCL_FILE} "create_bd_design ${BD_NAME}\n")
+    else ()
+      # CREATE_ONLY OFF (Non-project mode):
+      #   - Output file is Xilinx Support Archive (xsa)
+      #   - Also creates board design file (bd)
+      #   - Also creates Verilog wrapper file (v)
+      set (OUTPUT_FILE "${CMAKE_CURRENT_BINARY_DIR}/${HW_FILE}")
+      set (BD_FILE     "${CMAKE_CURRENT_BINARY_DIR}/${BD_NAME}/${BD_NAME}.bd")
+      set (WRAPPER_FILE "${CMAKE_CURRENT_BINARY_DIR}/${BD_NAME}/hdl/${BD_NAME}_wrapper.v")
+      # Create project in memory (non-project mode)
+      file (WRITE  ${TCL_FILE} "create_project -part ${FPGA_PARTNUM} -in_memory\n")
+      file (APPEND ${TCL_FILE} "create_bd_design -dir ${CMAKE_CURRENT_BINARY_DIR} ${BD_NAME}\n")
+    endif ()
+
+    # Suppress the warning that the interface pin is being overridden because that is intentional
+    file (APPEND ${TCL_FILE} "set_msg_config -id {BD 41-1306} -suppress\n")
+    # Read the exported TCL file to set up the block design
     file (APPEND ${TCL_FILE} "source -notrace ${EXPORTED_TCL}\n")
+    # Following two lines check that the board design file is where we expect it to be;
+    # if not, a TCL error is raised.
+    file (APPEND ${TCL_FILE} "set bd_file [get_property NAME [get_files ${BD_NAME}.bd]]\n")
+    file (APPEND ${TCL_FILE} "if {\$bd_file ne {${BD_FILE}}} { error \"BD_FILE should be \$bd_file\" }\n")
+    # Create the wrapper
+    # file (APPEND ${TCL_FILE} "make_wrapper -inst_template -files [get_files ${BD_NAME}.bd]\n")
+    # It appears that generate_target also generates the wrapper
+    file (APPEND ${TCL_FILE} "generate_target all [get_files ${BD_NAME}.bd]\n")
     if (NOT CREATE_ONLY)
-      # It appears that generate_target also generates the wrapper
-      # file (APPEND ${TCL_FILE} "make_wrapper -inst_template -files [get_files ${BD_NAME}.bd]\n")
-      file (APPEND ${TCL_FILE} "generate_target all [get_files ${BD_NAME}.bd]\n")
       # Could add -minimal below
-      file (APPEND ${TCL_FILE} "write_hw_platform -fixed -force -file ${HW_FILE_FULL}\n")
+      file (APPEND ${TCL_FILE} "write_hw_platform -fixed -force -file ${HW_FILE}\n")
       file (APPEND ${TCL_FILE} "close_project\n")
     endif ()
 
     add_custom_command (OUTPUT ${OUTPUT_FILE}
+                        BYPRODUCTS ${BD_FILE} ${WRAPPER_FILE}
                         COMMAND ${VIVADO_NATIVE} -nojournal -mode batch -log ${PROJ_NAME}.log -source ${TCL_FILE} -notrace
                         DEPENDS ${EXPORTED_TCL})
 
     add_custom_target (${PROJ_NAME} ALL
-                       DEPENDS ${OUTPUT_FILE} ${BLOCK_IN})
+                       DEPENDS ${OUTPUT_FILE} ${BD_FILE} ${WRAPPER_FILE} ${BLOCK_IN})
 
     set_property (TARGET ${PROJ_NAME}
                          PROPERTY OUTPUT_NAME ${OUTPUT_FILE})
-  else ()
+
+    set_property (TARGET ${PROJ_NAME}
+                         PROPERTY SOURCES ${BD_FILE})
+
+    # Set custom WRAPPER_FILE property
+    set_property (TARGET ${PROJ_NAME}
+                         PROPERTY WRAPPER_FILE ${WRAPPER_FILE})
+
+    else ()
 
     message (SEND_ERROR "vivado_block_build: required parameter missing")
 
@@ -167,7 +200,12 @@ function (vivado_block_build ...)
 
 endfunction (vivado_block_build)
 
-# Function: vivado_block_ip
+# Function: vivado_block_ip (OBSOLETE)
+#
+# This function extracts the specified IP_NAME from the block design created
+# from BLOCK_IN. It is no longer needed because the current build process
+# reads the block design file and uses the generated wrapper.
+
 # Parameters:
 #   - TARGET_NAME        Target name
 #   - IP_NAME            IP name (in catalog)
@@ -395,6 +433,7 @@ endfunction (vivado_ip_gen)
 #   - XDC_FILE:        Primary user constraints file
 #   - BOARD_XDC_FILE:  User constraints file for attached board (optional)
 #   - IP_TARGETS:      List of IP targets (that produce XCI files)
+#   - BLOCK_DESIGN:    Target for block design (optional)
 #   - TOP_LEVEL:       Top level module name
 #   - USER_MACROS:     Macro definitions (optional)
 #   - CREATE_ONLY:     If ON, only create Vivado project file, PROJ_NAME.xpr (default OFF)
@@ -409,6 +448,7 @@ function (vivado_compile_fpga)
        XDC_FILE
        BOARD_XDC_FILE
        IP_TARGETS
+       BLOCK_DESIGN
        INCLUDE_DIRS
        TOP_LEVEL
        USER_MACROS
@@ -445,11 +485,13 @@ function (vivado_compile_fpga)
       set (GET_VERILOG "import_files")
       set (GET_IP      "import_ip")
       set (GET_XDC     "import_files -fileset constrs_1")
+      set (GET_BD      "add_files")
     else ()
       set (CREATE_ARGS "-in_memory")
       set (GET_VERILOG "read_verilog")
       set (GET_IP      "read_ip")
       set (GET_XDC     "read_xdc")
+      set (GET_BD      "read_bd")
     endif ()
 
     file (WRITE  ${TCL_FILE} "create_project -part ${FPGAV3_PARTNUM} ${CREATE_ARGS}\n")
@@ -457,6 +499,17 @@ function (vivado_compile_fpga)
       # Disable message 12-13650 (IP moved from original location) because it is not important
       file (APPEND ${TCL_FILE} "set_msg_config -id {Vivado 12-13650} -suppress\n")
     endif ()
+
+    # Read block design
+    if (BLOCK_DESIGN)
+      get_property (bd_file TARGET ${BLOCK_DESIGN} PROPERTY SOURCES)
+      file (APPEND ${TCL_FILE} "${GET_BD} ${bd_file}\n")
+      set (BD_FILES ${bd_file})
+      get_property (wrapper_file TARGET ${BLOCK_DESIGN} PROPERTY WRAPPER_FILE)
+      file (APPEND ${TCL_FILE} "${GET_VERILOG} ${wrapper_file}\n")
+      set (BD_FILES ${BD_FILES} ${wrapper_file})
+    endif ()
+
     foreach (vfile ${VERILOG_SOURCE})
       file (APPEND ${TCL_FILE} "${GET_VERILOG} ${vfile}\n")
     endforeach (vfile)
@@ -544,10 +597,10 @@ function (vivado_compile_fpga)
 
     add_custom_command (OUTPUT ${OUTPUT_FILE}
       COMMAND ${VIVADO_NATIVE} -nojournal -mode batch -log "${OUTPUT_DIR}/${PROJ_NAME}.log" -source ${TCL_FILE} -notrace
-      DEPENDS ${VERILOG_SOURCE} ${IP_SOURCE} ${XDC_FILE} ${BOARD_XDC_FILE})
+      DEPENDS ${VERILOG_SOURCE} ${IP_SOURCE} ${XDC_FILE} ${BOARD_XDC_FILE} ${BD_FILES})
 
     add_custom_target (${PROJ_NAME} ALL
-                       DEPENDS ${OUTPUT_FILE} ${IP_TARGETS} ${DEPENDENCIES})
+                       DEPENDS ${OUTPUT_FILE} ${IP_TARGETS} ${BLOCK_DESIGN} ${DEPENDENCIES})
 
 
     set_property (TARGET ${PROJ_NAME}

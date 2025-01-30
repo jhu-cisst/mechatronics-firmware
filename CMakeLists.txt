@@ -38,7 +38,7 @@ if (XilinxISE_FOUND OR Vivado_FOUND)
     # Target names
     #   BLOCK_DESIGN_IN:   updates TCL file exported from Vivado block design GUI,
     #                      which is used as input in zynq_block_design and ipcorev3_dir
-    #   BLOCK_DESIGN_NAME: creates block design, including xsa and xpr files
+    #   BLOCK_DESIGN_NAME: creates block design, including xsa or xpr files
 
     set (BLOCK_DESIGN_IN   "FpgaV${FPGA_VER}Input")
     set (BLOCK_DESIGN_NAME "FpgaV${FPGA_VER}BlockDesign")

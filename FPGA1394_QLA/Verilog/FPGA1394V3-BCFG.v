@@ -36,6 +36,13 @@ module FPGA1394V3BCFG
     inout [0:39]     IO2,
     output wire      LED,
 
+`ifndef USE_VIVADO
+    inout wire[53:0] MIO,
+    input wire       PS_SRSTB,
+    input wire       PS_CLK,
+    input wire       PS_PORB,
+`endif
+
     // Ethernet PHYs (RTL8211F)
     output wire      E1_MDIO_C,   // eth1 MDIO clock
     output wire      E2_MDIO_C,   // eth2 MDIO clock
@@ -61,36 +68,7 @@ module FPGA1394V3BCFG
     inout wire[3:0]  E2_RxD,      // eth2 data bits
     output wire      E2_TxCLK,    // eth2 transmit clock
     output wire      E2_TxEN,     // eth2 transmit enable
-    output wire[3:0] E2_TxD,      // eth2 transmit data
-
-    // PS7 interface
-    inout wire[53:0] MIO,
-`ifdef USE_VIVADO
-    inout wire       DDR_CAS_n,
-    inout wire       DDR_CKE,
-    inout wire       DDR_Clk_n,
-    inout wire       DDR_Clk,
-    inout wire       DDR_CS_n,
-    inout wire       DDR_DRSTB,
-    inout wire       DDR_ODT,
-    inout wire       DDR_RAS_n,
-    inout wire       DDR_WEB,
-    inout wire[2:0]  DDR_BankAddr,
-    inout wire[14:0] DDR_Addr,
-    inout wire       DDR_VRN,
-    inout wire       DDR_VRP,
-    inout wire[3:0]  DDR_DM,
-    inout wire[31:0] DDR_DQ,
-    inout wire[3:0]  DDR_DQS_n,
-    inout wire[3:0]  DDR_DQS,
-    inout wire       PS_SRSTB,
-    inout wire       PS_CLK,
-    inout wire       PS_PORB
-`else
-    input wire       PS_SRSTB,
-    input wire       PS_CLK,
-    input wire       PS_PORB
-`endif
+    output wire[3:0] E2_TxD       // eth2 transmit data
 );
 
     // Number of motors and encoders
@@ -174,30 +152,12 @@ fpga(
     .E2_TxEN(E2_TxEN),
     .E2_TxD(E2_TxD),
 
-    // PS7 interface
+`ifndef USE_VIVADO
     .MIO(MIO),
-`ifdef USE_VIVADO
-    .DDR_CAS_n(DDR_CAS_n),
-    .DDR_CKE(DDR_CKE),
-    .DDR_Clk_n(DDR_Clk_n),
-    .DDR_Clk(DDR_Clk),
-    .DDR_CS_n(DDR_CS_n),
-    .DDR_DRSTB(DDR_DRSTB),
-    .DDR_ODT(DDR_ODT),
-    .DDR_RAS_n(DDR_RAS_n),
-    .DDR_WEB(DDR_WEB),
-    .DDR_BankAddr(DDR_BankAddr),
-    .DDR_Addr(DDR_Addr),
-    .DDR_VRN(DDR_VRN),
-    .DDR_VRP(DDR_VRP),
-    .DDR_DM(DDR_DM),
-    .DDR_DQ(DDR_DQ),
-    .DDR_DQS_n(DDR_DQS_n),
-    .DDR_DQS(DDR_DQS),
-`endif
     .PS_SRSTB(PS_SRSTB),
     .PS_CLK(PS_CLK),
     .PS_PORB(PS_PORB),
+`endif
 
     // Read/write bus
     .reg_raddr(reg_raddr),

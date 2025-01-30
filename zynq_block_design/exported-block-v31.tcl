@@ -193,18 +193,27 @@ proc create_root_design { parentCell } {
 
 
   # Create interface ports
-  set GMII_ETHERNET_0_0 [ create_bd_intf_port -mode Master -vlnv xilinx.com:interface:gmii_rtl:1.0 GMII_ETHERNET_0_0 ]
-
-  set GPIO_0_0 [ create_bd_intf_port -mode Master -vlnv xilinx.com:interface:gpio_rtl:1.0 GPIO_0_0 ]
-
-  set MDIO_ETHERNET_0_0 [ create_bd_intf_port -mode Master -vlnv xilinx.com:interface:mdio_rtl:1.0 MDIO_ETHERNET_0_0 ]
-
 
   # Create ports
   set ENET0_EXT_INTIN_0 [ create_bd_port -dir I -type intr ENET0_EXT_INTIN_0 ]
   set FCLK_CLK0_0 [ create_bd_port -dir O -type clk FCLK_CLK0_0 ]
   set FCLK_CLK1_0 [ create_bd_port -dir O -type clk FCLK_CLK1_0 ]
   set FCLK_RESET0_N_0 [ create_bd_port -dir O -type rst FCLK_RESET0_N_0 ]
+  set GPIO_I_0 [ create_bd_port -dir I -from 63 -to 0 GPIO_I_0 ]
+  set GPIO_O_0 [ create_bd_port -dir O -from 63 -to 0 GPIO_O_0 ]
+  set GPIO_T_0 [ create_bd_port -dir O -from 63 -to 0 GPIO_T_0 ]
+  set ENET0_MDIO_MDC_0 [ create_bd_port -dir O -type clk ENET0_MDIO_MDC_0 ]
+  set ENET0_MDIO_O_0 [ create_bd_port -dir O ENET0_MDIO_O_0 ]
+  set ENET0_MDIO_T_0 [ create_bd_port -dir O ENET0_MDIO_T_0 ]
+  set ENET0_MDIO_I_0 [ create_bd_port -dir I ENET0_MDIO_I_0 ]
+  set ENET0_GMII_TX_EN_0 [ create_bd_port -dir O -from 0 -to 0 ENET0_GMII_TX_EN_0 ]
+  set ENET0_GMII_TX_ER_0 [ create_bd_port -dir O -from 0 -to 0 ENET0_GMII_TX_ER_0 ]
+  set ENET0_GMII_TXD_0 [ create_bd_port -dir O -from 7 -to 0 ENET0_GMII_TXD_0 ]
+  set ENET0_GMII_RX_CLK_0 [ create_bd_port -dir I -type clk ENET0_GMII_RX_CLK_0 ]
+  set ENET0_GMII_RX_DV_0 [ create_bd_port -dir I ENET0_GMII_RX_DV_0 ]
+  set ENET0_GMII_RX_ER_0 [ create_bd_port -dir I ENET0_GMII_RX_ER_0 ]
+  set ENET0_GMII_TX_CLK_0 [ create_bd_port -dir I -type clk ENET0_GMII_TX_CLK_0 ]
+  set ENET0_GMII_RXD_0 [ create_bd_port -dir I -from 7 -to 0 ENET0_GMII_RXD_0 ]
 
   # Create instance: processing_system7_0, and set properties
   set processing_system7_0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:processing_system7:5.5 processing_system7_0 ]
@@ -336,16 +345,26 @@ proc create_root_design { parentCell } {
   ] $processing_system7_0
 
 
-  # Create interface connections
-  connect_bd_intf_net -intf_net processing_system7_0_GMII_ETHERNET_0 [get_bd_intf_ports GMII_ETHERNET_0_0] [get_bd_intf_pins processing_system7_0/GMII_ETHERNET_0]
-  connect_bd_intf_net -intf_net processing_system7_0_GPIO_0 [get_bd_intf_ports GPIO_0_0] [get_bd_intf_pins processing_system7_0/GPIO_0]
-  connect_bd_intf_net -intf_net processing_system7_0_MDIO_ETHERNET_0 [get_bd_intf_ports MDIO_ETHERNET_0_0] [get_bd_intf_pins processing_system7_0/MDIO_ETHERNET_0]
-
   # Create port connections
   connect_bd_net -net ENET0_EXT_INTIN_0_1 [get_bd_ports ENET0_EXT_INTIN_0] [get_bd_pins processing_system7_0/ENET0_EXT_INTIN]
+  connect_bd_net -net ENET0_GMII_RXD_0_1 [get_bd_ports ENET0_GMII_RXD_0] [get_bd_pins processing_system7_0/ENET0_GMII_RXD]
+  connect_bd_net -net ENET0_GMII_RX_CLK_0_1 [get_bd_ports ENET0_GMII_RX_CLK_0] [get_bd_pins processing_system7_0/ENET0_GMII_RX_CLK]
+  connect_bd_net -net ENET0_GMII_RX_DV_0_1 [get_bd_ports ENET0_GMII_RX_DV_0] [get_bd_pins processing_system7_0/ENET0_GMII_RX_DV]
+  connect_bd_net -net ENET0_GMII_RX_ER_0_1 [get_bd_ports ENET0_GMII_RX_ER_0] [get_bd_pins processing_system7_0/ENET0_GMII_RX_ER]
+  connect_bd_net -net ENET0_GMII_TX_CLK_0_1 [get_bd_ports ENET0_GMII_TX_CLK_0] [get_bd_pins processing_system7_0/ENET0_GMII_TX_CLK]
+  connect_bd_net -net ENET0_MDIO_I_0_1 [get_bd_ports ENET0_MDIO_I_0] [get_bd_pins processing_system7_0/ENET0_MDIO_I]
+  connect_bd_net -net GPIO_I_0_1 [get_bd_ports GPIO_I_0] [get_bd_pins processing_system7_0/GPIO_I]
+  connect_bd_net -net processing_system7_0_ENET0_GMII_TXD [get_bd_pins processing_system7_0/ENET0_GMII_TXD] [get_bd_ports ENET0_GMII_TXD_0]
+  connect_bd_net -net processing_system7_0_ENET0_GMII_TX_EN [get_bd_pins processing_system7_0/ENET0_GMII_TX_EN] [get_bd_ports ENET0_GMII_TX_EN_0]
+  connect_bd_net -net processing_system7_0_ENET0_GMII_TX_ER [get_bd_pins processing_system7_0/ENET0_GMII_TX_ER] [get_bd_ports ENET0_GMII_TX_ER_0]
+  connect_bd_net -net processing_system7_0_ENET0_MDIO_MDC [get_bd_pins processing_system7_0/ENET0_MDIO_MDC] [get_bd_ports ENET0_MDIO_MDC_0]
+  connect_bd_net -net processing_system7_0_ENET0_MDIO_O [get_bd_pins processing_system7_0/ENET0_MDIO_O] [get_bd_ports ENET0_MDIO_O_0]
+  connect_bd_net -net processing_system7_0_ENET0_MDIO_T [get_bd_pins processing_system7_0/ENET0_MDIO_T] [get_bd_ports ENET0_MDIO_T_0]
   connect_bd_net -net processing_system7_0_FCLK_CLK0 [get_bd_pins processing_system7_0/FCLK_CLK0] [get_bd_ports FCLK_CLK0_0]
   connect_bd_net -net processing_system7_0_FCLK_CLK1 [get_bd_pins processing_system7_0/FCLK_CLK1] [get_bd_ports FCLK_CLK1_0]
   connect_bd_net -net processing_system7_0_FCLK_RESET0_N [get_bd_pins processing_system7_0/FCLK_RESET0_N] [get_bd_ports FCLK_RESET0_N_0]
+  connect_bd_net -net processing_system7_0_GPIO_O [get_bd_pins processing_system7_0/GPIO_O] [get_bd_ports GPIO_O_0]
+  connect_bd_net -net processing_system7_0_GPIO_T [get_bd_pins processing_system7_0/GPIO_T] [get_bd_ports GPIO_T_0]
 
   # Create address segments
 

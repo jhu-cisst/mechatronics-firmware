@@ -118,12 +118,6 @@ if (Vivado_FOUND)
                  IPCORE_DIR  ${CMAKE_CURRENT_BINARY_DIR}
                  CREATE_ONLY ${CREATE_ONLY})
 
-  vivado_block_ip (TARGET_NAME  "processing_system7_0"
-                   IP_NAME      "processing_system7"
-                   FPGA_PARTNUM ${FPGAV3_PARTNUM}
-                   BLOCK_IN     ${BLOCK_DESIGN_IN}
-                   IPCORE_DIR   ${CMAKE_CURRENT_BINARY_DIR}
-                   CREATE_ONLY  ${CREATE_ONLY})
 else ()
   ## ISE
 
