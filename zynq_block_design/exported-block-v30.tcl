@@ -193,8 +193,18 @@ proc create_root_design { parentCell } {
 
 
   # Create interface ports
+  set GMII_ETHERNET_0_0 [ create_bd_intf_port -mode Master -vlnv xilinx.com:interface:gmii_rtl:1.0 GMII_ETHERNET_0_0 ]
+
+  set GPIO_0_0 [ create_bd_intf_port -mode Master -vlnv xilinx.com:interface:gpio_rtl:1.0 GPIO_0_0 ]
+
+  set MDIO_ETHERNET_0_0 [ create_bd_intf_port -mode Master -vlnv xilinx.com:interface:mdio_rtl:1.0 MDIO_ETHERNET_0_0 ]
+
 
   # Create ports
+  set ENET0_EXT_INTIN_0 [ create_bd_port -dir I -type intr ENET0_EXT_INTIN_0 ]
+  set FCLK_CLK0_0 [ create_bd_port -dir O -type clk FCLK_CLK0_0 ]
+  set FCLK_CLK1_0 [ create_bd_port -dir O -type clk FCLK_CLK1_0 ]
+  set FCLK_RESET0_N_0 [ create_bd_port -dir O -type rst FCLK_RESET0_N_0 ]
 
   # Create instance: processing_system7_0, and set properties
   set processing_system7_0 [ create_bd_cell -type ip -vlnv xilinx.com:ip:processing_system7:5.5 processing_system7_0 ]
@@ -327,7 +337,16 @@ proc create_root_design { parentCell } {
   ] $processing_system7_0
 
 
+  # Create interface connections
+  connect_bd_intf_net -intf_net processing_system7_0_GMII_ETHERNET_0 [get_bd_intf_ports GMII_ETHERNET_0_0] [get_bd_intf_pins processing_system7_0/GMII_ETHERNET_0]
+  connect_bd_intf_net -intf_net processing_system7_0_GPIO_0 [get_bd_intf_ports GPIO_0_0] [get_bd_intf_pins processing_system7_0/GPIO_0]
+  connect_bd_intf_net -intf_net processing_system7_0_MDIO_ETHERNET_0 [get_bd_intf_ports MDIO_ETHERNET_0_0] [get_bd_intf_pins processing_system7_0/MDIO_ETHERNET_0]
+
   # Create port connections
+  connect_bd_net -net ENET0_EXT_INTIN_0_1 [get_bd_ports ENET0_EXT_INTIN_0] [get_bd_pins processing_system7_0/ENET0_EXT_INTIN]
+  connect_bd_net -net processing_system7_0_FCLK_CLK0 [get_bd_pins processing_system7_0/FCLK_CLK0] [get_bd_ports FCLK_CLK0_0]
+  connect_bd_net -net processing_system7_0_FCLK_CLK1 [get_bd_pins processing_system7_0/FCLK_CLK1] [get_bd_ports FCLK_CLK1_0]
+  connect_bd_net -net processing_system7_0_FCLK_RESET0_N [get_bd_pins processing_system7_0/FCLK_RESET0_N] [get_bd_ports FCLK_RESET0_N_0]
 
   # Create address segments
 

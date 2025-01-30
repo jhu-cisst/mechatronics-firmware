@@ -86,6 +86,7 @@ endfunction(vivado_block_config)
 #   - FPGA_PARTNUM:      FPGA part number
 #   - BLOCK_IN           Block design input (target that updates TCL file)
 #   - HW_FILE            Output hardware file, not including path (XSA)
+#   - CREATE_ONLY        If ON, only create project file (xpr)
 #
 
 function (vivado_block_build ...)
@@ -96,12 +97,14 @@ function (vivado_block_build ...)
        BD_NAME
        FPGA_PARTNUM
        BLOCK_IN
-       HW_FILE)
+       HW_FILE
+       CREATE_ONLY)
 
   # reset local variables
   foreach(keyword ${FUNCTION_KEYWORDS})
     set (${keyword} "")
   endforeach(keyword)
+  set (CREATE_ONLY OFF)
 
   # parse input
   foreach (arg ${ARGV})
@@ -120,29 +123,42 @@ function (vivado_block_build ...)
 
     get_property (EXPORTED_TCL TARGET ${BLOCK_IN} PROPERTY OUTPUT_NAME)
 
+    set (XPR_FILE     "${CMAKE_CURRENT_BINARY_DIR}/${PROJ_NAME}")
     set (HW_FILE_FULL "${CMAKE_CURRENT_BINARY_DIR}/${HW_FILE}")
+
+    if (CREATE_ONLY)
+      set (CREATE_ARGS "-force ${PROJ_NAME} ${CMAKE_CURRENT_BINARY_DIR}")
+      set (BD_DIR      "")
+      set (OUTPUT_FILE ${XPR_FILE})
+    else ()
+      set (CREATE_ARGS "-in_memory")
+      set (BD_DIR      "-dir ${CMAKE_CURRENT_BINARY_DIR}")
+      set (OUTPUT_FILE ${HW_FILE_FULL})
+    endif ()
 
     # Create TCL file
     set (TCL_FILE "${CMAKE_CURRENT_BINARY_DIR}/make-${PROJ_NAME}.tcl")
-    file (WRITE  ${TCL_FILE} "create_project -force -part ${FPGA_PARTNUM} ${PROJ_NAME} ${CMAKE_CURRENT_BINARY_DIR}\n")
-    file (APPEND ${TCL_FILE} "create_bd_design ${BD_NAME}\n")
+    file (WRITE  ${TCL_FILE} "create_project -part ${FPGA_PARTNUM} ${CREATE_ARGS}\n")
+    file (APPEND ${TCL_FILE} "create_bd_design ${BD_DIR} ${BD_NAME}\n")
     file (APPEND ${TCL_FILE} "source -notrace ${EXPORTED_TCL}\n")
-    file (APPEND ${TCL_FILE} "make_wrapper -top -files [get_files ${BD_NAME}.bd]\n")
-    file (APPEND ${TCL_FILE} "add_files ${CMAKE_CURRENT_BINARY_DIR}/${PROJ_NAME}.gen/sources_1/bd/${BD_NAME}/hdl/${BD_NAME}_wrapper.v\n")
-    file (APPEND ${TCL_FILE} "generate_target all [get_files ${BD_NAME}.bd]\n")
-    # Could add -minimal below
-    file (APPEND ${TCL_FILE} "write_hw_platform -fixed -force -file ${HW_FILE_FULL}\n")
-    file (APPEND ${TCL_FILE} "close_project\n")
+    if (NOT CREATE_ONLY)
+      # It appears that generate_target also generates the wrapper
+      # file (APPEND ${TCL_FILE} "make_wrapper -inst_template -files [get_files ${BD_NAME}.bd]\n")
+      file (APPEND ${TCL_FILE} "generate_target all [get_files ${BD_NAME}.bd]\n")
+      # Could add -minimal below
+      file (APPEND ${TCL_FILE} "write_hw_platform -fixed -force -file ${HW_FILE_FULL}\n")
+      file (APPEND ${TCL_FILE} "close_project\n")
+    endif ()
 
-    add_custom_command (OUTPUT ${HW_FILE_FULL}
+    add_custom_command (OUTPUT ${OUTPUT_FILE}
                         COMMAND ${VIVADO_NATIVE} -nojournal -mode batch -log ${PROJ_NAME}.log -source ${TCL_FILE} -notrace
                         DEPENDS ${EXPORTED_TCL})
 
     add_custom_target (${PROJ_NAME} ALL
-                       DEPENDS ${HW_FILE_FULL} ${BLOCK_IN})
+                       DEPENDS ${OUTPUT_FILE} ${BLOCK_IN})
 
     set_property (TARGET ${PROJ_NAME}
-                         PROPERTY OUTPUT_NAME ${HW_FILE_FULL})
+                         PROPERTY OUTPUT_NAME ${OUTPUT_FILE})
   else ()
 
     message (SEND_ERROR "vivado_block_build: required parameter missing")

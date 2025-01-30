@@ -12,4 +12,5 @@ vivado_block_build (PROJ_NAME      ${BLOCK_DESIGN_NAME}
                     BD_NAME        "FpgaV${FPGA_VER}"
                     FPGA_PARTNUM   ${FPGAV3_PARTNUM}
                     BLOCK_IN       ${BLOCK_DESIGN_IN}
-                    HW_FILE        ${HW_XSA_FILE})
+                    HW_FILE        ${HW_XSA_FILE}
+                    CREATE_ONLY    ${CREATE_ONLY})

@@ -47,11 +47,6 @@ set (XPSCORE_BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/ipcorev3_dir/xps")
 # Git is used by CreateVersions.cmake, which is used to generate Versions.v
 find_package (Git REQUIRED)
 
-if (Vivado_FOUND)
-  option (CREATE_ONLY "Only create Vivado project (xpr) file" OFF)
-  mark_as_advanced(CREATE_ONLY)
-endif ()
-
 if (XilinxISE_FOUND)
     add_subdirectory(ipcore_dir)
 endif ()

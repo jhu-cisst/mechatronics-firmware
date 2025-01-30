@@ -23,6 +23,9 @@ if (XilinxISE_FOUND OR Vivado_FOUND)
 
     include (${VIVADO_USE_FILE})
 
+    option (CREATE_ONLY "Only create Vivado project (xpr) file" OFF)
+    mark_as_advanced(CREATE_ONLY)
+
     option (BUILD_FPGAV30 "Build for FPGA V3.0 (instead of V3.1+)" OFF)
     mark_as_advanced (BUILD_FPGAV30)
 
