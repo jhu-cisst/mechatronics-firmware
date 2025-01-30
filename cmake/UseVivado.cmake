@@ -153,6 +153,8 @@ function (vivado_block_build ...)
       set (WRAPPER_FILE "${CMAKE_CURRENT_BINARY_DIR}/${BD_NAME}/hdl/${BD_NAME}_wrapper.v")
       # Create project in memory (non-project mode)
       file (WRITE  ${TCL_FILE} "create_project -part ${FPGA_PARTNUM} -in_memory\n")
+      # Delete existing directory to avoid duplicate ip
+      file (APPEND ${TCL_FILE} "file delete -force \"${CMAKE_CURRENT_BINARY_DIR}/${BD_NAME}\"\n")
       file (APPEND ${TCL_FILE} "create_bd_design -dir ${CMAKE_CURRENT_BINARY_DIR} ${BD_NAME}\n")
     endif ()
 
