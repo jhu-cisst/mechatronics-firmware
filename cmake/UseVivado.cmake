@@ -133,13 +133,17 @@ function (vivado_block_build ...)
     # Create TCL file
     set (TCL_FILE "${CMAKE_CURRENT_BINARY_DIR}/make-${PROJ_NAME}.tcl")
 
+    set (BD_FILE      "${BD_NAME}.bd")
+    set (WRAPPER_FILE "${BD_NAME}_wrapper.v")
+
     if (CREATE_ONLY)
       # CREATE_ONLY ON (Project mode):
       #   - Output file is Vivado project file (xpr)
       #   - Also creates board design file (bd)
-      set (OUTPUT_FILE "${CMAKE_CURRENT_BINARY_DIR}/${PROJ_NAME}.xpr")
-      set (BD_FILE     "${CMAKE_CURRENT_BINARY_DIR}/${PROJ_NAME}.srcs/sources_1/bd/${BD_NAME}/${BD_NAME}.bd")
-      set (WRAPPER_FILE "${CMAKE_CURRENT_BINARY_DIR}/${PROJ_NAME}.gen/sources_1/bd/${BD_NAME}/hdl/${BD_NAME}_wrapper.v")
+      set (OUTPUT_FILE "${PROJ_NAME}.xpr")
+      set (OUTPUT_FILE_FULL  "${CMAKE_CURRENT_BINARY_DIR}/${PROJ_NAME}.xpr")
+      set (BD_FILE_FULL      "${CMAKE_CURRENT_BINARY_DIR}/${PROJ_NAME}.srcs/sources_1/bd/${BD_NAME}/${BD_FILE}")
+      set (WRAPPER_FILE_FULL "${CMAKE_CURRENT_BINARY_DIR}/${PROJ_NAME}.gen/sources_1/bd/${BD_NAME}/hdl/${WRAPPER_FILE}")
       # Create project file
       file (WRITE  ${TCL_FILE} "create_project -part ${FPGA_PARTNUM} -force ${PROJ_NAME} ${CMAKE_CURRENT_BINARY_DIR}\n")
       file (APPEND ${TCL_FILE} "create_bd_design ${BD_NAME}\n")
@@ -148,9 +152,10 @@ function (vivado_block_build ...)
       #   - Output file is Xilinx Support Archive (xsa)
       #   - Also creates board design file (bd)
       #   - Also creates Verilog wrapper file (v)
-      set (OUTPUT_FILE "${CMAKE_CURRENT_BINARY_DIR}/${HW_FILE}")
-      set (BD_FILE     "${CMAKE_CURRENT_BINARY_DIR}/${BD_NAME}/${BD_NAME}.bd")
-      set (WRAPPER_FILE "${CMAKE_CURRENT_BINARY_DIR}/${BD_NAME}/hdl/${BD_NAME}_wrapper.v")
+      set (OUTPUT_FILE ${HW_FILE})
+      set (OUTPUT_FILE_FULL  "${CMAKE_CURRENT_BINARY_DIR}/${HW_FILE}")
+      set (BD_FILE_FULL      "${CMAKE_CURRENT_BINARY_DIR}/${BD_NAME}/${BD_FILE}")
+      set (WRAPPER_FILE_FULL "${CMAKE_CURRENT_BINARY_DIR}/${BD_NAME}/hdl/${WRAPPER_FILE}")
       # Create project in memory (non-project mode)
       file (WRITE  ${TCL_FILE} "create_project -part ${FPGA_PARTNUM} -in_memory\n")
       # Delete existing directory to avoid duplicate ip
@@ -164,35 +169,35 @@ function (vivado_block_build ...)
     file (APPEND ${TCL_FILE} "source -notrace ${EXPORTED_TCL}\n")
     # Following two lines check that the board design file is where we expect it to be;
     # if not, a TCL error is raised.
-    file (APPEND ${TCL_FILE} "set bd_file [get_property NAME [get_files ${BD_NAME}.bd]]\n")
-    file (APPEND ${TCL_FILE} "if {\$bd_file ne {${BD_FILE}}} { error \"BD_FILE should be \$bd_file\" }\n")
+    file (APPEND ${TCL_FILE} "set bd_file [get_property NAME [get_files ${BD_FILE}]]\n")
+    file (APPEND ${TCL_FILE} "if {\$bd_file ne {${BD_FILE_FULL}}} { error \"BD_FILE_FULL should be \$bd_file\" }\n")
     # Create the wrapper
     # file (APPEND ${TCL_FILE} "make_wrapper -inst_template -files [get_files ${BD_NAME}.bd]\n")
     # It appears that generate_target also generates the wrapper
-    file (APPEND ${TCL_FILE} "generate_target all [get_files ${BD_NAME}.bd]\n")
+    file (APPEND ${TCL_FILE} "generate_target all [get_files ${BD_FILE}]\n")
     if (NOT CREATE_ONLY)
       # Could add -minimal below
       file (APPEND ${TCL_FILE} "write_hw_platform -fixed -force -file ${HW_FILE}\n")
-      file (APPEND ${TCL_FILE} "close_project\n")
     endif ()
+    file (APPEND ${TCL_FILE} "close_project\n")
 
-    add_custom_command (OUTPUT ${OUTPUT_FILE}
-                        BYPRODUCTS ${BD_FILE} ${WRAPPER_FILE}
+    add_custom_command (OUTPUT ${OUTPUT_FILE_FULL} ${BD_FILE_FULL} ${WRAPPER_FILE_FULL}
                         COMMAND ${VIVADO_NATIVE} -nojournal -mode batch -log ${PROJ_NAME}.log -source ${TCL_FILE} -notrace
+                        COMMENT "Creating ${OUTPUT_FILE}, ${BD_FILE} and ${WRAPPER_FILE}"
                         DEPENDS ${EXPORTED_TCL})
 
     add_custom_target (${PROJ_NAME} ALL
-                       DEPENDS ${OUTPUT_FILE} ${BD_FILE} ${WRAPPER_FILE} ${BLOCK_IN})
+                       DEPENDS ${OUTPUT_FILE_FULL} ${BD_FILE_FULL} ${WRAPPER_FILE_FULL} ${BLOCK_IN})
 
     set_property (TARGET ${PROJ_NAME}
-                         PROPERTY OUTPUT_NAME ${OUTPUT_FILE})
+                         PROPERTY OUTPUT_NAME ${OUTPUT_FILE_FULL})
 
     set_property (TARGET ${PROJ_NAME}
-                         PROPERTY SOURCES ${BD_FILE})
+                         PROPERTY SOURCES ${BD_FILE_FULL})
 
     # Set custom WRAPPER_FILE property
     set_property (TARGET ${PROJ_NAME}
-                         PROPERTY WRAPPER_FILE ${WRAPPER_FILE})
+                         PROPERTY WRAPPER_FILE ${WRAPPER_FILE_FULL})
 
     else ()
 
