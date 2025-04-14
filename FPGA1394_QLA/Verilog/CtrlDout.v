@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2015-2024 Johns Hopkins University.
+ * Copyright(C) 2015-2025 Johns Hopkins University.
  *
  * This module controls access to the digital output bits. Each of the digital
  * output bits can be set/cleared, put in PWM mode, or used as a 1-shot.
@@ -60,7 +60,7 @@ wire dout_pwm[1:NUM_DOUT];     // DOUT from PWM module (also handles regular DOU
 // Whether to enable waveform table output for each DOUT.
 // To use the waveform table, the host should first fill the table (by block write to `ADDR_WAVEFORM)
 // and then write to `REG_DIGIOUT, setting the most significant bit (to enable waveform output)
-// and the mask bits (reg[wdata[8:11]) for each digital output that should be driven by the table.
+// and the mask bits (reg_wdata[15:8]) for each digital output that should be driven by the table.
 reg[NUM_DOUT-1:0] dout_waveform_en;
 
 // Whether any digital output is configured to be driven by the table
