@@ -263,7 +263,7 @@ set (VERILOG_SOURCE_FPGAV3_DRAC
 
 if (NOT Vivado_FOUND)
   # Add IP wrapper for ISE
-  set (VERILOG_SOURCE_FPGAV3_DRAC ${VERILOG_SOURCE_FPGAV3_DRA}
+  set (VERILOG_SOURCE_FPGAV3_DRAC ${VERILOG_SOURCE_FPGAV3_DRAC}
                                   "${IPCOREV3_BINARY_DIR}/pwm_clk_gen_zynq.v")
 endif ()
 
