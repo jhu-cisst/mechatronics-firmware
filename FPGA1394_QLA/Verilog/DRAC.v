@@ -55,7 +55,8 @@ module DRAC(
 
 // outputs
 wire MV_EN;
-wire EXTRA_IO;
+wire suj_brake_release_n;
+wire dsib_si_uart_tx;
 wire FRONT_PANEL_LED;
 wire ESPMV_EN;
 wire RELAY_EN;
@@ -82,7 +83,7 @@ wire[1:10] ADC_CUR_SDO;
 // wire MOSI_EEPROM = IO1[2];
 // wire SCLK_EEPROM = IO1[3];
 // wire CS_EEPROM = IO1[4];
-assign IO1[5] = EXTRA_IO;
+assign IO1[5] = 1'bz; // spare IO on P6
 assign IO1[6] = FRONT_PANEL_LED;
 assign ADC_CUR_SDO[6] = IO1[7];
 assign IO1[8] = PWM_P[6];
@@ -179,9 +180,69 @@ assign IO2[35] = 1'bz;
 assign IO2[37] = 1'bz;
 assign IO2[38] = 1'bz;
 assign io_extra[0] = 1'bz; // safety chain S sense
-assign io_extra[1] = EXTRA_IO; // dSIB RX
-assign io_extra[2] = 1'bz; // dSIB TX
-assign io_extra[3] = 1'bz; // dSIB INT
+assign io_extra[1] = dsib_si_uart_tx; // dSIB-Si UART TX
+assign io_extra[2] = 1'bz; // dSIB-Si UART RX
+assign io_extra[3] = suj_brake_release_n;
+
+// --------------------------------------------------------------------------
+// dSIB-Si UART
+// --------------------------------------------------------------------------
+
+wire dsib_si_uart_rx = io_extra[2];
+wire[7:0] dsib_si_uart_rx_data;
+wire dsib_si_uart_rx_valid;
+wire dsib_si_uart_rx_ready = 1'b1;
+wire dsib_si_uart_tx_ready;
+
+dsib_si_uart dsib_si_uart_inst
+(
+    .clk(sysclk),
+    .rx_pin(dsib_si_uart_rx),
+    .rx_data(dsib_si_uart_rx_data),
+    .rx_data_valid(dsib_si_uart_rx_valid),
+    .rx_data_ready(dsib_si_uart_rx_ready),
+    .tx_data(8'd0),
+    .tx_data_valid(1'b0),
+    .tx_data_ready(dsib_si_uart_tx_ready),
+    .tx_pin(dsib_si_uart_tx)
+);
+
+reg dsib_si_present = 1'b0;
+wire[3:0] suj_z_id;
+wire dsib_z_si_present;
+wire[11:0] suj_z_pot1;
+wire[11:0] suj_z_pot2;
+wire dsib_packet_accept;
+
+dsib_si_parser dsib_si_parser_inst
+(
+    .clk(sysclk),
+    .rx_data(dsib_si_uart_rx_data),
+    .rx_data_valid(dsib_si_uart_rx_valid),
+    .packet_valid(dsib_packet_accept),
+    .suj_z_id(suj_z_id),
+    .dsib_z_si_present(dsib_z_si_present),
+    .suj_z_pot1(suj_z_pot1),
+    .suj_z_pot2(suj_z_pot2)
+);
+
+localparam[22:0] DSIB_PRESENT_WINDOW_LAST = 23'd4915199;
+
+reg[22:0] dsib_present_window_count = 23'd0;
+reg[15:0] dsib_present_packet_count = 16'd0;
+
+always @(posedge sysclk) begin
+    if (dsib_present_window_count == DSIB_PRESENT_WINDOW_LAST) begin
+        dsib_present_window_count <= 23'd0;
+        dsib_si_present <= (dsib_present_packet_count != 16'd0) || dsib_packet_accept;
+        dsib_present_packet_count <= 16'd0;
+    end else begin
+        dsib_present_window_count <= dsib_present_window_count + 23'd1;
+        if (dsib_packet_accept && (dsib_present_packet_count != 16'hffff)) begin
+            dsib_present_packet_count <= dsib_present_packet_count + 16'd1;
+        end
+    end
+end
 
 // --------------------------------------------------------------------------
 // rdata mux
@@ -700,6 +761,7 @@ begin
         'h013: reg_rdata_board_specific = rdata_misc[5]; // instrument version
         'h020: reg_rdata_board_specific = {reg_databuf, tempsense};      // TODO: Is this still needed?
         'h021: reg_rdata_board_specific = reg_digin;                     // TODO: Is this still needed?
+        'h030: reg_rdata_board_specific = {suj_z_id, suj_z_pot2, 2'b0, dsib_z_si_present, dsib_si_present, suj_z_pot1};
         'hfff: reg_rdata_board_specific = 'h100; // development build number
         default: reg_rdata_board_specific = 'hcccc;
     endcase
@@ -730,11 +792,11 @@ always @(*) begin
     endcase
 end
 
-reg extra_io_reg = 1'bz;
-assign EXTRA_IO = extra_io_reg;
+reg suj_brake_release_n_reg = 1'bz;
+assign suj_brake_release_n = suj_brake_release_n_reg;
 always @(posedge sysclk) begin
     if (reg_wen && (reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[7:4] == 4'd0) & (reg_waddr[3:0] == `REG_DIGIOUT)) begin
-        if (reg_wdata[8]) extra_io_reg <= reg_wdata[0] ? 1'bz : 1'b0;
+        if (reg_wdata[8]) suj_brake_release_n_reg <= reg_wdata[0] ? 1'bz : 1'b0;
     end
 end
 

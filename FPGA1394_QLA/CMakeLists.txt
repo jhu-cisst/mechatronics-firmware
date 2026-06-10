@@ -175,6 +175,8 @@ set (VERILOG_SOURCE_DRAC
                            "${VERILOG_SOURCE_DIR}/cdc_pulse.v"
                            "${VERILOG_SOURCE_DIR}/Crc16.v"
                            "${VERILOG_SOURCE_DIR}/DataBuffer.v"
+                           "${VERILOG_SOURCE_DIR}/dsib_si_parser.v"
+                           "${VERILOG_SOURCE_DIR}/dsib_si_uart.v"
                            "${VERILOG_SOURCE_DIR}/ESPMComm.v"
                            "${VERILOG_SOURCE_DIR}/MotorChannelDRAC.v"
                            "${VERILOG_SOURCE_DIR}/PowerControl.v"
