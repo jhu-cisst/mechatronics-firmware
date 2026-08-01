@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2011-2025 Johns Hopkins University.
+ * Copyright(C) 2011-2026 Johns Hopkins University.
  *
  * This module contains common code for FPGA V3 and does not make any assumptions
  * about which board is connected.
@@ -15,8 +15,6 @@
 `include "Constants.v"
 
 module FPGA1394V3
-    #(parameter NUM_MOTORS = 4,
-      parameter NUM_ENCODERS = 4)
 (
     // global clock
     input wire       sysclk,
@@ -69,6 +67,9 @@ module FPGA1394V3
     input wire       PS_PORB,
 `endif
 
+    // Number of quadlets in real-time block read (not including Firewire header and CRC)
+    input wire[6:0]  num_rt_read_quads,
+
     // Read/Write bus
     output wire[15:0] reg_raddr,
     output reg[15:0]  reg_waddr,
@@ -91,10 +92,8 @@ module FPGA1394V3
     input  wire wdog_clear          // clear watchdog timeout (e.g., on powerup)
 );
 
-// Number of quadlets in real-time block read (not including Firewire header and CRC)
-localparam NUM_RT_READ_QUADS = (4 + 2*NUM_MOTORS + 5*NUM_ENCODERS);
 // Number of quadlets in broadcast real-time block; includes sequence number
-localparam NUM_BC_READ_QUADS = (1+NUM_RT_READ_QUADS);
+wire[6:0] num_bc_read_quads = num_rt_read_quads + 7'd1;
 
 // ETH_RT_FAST:
 //   0:   Use sysclk for Ethernet RT interface Rx/Tx
@@ -220,20 +219,6 @@ assign req_blk_rt_rd = (ps_grant_read_bus & ps_req_blk_rt_rd) |
                        (eth_grant_read_bus & eth_req_blk_rt_rd) |
                        fw_req_blk_rt_rd;
 
-//*********************** Read Address Translation *******************************
-//
-// Read bus address translation (to support real-time block read).
-// This could instead be instantiated in the either the FPGAV1 or QLA modules
-// (FPGAV1 module would need NUM_MOTORS and NUM_ENCODERS).
-
-ReadAddressTranslation
-    #(.NUM_MOTORS(NUM_MOTORS), .NUM_ENCODERS(NUM_ENCODERS))
-ReadAddr(
-    .reg_raddr_in(host_reg_raddr),
-    .reg_raddr_out(reg_raddr),
-    .blk_rt_rd(blk_rt_rd)
-);
-
 //***************************************************************************
 
 wire[31:0] reg_rdata;
@@ -255,7 +240,7 @@ wire reg_rwait_hub;
 wire reg_rvalid;               // reg_rdata is valid (based on reg_rwait)
 
 wire isAddrMain;
-assign isAddrMain = ((reg_raddr[15:12]==`ADDR_MAIN) && (reg_raddr[7:4]==4'd0)) ? 1'b1 : 1'b0;
+assign isAddrMain = ((!blk_rt_rd) && (reg_raddr[15:12]==`ADDR_MAIN) && (reg_raddr[7:4]==4'd0)) ? 1'b1 : 1'b0;
 
 // Mux routing read data based on read address
 //   See Constants.v for details
@@ -401,8 +386,7 @@ wire fw_bus_reset;
 
 // phy-link interface
 PhyLinkInterface
-    #(.NUM_BC_READ_QUADS(NUM_BC_READ_QUADS),
-      .USE_ETH_CLK(ETH_RT_FAST))
+    #(.USE_ETH_CLK(ETH_RT_FAST))
 phy(
     .sysclk(sysclk),         // in: global clk  
     .ethclk(rt_clk),         // in: Ethernet clk
@@ -453,6 +437,7 @@ phy(
     .lreq_trig(fw_lreq_trig),  // out: phy request trigger
     .lreq_type(fw_lreq_type),  // out: phy request type
 
+    .num_bc_read_quads(num_bc_read_quads),  // in: number of broadcast read quads
     .rx_bc_sequence(bc_sequence),  // in: broadcast sequence num
     .write_trig(hub_write_trig),   // in: 1 -> broadcast write this board's hub data
     .write_trig_reset(hub_write_trig_reset),
@@ -836,7 +821,6 @@ assign ip_reg_wen = (reg_waddr == {`ADDR_MAIN, 8'h0, `REG_IPADDR}) ? reg_wen : 1
 
 EthernetIO
     #(.IPv4_CSUM(1), .IS_V3(1),
-      .NUM_BC_READ_QUADS(NUM_BC_READ_QUADS),
       .USE_RXTX_CLK(ETH_RT_FAST))
 EthernetTransfers(
     .sysclk(sysclk),          // in: global clock
@@ -908,6 +892,7 @@ EthernetTransfers(
     .sendBusy(eth_sendBusy),          // To KSZ8851
     .sendReady(eth_sendReady),        // Request EthernetIO to provide next send_word
     .send_word(eth_send_word),        // Word to send via Ethernet (SDRegDWR for KSZ8851)
+    .num_bc_read_quads(num_bc_read_quads), // Number of broadcast read quads
     .bcRespReady(bc_resp_ready),      // Broadcast read response is ready
     .bcResp(bc_resp),                 // Broadcast read response active
     .bcBoardMask(bc_board_mask),      // Broadcast read boardmask

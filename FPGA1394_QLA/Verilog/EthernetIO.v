@@ -12,7 +12,6 @@
  * There are four parameters to the module:
  *   IPv4_CSUM          Default is 0 (FPGA V2), set to 1 for FPGA V3
  *   IS_V3              Default is 0 (FPGA V2), set to 1 for FPGA V3
- *   NUM_BC_READ_QUADS  Size of broadcast block read entry (default 33)
  *   USE_RXTX_CLK       Whether to use Rx/Tx clock instead of sysclk (default 0)
  *
  * Revision history
@@ -45,7 +44,6 @@
 module EthernetIO
     #(parameter IPv4_CSUM = 0,     // Set to 1 to generate IPv4 (and ICMP) header checksum
       parameter IS_V3 = 0,         // Set to 1 to indicate FPGA V3
-      parameter NUM_BC_READ_QUADS = 33,
       parameter USE_RXTX_CLK = 1'b0)
 (
     // global clock
@@ -124,6 +122,7 @@ module EthernetIO
     input wire sendReady,            // Request EthernetIO to provide next send_word
     output reg[15:0] send_word,      // Word to send via Ethernet (SDRegDWR for KSZ8851)
     // Broadcast response (FPGA V3 only)
+    input wire[6:0] num_bc_read_quads,  // number of quadlets in broadcast block read
     output wire bcRespReady,         // Broadcast read response is ready to be sent
     input wire bcResp,               // Broadcast read response is active
     output wire[15:0] bcBoardMask,   // Board mask for broadcast read
@@ -274,10 +273,6 @@ assign LengthFW = isUDP ? (UDP_Length-8'd10) : (Eth_EtherType-8'd2);
 
 assign eth_fwpkt_len = LengthFW;
 
-// real-time feedback broadcast packet size, in quadlets and bytes, not including Firewire header/CRC
-localparam[7:0] SZ_BBC_QUADS = NUM_BC_READ_QUADS;
-localparam[15:0] SZ_BBC_BYTES = (4*NUM_BC_READ_QUADS);
-
 //************************ Large buffer to hold various packets **************************
 // Note that it is fine for some buffers to overlap. Below, the UDP, ICMP and ARP buffers
 // all start after the IPv4 Header. Technically, the ARP buffer could start after the
@@ -407,7 +402,7 @@ assign Reply_Frame_LenWire = sendARP                ? 16'h0806 :
                              isForward              ? sendLen + `FW_EXTRA_SIZE :
                              // Local raw packet
                              ipWrite                ? (`FW_CTRL_SIZE + `FW_QWRITE_SIZE) :
-                             hubSend                ? (`FW_CTRL_SIZE + `FW_BWRITE_SIZE + SZ_BBC_BYTES) :
+                             hubSend                ? (`FW_CTRL_SIZE + `FW_BWRITE_SIZE + { 7'd0, num_bc_read_quads, 2'd0}) :
                              sendExtra              ? `FW_EXTRA_SIZE :
                              quadRead               ? (`FW_QRESP_SIZE + `FW_EXTRA_SIZE)
                                                     : (`FW_BRESP_SIZE + `FW_EXTRA_SIZE) + reply_data_length;
@@ -1768,7 +1763,7 @@ begin
             end
             if (hubSend) begin
                // Set block_data_length to the size of the hubSend packet
-               block_data_length <= SZ_BBC_BYTES;
+               block_data_length <= { 7'd0, num_bc_read_quads, 2'd0 };
             end
 `ifdef HAS_DEBUG_DATA
             if (isRemote) begin
@@ -2384,7 +2379,7 @@ assign timestamp_rd = (blk_rt_rd && (reg_raddr[7:0] == 8'd0)) ? 1'd1 : 1'd0;
 
 reg hubSendHeader;       // 1 -> write hub header
 wire[31:0] hub_header;   // header quadlet for Hub data block
-assign hub_header = { bc_sequence, 8'd0, SZ_BBC_QUADS };
+assign hub_header = { bc_sequence, 8'd0, 1'd0, num_bc_read_quads };
 
 reg[8:0] br_addr_in;
 wire[31:0] br_data_in;

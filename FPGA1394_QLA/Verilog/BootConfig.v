@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2023-2024 Johns Hopkins University
+ * Copyright(C) 2023-2026 Johns Hopkins University
  *
  * This module contains code for the boot configuration check
  *
@@ -27,8 +27,11 @@ module BootConfig(
     inout[0:33]      IO1,
     inout[0:39]      IO2,
 
+    // Number of real-time block read quadlets
+    output wire[6:0] num_rt_read_quads,
+
     // Read/Write bus
-    input wire[15:0]  reg_raddr,
+    input wire[15:0]  host_reg_raddr,
     input wire[15:0]  reg_waddr,
     output wire[31:0] reg_rdata,
     input wire[31:0]  reg_wdata,
@@ -133,6 +136,23 @@ endgenerate
 //------------------------------------------------------------------------------
 // hardware description
 //
+
+// No motors or encoders
+assign num_rt_read_quads = 7'd4;
+
+//*********************** Read Address Translation *******************************
+//
+// Read bus address translation (to support real-time block read).
+
+wire[15:0] reg_raddr;
+
+ReadAddressTranslation
+    #(.NUM_MOTORS(0), .NUM_ENCODERS(0))
+ReadAddr(
+    .reg_raddr_in(host_reg_raddr),
+    .reg_raddr_out(reg_raddr),
+    .blk_rt_rd(blk_rt_rd)
+);
 
 wire[31:0] reg_rdata_prom;       // reads from prom
 wire[31:0] reg_rdata_chan0;      // 'channel 0' is a special axis that contains various board I/Os

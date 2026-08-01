@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2013-2024 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2013-2026 ERC CISST, Johns Hopkins University.
  *
  * Purpose: Global constants e.g. device address
  * 
@@ -68,6 +68,7 @@
 // For additional fields, please update SampleData.v to send back data in the correct slot
 `define OFF_ADC_DATA  4'h0         // adc data register offset (pot + cur)
 `define OFF_DAC_CTRL  4'h1         // dac control register offset
+`define OFF_EXTRA_DATA 4'h2        // extra data offset (for DRAC SUJ pots)
 `define OFF_UNUSED_02 4'h2         // (was pot control register offset)
 `define OFF_UNUSED_03 4'h3         // (was pot data register offset)
 `define OFF_ENC_LOAD  4'h4         // enc data preload offset

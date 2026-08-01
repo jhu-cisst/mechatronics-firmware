@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2023 Johns Hopkins University.
+ * Copyright(C) 2023-2026 Johns Hopkins University.
  *
  * This module performs address translation for read address, which is necessary
  * to support the real-time block read.
@@ -11,20 +11,22 @@
  *
  * Revision history
  *     12/02/23    Peter Kazanzides    Initial revision
+ *      7/31/26    Peter Kazanzides    Added NUM_EXTRA
  */
 
 `include "Constants.v"
 
 module ReadAddressTranslation
     #(parameter NUM_MOTORS = 4,
-      parameter NUM_ENCODERS = 4)
+      parameter NUM_ENCODERS = 4,
+      parameter NUM_EXTRA = 0)
 (
     input  wire[15:0] reg_raddr_in,   // reg_raddr from host (Firewire, Ethernet, or EMIO)
     output wire[15:0] reg_raddr_out,  // reg_raddr to FPGA registers
     input  wire       blk_rt_rd       // 1 -> real-time block read
 );
 
-localparam MAX_RT_READ_INDEX = 3 + 2*NUM_MOTORS + 5*NUM_ENCODERS;
+localparam MAX_RT_READ_INDEX = 3 + 2*NUM_MOTORS + 5*NUM_ENCODERS + NUM_EXTRA;
 
 // Address map for RT block read
 wire[7:0] addr_map[0:MAX_RT_READ_INDEX];
@@ -46,6 +48,9 @@ generate
         assign addr_map[3+NUM_MOTORS+2*NUM_ENCODERS+i] = { i, `OFF_QTR1_DATA };
         assign addr_map[3+NUM_MOTORS+3*NUM_ENCODERS+i] = { i, `OFF_QTR5_DATA };
         assign addr_map[3+NUM_MOTORS+4*NUM_ENCODERS+i] = { i, `OFF_RUN_DATA };
+    end
+    for (i = 1; i <= NUM_EXTRA; i = i+1) begin : extra
+        assign addr_map[3+2*NUM_MOTORS+5*NUM_ENCODERS+i] = { i, `OFF_EXTRA_DATA };
     end
 endgenerate   
 
