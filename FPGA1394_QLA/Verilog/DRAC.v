@@ -656,6 +656,8 @@ reg [5:0] espm_bram_waddr;
 reg [31:0] espm_bram_wdata;
 reg [5:0] espm_bram_pre_crc_raddr;
 reg espm_bram_we;
+reg [95:0] suj_essj_adc;
+reg [1:0] suj_essj_status;
 cdc_pulse crc_good_espm_cdc (LVDS_RCLK, crc_good_espm, sysclk, crc_good_espm_sysclk);
 reg copy_state;
 
@@ -696,6 +698,10 @@ always @(posedge sysclk) begin
                 `ADDR_INST_MODEL: rdata_misc[4] <= espm_bram_wdata;  // instrument ID
                 `ADDR_INST_ID:    rdata_misc[5] <= espm_bram_wdata;  // instrument ID
                 `ADDR_ESPM_PRELOAD_VALID: preload_good <= espm_bram_wdata[0];
+                `ADDR_SUJ_ADC0: suj_essj_adc[31:0] <= espm_bram_wdata;
+                `ADDR_SUJ_ADC1: suj_essj_adc[63:32] <= espm_bram_wdata;
+                `ADDR_SUJ_ADC2: suj_essj_adc[95:64] <= espm_bram_wdata;
+                `ADDR_SUJ_STATUS: suj_essj_status <= espm_bram_wdata[1:0];
             endcase
         end
     endcase
@@ -802,14 +808,28 @@ end
 // Main registers
 // --------------------------------------------------------------------------
 
-// PK TODO: fix this to get other pots from bram
-// Also, should use 4 unused bits for flags (e.g., valid pots)
+// SUJ real-time register map:
+// suj_pots[1]: [31:28] z_id, [27:16] z_pot2, [15:14] reserved,
+//              [13] dsib_z_si_present, [12] dsib_si_present, [11:0] z_pot1
+// suj_pots[2]: [31:28] reserved, [27:16] rot1_pot2, [15:14] reserved,
+//              [13] adc_valid, [12] essj_present, [11:0] rot1_pot1
+// suj_pots[3]: [31:28] reserved, [27:16] rot2_pot2, [15:14] reserved,
+//              [13] adc_valid, [12] essj_present, [11:0] rot2_pot1
+// suj_pots[4]: [31:28] reserved, [27:16] rot3_pot2, [15:14] reserved,
+//              [13] adc_valid, [12] essj_present, [11:0] rot3_pot1
+// suj_pots[5]: [31:28] reserved, [27:16] rot4_pot2, [15:14] reserved,
+//              [13] adc_valid, [12] essj_present, [11:0] rot4_pot1
 wire[31:0] suj_pots[1:NUM_EXTRA];
-assign suj_pots[1] = { 4'd0, suj_z_pot2, 4'd0, suj_z_pot1 };
-assign suj_pots[2] = 32'h22222222;
-assign suj_pots[3] = 32'h33333333;
-assign suj_pots[4] = 32'h44444444;
-assign suj_pots[5] = 32'h55555555;
+assign suj_pots[1] = {suj_z_id, suj_z_pot2, 2'b0, dsib_z_si_present,
+                      dsib_si_present, suj_z_pot1};
+assign suj_pots[2] = {4'b0, suj_essj_adc[59:48], 2'b0, suj_essj_status,
+                      suj_essj_adc[11:0]};
+assign suj_pots[3] = {4'b0, suj_essj_adc[71:60], 2'b0, suj_essj_status,
+                      suj_essj_adc[23:12]};
+assign suj_pots[4] = {4'b0, suj_essj_adc[83:72], 2'b0, suj_essj_status,
+                      suj_essj_adc[35:24]};
+assign suj_pots[5] = {4'b0, suj_essj_adc[95:84], 2'b0, suj_essj_status,
+                      suj_essj_adc[47:36]};
 
 always @(*) begin
     case (reg_raddr[3:0])

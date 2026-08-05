@@ -163,6 +163,10 @@
 `define ADDR_ESPM_PRELOAD_VALID    6'h10
 `define ADDR_INST_MODEL    6'h18
 `define ADDR_INST_ID       6'h20
+`define ADDR_SUJ_ADC0      6'h39
+`define ADDR_SUJ_ADC1      6'h3a
+`define ADDR_SUJ_ADC2      6'h3b
+`define ADDR_SUJ_STATUS    6'h3c
 
 `define ESPM_POT_DATA 'd0
 `define ESPM_POS_DATA 'd1
