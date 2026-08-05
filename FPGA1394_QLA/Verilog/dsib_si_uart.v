@@ -5,7 +5,7 @@
 
 module dsib_si_uart
 #(
-    parameter CLOCKS_PER_BAUD = 427
+    parameter CLOCKS_PER_BAUD = 427 // 115200 baud at 49.152 MHz
 )
 (
     input wire       clk,

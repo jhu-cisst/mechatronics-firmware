@@ -226,7 +226,8 @@ dsib_si_parser dsib_si_parser_inst
     .suj_z_pot2(suj_z_pot2)
 );
 
-localparam[22:0] DSIB_PRESENT_WINDOW_LAST = 23'd4915199;
+// dsib_si_present is detected by at least one valid dSIB-Si RX packet received in a 100 ms window.
+localparam[22:0] DSIB_PRESENT_WINDOW_LAST = 23'd4915199; // 100 ms at 49.152 MHz
 
 reg[22:0] dsib_present_window_count = 23'd0;
 reg[15:0] dsib_present_packet_count = 16'd0;

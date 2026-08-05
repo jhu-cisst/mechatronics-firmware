@@ -3,6 +3,17 @@
 
 `timescale 1ns / 1ps
 
+/*
+ * dSIB-Si packet (11 bytes, 115200 8N1):
+ *   0..3  "dSIB"
+ *   4     {3'b0, dsib_z_si_present, suj_z_id[3:0]}
+ *   5     suj_z_pot1[7:0]
+ *   6     {4'b0, suj_z_pot1[11:8]}
+ *   7     suj_z_pot2[7:0]
+ *   8     {4'b0, suj_z_pot2[11:8]}
+ *   9..10 CRC16, low byte first
+ * CRC16 is initialized to 16'hffff and covers bytes 4 through 8.
+ */
 module dsib_si_parser
 (
     input wire       clk,
@@ -68,7 +79,7 @@ always @(posedge clk) begin
             DSIB_PARSE_HEADER_S: begin
                 if (rx_data == "S") begin
                     dsib_parse_state <= DSIB_PARSE_HEADER_I;
-                end else if (rx_data != "d") begin
+                end else begin
                     dsib_parse_state <= DSIB_PARSE_HEADER_D;
                 end
             end
@@ -76,8 +87,6 @@ always @(posedge clk) begin
             DSIB_PARSE_HEADER_I: begin
                 if (rx_data == "I") begin
                     dsib_parse_state <= DSIB_PARSE_HEADER_B;
-                end else if (rx_data == "d") begin
-                    dsib_parse_state <= DSIB_PARSE_HEADER_S;
                 end else begin
                     dsib_parse_state <= DSIB_PARSE_HEADER_D;
                 end
@@ -87,8 +96,6 @@ always @(posedge clk) begin
                 if (rx_data == "B") begin
                     dsib_parse_state <= DSIB_PARSE_FLAGS;
                     dsib_crc_init <= 1'b1;
-                end else if (rx_data == "d") begin
-                    dsib_parse_state <= DSIB_PARSE_HEADER_S;
                 end else begin
                     dsib_parse_state <= DSIB_PARSE_HEADER_D;
                 end
