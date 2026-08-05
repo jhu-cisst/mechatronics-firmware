@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2008-2025 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2008-2026 ERC CISST, Johns Hopkins University.
  *
  * This module implements the FireWire link layer state machine, which defines
  * the operation of the phy-link interface.  The state machine is triggered on
@@ -190,8 +190,7 @@
 `define MIN_ROM_ENTRY  {4'h01, `JHU_LCSR_CID}
 
 module PhyLinkInterface
-    #(parameter NUM_BC_READ_QUADS = 33,
-      parameter USE_ETH_CLK = 1'b0)
+    #(parameter USE_ETH_CLK = 1'b0)
 (
     // globals
     input wire sysclk,           // system clock
@@ -252,6 +251,7 @@ module PhyLinkInterface
     output reg[2:0] lreq_type,       // type of request to give to the phy
 
     // broadcast related fields
+    input wire[6:0] num_bc_read_quads,  // number of quadlets in broadcast block read
     input wire[15:0] rx_bc_sequence, // broadcast sequence num
     input wire write_trig,           // request to broadcast this board's hub data
     output reg write_trig_reset,     // reset write_trig
@@ -617,16 +617,10 @@ assign fw_reg_waddr[15:8] = reg_waddr[15:8];
 
     // real-time feedback broadcast packet size, in bits, including Firewire header/CRC
     //    32*[FW_header (4) + header_CRC (1) + seq (1) + data (N) + data_CRC (1)] = 32*(N+7)
-    //    Rev 4-6: N=16 --> SZ_BBC = 16'd736  (should have been N=20, SZ_BBC = 16'd864)
-    //    Rev 7:   N=28 --> SZ_BBC = 16'd1120
+    //    Rev 4-6: N=16 --> sz_bbc = 16'd736  (should have been N=20, SZ_BBC = 16'd864)
+    //    Rev 7:   N=28 --> sz_bbc = 16'd1120
     //    `SZ_BWRITE includes FW_header + header_CRC + data_CRC
-    localparam[15:0] SZ_BBC = (`SZ_BWRITE + 32*NUM_BC_READ_QUADS);
-
-    // real-time feedback broadcast packet size, in quadlets, not including Firewire header/CRC
-    localparam[7:0] SZ_BBC_QUADS = NUM_BC_READ_QUADS;
-
-    // real-time feedback broadcast packet size, in bytes, not including Firewire header/CRC
-    localparam[15:0] SZ_BBC_BYTES = (4*NUM_BC_READ_QUADS);
+    wire[15:0] sz_bbc = (`SZ_BWRITE + {4'd0, num_bc_read_quads, 5'd0});
 
 // -----------------------------------------------------------------------------
 // hardware description
@@ -1259,7 +1253,7 @@ begin
                 write_trig_reset <= 1;
                 buffer <= { 16'hffff, rx_tag, 2'd0, `TC_BWRITE, 4'hA };
                 next <= ST_TX_HEAD_BC;
-                numbits <= SZ_BBC;
+                numbits <= sz_bbc;
             end
 
 `ifdef HAS_ETHERNET
@@ -1440,7 +1434,7 @@ begin
                 //    above + Enc Accel Q5 (4), Enc Running (4)
                 // datalen = 4 x (1 + 4 + 4 + 4 + 4 + 4 + 4 + 4 + 4) = 132 bytes (Rev 8)
                 //    above + Motor Status (4)
-                88: buffer <= { SZ_BBC_BYTES, 16'd0 };
+                88: buffer <= { 7'd0, num_bc_read_quads, 2'd0, 16'd0 };
                 
                 // latch header crc, reset crc in preparation for data crc
                 128: begin
@@ -1455,9 +1449,9 @@ begin
                     // for hub register (HubReg)
                     reg_waddr[15:0] <= { `ADDR_HUB, 12'd0 };
                     reg_wen <= 1'b1;
-                    reg_wdata <= { rx_bc_sequence, 8'd0, SZ_BBC_QUADS };  // for HubReg
+                    reg_wdata <= { rx_bc_sequence, 8'd0, 1'd0, num_bc_read_quads };  // for HubReg
                     // for transmission via FireWire
-                    buffer <= { rx_bc_sequence, 8'd0, SZ_BBC_QUADS };
+                    buffer <= { rx_bc_sequence, 8'd0, 1'd0, num_bc_read_quads };
                     crc_ini <= 0;           // clear crc start bit
                     reg_raddr <= {`ADDR_MAIN, 12'd0 };  // blk_rt_rd should be 1
                     state <= ST_TX_DATA;    // goto ST_TX_DATA
@@ -1491,7 +1485,7 @@ begin
 
                     // cache to hubreg, only saves to hub when block broadcast packets
                     // (reg_wen is set in ST_TX_HEAD_BC)
-                    if (reg_waddr[7:0] != SZ_BBC_QUADS-8'd1) begin
+                    if (reg_waddr[7:0] != {1'd0, num_bc_read_quads-7'd1}) begin
                         reg_waddr[7:0] <= reg_waddr[7:0] + 8'd1;
                         reg_wdata <= timestamp_rd ? timestamp_latched : reg_rdata;
                     end

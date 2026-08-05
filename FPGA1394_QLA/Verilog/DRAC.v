@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2011-2025 Johns Hopkins University.
+ * Copyright(C) 2011-2026 Johns Hopkins University.
  *
  * This module contains common code for the DRAC
  *
@@ -28,8 +28,11 @@ module DRAC(
     inout[1:38]      IO2,
     inout wire[3:0]  io_extra,
 
+    // Number of real-time block read quadlets
+    output wire[6:0] num_rt_read_quads,
+
     // Read/Write bus
-    input wire[15:0]  reg_raddr,
+    input wire[15:0]  host_reg_raddr,
     input wire[15:0]  reg_waddr,
     output reg[31:0]  reg_rdata,
     input wire[31:0]  reg_wdata,
@@ -183,6 +186,29 @@ assign io_extra[0] = 1'bz; // safety chain S sense
 assign io_extra[1] = dsib_si_uart_tx; // dSIB-Si UART TX
 assign io_extra[2] = 1'bz; // dSIB-Si UART RX
 assign io_extra[3] = suj_brake_release_n;
+
+// Number of motors and encoders
+localparam NUM_MOTORS = 10;
+localparam NUM_ENCODERS = 7;
+localparam[6:0] NUM_EXTRA = 5;
+
+localparam[6:0] NUM_RT_READ_QUADS = 4 + 2*NUM_MOTORS + 5*NUM_ENCODERS;
+
+assign num_rt_read_quads = has_suj_pots ? (NUM_RT_READ_QUADS + NUM_EXTRA) : NUM_RT_READ_QUADS;
+
+//*********************** Read Address Translation *******************************
+//
+// Read bus address translation (to support real-time block read).
+
+wire[15:0] reg_raddr;
+
+ReadAddressTranslation
+    #(.NUM_MOTORS(NUM_MOTORS), .NUM_ENCODERS(NUM_ENCODERS), .NUM_EXTRA(NUM_EXTRA))
+ReadAddr(
+    .reg_raddr_in(host_reg_raddr),
+    .reg_raddr_out(reg_raddr),
+    .blk_rt_rd(blk_rt_rd)
+);
 
 // --------------------------------------------------------------------------
 // dSIB-Si UART
@@ -408,6 +434,7 @@ wire[31:0] reg_digin;     // Digital I/O register
 wire[15:0] tempsense;     // Temperature sensor
 wire[15:0] reg_databuf;   // Data collection status
 wire is_ecm;
+wire has_suj_pots;
 
 wire[11:0] reg_status12 = {8'b0, preload_good, ESPMV_GOOD, esii_escc_comm_good, espm_comm_good};
 BoardRegsDRAC chan0(
@@ -421,6 +448,9 @@ BoardRegsDRAC chan0(
     .board_id(board_id),
     .temp_sense({(sample_read ? reg_databuf : 16'd0), tempsense}),
     .is_ecm(is_ecm),
+    .has_suj_pots(has_suj_pots),
+    .dsib_si_present(dsib_si_present),
+    .dsib_z_si_present(dsib_z_si_present),
     .reg_status12(reg_status12),
     .reg_raddr(reg_raddr),
     .reg_waddr(reg_waddr),
@@ -772,10 +802,20 @@ end
 // Main registers
 // --------------------------------------------------------------------------
 
+// PK TODO: fix this to get other pots from bram
+// Also, should use 4 unused bits for flags (e.g., valid pots)
+wire[31:0] suj_pots[1:NUM_EXTRA];
+assign suj_pots[1] = { 4'd0, suj_z_pot2, 4'd0, suj_z_pot1 };
+assign suj_pots[2] = 32'h22222222;
+assign suj_pots[3] = 32'h33333333;
+assign suj_pots[4] = 32'h44444444;
+assign suj_pots[5] = 32'h55555555;
+
 always @(*) begin
     case (reg_raddr[3:0])
         `OFF_ADC_DATA: reg_rdata_main = {pot_data, cur_fb[reg_raddr[7:4]]};
         `OFF_DAC_CTRL: reg_rdata_main = {16'h0000, cur_cmd_fb[reg_raddr[7:4]]};
+        `OFF_EXTRA_DATA: reg_rdata_main = suj_pots[reg_raddr[7:4]];
         `OFF_ENC_LOAD: reg_rdata_main = encoder_preload[reg_raddr[7:4]];
         `OFF_ENC_DATA: reg_rdata_main = {7'b0, encoder_overflow[reg_raddr[7:4]], rdata_pos[reg_raddr[7:4]][23:0] + encoder_preload_offset[reg_raddr[7:4]]};
         `OFF_PER_DATA: reg_rdata_main = espm_bram_rdata;

@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2011-2025 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2011-2026 ERC CISST, Johns Hopkins University.
  *
  * This module contains code for the DQLA (dual QLA) interface
  *
@@ -31,8 +31,11 @@ module DQLA(
     inout[0:33]      IO1,
     inout[0:39]      IO2,
 
+    // Number of real-time block read quadlets
+    output wire[6:0] num_rt_read_quads,
+
     // Read/Write bus
-    input wire[15:0]  reg_raddr,
+    input wire[15:0]  host_reg_raddr,
     input wire[15:0]  reg_waddr,
     output wire[31:0] reg_rdata,
     input wire[31:0]  reg_wdata,
@@ -40,6 +43,7 @@ module DQLA(
     input wire reg_wen,
     input wire blk_wen,
     input wire blk_wstart,
+    input wire blk_rt_rd,
 
     // Timestamp
     output reg[31:0] timestamp,
@@ -262,6 +266,27 @@ module DQLA(
 //------------------------------------------------------------------------------
 // hardware description
 //
+
+// Number of motors and encoders
+localparam NUM_MOTORS = 8;
+localparam NUM_ENCODERS = 8;
+
+localparam[6:0] NUM_RT_READ_QUADS = 4 + 2*NUM_MOTORS + 5*NUM_ENCODERS;
+assign num_rt_read_quads = NUM_RT_READ_QUADS;
+
+//*********************** Read Address Translation *******************************
+//
+// Read bus address translation (to support real-time block read).
+
+wire[15:0] reg_raddr;
+
+ReadAddressTranslation
+    #(.NUM_MOTORS(NUM_MOTORS), .NUM_ENCODERS(NUM_ENCODERS))
+ReadAddr(
+    .reg_raddr_in(host_reg_raddr),
+    .reg_raddr_out(reg_raddr),
+    .blk_rt_rd(blk_rt_rd)
+);
 
 wire[31:0] reg_rdata_prom_qla;   // reads from QLA prom
 wire[31:0] reg_rdata_prom_qla1;  // reads from QLA 1 prom

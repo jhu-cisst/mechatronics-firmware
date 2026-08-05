@@ -3,7 +3,7 @@
 
 /*******************************************************************************    
  *
- * Copyright(C) 2011-2025 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2011-2026 ERC CISST, Johns Hopkins University.
  *
  * This is the top level module for the FPGA1394V3-DQLA (dual QLA)  motor controller
  * interface.
@@ -78,10 +78,6 @@ module FPGA1394V3DQLA
     output wire[3:0] E2_TxD       // eth2 transmit data
 );
 
-    // Number of motors and encoders
-    parameter NUM_MOTORS = 8;
-    parameter NUM_ENCODERS = 8;
-
     // System clock
     wire sysclk;
     BUFG clksysclk(.I(clk1394), .O(sysclk));
@@ -94,6 +90,8 @@ module FPGA1394V3DQLA
     wire LED_Out;
     wire isV30;
 
+    wire[6:0] num_rt_read_quads;  // Number of real-time block read quadlets
+
     wire[15:0] reg_raddr;       // 16-bit reg read address
     wire[15:0] reg_waddr;       // 16-bit reg write address
     wire[31:0] reg_rdata;       // reg read data
@@ -102,6 +100,7 @@ module FPGA1394V3DQLA
     wire reg_wen;               // register write signal
     wire blk_wen;               // block write enable
     wire blk_wstart;            // block write start
+    wire blk_rt_rd;             // real-time block read
 
     // Timestamp
     wire[31:0] timestamp;
@@ -122,9 +121,8 @@ assign LED = isV30 ? 1'bz : LED_Out;        // FPGA V3.1 (pin U13)
 //******************************* FPGA Module *************************************
 
 // FPGA module, including Firewire and Ethernet
-FPGA1394V3
-    #(.NUM_MOTORS(NUM_MOTORS), .NUM_ENCODERS(NUM_ENCODERS))
-fpga(
+FPGA1394V3 fpga
+(
     .sysclk(sysclk),
     .board_id(board_id),
     .LED(LED_Out),
@@ -171,6 +169,9 @@ fpga(
     .PS_PORB(PS_PORB),
 `endif
 
+    // Size of real-time block read packet
+    .num_rt_read_quads(num_rt_read_quads),
+
     // Read/write bus
     .reg_raddr(reg_raddr),
     .reg_waddr(reg_waddr),
@@ -180,6 +181,7 @@ fpga(
     .reg_wen(reg_wen),
     .blk_wen(blk_wen),
     .blk_wstart(blk_wstart),
+    .blk_rt_rd(blk_rt_rd),
 
     // Timestamp
     .timestamp(timestamp),
@@ -222,7 +224,7 @@ DQLA dqla(
     .IO2(IO2),
 
     // Read/write bus
-    .reg_raddr(reg_raddr),
+    .host_reg_raddr(reg_raddr),
     .reg_waddr(reg_waddr),
     .reg_rdata(reg_rdata),
     .reg_wdata(reg_wdata),
@@ -230,6 +232,7 @@ DQLA dqla(
     .reg_wen(reg_wen),
     .blk_wen(blk_wen),
     .blk_wstart(blk_wstart),
+    .blk_rt_rd(blk_rt_rd),
 
     // Timestamp
     .timestamp(timestamp),
