@@ -204,10 +204,9 @@ begin
     end
 end
 
-wire[15:0] host_reg_raddr;
-assign host_reg_raddr = ps_grant_read_bus  ? ps_reg_raddr  :
-                        eth_grant_read_bus ? eth_reg_raddr :
-                                             fw_reg_raddr;
+assign reg_raddr = ps_grant_read_bus  ? ps_reg_raddr  :
+                   eth_grant_read_bus ? eth_reg_raddr :
+                                        fw_reg_raddr;
 
 assign blk_rt_rd = ps_grant_read_bus ? ps_blk_rt_rd :
                    eth_grant_read_bus ? eth_blk_rt_rd :

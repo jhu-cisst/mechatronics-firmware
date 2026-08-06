@@ -451,6 +451,7 @@ BoardRegsDRAC chan0(
     .has_suj_pots(has_suj_pots),
     .dsib_si_present(dsib_si_present),
     .dsib_z_si_present(dsib_z_si_present),
+    .essj_present(suj_essj_status[0]),
     .reg_status12(reg_status12),
     .reg_raddr(reg_raddr),
     .reg_waddr(reg_waddr),
@@ -809,27 +810,31 @@ end
 // --------------------------------------------------------------------------
 
 // SUJ real-time register map:
-// suj_pots[1]: [31:28] z_id, [27:16] z_pot2, [15:14] reserved,
-//              [13] dsib_z_si_present, [12] dsib_si_present, [11:0] z_pot1
-// suj_pots[2]: [31:28] reserved, [27:16] rot1_pot2, [15:14] reserved,
-//              [13] adc_valid, [12] essj_present, [11:0] rot1_pot1
-// suj_pots[3]: [31:28] reserved, [27:16] rot2_pot2, [15:14] reserved,
-//              [13] adc_valid, [12] essj_present, [11:0] rot2_pot1
-// suj_pots[4]: [31:28] reserved, [27:16] rot3_pot2, [15:14] reserved,
-//              [13] adc_valid, [12] essj_present, [11:0] rot3_pot1
-// suj_pots[5]: [31:28] reserved, [27:16] rot4_pot2, [15:14] reserved,
-//              [13] adc_valid, [12] essj_present, [11:0] rot4_pot1
+// suj_pots[1]: [31] z_valid [30] dsib_z_si_present [29] dsib_si_present [28] reserved (0),
+//              [27:16] z_pot2,
+//              [15:12] suj_z_id,
+//              [ 11:0] z_pot1
+// suj_pots[N]: [31] r_valid [30] adc_valid [29] essj_present [28] reserved (0)
+// (N=2..5)     [27:16] rotN_pot2,
+//              [15:12] reserved (0000),
+//              [ 11:0] rotN_pot1
+
+wire suj_z_valid;   // SUJ Z axis pot data valid (from dSIB-Z-Si to dSIB-Si to FPGA via UART)
+wire suj_r_valid;   // SUJ rotary axis pot data valid (from ESSJ to FPGA via LVDS)
+assign suj_z_valid = dsib_si_present & dsib_z_si_present;
+assign suj_r_valid = suj_essj_status[0] & suj_essj_status[1];
+
 wire[31:0] suj_pots[1:NUM_EXTRA];
-assign suj_pots[1] = {suj_z_id, suj_z_pot2, 2'b0, dsib_z_si_present,
-                      dsib_si_present, suj_z_pot1};
-assign suj_pots[2] = {4'b0, suj_essj_adc[59:48], 2'b0, suj_essj_status,
-                      suj_essj_adc[11:0]};
-assign suj_pots[3] = {4'b0, suj_essj_adc[71:60], 2'b0, suj_essj_status,
-                      suj_essj_adc[23:12]};
-assign suj_pots[4] = {4'b0, suj_essj_adc[83:72], 2'b0, suj_essj_status,
-                      suj_essj_adc[35:24]};
-assign suj_pots[5] = {4'b0, suj_essj_adc[95:84], 2'b0, suj_essj_status,
-                      suj_essj_adc[47:36]};
+assign suj_pots[1] = {suj_z_valid, dsib_z_si_present, dsib_si_present, 1'b0, suj_z_pot2,
+                      suj_z_id, suj_z_pot1};
+assign suj_pots[2] = {suj_r_valid, suj_essj_status, 1'b0, suj_essj_adc[59:48],
+                      4'b0, suj_essj_adc[11:0]};
+assign suj_pots[3] = {suj_r_valid, suj_essj_status, suj_essj_adc[71:60],
+                      4'b0, suj_essj_adc[23:12]};
+assign suj_pots[4] = {suj_r_valid, suj_essj_status, suj_essj_adc[83:72],
+                      4'b0, suj_essj_adc[35:24]};
+assign suj_pots[5] = {suj_r_valid, suj_essj_status, suj_essj_adc[95:84],
+                      4'b0, suj_essj_adc[47:36]};
 
 always @(*) begin
     case (reg_raddr[3:0])

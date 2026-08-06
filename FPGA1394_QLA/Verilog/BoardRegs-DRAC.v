@@ -49,6 +49,7 @@ module BoardRegsDRAC
     output reg has_suj_pots,        // board will send SUJ pot values in RT read packet
     input  wire dsib_si_present,    // dSIB-Si is present (communication active)
     input  wire dsib_z_si_present,  // dSIB-Z-Si is present (communication active)
+    input  wire essj_present,       // ESSJ is present
 
     // register file interface
     input  wire[15:0] reg_raddr,     // register read address
@@ -73,6 +74,7 @@ reg enable_suj_check = 1'b1;
     //                  the number of channels. Other bits are board-specific.
     // DRAC NOTE: dsib_si_present and dsib_z_si_present reflect the real-time status of
     //            communication with the dSIB-Si and dSIB-Z-Si, respectively.
+    //            essj_present indicates whether the ESSJ is present.
     //            has_suj_pots is a "sticky" bit; if set, the real-time read packet will contain
     //            the potentiometer values from the SUJ (5 extra quadlets).
     wire [31:0] reg_status;
@@ -84,7 +86,7 @@ reg enable_suj_check = 1'b1;
                 // mv_good, power enable, safety relay state, safety relay control
                 mv_good, pwr_enable, ~relay, relay_on,
                 // unused (0), safety_fb, has_suj_pots, enable_suj_check
-                1'b0, safety_fb,  has_suj_pots, enable_suj_check,
+                essj_present, safety_fb,  has_suj_pots, enable_suj_check,
                 // lowest 12-bits are for board-specific feedback
                 reg_status12 };
 
@@ -112,10 +114,9 @@ always @(posedge(sysclk))
         end
         endcase
     end
-    else if (enable_suj_check & dsib_si_present & dsib_z_si_present) begin
-        // Set has_suj_pots if dsib_si_present and dsib_z_si_present are both true.
-        // PK TODO: technically, don't need dsib_si_present, but should add
-        // essj_present and essj_adc_valid.
+    else if (enable_suj_check & dsib_si_present & dsib_z_si_present & essj_present) begin
+        // Set has_suj_pots if dsib_si_present, dsib_z_si_present, and essj_present
+        // are all true.
         // Note that this bit remains set, even if either later become false,
         // but can be cleared by writing to the status register (see above).
         has_suj_pots <= 1'b1;
