@@ -223,6 +223,9 @@ DQLA dqla(
     .IO1(IO1),
     .IO2(IO2),
 
+    // Size of real-time block read packet
+    .num_rt_read_quads(num_rt_read_quads),
+
     // Read/write bus
     .host_reg_raddr(reg_raddr),
     .reg_waddr(reg_waddr),
