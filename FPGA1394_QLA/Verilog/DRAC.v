@@ -829,11 +829,11 @@ assign suj_pots[1] = {suj_z_valid, dsib_z_si_present, dsib_si_present, 1'b0, suj
                       suj_z_id, suj_z_pot1};
 assign suj_pots[2] = {suj_r_valid, suj_essj_status, 1'b0, suj_essj_adc[59:48],
                       4'b0, suj_essj_adc[11:0]};
-assign suj_pots[3] = {suj_r_valid, suj_essj_status, suj_essj_adc[71:60],
+assign suj_pots[3] = {suj_r_valid, suj_essj_status, 1'b0, suj_essj_adc[71:60],
                       4'b0, suj_essj_adc[23:12]};
-assign suj_pots[4] = {suj_r_valid, suj_essj_status, suj_essj_adc[83:72],
+assign suj_pots[4] = {suj_r_valid, suj_essj_status, 1'b0, suj_essj_adc[83:72],
                       4'b0, suj_essj_adc[35:24]};
-assign suj_pots[5] = {suj_r_valid, suj_essj_status, suj_essj_adc[95:84],
+assign suj_pots[5] = {suj_r_valid, suj_essj_status, 1'b0, suj_essj_adc[95:84],
                       4'b0, suj_essj_adc[47:36]};
 
 always @(*) begin
