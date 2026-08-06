@@ -243,8 +243,8 @@ DRAC drac(
     .reg_wen(reg_wen),
     .blk_wen(blk_wen),
     .blk_wstart(blk_wstart),
-    .sample_start(req_blk_rt_rd),
-    .sample_read(blk_rt_rd),
+    .req_blk_rt_rd(req_blk_rt_rd),
+    .blk_rt_rd(blk_rt_rd),
 
     // Timestamp
     .timestamp(timestamp),

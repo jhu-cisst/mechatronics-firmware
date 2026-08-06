@@ -40,8 +40,8 @@ module DRAC(
     input wire reg_wen,
     input wire blk_wen,
     input wire blk_wstart,
-    input wire sample_start,        // now req_blk_rt_rd
-    input wire sample_read,         // now called blk_rt_rd
+    input wire req_blk_rt_rd,
+    input wire blk_rt_rd,
 
     // Timestamp
     output wire[31:0] timestamp,
@@ -446,7 +446,7 @@ BoardRegsDRAC chan0(
     .mv_amp_disable(mv_amp_disable),
     .safety_fb(SAFETY_CHAIN_GOOD),
     .board_id(board_id),
-    .temp_sense({(sample_read ? reg_databuf : 16'd0), tempsense}),
+    .temp_sense({(blk_rt_rd ? reg_databuf : 16'd0), tempsense}),
     .is_ecm(is_ecm),
     .has_suj_pots(has_suj_pots),
     .dsib_si_present(dsib_si_present),
@@ -473,14 +473,14 @@ wire crc_good_espm_sysclk;
 reg [31:0] timestamp_espmcomm;
 reg [31:0] timestamp_espmcomm_counter;
 reg espm_bram_update_inhibit;
-reg sample_read_delay;
-wire sample_read_falling_edge = sample_read_delay & ~sample_read;
+reg blk_rt_rd_delay;
+wire blk_rt_rd_falling_edge = blk_rt_rd_delay & ~blk_rt_rd;
 
 always @(posedge sysclk) begin
     timestamp_espmcomm_counter <= timestamp_espmcomm_counter + 'b1;
-    sample_read_delay <= sample_read;
-    if (sample_start) espm_bram_update_inhibit <= 'b1;
-    if (sample_read_falling_edge) espm_bram_update_inhibit <= 'b0;
+    blk_rt_rd_delay <= blk_rt_rd;
+    if (req_blk_rt_rd) espm_bram_update_inhibit <= 'b1;
+    if (blk_rt_rd_falling_edge) espm_bram_update_inhibit <= 'b0;
 end
 
 assign timestamp = timestamp_espmcomm;
