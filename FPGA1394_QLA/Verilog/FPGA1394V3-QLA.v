@@ -3,7 +3,7 @@
 
 /*******************************************************************************    
  *
- * Copyright(C) 2011-2025 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2011-2026 ERC CISST, Johns Hopkins University.
  *
  * This is the top level module for the FPGA1394V3-QLA motor controller interface.
  *
@@ -77,10 +77,6 @@ module FPGA1394V3QLA
     output wire[3:0] E2_TxD       // eth2 transmit data
 );
 
-    // Number of motors and encoders
-    parameter NUM_MOTORS = 4;
-    parameter NUM_ENCODERS = 4;
-
     // System clock
     wire sysclk;
     BUFG clksysclk(.I(clk1394), .O(sysclk));
@@ -92,6 +88,8 @@ module FPGA1394V3QLA
     assign board_id = ~wenid;
     wire LED_Out;
     wire isV30;
+
+    wire[6:0] num_rt_read_quads;  // Number of real-time block read quadlets
 
     wire[15:0] reg_raddr;       // 16-bit reg read address
     wire[15:0] reg_waddr;       // 16-bit reg write address
@@ -126,9 +124,8 @@ assign io_extra = isV30 ? 4'd0 : { IO2[39], IO2[0], IO1[33], IO1[0] };
 //******************************* FPGA Module *************************************
 
 // FPGA module, including Firewire and Ethernet
-FPGA1394V3
-    #(.NUM_MOTORS(NUM_MOTORS), .NUM_ENCODERS(NUM_ENCODERS))
-fpga(
+FPGA1394V3 fpga
+(
     .sysclk(sysclk),
     .board_id(board_id),
     .LED(LED_Out),
@@ -174,6 +171,9 @@ fpga(
     .PS_CLK(PS_CLK),
     .PS_PORB(PS_PORB),
 `endif
+
+    // Size of real-time block read packet
+    .num_rt_read_quads(num_rt_read_quads),
 
     // Read/write bus
     .reg_raddr(reg_raddr),
@@ -227,8 +227,11 @@ QLA qla(
      // Extra I/O (FPGA V3.1+)
     .io_extra(io_extra),
 
+    // Size of real-time block read packet
+    .num_rt_read_quads(num_rt_read_quads),
+
     // Read/write bus
-    .reg_raddr(reg_raddr),
+    .host_reg_raddr(reg_raddr),
     .reg_waddr(reg_waddr),
     .reg_rdata(reg_rdata),
     .reg_wdata(reg_wdata),

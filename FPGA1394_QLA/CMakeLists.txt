@@ -175,6 +175,8 @@ set (VERILOG_SOURCE_DRAC
                            "${VERILOG_SOURCE_DIR}/cdc_pulse.v"
                            "${VERILOG_SOURCE_DIR}/Crc16.v"
                            "${VERILOG_SOURCE_DIR}/DataBuffer.v"
+                           "${VERILOG_SOURCE_DIR}/dsib_si_parser.v"
+                           "${VERILOG_SOURCE_DIR}/dsib_si_uart.v"
                            "${VERILOG_SOURCE_DIR}/ESPMComm.v"
                            "${VERILOG_SOURCE_DIR}/MotorChannelDRAC.v"
                            "${VERILOG_SOURCE_DIR}/PowerControl.v"
@@ -263,7 +265,7 @@ set (VERILOG_SOURCE_FPGAV3_DRAC
 
 if (NOT Vivado_FOUND)
   # Add IP wrapper for ISE
-  set (VERILOG_SOURCE_FPGAV3_DRAC ${VERILOG_SOURCE_FPGAV3_DRA}
+  set (VERILOG_SOURCE_FPGAV3_DRAC ${VERILOG_SOURCE_FPGAV3_DRAC}
                                   "${IPCOREV3_BINARY_DIR}/pwm_clk_gen_zynq.v")
 endif ()
 

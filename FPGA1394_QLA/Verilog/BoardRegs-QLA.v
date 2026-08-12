@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2008-2025 Johns Hopkins University.
+ * Copyright(C) 2008-2026 Johns Hopkins University.
  *
  * This module contains a register file dedicated to general board parameters
  * for the QLA.
@@ -96,7 +96,7 @@ module BoardRegsQLA
                 wdog_timeout, isQuadDac, dout_cfg_valid, dout_cfg_bidir,
                 // mv_good, power enable, safety relay state, safety relay control
                 mv_good, pwr_enable, ~relay, relay_on,
-                // mv_fault, unused (00), ioexp_present
+                // mv_fault, safety_fb, unused (0), ioexp_present
                 ~mv_faultn, safety_fb, 1'b0, ioexp_present,
                 // lowest 12-bits are for amplifier feedback
                 reg_status12 };

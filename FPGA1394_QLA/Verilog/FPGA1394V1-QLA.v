@@ -3,7 +3,7 @@
 
 /*******************************************************************************    
  *
- * Copyright(C) 2011-2023 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2011-2026 ERC CISST, Johns Hopkins University.
  *
  * This is the top level module for the FPGA1394V1-QLA motor controller interface.
  *
@@ -56,10 +56,6 @@ module FPGA1394V1QLA
     output           XCSn
 );
 
-    // Number of motors and encoders
-    parameter NUM_MOTORS = 4;
-    parameter NUM_ENCODERS = 4;
-
     // System clock
     wire sysclk;
     BUFG clksysclk(.I(clk1394), .O(sysclk));
@@ -75,6 +71,8 @@ module FPGA1394V1QLA
     //
     wire[3:0] board_id;         // 4-bit board id
     assign board_id = ~wenid;
+
+    wire[6:0] num_rt_read_quads;  // Number of real-time block read quadlets
 
     wire[15:0] reg_raddr;       // 16-bit reg read address
     wire[15:0] reg_waddr;       // 16-bit reg write address
@@ -99,9 +97,8 @@ assign LED = IO1[32];     // NOTE: IO1[32] pwr_enable
 
 //******************************* FPGA Module *************************************
 
-FPGA1394V1
-    #(.NUM_MOTORS(NUM_MOTORS), .NUM_ENCODERS(NUM_ENCODERS))
-fpga(
+FPGA1394V1 fpga
+(
     .sysclk(sysclk),
     .reboot_clk(clk_12M),
     .board_id(board_id),
@@ -124,12 +121,15 @@ fpga(
     .XMOSI(XMOSI),
     .XCSn(XCSn),
 
+    // Size of real-time block read packet
+    .num_rt_read_quads(num_rt_read_quads),
+
     // Read/write bus
     .reg_raddr(reg_raddr),
     .reg_waddr(reg_waddr),
     .reg_rdata_ext(reg_rdata),
-    .reg_wdata(reg_wdata),
     .reg_rwait_ext(reg_rwait),
+    .reg_wdata(reg_wdata),
     .reg_wen(reg_wen),
     .blk_wen(blk_wen),
     .blk_wstart(blk_wstart),
@@ -167,8 +167,11 @@ QLA qla(
     .IO2(IO2[1:38]),
     .io_extra(4'd0),
 
+    // Size of real-time block read packet
+    .num_rt_read_quads(num_rt_read_quads),
+
     // Read/write bus
-    .reg_raddr(reg_raddr),
+    .host_reg_raddr(reg_raddr),
     .reg_waddr(reg_waddr),
     .reg_rdata(reg_rdata),
     .reg_wdata(reg_wdata),

@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2011-2024 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2011-2026 ERC CISST, Johns Hopkins University.
  *
  * This module contains common code for FPGA V1 and does not make any assumptions
  * about which board is connected.
@@ -15,8 +15,6 @@
 `include "Constants.v"
 
 module FPGA1394V1
-    #(parameter NUM_MOTORS = 4,
-      parameter NUM_ENCODERS = 4)
 (
     // global clock
     input wire       sysclk,
@@ -47,6 +45,9 @@ module FPGA1394V1
     output           XMOSI,
     output           XCSn,
 
+    // Number of quadlets in real-time block read (not including Firewire header and CRC)
+    input wire[6:0]   num_rt_read_quads,
+
     // Read/Write bus
     output wire[15:0] reg_raddr,
     output wire[15:0] reg_waddr,
@@ -69,10 +70,8 @@ module FPGA1394V1
     input  wire wdog_clear          // clear watchdog timeout (e.g., on powerup)
 );
 
-// Number of quadlets in real-time block read (not including Firewire header and CRC)
-localparam NUM_RT_READ_QUADS = (4 + 2*NUM_MOTORS + 5*NUM_ENCODERS);
 // Number of quadlets in broadcast real-time block; includes sequence number
-localparam NUM_BC_READ_QUADS = (1+NUM_RT_READ_QUADS);
+wire[6:0] num_bc_read_quads = num_rt_read_quads + 7'd1;
 
 // 1394 phy low reset, never reset
 assign reset_phy = 1'b1;
@@ -107,22 +106,9 @@ assign reset_phy = 1'b1;
 assign  Eth_Result = 32'b0;
 assign ip_address = 32'hffffffff;
 
-//*********************** Read Address Translation *******************************
-
-// Read bus address translation (to support real-time block read).
-// This could instead be instantiated in the either the FPGAV1 or QLA modules
-// (FPGAV1 module would need NUM_MOTORS and NUM_ENCODERS).
-
+assign reg_raddr = fw_reg_raddr;
 assign req_blk_rt_rd = fw_req_blk_rt_rd;
 assign blk_rt_rd = fw_blk_rt_rd;
-
-ReadAddressTranslation
-    #(.NUM_MOTORS(NUM_MOTORS), .NUM_ENCODERS(NUM_ENCODERS))
-ReadAddr(
-    .reg_raddr_in(fw_reg_raddr),
-    .reg_raddr_out(reg_raddr),
-    .blk_rt_rd(blk_rt_rd)
-);
 
 wire[31:0] reg_rdata;
 wire[31:0] reg_rdata_hub;      // reg_rdata_hub is for hub memory
@@ -133,7 +119,7 @@ wire reg_rwait;                // read wait state
 wire reg_rwait_chan0;
 
 wire isAddrMain;
-assign isAddrMain = ((reg_raddr[15:12]==`ADDR_MAIN) && (reg_raddr[7:4]==4'd0)) ? 1'b1 : 1'b0;
+assign isAddrMain = ((!blk_rt_rd) && (reg_raddr[15:12]==`ADDR_MAIN) && (reg_raddr[7:4]==4'd0)) ? 1'b1 : 1'b0;
 
 // Mux routing read data based on read address
 //   See Constants.v for details
@@ -198,9 +184,8 @@ HubReg hub(
 // --------------------------------------------------------------------------
 
 // phy-link interface
-PhyLinkInterface
-    #(.NUM_BC_READ_QUADS(NUM_BC_READ_QUADS))
-phy(
+PhyLinkInterface phy
+(
     .sysclk(sysclk),         // in: global clk  
     .board_id(board_id),     // in: board id (rotary switch)
 
@@ -225,6 +210,7 @@ phy(
     .lreq_trig(fw_lreq_trig),  // out: phy request trigger
     .lreq_type(fw_lreq_type),  // out: phy request type
 
+    .num_bc_read_quads(num_bc_read_quads),  // in: number of broadcast read quads
     .rx_bc_sequence(bc_sequence),  // in: broadcast sequence num
     .write_trig(hub_write_trig),   // in: 1 -> broadcast write this board's hub data
     .write_trig_reset(hub_write_trig_reset),
