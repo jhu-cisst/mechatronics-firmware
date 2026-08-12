@@ -3,7 +3,7 @@
 
 /*******************************************************************************    
  *
- * Copyright(C) 2020-2025 Johns Hopkins University.
+ * Copyright(C) 2020-2026 Johns Hopkins University.
  *
  * This module implements a data collection buffer.
  *
@@ -58,7 +58,7 @@ wire cur_cmd_wen;    // Write enable for commanded current
 // Write the command current to the buffer when:
 //   1) Collection bit set (collect_bit, which is reg_wdata[30]), but not already collecting
 //   2) Collection in process and writing current to the correct channel
-assign cur_cmd_wen = reg_wen && (reg_waddr[15:8]=={`ADDR_MAIN,4'd0}) && (reg_waddr[3:0]==`OFF_DAC_CTRL);
+assign cur_cmd_wen = reg_wen && (reg_waddr[15:8]=={`ADDR_MAIN,4'd0}) && (reg_waddr[3:0]==`OFF_MOTOR_CTRL);
 
 wire[31:0] mem_read;
 // Read data:

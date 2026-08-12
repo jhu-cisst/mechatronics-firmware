@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2022-2024 Johns Hopkins University.
+ * Copyright(C) 2022-2026 Johns Hopkins University.
  *
  * This module handles a motor channel for the dRAC
  */
@@ -284,13 +284,13 @@ begin
         endcase
     end
 
-    if (tuning_mode && reg_waddr[15:12]==`ADDR_MAIN && reg_waddr[7:4]== CHANNEL && reg_waddr[3:0] == `OFF_DAC_CTRL && reg_wen && !tuning_ack) begin
+    if (tuning_mode && reg_waddr[15:12]==`ADDR_MAIN && reg_waddr[7:4]== CHANNEL && reg_waddr[3:0] == `OFF_MOTOR_CTRL && reg_wen && !tuning_ack) begin
         tuning_req <= 1;
     end else if (tuning_ack) begin
         tuning_req <= 0;
     end
 
-    if (reg_waddr[15:12]==`ADDR_MAIN && reg_waddr[7:4]== CHANNEL && reg_waddr[3:0] == `OFF_DAC_CTRL && reg_wen) begin
+    if (reg_waddr[15:12]==`ADDR_MAIN && reg_waddr[7:4]== CHANNEL && reg_waddr[3:0] == `OFF_MOTOR_CTRL && reg_wen) begin
         if (reg_wdata[31]) begin
             case (reg_wdata[27:24])
                 'h0: cur_cmd_normal <= reg_wdata[15:0];

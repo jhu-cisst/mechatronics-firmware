@@ -3,7 +3,7 @@
 
 /*******************************************************************************    
  *
- * Copyright(C) 2022-2025 Johns Hopkins University.
+ * Copyright(C) 2022-2026 Johns Hopkins University.
  *
  * This module handles a motor channel for the QLA
  *
@@ -122,7 +122,7 @@ wire status_reg_wen;
 
 // Write to DAC register
 wire dac_reg_wen;
-assign dac_reg_wen = (reg_waddr[15:0] == {`ADDR_MAIN, 4'd0, CHANNEL, `OFF_DAC_CTRL}) ? reg_wen : 1'd0;
+assign dac_reg_wen = (reg_waddr[15:0] == {`ADDR_MAIN, 4'd0, CHANNEL, `OFF_MOTOR_CTRL}) ? reg_wen : 1'd0;
 
 // Write to motor configuration register
 wire motor_reg_wen;

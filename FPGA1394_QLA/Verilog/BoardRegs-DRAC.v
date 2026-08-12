@@ -43,7 +43,7 @@ module BoardRegsDRAC
     input  wire safety_fb,          // whether voltage present on safety line
     input  wire[3:0] board_id,      // board id (rotary switch)
     input  wire[31:0] temp_sense,   // temperature sensor reading
-    input  wire[11:0] reg_status12, // lowest 12-bits of status register (amplifier-related)
+    input  wire[11:0] reg_status12, // lowest 12-bits of status register
     input  wire[31:0] reg_digin,
     input  wire is_ecm,
     output reg has_suj_pots,        // board will send SUJ pot values in RT read packet
@@ -79,15 +79,15 @@ reg enable_suj_check = 1'b1;
     //            the potentiometer values from the SUJ (5 extra quadlets).
     wire [31:0] reg_status;
     assign reg_status = {
-                // Byte 3: num channels, board id
+                // [31:28] num channels, [27:24] board id
                 NUM_CHAN, board_id,
-                // Byte 2: wdog timeout, is ecm, dSIB-Si present, dSIB-Z-Si present
+                // [23:20] wdog timeout, is ecm, dSIB-Si present, dSIB-Z-Si present
                 wdog_timeout, is_ecm, dsib_si_present, dsib_z_si_present,
-                // mv_good, power enable, safety relay state, safety relay control
+                // [19:16] mv_good, power enable, safety relay state, safety relay control
                 mv_good, pwr_enable, ~relay, relay_on,
-                // unused (0), safety_fb, has_suj_pots, enable_suj_check
+                // [15:12] essj_present, safety_fb, has_suj_pots, enable_suj_check
                 essj_present, safety_fb,  has_suj_pots, enable_suj_check,
-                // lowest 12-bits are for board-specific feedback
+                // [11:0] lowest 12-bits are for other board-specific feedback
                 reg_status12 };
 
 

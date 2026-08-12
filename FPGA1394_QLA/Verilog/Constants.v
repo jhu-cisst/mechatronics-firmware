@@ -67,7 +67,7 @@
 // device register file offsets from channel base
 // For additional fields, please update SampleData.v to send back data in the correct slot
 `define OFF_ADC_DATA  4'h0         // adc data register offset (pot + cur)
-`define OFF_DAC_CTRL  4'h1         // dac control register offset
+`define OFF_MOTOR_CTRL 4'h1        // motor control register offset (was OFF_DAC_CTRL)
 `define OFF_EXTRA_DATA 4'h2        // extra data offset (for DRAC SUJ pots)
 `define OFF_UNUSED_02 4'h2         // (was pot control register offset)
 `define OFF_UNUSED_03 4'h3         // (was pot data register offset)
