@@ -24,6 +24,7 @@ module MotorChannelDRAC
     output wire[15:0] cur_fb,
     output reg[15:0] cur_fb_filtered,
     output reg[15:0] cur_cmd_fb,
+    output reg[3:0]  control_mode,
 
     //ADC control interface
     input  wire       adc_sck,
@@ -105,7 +106,6 @@ wire signed [16:0] error_out;
 wire [35:0] i_term_out;
 wire [10:0] ap_return;
 wire ap_done;
-reg [3:0] control_mode = 3'h0;
 reg ap_rst = 1'b1;
 
 pi_controller pi_controller_instance (
