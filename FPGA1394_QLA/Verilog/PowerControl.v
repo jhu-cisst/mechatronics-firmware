@@ -3,7 +3,7 @@
 
 /*******************************************************************************    
  *
- * Copyright(C) 2022-2024 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2022-2026 ERC CISST, Johns Hopkins University.
  *
  * Handles board and per-motor power control.
  * All signals in `interlocks` must be asserted for axis power to be enabled.
@@ -77,7 +77,7 @@ always @(posedge sysclk) begin
         pwr_enable <= reg_wdata[19] ? reg_wdata[18] : pwr_enable;
     end
 
-    if (reg_waddr[15:12]==`ADDR_MAIN && reg_waddr[3:0]==`OFF_DAC_CTRL && reg_wen) begin
+    if (reg_waddr[15:12]==`ADDR_MAIN && reg_waddr[3:0]==`OFF_MOTOR_CTRL && reg_wen) begin
         reg_enable[wchannel] <= pwr_enable && (reg_wdata[29] ? reg_wdata[28] : reg_enable[wchannel]);
         if (reg_wdata[28] & reg_wdata[29]) amp_enable_cmd[wchannel] <= 'b1;
     end else begin

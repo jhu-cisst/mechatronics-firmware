@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2020-2023 Johns Hopkins University.
+ * Copyright(C) 2020-2026 Johns Hopkins University.
  *
  * This module writes the real-time block data to the DAC and power control
  * register. It is shared between the Ethernet and Firewire modules.
@@ -135,7 +135,7 @@ begin
    begin
       if (rtCnt == 2'd3) begin
          bw_blk_wstart <= 0;
-         bw_reg_waddr <= {4'd0, `OFF_DAC_CTRL};
+         bw_reg_waddr <= {4'd0, `OFF_MOTOR_CTRL};
          rtState <= RT_WRITE;
       end
    end

@@ -546,7 +546,7 @@ assign reg_waddr_status = ((reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[7:4] == 
 // It would be even better to check that channel number is 1-4.
 wire reg_waddr_dac;
 assign reg_waddr_dac = ((reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[7:4] != 4'd0) &&
-                        (reg_waddr[3:0]==`OFF_DAC_CTRL)) ? 1'd1 : 1'd0;
+                        (reg_waddr[3:0]==`OFF_MOTOR_CTRL)) ? 1'd1 : 1'd0;
 
 // Following indicates whether at least one DAC has been updated (via a block write)
 // since the last write.
@@ -591,7 +591,7 @@ begin
     end
 end
 
-assign reg_rd[`OFF_DAC_CTRL] = cur_cmd[reg_raddr[7:4]];
+assign reg_rd[`OFF_MOTOR_CTRL] = {4'd0, ctrl_mode[reg_raddr[7:4]], 8'd0, cur_cmd[reg_raddr[7:4]]};
 
 assign reg_rd[`OFF_MOTOR_STATUS] = motor_status[reg_raddr[7:4]];
 assign reg_rd[`OFF_MOTOR_CONFIG] = motor_config[reg_raddr[7:4]];

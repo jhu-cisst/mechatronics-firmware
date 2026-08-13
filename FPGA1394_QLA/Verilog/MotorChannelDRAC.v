@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2022-2024 Johns Hopkins University.
+ * Copyright(C) 2022-2026 Johns Hopkins University.
  *
  * This module handles a motor channel for the dRAC
  */
@@ -22,7 +22,9 @@ module MotorChannelDRAC
     output reg[31:0] reg_rdata,  	// register read data
     input  wire       reg_wen,      //  Reg write enable when High write, when Low Read
     output reg[15:0] cur_fb,
+    output reg[15:0] cur_fb_filtered,
     output reg[15:0] cur_cmd_fb,
+    output reg[3:0]  control_mode,
 
     //ADC control interface
     input  wire       adc_sck,
@@ -51,8 +53,14 @@ module MotorChannelDRAC
 );
 
 reg [15:0] measured_motor_current = 'hbbbb;
+reg [5:0] decimate_counter = 6'd0;
+reg [21:0] decimate_sum = 22'd0;
+reg adc_data_latched = 1'b0;
+reg [15:0] cur_fb_filtered_pwmclk = 16'hbbbb;
 
 initial cur_fb = 16'hbbbb;
+initial cur_fb_filtered = 16'hbbbb;
+initial control_mode = 4'd0;
 
 reg signed [COUNTER_WIDTH:0] duty_cycle = 0;
 reg signed [COUNTER_WIDTH:0] duty_cycle_sysclk;
@@ -103,7 +111,6 @@ wire signed [16:0] error_out;
 wire [35:0] i_term_out;
 wire [10:0] ap_return;
 wire ap_done;
-reg [3:0] control_mode = 3'h0;
 reg ap_rst = 1'b1;
 
 pi_controller pi_controller_instance (
@@ -259,6 +266,7 @@ end
 always @(posedge sysclk)
 begin
     cur_fb <= measured_motor_current;
+    cur_fb_filtered <= cur_fb_filtered_pwmclk;
     duty_cycle_sysclk <= duty_cycle;
     fault_latched_sysclk <= fault_latched;
     cur_cmd_fb <= cur_cmd;
@@ -280,19 +288,36 @@ begin
         endcase
     end
 
-    if (tuning_mode && reg_waddr[15:12]==`ADDR_MAIN && reg_waddr[7:4]== CHANNEL && reg_waddr[3:0] == `OFF_DAC_CTRL && reg_wen && !tuning_ack) begin
+    if (tuning_mode && reg_waddr[15:12]==`ADDR_MAIN && reg_waddr[7:4]== CHANNEL && reg_waddr[3:0] == `OFF_MOTOR_CTRL && reg_wen && !tuning_ack) begin
         tuning_req <= 1;
     end else if (tuning_ack) begin
         tuning_req <= 0;
     end
 
-    if (reg_waddr[15:12]==`ADDR_MAIN && reg_waddr[7:4]== CHANNEL && reg_waddr[3:0] == `OFF_DAC_CTRL && reg_wen) begin
+    if (reg_waddr[15:12]==`ADDR_MAIN && reg_waddr[7:4]== CHANNEL && reg_waddr[3:0] == `OFF_MOTOR_CTRL && reg_wen) begin
         if (reg_wdata[31]) begin
             case (reg_wdata[27:24])
                 'h0: cur_cmd_normal <= reg_wdata[15:0];
                 'h1: v_cmd <= reg_wdata[23:13];
             endcase
             control_mode <= reg_wdata[27:24];
+        end
+    end
+end
+
+// Decimate the raw PWM-domain current by averaging 64 samples. The result is
+// staged into sysclk above before it can enter host readback logic.
+always @(posedge pwmclk) begin
+    adc_data_latched <= adc_data_ready;
+    if (adc_data_latched) begin
+        decimate_counter <= decimate_counter + 6'd1;
+        if (decimate_counter == 6'd0) begin
+            decimate_sum <= measured_motor_current;
+        end else if (decimate_counter == 6'd63) begin
+            cur_fb_filtered_pwmclk <=
+                (decimate_sum + measured_motor_current) >> 6;
+        end else begin
+            decimate_sum <= decimate_sum + measured_motor_current;
         end
     end
 end
