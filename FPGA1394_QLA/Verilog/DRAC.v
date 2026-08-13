@@ -331,6 +331,7 @@ PwmAdcTiming PwmAdcTiming_instance
 
 wire[15:0] cur_fb[1:10]; // current feedback at raw rate, used by control loop
 wire[15:0] cur_fb_filtered[1:10]; // current feedback after filtering, used for PC read
+wire cur_fb_raw;         // 1 -> send cur_fb (instead of cur_fb_filtered) to PC
 wire [15:0] pot_data;
 
 wire[15:0] cur_cmd_fb[1:10]; // current setpoint
@@ -438,7 +439,7 @@ wire[15:0] reg_databuf;   // Data collection status
 wire is_ecm;
 wire has_suj_pots;
 
-wire[11:0] reg_status12 = {8'b0, preload_good, ESPMV_GOOD, esii_escc_comm_good, espm_comm_good};
+wire[3:0] reg_status4 = {preload_good, ESPMV_GOOD, esii_escc_comm_good, espm_comm_good};
 BoardRegsDRAC chan0(
     .sysclk(sysclk),
     .pwr_enable(MV_EN),
@@ -454,7 +455,8 @@ BoardRegsDRAC chan0(
     .dsib_si_present(dsib_si_present),
     .dsib_z_si_present(dsib_z_si_present),
     .essj_present(suj_essj_status[0]),
-    .reg_status12(reg_status12),
+    .cur_fb_raw(cur_fb_raw),
+    .reg_status4(reg_status4),
     .reg_raddr(reg_raddr),
     .reg_waddr(reg_waddr),
     .reg_rdata(reg_rdata_chan0),
@@ -840,7 +842,7 @@ assign suj_pots[5] = {suj_r_valid, suj_essj_status, 1'b0, suj_essj_adc[95:84],
 
 always @(*) begin
     case (reg_raddr[3:0])
-        `OFF_ADC_DATA: reg_rdata_main = {pot_data, cur_fb[reg_raddr[7:4]]};
+        `OFF_ADC_DATA: reg_rdata_main = {pot_data, cur_fb_raw ? cur_fb[reg_raddr[7:4]] : cur_fb_filtered[reg_raddr[7:4]]};
         `OFF_MOTOR_CTRL: reg_rdata_main = {4'd0, ctrl_mode[reg_raddr[7:4]], 8'd0, cur_cmd_fb[reg_raddr[7:4]]};
         `OFF_EXTRA_DATA: reg_rdata_main = suj_pots[reg_raddr[7:4]];
         `OFF_ENC_LOAD: reg_rdata_main = encoder_preload[reg_raddr[7:4]];
