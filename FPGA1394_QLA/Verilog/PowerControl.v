@@ -44,6 +44,9 @@ wire pwr_enable_cmd;
 // pwr_enable_cmd indicates that the host is attempting to enable board power.
 // This is used to clear error flags, such as wdog_timeout and safety_amp_disable.
 assign pwr_enable_cmd = write_status ? (reg_wdata[19]&reg_wdata[18]) : 1'd0;
+// Register the board-wide clear command before it enters the 3x pwmclk domain.
+// amp_enable_cmd is already a one-sysclk registered pulse.
+reg pwr_enable_cmd_sysclk = 1'b0;
 wire [3:0] wchannel = reg_waddr[7:4];
 
 reg [NUM_INTERLOCKS - 1:0] bypass_interlocks;
@@ -56,13 +59,15 @@ assign motor_channel_enable_requested = reg_enable;
 assign wdog_clear = pwr_enable_cmd || |amp_enable_cmd;
 
 
-assign motor_channel_clear_fault = amp_enable_cmd | (pwr_enable_cmd ? 'hFFFF : 'h0000);
+assign motor_channel_clear_fault = amp_enable_cmd |
+    (pwr_enable_cmd_sysclk ? {NUM_MOTORS{1'b1}} : {NUM_MOTORS{1'b0}});
 integer i;
 
 always @(posedge sysclk) begin
+    pwr_enable_cmd_sysclk <= pwr_enable_cmd;
     motor_channel_enable_pin <= (motor_channel_enable_pin | amp_enable_pending) &
         reg_enable & ~motor_channel_fault &
-        ((&(interlocks | bypass_interlocks)) ? 'hFFFF : 'h0000); 
+        ((&(interlocks | bypass_interlocks)) ? {NUM_MOTORS{1'b1}} : {NUM_MOTORS{1'b0}});
     for (i=1; i<=NUM_MOTORS; i=i+1) begin
         if (amp_enable_cmd[i]) amp_enable_pending[i] <= 'b1;
         if (motor_channel_enable_pin[i]) amp_enable_pending[i] <= 'b0;
@@ -76,7 +81,7 @@ always @(posedge sysclk) begin
         reg_enable[wchannel] <= pwr_enable && (reg_wdata[29] ? reg_wdata[28] : reg_enable[wchannel]);
         if (reg_wdata[28] & reg_wdata[29]) amp_enable_cmd[wchannel] <= 'b1;
     end else begin
-        amp_enable_cmd <= 'h0;
+        amp_enable_cmd <= {NUM_MOTORS{1'b0}};
     end
 
     if (reg_waddr[15:12]==`ADDR_BOARD_SPECIFIC && reg_wen) begin

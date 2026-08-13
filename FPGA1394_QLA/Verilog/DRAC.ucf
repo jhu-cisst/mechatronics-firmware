@@ -3,8 +3,7 @@
 ################################################################################
 
 NET  "IO1[1]"      PULLUP;  # MISO prom_qla
-NET  "IO1[2]"      PULLUP;  # MOSI
-NET  "IO1[3]"      PULLUP;  # SCLK
+# IO1[2] (MOSI) and IO1[3] (SCLK) are actively driven; no pull-up is needed.
 NET  "IO1[4]"      PULLUP;  # /EEPROM
 # NET  "IO1[5]"      PULLUP | OPEN_DRAIN;  # currently SUJ brake. move later.
 # NET  "IO1[6]"
@@ -39,8 +38,17 @@ NET  "IO1[30]"     PULLUP; # ESPMV_GOODn
 # NET  "IO2[3]"
 NET  "IO2[4]"      PULLUP; # OTWn[3]
 NET  "IO2[5]"      PULLUP; # FAULTn[3]
-NET  "IO2[6]"      PULLUP; # LVDS_RCLK
+NET  "IO2[6]"      PULLUP | TNM_NET = "LVDS_RCLKx"; # LVDS_RCLK (80 MHz)
+TIMESPEC "TS_LVDS_RCLKx" = PERIOD "LVDS_RCLKx" 12.500 ns HIGH 50%;
 NET  "IO2[7]"      PULLUP; # LVDS_RDAT
+# The remote FPGA launches LVDS_RDAT with the rising edge of LVDS_RCLK and
+# holds it for one 12.5 ns bit period. ESPMRX captures on the falling edge,
+# giving a nominal half-cycle (6.25 ns) source-synchronous timing window.
+# This is the ideal zero-tCO/zero-board-skew model requested for this build;
+# replace it with characterized source tCO and PCB clock/data skew for signoff.
+# ISE may insert input hold-delay LUTs from these values, so the placeholder
+# affects implementation and must not be treated as a report-only constraint.
+NET  "IO2[7]"      OFFSET = IN 6.250 ns VALID 12.500 ns BEFORE "IO2[6]" FALLING;
 # NET  "IO2[8]"
 # NET  "IO2[9]"      # CONV_ADC
 # NET  "IO2[10]"
@@ -69,6 +77,35 @@ NET  "IO2[25]"     PULLUP; # FAULTn[2]
 NET  "IO2[33]"     PULLUP; # FAULTn[1]
 # NET  "IO2[34]"
 NET  "IO2[35]"     PULLUP; # OTWn[1]
+
+################################################################################
+# DRAC generated clocks
+################################################################################
+
+# adc_clkdiv is pwmclk / 4. adc_sck is a BUFGCE-gated copy of adc_clkdiv.
+# Keep both related to pwmclk so ISE analyzes all inter-clock paths normally.
+NET "drac/PwmAdcTiming_instance/adc_clkdiv_instance/clkout" TNM_NET = "ADC_CLKDIVx";
+TIMESPEC "TS_ADC_CLKDIVx" = PERIOD "ADC_CLKDIVx" "TS_pwm_clk_gen_instance_clkout0" * 4 HIGH 50%;
+NET "adc_sck" TNM_NET = "ADC_SCKx";
+TIMESPEC "TS_ADC_SCKx" = PERIOD "ADC_SCKx" "TS_ADC_CLKDIVx" * 1 HIGH 50%;
+
+# lvds_tx_clk is sysclk / 2. sysclk_div2 is KEEP-marked in DRAC.v so this
+# constraint binds to the intended divider rather than a synthesis alias.
+NET "drac/sysclk_div2" TNM_NET = "LVDS_TXCLKx";
+TIMESPEC "TS_LVDS_TXCLKx" = PERIOD "LVDS_TXCLKx" "TS_CLK_IN1394x" * 2 HIGH 50%;
+
+################################################################################
+# Intentional asynchronous LVDS receive event synchronizers
+################################################################################
+
+# Only the asynchronous toggle-to-first-stage arcs are false. The remaining
+# synchronizer stages stay timed by sysclk; no blanket LVDS/sysclk exception is
+# applied, so accidental crossings remain visible.
+INST "drac/crc_good_espm_cdc/toggle_a" TNM = "CRC_ESPM_PULSE_SRC";
+INST "drac/crc_err_espm_cdc/toggle_a"  TNM = "CRC_ESPM_PULSE_SRC";
+INST "drac/crc_good_espm_cdc/sync_b_0" TNM = "CRC_ESPM_SYNC1";
+INST "drac/crc_err_espm_cdc/sync_b_0"  TNM = "CRC_ESPM_SYNC1";
+TIMESPEC "TS_CRC_ESPM_CDC_TIG" = FROM "CRC_ESPM_PULSE_SRC" TO "CRC_ESPM_SYNC1" TIG;
 # NET  "IO2[36]"
 # NET  "IO2[37]"
 # NET  "IO2[38]"

@@ -84,9 +84,8 @@ END Program post_map_trce
 #
 Program par
 -w;                          # Overwrite existing placed and routed ncd
-# PK: changed -ol from "med" to "high" and added "-mt 4" and "silent"
+# PK: changed -ol from "med" to "high" and added "silent"
 -ol high;                     # Overall effort level
--mt 4;
 -intstyle silent;            # Message Reporting Style: ise, xflow, or silent
 # -gm incremental;           # Guide mode
 <inputdir><design>_map.ncd;  # Input mapped NCD file

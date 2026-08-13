@@ -17,11 +17,14 @@ module PwmAdcTiming
     input  wire reg_wen            // write enable from FireWire module
 );
 reg [15:0] adc_sdi_buffer = 16'hffff;
-parameter integer adc_sck_div_ratio = 4;
-parameter clk_period = 6.78; // ns
-parameter adc_sck_period = clk_period * adc_sck_div_ratio; // ns
-parameter integer t_cnv = 360 / adc_sck_period + 1; 
-parameter integer t_en = 20 / clk_period + 1; 
+localparam integer ADC_SCK_DIV_RATIO = 4;
+localparam integer CLK_PERIOD_PS = 6782;
+localparam integer ADC_SCK_PERIOD_PS = CLK_PERIOD_PS * ADC_SCK_DIV_RATIO;
+// Preserve Verilog's original real-to-integer round-to-nearest calculation.
+localparam integer t_cnv =
+    ((360_000 + ADC_SCK_PERIOD_PS / 2) / ADC_SCK_PERIOD_PS) + 1;
+localparam integer t_en =
+    ((20_000 + CLK_PERIOD_PS / 2) / CLK_PERIOD_PS) + 1;
 // Refer page 7. https://www.analog.com/media/en/technical-documentation/data-sheets/AD4000-4004-4008.pdf
 parameter integer n_sck_pulses = 16;
 
@@ -47,7 +50,7 @@ reg [1:0] sync_cnv_adc_sck = 0;
 reg adc_cnv_pulse_adc_sck = 0;
 wire conv_start = counter_unfolded == adc_conv_phase;
 always @ (posedge clk) begin
-    counter_unfolded <= counter_unfolded + 1;
+    counter_unfolded <= counter_unfolded + 1'b1;
 
     if (conv_start) begin
             adc_cnv_toggle_pwm_clk <= ~adc_cnv_toggle_pwm_clk;

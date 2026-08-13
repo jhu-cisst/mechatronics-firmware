@@ -21,14 +21,12 @@ module MotorChannelDRAC
     input  wire[31:0] reg_wdata,  	// register write data
     output reg[31:0] reg_rdata,  	// register read data
     input  wire       reg_wen,      //  Reg write enable when High write, when Low Read
-    output wire[15:0] cur_fb,
-    output reg[15:0] cur_fb_filtered,
+    output reg[15:0] cur_fb,
     output reg[15:0] cur_cmd_fb,
 
     //ADC control interface
     input  wire       adc_sck,
     input wire adc_sdo,
-    input  wire       adc_cnv,
     input  wire       adc_data_ready,
     input wire feedback_calculation_start,
 
@@ -54,6 +52,8 @@ module MotorChannelDRAC
 
 reg [15:0] measured_motor_current = 'hbbbb;
 
+initial cur_fb = 16'hbbbb;
+
 reg signed [COUNTER_WIDTH:0] duty_cycle = 0;
 reg signed [COUNTER_WIDTH:0] duty_cycle_sysclk;
 reg [15:0] tuning_counter = 0;
@@ -62,7 +62,7 @@ wire tuning_mode = | tuning_pulse_width;
 reg tuning_req = 0;
 reg tuning_ack = 0;
 
-reg [3:0] fault_code;
+wire [3:0] fault_code;
 assign motor_status = {2'b0, // 31:30 unused
     enable_pin, // 29 actual enable
     enable_requested, // 28 requested enable
@@ -96,9 +96,7 @@ reg [17:0] ff_resistive = 0;
 reg [15:0] i_term_limit = 'd1000;
 reg [15:0] output_limit = 'd1000;
 
-wire [31:0] adc_out;
-reg [31:0] adc_debug;
-assign cur_fb = measured_motor_current;
+wire [15:0] adc_out;
 reg pid_input_ready = 0;
 
 wire signed [16:0] error_out;
@@ -132,11 +130,8 @@ AD4008 AD4008_instance
 (
     .sck(adc_sck),
     .sdo(adc_sdo),
-    .data_ready(adc_data_ready),
     .out(adc_out)
 );
-
-wire signed [15:0] offseted_cur_cmd = $signed({cur_cmd}) - 16'sh8000;
 
 always @(posedge pwmclk)
 begin
@@ -166,13 +161,17 @@ wire current_regulation_fault;
 reg adc_fault = 0;
 wire h_bridge_overcurrent_fault = (~fault_n) & otw_n;
 wire h_bridge_overtemperature_fault = (~fault_n) & (~otw_n);
-wire [31:0] fault = {28'b0,
+wire [3:0] fault = {
     h_bridge_overtemperature_fault,
     h_bridge_overcurrent_fault,
     current_regulation_fault & (control_mode == `MOTOR_CONTROL_MODE_CURRENT) & ~enable_pin,
     adc_fault};
-reg [31:0] fault_latched = 0;
-reg [31:0] fault_latched_sysclk;
+reg [3:0] fault_latched = 4'd0;
+reg [3:0] fault_latched_sysclk;
+assign fault_code =
+    fault_latched_sysclk[0] ? 4'd1 :
+    fault_latched_sysclk[1] ? 4'd2 :
+    fault_latched_sysclk[2] ? 4'd3 : 4'd0;
 
 // safety check - current adc is broken
 always @(posedge pwmclk) begin
@@ -186,7 +185,7 @@ always @(posedge pwmclk) begin
 end
 
 // safety check - current error
-localparam current_error_counter_top = 12'hfff;
+localparam [11:0] current_error_counter_top = 12'hfff;
 reg [11:0] current_error_counter = current_error_counter_top; // 51.2 ms
 assign current_regulation_fault = (current_error_counter == 12'h0);
 wire [15:0] error_out_abs = error_out[16] ? -error_out : error_out;
@@ -208,7 +207,7 @@ always @(posedge pwmclk)
 begin
     safety_amp_disable <= | fault_latched;
     if (clear_disable) begin
-        fault_latched <= 0;
+        fault_latched <= 4'd0;
     end else begin
         fault_latched <= fault_latched | fault;
     end
@@ -247,7 +246,7 @@ begin
             `OFF_MOTOR_CONTROL_CURRENT_I_TERM_LIMIT: reg_rdata = i_term_limit;
             `OFF_MOTOR_CONTROL_CURRENT_OUTPUT_LIMIT: reg_rdata = output_limit;
             `OFF_MOTOR_CONTROL_DUTY_CYCLE: reg_rdata = duty_cycle_sysclk;
-            `OFF_MOTOR_CONTROL_FAULT: reg_rdata = fault_latched_sysclk;
+            `OFF_MOTOR_CONTROL_FAULT: reg_rdata = {28'd0, fault_latched_sysclk};
             `OFF_MOTOR_CONTROL_TUNE: reg_rdata = {16'b0, tuning_pulse_width};
             default: reg_rdata = 32'hcccccccc;
         endcase
@@ -259,12 +258,9 @@ end
 
 always @(posedge sysclk)
 begin
+    cur_fb <= measured_motor_current;
     duty_cycle_sysclk <= duty_cycle;
     fault_latched_sysclk <= fault_latched;
-    fault_code <=
-        fault_latched[0] ? 4'd1 :
-        fault_latched[1] ? 4'd2 :
-        fault_latched[2] ? 4'd3 : 4'd0;
     cur_cmd_fb <= cur_cmd;
     if (~enable_pin) begin
         cur_cmd_normal <= 'h8000;
@@ -299,33 +295,6 @@ begin
             control_mode <= reg_wdata[27:24];
         end
     end
-end
-
-// Decimate the current reading by averaging. To be replaced with a proper filter.
-
-reg [5:0] decimate_counter = 6'd0;
-reg [21:0] decimate_sum;
-reg adc_data_latched;
-reg[15:0] cur_fb_filtered_pwmclk;
-
-always @ (posedge pwmclk) begin
-    adc_data_latched <= adc_data_ready;
-    if (adc_data_latched) begin
-        decimate_counter <= decimate_counter + 6'd1;
-        if (decimate_counter == 6'd0) begin
-            decimate_sum <= measured_motor_current;
-        end
-        else if (decimate_counter == 63) begin
-            cur_fb_filtered_pwmclk <= (decimate_sum + measured_motor_current) >> 6;
-        end
-        else begin
-            decimate_sum <= decimate_sum + measured_motor_current;
-        end
-    end
-end
-
-always @ (posedge sysclk) begin
-    cur_fb_filtered <= cur_fb_filtered_pwmclk;
 end
 
 endmodule
