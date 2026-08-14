@@ -63,7 +63,7 @@ initial cur_fb_filtered = 16'hbbbb;
 initial control_mode = 4'd0;
 
 reg signed [COUNTER_WIDTH:0] duty_cycle = 0;
-reg signed [COUNTER_WIDTH:0] duty_cycle_sysclk;
+reg [15:0] duty_cycle_16b_sysclk = 16'h8000;
 reg [15:0] tuning_counter = 0;
 reg [15:0] tuning_pulse_width = 0;
 wire tuning_mode = | tuning_pulse_width;
@@ -78,7 +78,7 @@ assign motor_status = {2'b0, // 31:30 unused
     3'b0, // 23:21 unused
     1'b0, // 20 cur_ctrl=0 no analog current loop
     fault_code, // 19:16 fault code
-    duty_cycle_sysclk, 5'b0}; // 15:0 DAC output
+    duty_cycle_16b_sysclk}; // 15:0 DAC output, 0x8000 centered
 
 
 PWM PWM_instance
@@ -91,7 +91,7 @@ PWM PWM_instance
     .pwm_n(pwm_n)
 );
 
-reg [10:0] v_cmd = 'sh0;
+reg signed [10:0] voltage_cmd = 11'sd0;
 reg [15:0] cur_cmd_normal = 16'h8000;
 reg [15:0] cur_cmd_tuning = 16'h8000;
 wire [15:0] cur_cmd = tuning_mode ? cur_cmd_tuning : cur_cmd_normal;
@@ -150,7 +150,7 @@ begin
         duty_cycle <= 11'sb0;
     end else begin
         case (control_mode)
-            `MOTOR_CONTROL_MODE_VOLTAGE: duty_cycle <= v_cmd; // Truncate the smaller bits: 0xffff = full forward. 0x8000 = no output. 0x0000 = full reverse.
+            `MOTOR_CONTROL_MODE_VOLTAGE: duty_cycle <= voltage_cmd;
             `MOTOR_CONTROL_MODE_CURRENT: if (ap_done) duty_cycle <= ap_return;
             default: duty_cycle <= 11'sb0;
         endcase
@@ -252,7 +252,7 @@ begin
             `OFF_MOTOR_CONTROL_CURRENT_FF_RESISTIVE: reg_rdata = ff_resistive;
             `OFF_MOTOR_CONTROL_CURRENT_I_TERM_LIMIT: reg_rdata = i_term_limit;
             `OFF_MOTOR_CONTROL_CURRENT_OUTPUT_LIMIT: reg_rdata = output_limit;
-            `OFF_MOTOR_CONTROL_DUTY_CYCLE: reg_rdata = duty_cycle_sysclk;
+            `OFF_MOTOR_CONTROL_DUTY_CYCLE: reg_rdata = duty_cycle_16b_sysclk;
             `OFF_MOTOR_CONTROL_FAULT: reg_rdata = {28'd0, fault_latched_sysclk};
             `OFF_MOTOR_CONTROL_TUNE: reg_rdata = {16'b0, tuning_pulse_width};
             default: reg_rdata = 32'hcccccccc;
@@ -267,7 +267,7 @@ always @(posedge sysclk)
 begin
     cur_fb <= measured_motor_current;
     cur_fb_filtered <= cur_fb_filtered_pwmclk;
-    duty_cycle_sysclk <= duty_cycle;
+    duty_cycle_16b_sysclk <= {~duty_cycle[10], duty_cycle[9:0], 5'b0};
     fault_latched_sysclk <= fault_latched;
     cur_cmd_fb <= cur_cmd;
     if (~enable_pin) begin
@@ -298,7 +298,12 @@ begin
         if (reg_wdata[31]) begin
             case (reg_wdata[27:24])
                 'h0: cur_cmd_normal <= reg_wdata[15:0];
-                'h1: v_cmd <= reg_wdata[23:13];
+                'h1: begin
+                    // Convert 16-bit offset-binary to signed 11-bit while
+                    // dropping five LSBs: 0xffff is full forward, 0x8000
+                    // is no output, and 0x0000 is full reverse.
+                    voltage_cmd <= {~reg_wdata[15], reg_wdata[14:5]};
+                end
             endcase
             control_mode <= reg_wdata[27:24];
         end
