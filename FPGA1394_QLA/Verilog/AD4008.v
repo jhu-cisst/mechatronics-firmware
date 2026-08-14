@@ -11,10 +11,11 @@ module AD4008(
 //TODO: add SDI interface
 reg[15:0] adc_data = 0;
 
-// The ADC advances SDO after each falling SCK edge. Capture on the following
-// rising edge so the input gets a half-cycle setup window instead of relying
-// on the ADC's 1.5 ns minimum hold time at the launch edge.
-always @(posedge sck)
+// SCK is forwarded to the ADC through an ODDR. The first internal falling edge
+// captures the already-valid D15; each later edge captures the bit launched by
+// the previous physical falling edge. The newly forwarded edge reaches the ADC
+// afterward and advances SDO.
+always @(negedge sck)
     adc_data <= {adc_data[14:0], sdo};
 
 

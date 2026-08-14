@@ -89,6 +89,32 @@ TIMESPEC "TS_ADC_CLKDIVx" = PERIOD "ADC_CLKDIVx" "TS_pwm_clk_gen_instance_clkout
 NET "adc_sck" TNM_NET = "ADC_SCKx";
 TIMESPEC "TS_ADC_SCKx" = PERIOD "ADC_SCKx" "TS_ADC_CLKDIVx" * 1 HIGH 50%;
 
+# SCLK_ADC is adc_sck forwarded through an ODDR. The first falling edge captures
+# the already-valid D15; later edges capture the bit launched by the previous
+# physical SCLK falling edge. At VIO=3.3 V, AD4008 tDSDO(max) is 7.5 ns. A
+# 27.127 ns SCK period
+# leaves 19.627 ns ideally; limit the FPGA pad-to-capture path to 15 ns to
+# reserve 4.627 ns for SCK clock-to-out, PCB round-trip, setup, and uncertainty.
+# This FROM:TO constraint checks maximum delay only. Same-edge hold also relies
+# on ODDR/PCB delay plus AD4008 tHSDO(min)=1.5 ns and still requires a measured
+# board-level timing budget. OFFSET IN is not used because IO2[14] is an output
+# clock, not a clock returned to an FPGA input pad.
+TIMEGRP "ADC_SDO_PADS" = PADS("IO1[7]" "IO1[16]" "IO1[17]" "IO1[31]"
+                                "IO2[2]" "IO2[11]" "IO2[18]" "IO2[19]"
+                                "IO2[21]" "IO2[37]" "IO2[38]");
+INST "drac/mchan_loop[1].MotorChannel_instance/AD4008_instance/adc_data_0"  TNM = "ADC_SDO_CAPTURE" | IOB = TRUE;
+INST "drac/mchan_loop[2].MotorChannel_instance/AD4008_instance/adc_data_0"  TNM = "ADC_SDO_CAPTURE" | IOB = TRUE;
+INST "drac/mchan_loop[3].MotorChannel_instance/AD4008_instance/adc_data_0"  TNM = "ADC_SDO_CAPTURE" | IOB = TRUE;
+INST "drac/mchan_loop[4].MotorChannel_instance/AD4008_instance/adc_data_0"  TNM = "ADC_SDO_CAPTURE" | IOB = TRUE;
+INST "drac/mchan_loop[5].MotorChannel_instance/AD4008_instance/adc_data_0"  TNM = "ADC_SDO_CAPTURE" | IOB = TRUE;
+INST "drac/mchan_loop[6].MotorChannel_instance/AD4008_instance/adc_data_0"  TNM = "ADC_SDO_CAPTURE" | IOB = TRUE;
+INST "drac/mchan_loop[7].MotorChannel_instance/AD4008_instance/adc_data_0"  TNM = "ADC_SDO_CAPTURE" | IOB = TRUE;
+INST "drac/mchan_loop[8].MotorChannel_instance/AD4008_instance/adc_data_0"  TNM = "ADC_SDO_CAPTURE" | IOB = TRUE;
+INST "drac/mchan_loop[9].MotorChannel_instance/AD4008_instance/adc_data_0"  TNM = "ADC_SDO_CAPTURE" | IOB = TRUE;
+INST "drac/mchan_loop[10].MotorChannel_instance/AD4008_instance/adc_data_0" TNM = "ADC_SDO_CAPTURE" | IOB = TRUE;
+INST "drac/mv_adc/adc_data_0" TNM = "ADC_SDO_CAPTURE" | IOB = TRUE;
+TIMESPEC "TS_ADC_SDO_SETUP" = FROM "ADC_SDO_PADS" TO "ADC_SDO_CAPTURE" 15.000 ns;
+
 # lvds_tx_clk is sysclk / 2. sysclk_div2 is KEEP-marked in DRAC.v so this
 # constraint binds to the intended divider rather than a synthesis alias.
 NET "drac/sysclk_div2" TNM_NET = "LVDS_TXCLKx";
