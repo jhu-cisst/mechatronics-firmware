@@ -987,13 +987,13 @@ BoardRegs chan0(
 
 wire clk_200MHz;
 
-`ifdef USE_VIVADO
-
 // For Vivado, need to add a register to improve timing; it appears that the
 // FIFO output is too slow. The FIFO can be configured to include an output
 // register (CONFIG.Use_Embedded_Registers true), with CONFIG.Output_Register_Type
 // set to Fabric_Reg (or Embedded_Reg or even Both), but since the FIFO is used
 // in many other places, we add the register here instead.
+// This seems to be necessary in ISE as well to avoid timing errors.
+
 reg gmii_tx_en_3;
 reg gmii_tx_err_3;
 reg[7:0] gmii_txd_3;
@@ -1004,6 +1004,8 @@ begin
     gmii_tx_err_3 <= gmii_tx_err[3];
     gmii_txd_3 <= gmii_txd[3];
 end
+
+`ifdef USE_VIVADO
 
 // FpgaV31 block design
 FpgaV31_wrapper ps7_bd(
@@ -1170,9 +1172,9 @@ fpgav3 zynq_ps7(
 
     // Note that Rx and Tx are swapped
     .processing_system7_0_ENET0_GMII_RX_CLK_pin(gmii_tx_clk3_dest),
-    .processing_system7_0_ENET0_GMII_RX_DV_pin(gmii_tx_en[3]),
-    .processing_system7_0_ENET0_GMII_RX_ER_pin(gmii_tx_err[3]),
-    .processing_system7_0_ENET0_GMII_RXD_pin(gmii_txd[3]),
+    .processing_system7_0_ENET0_GMII_RX_DV_pin(gmii_tx_en_3),
+    .processing_system7_0_ENET0_GMII_RX_ER_pin(gmii_tx_err_3),
+    .processing_system7_0_ENET0_GMII_RXD_pin(gmii_txd_3),
     .processing_system7_0_ENET0_GMII_TX_EN_pin(gmii_rx_dv[3]),
     .processing_system7_0_ENET0_GMII_TX_ER_pin(gmii_rx_err[3]),
     .processing_system7_0_ENET0_GMII_TX_CLK_pin(gmii_rx_clk[3]),
