@@ -781,11 +781,11 @@ AD4008 mv_adc
 );
 always @(posedge pwmclk) begin
     if (adc_data_ready) begin
-        mv <= mv_adc_out[15:0];
+        mv <= mv_adc_out;
         // Evaluate the same sample captured into mv so the power-interlock
         // response is unchanged; only the diagnostic word crosses to sysclk.
-        mv_good_pwm <= (mv_adc_out[15:0] < MV_MAX) &&
-                       (mv_adc_out[15:0] > MV_MIN);
+        mv_good_pwm <= (mv_adc_out < MV_MAX) &&
+                       (mv_adc_out > MV_MIN);
     end
 end
 always @(posedge sysclk) begin
