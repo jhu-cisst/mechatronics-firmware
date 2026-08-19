@@ -184,10 +184,6 @@ set (VERILOG_SOURCE_DRAC
                            "${VERILOG_SOURCE_DIR}/PwmAdcTiming.v"
                            "${VERILOG_SOURCE_DIR}/ws2811.v")
 
-file(DOWNLOAD
-        https://raw.githubusercontent.com/keshuaixu/ws2812-verilog/ws2813/ws2811.v
-        "${VERILOG_SOURCE_DIR}/ws2811.v")
-
 # file(GLOB HLS_GENERATED_SOURCES_DRAC_FPGAV1V2 CONFIGURE_DEPENDS "${HLS_GENERATED_SOURCE_DIR}/v1v2/*.v")
 file(GLOB HLS_GENERATED_SOURCES_DRAC_FPGAV3 CONFIGURE_DEPENDS "${HLS_GENERATED_SOURCE_DIR}/v3/*.v")
 

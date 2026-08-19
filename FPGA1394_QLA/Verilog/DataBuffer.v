@@ -107,7 +107,7 @@ begin
     else if ((collecting&cur_fb_trigger)|cur_fb_pending) begin
         buf_wr_data <= {1'b1, ts_over14, ts[13:0], cur_fb};
         buf_wr <= 1;
-        buf_wr_addr <= buf_wr_addr+1;
+        buf_wr_addr <= buf_wr_addr + 1'b1;
         cur_fb_pending <= 0;
     end
     else begin

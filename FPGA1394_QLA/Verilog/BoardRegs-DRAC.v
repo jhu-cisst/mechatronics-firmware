@@ -50,7 +50,7 @@ module BoardRegsDRAC
     input  wire dsib_si_present,    // dSIB-Si is present (communication active)
     input  wire dsib_z_si_present,  // dSIB-Z-Si is present (communication active)
     input  wire essj_present,       // ESSJ is present
-    output reg cur_fb_raw,          // Whether to provide raw or filtered motor current feedback
+    output reg cur_fb_raw = 1'b0,   // 0: filtered current (default), 1: raw current
 
     // register file interface
     input  wire[15:0] reg_raddr,     // register read address

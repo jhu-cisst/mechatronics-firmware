@@ -329,8 +329,11 @@ PwmAdcTiming PwmAdcTiming_instance
 // Motor channels
 // --------------------------------------------------------------------------
 
-wire[15:0] cur_fb[1:10]; // current feedback at raw rate, used by control loop
-wire[15:0] cur_fb_filtered[1:10]; // current feedback after filtering, used for PC read
+// Both current-feedback variants are staged into sysclk in MotorChannelDRAC
+// before reaching the register mux. The PWM-local raw sample remains private to
+// the motor-control loop.
+wire[15:0] cur_fb[1:10];
+wire[15:0] cur_fb_filtered[1:10];
 wire cur_fb_raw;         // 1 -> send cur_fb (instead of cur_fb_filtered) to PC
 wire [15:0] pot_data;
 
@@ -380,7 +383,6 @@ generate
             .control_mode(ctrl_mode[k]),
             .adc_sck(adc_sck),
             .adc_sdo(ADC_CUR_SDO[k]),
-            .adc_cnv(CONV_ADC),
             .adc_data_ready(adc_data_ready),
             .feedback_calculation_start(feedback_calculation_start),
             .otw_n(OTWn[channel_to_motor_driver[k]]),
@@ -434,7 +436,9 @@ PowerControl #(.NUM_INTERLOCKS(5)) PowerControl_instance
 wire mv_amp_disable;
 
 wire[31:0] reg_digin;     // Digital I/O register
-wire[15:0] tempsense;     // Temperature sensor
+// This board has no temperature-sensor source. XST previously tied the
+// undriven net low; make that implemented behavior explicit.
+wire[15:0] tempsense = 16'd0;
 wire[15:0] reg_databuf;   // Data collection status
 wire is_ecm;
 wire has_suj_pots;
@@ -540,9 +544,9 @@ assign reg_digin = rdata_misc[1]; // buttons
 // Sends the content of espm_tx_ram to the ESPM all the time.
 // Except quadlet 'h10, which is for detecting loss of encoder preload due to ESPM reset.
 
-reg sysclk_div2;
+(* KEEP = "TRUE", EQUIVALENT_REGISTER_REMOVAL = "NO" *)
+reg sysclk_div2 = 1'b0;
 assign lvds_tx_clk = sysclk_div2;
-reg lvds_tx_clk_en = 'b1;
 wire [9:0] espm_tx_tdata_sel;
 reg [31:0] espm_tx_tdata;
 wire espm_tx_pkt_start;
@@ -595,13 +599,13 @@ end
 wire [31:0] rdata_espm;
 wire  [9:0] rdata_sel_espm;
 wire        load_rdata_espm;
-wire        framed_espm;   // Not used
 wire        crc_good_espm;
 wire        eof_espm;
-reg  [31:0] crc_err_count;
-reg  [31:0] crc_good_count;
+reg  [31:0] crc_err_count = 32'd0;
+reg  [31:0] crc_good_count = 32'd0;
 reg  [9:0] crc_good_count_prev = 'b1;
-wire [1:0] dvrk_rx_cfsm;
+wire crc_err_espm = eof_espm && !crc_good_espm;
+wire crc_err_espm_sysclk;
 
 
 reg espm_comm_wdt_fault;
@@ -609,18 +613,11 @@ assign espm_comm_good = ~espm_comm_wdt_fault;
 reg [18:0] espm_comm_wdt_clkdiv;
 always @(posedge sysclk) begin
     espm_comm_wdt_clkdiv = espm_comm_wdt_clkdiv + 19'd1;
+    if (crc_good_espm_sysclk) crc_good_count <= crc_good_count + 32'd1;
+    if (crc_err_espm_sysclk) crc_err_count <= crc_err_count + 32'd1;
     if (espm_comm_wdt_clkdiv == 'd0) begin // 10 ms
         crc_good_count_prev <= crc_good_count[9:0];
         espm_comm_wdt_fault <= crc_good_count[9:0] == crc_good_count_prev;
-    end
-end
-
-always @(posedge LVDS_RCLK) begin
-    if (crc_good_espm) begin
-        crc_good_count <= crc_good_count + 'd1;
-    end
-    if (eof_espm && !crc_good_espm) begin
-        crc_err_count <= crc_err_count + 'd1;
     end
 end
 
@@ -633,7 +630,6 @@ ESPMRX espm_rx(
     .rdata(rdata_espm),
     .load_rdata(load_rdata_espm),
     .rdata_sel(rdata_sel_espm),
-    .framed(framed_espm),
     .crc_good(crc_good_espm),
     .eof(eof_espm)
 );
@@ -648,7 +644,7 @@ always @(posedge LVDS_RCLK) begin
     if (espm_bram_pre_crc_we) espm_bram_pre_crc[espm_bram_pre_crc_waddr] <= espm_bram_pre_crc_wdata;
     if (load_rdata_espm) begin
         espm_bram_pre_crc_wdata <= rdata_espm;
-        espm_bram_pre_crc_waddr <= rdata_sel_espm;
+        espm_bram_pre_crc_waddr <= rdata_sel_espm[5:0];
         espm_bram_pre_crc_we <= 1'b1;
     end else begin
         espm_bram_pre_crc_we <= 1'b0;
@@ -664,6 +660,7 @@ reg espm_bram_we;
 reg [95:0] suj_essj_adc;
 reg [1:0] suj_essj_status;
 cdc_pulse crc_good_espm_cdc (LVDS_RCLK, crc_good_espm, sysclk, crc_good_espm_sysclk);
+cdc_pulse crc_err_espm_cdc (LVDS_RCLK, crc_err_espm, sysclk, crc_err_espm_sysclk);
 reg copy_state;
 
 always @(posedge sysclk) begin
@@ -752,7 +749,7 @@ always @(posedge sysclk)
 begin
     if (reg_wen && (reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[3:0]==`OFF_ENC_LOAD)) begin
         encoder_preload[reg_waddr[7:4]] <= reg_wdata[23:0];
-        encoder_preload_offset[reg_waddr[7:4]] <= reg_wdata[23:0] - rdata_pos[reg_waddr[7:4]];
+        encoder_preload_offset[reg_waddr[7:4]] <= reg_wdata[23:0] - rdata_pos[reg_waddr[7:4]][23:0];
         preload_count <= preload_count + 5'b1;
         encoder_overflow[reg_waddr[7:4]] <= 'b0;
     end else begin
@@ -769,22 +766,30 @@ end
 // MV
 // --------------------------------------------------------------------------
 
-wire [31:0] mv_adc_out;
+wire [15:0] mv_adc_out;
 reg[15:0] mv;
-integer mv_max = 36570 + 3657; // 48V + 4.8V
-integer mv_min = 36570 - 3657; // 48V - 4.8V
-assign mv_good = (mv < mv_max) && (mv > mv_min);
+reg[15:0] mv_sysclk;
+reg mv_good_pwm;
+localparam [15:0] MV_MAX = 16'd40227; // 48V + 4.8V
+localparam [15:0] MV_MIN = 16'd32913; // 48V - 4.8V
+assign mv_good = mv_good_pwm;
 AD4008 mv_adc
 (
     .sck(adc_sck),
     .sdo(ADC_MV_SDO),
-    .data_ready(adc_data_ready),
     .out(mv_adc_out)
 );
 always @(posedge pwmclk) begin
     if (adc_data_ready) begin
-        mv <= mv_adc_out[15:0];
+        mv <= mv_adc_out;
+        // Evaluate the same sample captured into mv so the power-interlock
+        // response is unchanged; only the diagnostic word crosses to sysclk.
+        mv_good_pwm <= (mv_adc_out < MV_MAX) &&
+                       (mv_adc_out > MV_MIN);
     end
+end
+always @(posedge sysclk) begin
+    mv_sysclk <= mv;
 end
 
 // --------------------------------------------------------------------------
@@ -796,7 +801,7 @@ begin
         // ADDR_BOARD_SPECIFIC 4'hB
         'h000: reg_rdata_board_specific = crc_err_count;
         'h001: reg_rdata_board_specific = crc_good_count;
-        'h002: reg_rdata_board_specific = mv;
+        'h002: reg_rdata_board_specific = mv_sysclk;
         'h004: reg_rdata_board_specific = {22'b0, OTWn, FAULTn};
         'h010: reg_rdata_board_specific = rdata_misc[2]; // esii status
         'h012: reg_rdata_board_specific = rdata_misc[4]; // instrument model
@@ -880,8 +885,8 @@ reg blink_0_5hz;
 reg [25:0] blink_counter;
 reg blink_ovf;
 always @(posedge sysclk) begin
-    blink_counter <= blink_counter + 'd1;
-    blink_ovf <= blink_counter == 'd49_152_000 - 'd1;
+    blink_counter <= blink_counter + 26'd1;
+    blink_ovf <= blink_counter == 26'd49_152_000 - 26'd1;
     if (blink_ovf) begin
         blink_counter <= 'd0;
         blink_0_5hz <= ~blink_0_5hz;
@@ -891,71 +896,71 @@ end
 reg [7:0] led_red;
 reg [7:0] led_green;
 reg [7:0] led_blue;
-wire [3:0] led_address;
+wire [2:0] led_address;
 
 always @(posedge sysclk) begin
     case (led_address)
         'd1: begin // fpga prog ok
-            led_red <= 'd0;
-            led_green <= blink_0_5hz ? 'd50 : 'd8;
-            led_blue <= 'd0;
+            led_red <= 8'd0;
+            led_green <= blink_0_5hz ? 8'd50 : 8'd8;
+            led_blue <= 8'd0;
         end
         'd3: begin // ESPM comm
             if (espm_comm_good) begin
-                led_red <= esii_escc_comm_good ? 'd0 : 'd90;
-                led_green <= 'd50;
-                led_blue <= 'd0;
+                led_red <= esii_escc_comm_good ? 8'd0 : 8'd90;
+                led_green <= 8'd50;
+                led_blue <= 8'd0;
             end else begin
-                led_red <= 'd0;
-                led_green <= 'd0;
-                led_blue <= 'd0;
+                led_red <= 8'd0;
+                led_green <= 8'd0;
+                led_blue <= 8'd0;
             end
         end
         'd4: begin // eth/fw
-            led_red <= 'd0;
-            led_green <= 'd0;
-            led_blue <= 'd0;
+            led_red <= 8'd0;
+            led_green <= 8'd0;
+            led_blue <= 8'd0;
         end
         'd5: begin // 48v
             if (MV_EN && !SAFETY_CHAIN_GOOD) begin
-                led_red <= 'd60;
-                led_green <= 'd0;
-                led_blue <= 'd0;
+                led_red <= 8'd60;
+                led_green <= 8'd0;
+                led_blue <= 8'd0;
             end
             else if (MV_EN && !mv_good) begin
-                led_red <= blink_0_5hz ? 'd60 : 'd0;
-                led_green <= 'd0;
-                led_blue <= 'd0;
+                led_red <= blink_0_5hz ? 8'd60 : 8'd0;
+                led_green <= 8'd0;
+                led_blue <= 8'd0;
             end
             else begin
-                led_red <= 'd0;
-                led_green <= MV_EN? 'd50 : 'd0;
-                led_blue <= 'd0;
+                led_red <= 8'd0;
+                led_green <= MV_EN ? 8'd50 : 8'd0;
+                led_blue <= 8'd0;
             end
         end
         'd6: begin // motor driver
             if (|motor_channel_fault) begin
-                led_red <= 'd60;
-                led_green <= 'd0;
-                led_blue <= 'd0;
+                led_red <= 8'd60;
+                led_green <= 8'd0;
+                led_blue <= 8'd0;
             end else if (|(motor_channel_enable_requested ^ RESETn)) begin
-                led_red <= blink_0_5hz ? 'd60 : 'd0;
-                led_green <= 'd0;
-                led_blue <= 'd0;
+                led_red <= blink_0_5hz ? 8'd60 : 8'd0;
+                led_green <= 8'd0;
+                led_blue <= 8'd0;
             end else if (|RESETn) begin
-                led_red <= 'd0;
-                led_green <= 'd100;
-                led_blue <= 'd20;
+                led_red <= 8'd0;
+                led_green <= 8'd100;
+                led_blue <= 8'd20;
             end else begin
-                led_red <= 'd0;
-                led_green <= 'd0;
-                led_blue <= 'd0;
+                led_red <= 8'd0;
+                led_green <= 8'd0;
+                led_blue <= 8'd0;
             end
         end
         default: begin // 0, 2, unused
-            led_red <= 'd0;
-            led_green <= 'd0;
-            led_blue <= 'd0;
+            led_red <= 8'd0;
+            led_green <= 8'd0;
+            led_blue <= 8'd0;
         end
     endcase
 end
