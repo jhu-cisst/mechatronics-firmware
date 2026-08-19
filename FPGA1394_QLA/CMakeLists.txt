@@ -338,6 +338,9 @@ if (Vivado_FOUND)
 
 else ()
 
+  #set (ISE_DEFS "HAS_DEBUG_DATA")
+  set (ISE_DEFS "")
+
   # Compile the firmware -- output is FPGA1394V3-BCFG.bit
   ise_compile_fpga (PROJ_NAME      "FPGA1394V3-BCFG"
                     DEPENDENCIES   "CoreGenV3" "PlatgenV3" "VersionFile"
@@ -348,7 +351,7 @@ else ()
                     IPCORE_DIR     ${IPCOREV3_BINARY_DIR}
                     XPSCORE_DIR    "${XPSCORE_BINARY_DIR}/implementation"
                     TOP_LEVEL      "FPGA1394V3BCFG"
-                    USER_MACROS    "HAS_DEBUG_DATA"
+                    USER_MACROS    ${ISE_DEFS}
                     IS_V3          ON)
 
   # Compile the firmware -- output is FPGA1394V3-QLA.bit
@@ -361,7 +364,7 @@ else ()
                     IPCORE_DIR     ${IPCOREV3_BINARY_DIR}
                     XPSCORE_DIR    "${XPSCORE_BINARY_DIR}/implementation"
                     TOP_LEVEL      "FPGA1394V3QLA"
-                    USER_MACROS    "HAS_DEBUG_DATA"
+                    USER_MACROS    ${ISE_DEFS}
                     IS_V3          ON)
 
   # Compile the firmware -- output is FPGA1394V3-DQLA.bit
@@ -374,7 +377,7 @@ else ()
                     IPCORE_DIR     ${IPCOREV3_BINARY_DIR}
                     XPSCORE_DIR    "${XPSCORE_BINARY_DIR}/implementation"
                     TOP_LEVEL      "FPGA1394V3DQLA"
-                    USER_MACROS    "HAS_DEBUG_DATA"
+                    USER_MACROS    ${ISE_DEFS}
                     IS_V3          ON)
 
   # Compile the firmware -- output is FPGA1394V3-DRAC.bit
@@ -387,7 +390,7 @@ else ()
                     IPCORE_DIR     ${IPCOREV3_BINARY_DIR}
                     XPSCORE_DIR    "${XPSCORE_BINARY_DIR}/implementation"
                     TOP_LEVEL      "FPGA1394V3DRAC"
-                    USER_MACROS    "HAS_DEBUG_DATA"
+                    USER_MACROS    ${ISE_DEFS}
                     IS_V3          ON)
 
 endif ()
