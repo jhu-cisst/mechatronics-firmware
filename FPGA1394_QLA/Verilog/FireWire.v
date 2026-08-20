@@ -25,7 +25,7 @@
  *     11/11/11    Paul Thienphrapa    Happy 111111!!11!
  *                                     Fixed mixed blocking/non-blocking issues`
  *     10/16/13    Zihan Chen          Modified to support hub capability
- *     10/28/13    Zihan Chen          Added seperate write address line
+ *     10/28/13    Zihan Chen          Added separate write address line
  *     08/23/14    Zihan Chen          Added support for Eth1394
  *     12/02/16    Zihan Chen          Added packet forward from Ethernet
  *     05/03/18    Jie Ying Wu         Added additional fields for velocity
@@ -376,6 +376,13 @@ module PhyLinkInterface
     // For reading the timestamp
     reg[31:0] timestamp_latched;
     reg[31:0] timestamp_prev;
+
+    // For use in determining broadcast read request
+    // (write to HUB register, with board mask bit set).
+    wire[15:0] board_mask;
+    wire isBoardMasked;
+    assign board_mask = reg_wdata[15:0];
+    assign isBoardMasked = board_mask[board_id];
 
     // lreq_busy is set in response to write_trig (from HubReg) or eth_send_fw_req (from EthernetIO).
     // There are two reasons:
@@ -1168,11 +1175,11 @@ begin
                     blk_wen <= (rx_active & ((rx_tcode==`TC_QWRITE) | (rx_tcode==`TC_BWRITE)));
 
                     // Latch timestamp if a block read from ADDR_MAIN (blk_rt_rd) or a broadcast read request
-                    // (quadlet write to ADDR_HUB).
+                    // (quadlet write to ADDR_HUB and board mask bit set).
                     if (rx_active &&
                         ((addrMainRead && (rx_tcode==`TC_BREAD)) ||
-                         ((reg_waddr[15:0] == {`ADDR_HUB, 12'h800}) && (rx_tcode==`TC_QWRITE)))) begin
-                        // TODO: Subtracting 1 for backward compatibility; may eliminate that for Firmware Rev 9
+                         ((reg_waddr[15:0] == {`ADDR_HUB, 12'h800}) && (rx_tcode==`TC_QWRITE) && isBoardMasked))) begin
+                        // Subtracting 1 for backward compatibility
                         timestamp_latched <= (timestamp-timestamp_prev)-32'd1;
                         timestamp_prev <= timestamp;
                         req_blk_rt_rd <= 1'b1;

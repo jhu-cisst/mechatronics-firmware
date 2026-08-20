@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2023-2025 Johns Hopkins University.
+ * Copyright(C) 2023-2026 Johns Hopkins University.
  *
  * This module handles the PS EMIO bus interface.
  *
@@ -129,6 +129,13 @@ wire ps_addr_lsb_sync;
 wire ps_blk_start_sync;
 wire ps_blk_end_sync;
 wire ps_req_bus_sync;
+
+// For use in determining broadcast read request
+// (write to HUB register, with board mask bit set).
+wire[15:0] board_mask;
+wire isBoardMasked;
+assign board_mask = ps_reg_wdata[15:0];
+assign isBoardMasked = board_mask[board_id];
 
 `ifdef USE_VIVADO
 
@@ -339,9 +346,9 @@ begin
         if (ps_req_bus_sync & (~ps_req_bus_prev)) begin
             first_quad <= 1'b1;
             if ((~ps_write & ps_blk_start_sync & addrMain) ||
-                (ps_write & addrHubReg)) begin
+                (ps_write & addrHubReg & isBoardMasked)) begin
                 // Set req_blk_rt_rd if real-time block read or
-                // if write to Hub register 800
+                // if write to Hub register 800 and board mask bit set
                 req_blk_rt_rd <= 1'b1;
                 timestamp_latched <= (timestamp-timestamp_prev)-32'd1;
                 timestamp_prev <= timestamp;

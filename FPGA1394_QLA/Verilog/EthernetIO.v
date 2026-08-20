@@ -3,7 +3,7 @@
 
 /*******************************************************************************    
  *
- * Copyright(C) 2014-2025 Johns Hopkins University.
+ * Copyright(C) 2014-2026 Johns Hopkins University.
  *
  * This module implements the higher-level (network layer) Ethernet I/O, which
  * interfaces to the link layer for the KSZ8851 MAC/PHY chip (FPGA V2) or the
@@ -1738,8 +1738,8 @@ begin
             nextRecvState <= ST_RECEIVE_DMA_WAIT_START;  // was ST_RECEIVE_DMA_FRAME_CRC;
             if (isLocal & ((addrMain & blockRead) | (addrHubReg & quadWrite & isBoardMasked))) begin
                // Latch timestamp if a block read from ADDR_MAIN or a broadcast read request
-               // (quadlet write to ADDR_HUB).
-               // TODO: Subtracting 1 for backward compatibility; may eliminate that for Firmware Rev 9
+               // (quadlet write to ADDR_HUB and board mask bit set).
+               // Subtracting 1 for backward compatibility
                timestamp_latched <= (timestamp-timestamp_prev)-32'd1;
                timestamp_prev <= timestamp;
                req_blk_rt_rd <= 1'b1;
