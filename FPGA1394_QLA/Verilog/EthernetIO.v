@@ -132,6 +132,7 @@ module EthernetIO
     input wire[1:0] srcPort,         // Source port (0 for FPGA V2, 0-2 for FPGA V3)
     input wire isHub,                // Whether this board might be the Ethernet hub
     input wire isBcHub,              // Whether this board is the Ethernet broadcast read hub
+    output reg[1:0] upstream_port,   // Port to host, when doing broadcast read
     // Feedback bits
     // bw_active is provided to lower-level module so that other actions (e.g., flushing KSZ8851
     // queue for FPGA V2) can happen in parallel; however, the lower-level module should wait until
@@ -193,9 +194,19 @@ initial ip_address = IP_UNASSIGNED;
 wire[47:0] fpga_mac;
 assign fpga_mac = { `LCSR_CID, `FPGA_RT_MAC, 4'd0, board_id };
 
+// Whether the MAC address should be set to send raw multicast packets "upstream"
+// (i.e., toward host), and only to broadcast read hub FPGA.
+// This improves the timing of the broadcast read protocol by reducing traffic
+// in the Ethernet switch (packets are only sent upstream) and reduces processing
+// of multicast packets by FPGA boards (only the broadcast hub FPGA gets them).
+reg  fastMode;
+wire hubSend;
+
 // FPGA Multicast MAC address
+// For hubSend, if fastMode, use 0xf0 as lowest 8-bits to indicate that the packet only
+// needs to move "upstream" (toward PC).
 wire[47:0] multicast_mac;
-assign multicast_mac = { `LCSR_CID_MULTICAST, `FPGA_RT_MAC, 8'hff };
+assign multicast_mac = { `LCSR_CID_MULTICAST, `FPGA_RT_MAC, 4'hf, (fastMode & hubSend) ? 4'h0 : 4'hf };
 
 // Following flags are set based on the destination address. Note that a FireWire
 // broadcast packet will set both isLocal and isRemote, unless noForwardFlag is set.
@@ -238,7 +249,7 @@ assign eth_status[5] = ethUDPError;        // 1 -> Wrong UDP port (not 1394)
 assign eth_status[4] = ethDestError;       // 1 -> Ethernet destination error
 assign eth_status[3] = 1'b0;               // 1 -> Unable to access internal bus
 assign eth_status[2] = (ethSendStateError|ethRecvStateError);  // 1 -> Invalid send/receive state
-assign eth_status[1] = 1'b0;
+assign eth_status[1] = IS_V3 ? fastMode : 1'b0;
 assign eth_status[0] = useUDP;             // 1 -> Using UDP, 0 -> Raw Ethernet
 
 // Whether Firewire packet was dropped, rather than being processed,
@@ -256,7 +267,6 @@ wire isUDP;
 wire isEcho;
 wire sendARP;
 wire ipWrite;
-wire hubSend;
 
 wire[9:0] maxCountFW;  // Maximum count (of words) when reading FireWire packets
 // Maximum count, in words, is (nBytes/2-1), assuming nBytes is an even number
@@ -1353,6 +1363,7 @@ begin
 
    if (ctrl_reg_wen) begin
       clearErrors <= reg_wdata_in[29];
+      fastMode <= reg_wdata_in[24] ? reg_wdata_in[17] : fastMode;
    end
    else begin
       clearErrors <= 0;
@@ -1743,6 +1754,8 @@ begin
                timestamp_latched <= (timestamp-timestamp_prev)-32'd1;
                timestamp_prev <= timestamp;
                req_blk_rt_rd <= 1'b1;
+               if (addrHubReg)
+                   upstream_port <= srcPortReg;
             end
             if (isLocal & blockWrite & (~(addrHub & (~isRemote)))) begin
 `ifdef HAS_DEBUG_DATA

@@ -504,7 +504,7 @@ wire[7:0] eth_status_io;         // Status bits from EthernetIO
 wire      eth_active_ps;         // Whether PS Ethernet enabled
 assign Eth_Result = { 2'b01, 1'b0, eth_status_io[7:3],                          // 31:24
                       clk125_ok, eth_status_io[2], clk200_ok, eth_status_io[0], // 23:20
-                      3'd0, eth_active_ps,                                      // 19:16
+                      2'd0, eth_status_io[1], eth_active_ps,                    // 19:16
                       eth_status_phy[2], eth_status_phy[1] };                   // 15:0
 
 // We detect FPGA V3.0 by checking whether the IRQ line is connected to the
@@ -565,6 +565,7 @@ wire[3:0]  txinfo_rt;           // Packet information from Ethernet Switch
 wire[1:0]  txsrc_rt;            // Source port from Ethernet Switch
 wire       isHub;               // 1 -> this board may be the Ethernet Hub
 wire       isBcHub;             // 1 -> this board is the Ethernet broadcast read hub
+wire[1:0]  upstream_port;       // Port number that leads to host for broadcast read
 
 // Ethernet 4-port switch
 EthSwitch eth_switch (
@@ -631,6 +632,7 @@ EthSwitch eth_switch (
     .bcBoardMask(bc_board_mask),     // Broadcast read board mask
     .isHub(isHub),                   // 1 -> this board (probably) is the Ethernet hub
     .isBcHub(isBcHub),               // 1 -> this board is the Ethernet broadcast read hub
+    .upstream_port(upstream_port),   // Upstream port (towards host)
 
     // For debugging
     .sysclk(sysclk),                 // clock for read signals
@@ -900,6 +902,7 @@ EthernetTransfers(
     .srcPort(txsrc_rt),               // Source port (from Ethernet Switch)
     .isHub(isHub),                    // Whether this board is Ethernet hub (from Ethernet Switch)
     .isBcHub(isBcHub),                // Whether this board is the Ethernet broadcast read hub
+    .upstream_port(upstream_port),    // Upstream port (to Ethernet Switch)
     .bw_active(eth_bw_active),        // Indicates that block write module is active
     .ethLLError(eth_InternalError),   // Error summary bit to EthernetIO
     .eth_status(eth_status_io),       // EthernetIO status register
