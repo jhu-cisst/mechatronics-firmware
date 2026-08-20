@@ -20,11 +20,10 @@ module MotorChannelDRAC
     input  wire[15:0] reg_waddr, 	// register write address
     input  wire[31:0] reg_wdata,  	// register write data
     output reg[31:0] reg_rdata,  	// register read data
-    input  wire       reg_wen,      //  Reg write enable when High write, when Low Read
+    input  wire       reg_wen,      // Reg write enable when High write, when Low Read
     output reg[15:0] cur_fb,
     output reg[15:0] cur_fb_filtered,
-    output reg[15:0] cur_cmd_fb,
-    output reg[3:0]  control_mode,
+    output reg[31:0] motor_cmd,     // Motor Command from PC
 
     //ADC control interface
     input  wire       adc_sck,
@@ -52,7 +51,7 @@ module MotorChannelDRAC
     output wire  pwm_n
 );
 
-reg [15:0] measured_motor_current = 'hbbbb;
+reg [15:0] measured_motor_current = 16'hbbbb;
 reg [5:0] decimate_counter = 6'd0;
 reg [21:0] decimate_sum = 22'd0;
 reg adc_data_latched = 1'b0;
@@ -60,7 +59,11 @@ reg [15:0] cur_fb_filtered_pwmclk = 16'hbbbb;
 
 initial cur_fb = 16'hbbbb;
 initial cur_fb_filtered = 16'hbbbb;
-initial control_mode = 4'd0;
+
+initial motor_cmd = 32'h80008000;
+
+wire [3:0] control_mode;
+assign control_mode = motor_cmd[27:24];
 
 reg signed [COUNTER_WIDTH:0] duty_cycle = 0;
 reg [15:0] duty_cycle_16b_sysclk = 16'h8000;
@@ -101,8 +104,8 @@ reg [17:0] ki = 200;
 reg [17:0] kd = 0;
 reg [17:0] ff_resistive = 0;
 
-reg [15:0] i_term_limit = 'd1000;
-reg [15:0] output_limit = 'd1000;
+reg [15:0] i_term_limit = 16'd1000;
+reg [15:0] output_limit = 16'd1000;
 
 wire [15:0] adc_out;
 reg pid_input_ready = 0;
@@ -269,9 +272,8 @@ begin
     cur_fb_filtered <= cur_fb_filtered_pwmclk;
     duty_cycle_16b_sysclk <= {~duty_cycle[10], duty_cycle[9:0], 5'b0};
     fault_latched_sysclk <= fault_latched;
-    cur_cmd_fb <= cur_cmd;
     if (~enable_pin) begin
-        cur_cmd_normal <= 'h8000;
+        cur_cmd_normal <= 16'h8000;
     end
 
     if (reg_waddr[15:12]==`ADDR_MOTOR_CONTROL && reg_waddr[7:4]== CHANNEL && reg_wen) begin
@@ -296,16 +298,16 @@ begin
 
     if (reg_waddr[15:12]==`ADDR_MAIN && reg_waddr[7:4]== CHANNEL && reg_waddr[3:0] == `OFF_MOTOR_CTRL && reg_wen) begin
         if (reg_wdata[31]) begin
+            motor_cmd <= reg_wdata;
             case (reg_wdata[27:24])
-                'h0: cur_cmd_normal <= reg_wdata[15:0];
-                'h1: begin
+                4'h0: cur_cmd_normal <= reg_wdata[15:0];
+                4'h1: begin
                     // Convert 16-bit offset-binary to signed 11-bit while
                     // dropping five LSBs: 0xffff is full forward, 0x8000
                     // is no output, and 0x0000 is full reverse.
                     voltage_cmd <= {~reg_wdata[15], reg_wdata[14:5]};
                 end
             endcase
-            control_mode <= reg_wdata[27:24];
         end
     end
 end

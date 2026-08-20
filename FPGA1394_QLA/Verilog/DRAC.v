@@ -337,8 +337,7 @@ wire[15:0] cur_fb_filtered[1:10];
 wire cur_fb_raw;         // 1 -> send cur_fb (instead of cur_fb_filtered) to PC
 wire [15:0] pot_data;
 
-wire[15:0] cur_cmd_fb[1:10]; // current setpoint
-wire[3:0] ctrl_mode[1:10];   // Control mode per channel
+wire[31:0] motor_cmd[1:10];  // Motor Command from PC
 
 // reg_rdata_motor_control_channel[i] for each channel are driven as zeros when the channel is not selected. So you can or them together.
 wire [31:0] reg_rdata_motor_control_channel [1:10];
@@ -379,8 +378,7 @@ generate
             .reg_rdata(reg_rdata_motor_control_channel[k]),
             .cur_fb(cur_fb[k]),
             .cur_fb_filtered(cur_fb_filtered[k]),
-            .cur_cmd_fb(cur_cmd_fb[k]),
-            .control_mode(ctrl_mode[k]),
+            .motor_cmd(motor_cmd[k]),
             .adc_sck(adc_sck),
             .adc_sdo(ADC_CUR_SDO[k]),
             .adc_data_ready(adc_data_ready),
@@ -848,7 +846,7 @@ assign suj_pots[5] = {suj_r_valid, suj_essj_status, 1'b0, suj_essj_adc[95:84],
 always @(*) begin
     case (reg_raddr[3:0])
         `OFF_ADC_DATA: reg_rdata_main = {pot_data, cur_fb_raw ? cur_fb[reg_raddr[7:4]] : cur_fb_filtered[reg_raddr[7:4]]};
-        `OFF_MOTOR_CTRL: reg_rdata_main = {4'd0, ctrl_mode[reg_raddr[7:4]], 8'd0, cur_cmd_fb[reg_raddr[7:4]]};
+        `OFF_MOTOR_CTRL: reg_rdata_main = motor_cmd[reg_raddr[7:4]];
         `OFF_EXTRA_DATA: reg_rdata_main = suj_pots[reg_raddr[7:4]];
         `OFF_ENC_LOAD: reg_rdata_main = encoder_preload[reg_raddr[7:4]];
         `OFF_ENC_DATA: reg_rdata_main = {7'b0, encoder_overflow[reg_raddr[7:4]], rdata_pos[reg_raddr[7:4]][23:0] + encoder_preload_offset[reg_raddr[7:4]]};

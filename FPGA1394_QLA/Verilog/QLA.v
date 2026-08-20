@@ -198,8 +198,8 @@ assign amp_fault = { IO2[31], IO2[33], IO2[35], IO2[37] };
 wire[1:4] cur_ctrl_error;
 wire[1:4] disable_f_error;
 
-wire[15:0] cur_cmd[1:4];     // Commanded current per channel
-wire[3:0] ctrl_mode[1:4];    // Control mode per channel
+wire[31:0] motor_cmd[1:4];   // Motor Command per channel
+wire[15:0] cur_cmd[1:4];     // Commanded current (or voltage) per channel
 wire[1:4] cur_ctrl;          // 1 -> current control, 0 -> voltage control
 
 // Motor status feedback
@@ -251,12 +251,12 @@ generate
             .amp_disable_pin(amp_disable_pin[k]),
             .amp_disable_f(amp_disable_f[k]),
 
-            .cur_cmd(cur_cmd[k]),
-            .ctrl_mode(ctrl_mode[k]),
+            .motor_cmd(motor_cmd[k]),
             .cur_ctrl(cur_ctrl[k]),
 
             .cur_fb(cur_fb[k])
         );
+        assign cur_cmd[k] = motor_cmd[k][15:0];
     end
 endgenerate
 
@@ -333,7 +333,7 @@ begin
     end
 end
 
-assign reg_rd[`OFF_MOTOR_CTRL] = {4'd0, ctrl_mode[reg_raddr[7:4]], 8'd0, cur_cmd[reg_raddr[7:4]]};
+assign reg_rd[`OFF_MOTOR_CTRL] = motor_cmd[reg_raddr[7:4]];
 
 assign reg_rd[`OFF_MOTOR_STATUS] = motor_status[reg_raddr[7:4]];
 assign reg_rd[`OFF_MOTOR_CONFIG] = motor_config[reg_raddr[7:4]];

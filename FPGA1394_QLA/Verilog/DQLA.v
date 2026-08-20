@@ -465,8 +465,8 @@ wire[1:8] disable_f_error;   // 1 -> output error in Max7317 I/O expander
 wire[1:8] amp_disable_error; // 1 -> output error in Max7301 I/O expander
 assign amp_disable_error = { Q1_IOP_Error[15:12], Q2_IOP_Error[15:12] };
 
-wire[15:0] cur_cmd[1:8];     // Commanded current per channel
-wire[3:0] ctrl_mode[1:8];    // Control mode per channel
+wire[31:0] motor_cmd[1:8];   // Motor Command per channel
+wire[15:0] cur_cmd[1:8];     // Commanded current (or voltage) per channel
 wire[1:8] cur_ctrl;          // 1 -> current control, 0 -> voltage control
 
 // Motor status feedback
@@ -518,12 +518,12 @@ generate
             .amp_disable_pin(amp_disable_pin[k]),
             .amp_disable_f(amp_disable_f[k]),
 
-            .cur_cmd(cur_cmd[k]),
-            .ctrl_mode(ctrl_mode[k]),
+            .motor_cmd(motor_cmd[k]),
             .cur_ctrl(cur_ctrl[k]),
 
             .cur_fb(cur_fb[k])
         );
+        assign cur_cmd[k] = motor_cmd[k][15:0];
     end
 endgenerate
 
@@ -591,7 +591,7 @@ begin
     end
 end
 
-assign reg_rd[`OFF_MOTOR_CTRL] = {4'd0, ctrl_mode[reg_raddr[7:4]], 8'd0, cur_cmd[reg_raddr[7:4]]};
+assign reg_rd[`OFF_MOTOR_CTRL] = motor_cmd[reg_raddr[7:4]];
 
 assign reg_rd[`OFF_MOTOR_STATUS] = motor_status[reg_raddr[7:4]];
 assign reg_rd[`OFF_MOTOR_CONFIG] = motor_config[reg_raddr[7:4]];
