@@ -1,11 +1,15 @@
-////////////////////////////////////////
-// Driver for WS2811-based LED strips //
-////////////////////////////////////////
+/* -*- Mode: Verilog; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*-   */
+/* ex: set filetype=v softtabstop=4 shiftwidth=4 tabstop=4 cindent expandtab:      */
+
+/***********************************************************************************
+ *
+ * This module implements a serial interface to a set of LEDs.
+ */
 
 module ws2811
   #(
-    parameter NUM_LEDS          = 4,
-    parameter SYSTEM_CLOCK      = 100_000_000
+    parameter NUM_LEDS     = 7,
+    parameter SYSTEM_CLOCK = 49_152_000
     )
    (
     input                              clk,
@@ -21,132 +25,117 @@ module ws2811
    function integer log2;
       input integer value;
       begin
-         value = value-1;
-         for (log2=0; value>0; log2=log2+1)
-           value = value>>1;
+         value = value - 1;
+         for (log2 = 0; value > 0; log2 = log2 + 1)
+           value = value >> 1;
       end
    endfunction
 
    localparam integer LED_ADDRESS_WIDTH = log2(NUM_LEDS);
-   localparam integer CYCLE_COUNT         = SYSTEM_CLOCK / 800000;
-   // Match the upstream real-to-integer round-to-nearest behavior.
-   localparam integer H0_CYCLE_COUNT      = (24 * CYCLE_COUNT + 50) / 100;
-   localparam integer H1_CYCLE_COUNT      = (76 * CYCLE_COUNT + 50) / 100;
-   localparam integer CLOCK_DIV_WIDTH     = log2(CYCLE_COUNT);
-   localparam integer RESET_COUNT         = 250 * CYCLE_COUNT;
-   localparam integer RESET_COUNTER_WIDTH = log2(RESET_COUNT);
+   localparam integer BIT_CYCLES        = SYSTEM_CLOCK / 800000;
+   localparam integer ZERO_HIGH_CYCLES  = (24 * BIT_CYCLES + 50) / 100;
+   localparam integer ONE_HIGH_CYCLES   = (76 * BIT_CYCLES + 50) / 100;
+   localparam integer BIT_COUNTER_WIDTH = log2(BIT_CYCLES);
+   localparam integer RESET_CYCLES      = 250 * BIT_CYCLES;
+   localparam integer RESET_COUNT_WIDTH = log2(RESET_CYCLES);
 
-   reg [CLOCK_DIV_WIDTH-1:0]             clock_div;
-   reg [RESET_COUNTER_WIDTH-1:0]         reset_counter;
+   localparam [2:0] RESET     = 3'd0;
+   localparam [2:0] LOAD_LED  = 3'd1;
+   localparam [2:0] START_BIT = 3'd2;
+   localparam [2:0] SEND_BIT  = 3'd3;
+   localparam [2:0] NEXT_BIT  = 3'd4;
 
-   localparam STATE_RESET    = 3'd0;
-   localparam STATE_LATCH    = 3'd1;
-   localparam STATE_PRE      = 3'd2;
-   localparam STATE_TRANSMIT = 3'd3;
-   localparam STATE_POST     = 3'd4;
+   localparam [1:0] GREEN = 2'd0;
+   localparam [1:0] RED   = 2'd1;
+   localparam [1:0] BLUE  = 2'd2;
+
    reg [2:0] state;
-
-   localparam COLOR_G = 2'd0;
-   localparam COLOR_R = 2'd1;
-   localparam COLOR_B = 2'd2;
    reg [1:0] color;
+   reg [2:0] bit_index;
+   reg [7:0] shift_reg;
    reg [7:0] red;
-   reg [7:0] green;
    reg [7:0] blue;
-   reg [7:0] current_byte;
-   reg [2:0] current_bit;
+   reg [BIT_COUNTER_WIDTH-1:0] bit_counter;
+   reg [RESET_COUNT_WIDTH-1:0] reset_counter;
 
-   wire reset_almost_done;
-   wire led_almost_done;
-
-   assign reset_almost_done = (state == STATE_RESET) &&
-                              (reset_counter == RESET_COUNT-1);
-   assign led_almost_done = (state == STATE_POST) &&
-                            (color == COLOR_B) &&
-                            (current_bit == 0) && (address != 0);
-   assign data_request = reset_almost_done || led_almost_done;
-   assign new_address = (state == STATE_PRE) && (current_bit == 7);
+   assign data_request = ((state == RESET) &&
+                          (reset_counter == RESET_CYCLES - 1)) ||
+                         ((state == NEXT_BIT) && (color == BLUE) &&
+                          (bit_index == 0) && (address != 0));
+   assign new_address = (state == START_BIT) && (bit_index == 7);
 
    initial begin
       address <= 0;
-      state <= STATE_RESET;
+      state <= RESET;
       DO <= 0;
       reset_counter <= 0;
-      color <= COLOR_G;
-      current_bit <= 7;
+      color <= GREEN;
+      bit_index <= 7;
    end
 
    always @(posedge clk) begin
       case (state)
-        STATE_RESET: begin
+        RESET: begin
            DO <= 0;
-           if (reset_counter == RESET_COUNT-1) begin
+           if (reset_counter == RESET_CYCLES - 1) begin
               reset_counter <= 0;
-              state <= STATE_LATCH;
+              state <= LOAD_LED;
            end else begin
               reset_counter <= reset_counter + 1'b1;
            end
         end
-        STATE_LATCH: begin
+
+        LOAD_LED: begin
            red <= red_in;
            blue <= blue_in;
            address <= address + 1'b1;
-           color <= COLOR_G;
-           current_byte <= green_in;
-           current_bit <= 7;
-           state <= STATE_PRE;
+           color <= GREEN;
+           shift_reg <= green_in;
+           bit_index <= 7;
+           state <= START_BIT;
         end
-        STATE_PRE: begin
-           clock_div <= 0;
+
+        START_BIT: begin
+           bit_counter <= 0;
            DO <= 1;
-           state <= STATE_TRANSMIT;
+           state <= SEND_BIT;
         end
-        STATE_TRANSMIT: begin
-           if ((current_byte[7] == 0) &&
-               (clock_div >= H0_CYCLE_COUNT)) begin
-              DO <= 0;
-           end else if ((current_byte[7] == 1) &&
-                        (clock_div >= H1_CYCLE_COUNT)) begin
-              DO <= 0;
-           end
-           if (clock_div == CYCLE_COUNT-1) begin
-              state <= STATE_POST;
-           end else begin
-              clock_div <= clock_div + 1'b1;
-           end
+
+        SEND_BIT: begin
+           if (bit_counter >=
+               (shift_reg[7] ? ONE_HIGH_CYCLES : ZERO_HIGH_CYCLES))
+             DO <= 0;
+
+           if (bit_counter == BIT_CYCLES - 1)
+             state <= NEXT_BIT;
+           else
+             bit_counter <= bit_counter + 1'b1;
         end
-        STATE_POST: begin
-           if (current_bit != 0) begin
-              current_byte <= {current_byte[6:0], 1'b0};
-              case (current_bit)
-                7: current_bit <= 6;
-                6: current_bit <= 5;
-                5: current_bit <= 4;
-                4: current_bit <= 3;
-                3: current_bit <= 2;
-                2: current_bit <= 1;
-                1: current_bit <= 0;
-              endcase
-              state <= STATE_PRE;
+
+        NEXT_BIT: begin
+           if (bit_index != 0) begin
+              shift_reg <= {shift_reg[6:0], 1'b0};
+              bit_index <= bit_index - 3'd1;
+              state <= START_BIT;
            end else begin
               case (color)
-                COLOR_G: begin
-                   color <= COLOR_R;
-                   current_byte <= red;
-                   current_bit <= 7;
-                   state <= STATE_PRE;
+                GREEN: begin
+                   color <= RED;
+                   shift_reg <= red;
+                   bit_index <= 7;
+                   state <= START_BIT;
                 end
-                COLOR_R: begin
-                   color <= COLOR_B;
-                   current_byte <= blue;
-                   current_bit <= 7;
-                   state <= STATE_PRE;
+                RED: begin
+                   color <= BLUE;
+                   shift_reg <= blue;
+                   bit_index <= 7;
+                   state <= START_BIT;
                 end
-                COLOR_B: begin
+                BLUE: begin
                    if (address == 0)
-                     state <= STATE_RESET;
+                     state <= RESET;
                    else
-                     state <= STATE_LATCH;
+                     state <= LOAD_LED;
                 end
               endcase
            end
