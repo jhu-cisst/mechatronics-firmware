@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2024-2026 Johns Hopkins University.
+ * Copyright(C) 2024 Johns Hopkins University.
  *
  * Module: EthSwitch
  *
@@ -92,7 +92,6 @@ module EthSwitch
     input wire[15:0] bcBoardMask,  // Broadcast read board mask
     output wire isHub,          // Whether this switch directly connected to host PC
     output wire isBcHub,        // Whether this board should be the broadcast read hub
-    input wire[1:0] upstream_port,  // Port that leads to host (PC or Zynq), for broadcast read
 
     // For external monitoring
     input wire sysclk,
@@ -520,8 +519,6 @@ for (in = 0; in < 4; in = in+1) begin : fifo_loop_in
   wire isMulticastFpga;    // 1 -> multicast packet to RT (raw Ethernet or UDP multicast)
   assign isMulticastFpga = ((DestMac[in][47:24] == `LCSR_CID_MULTICAST) && (DestMac[in][7:0] == 8'hff)) ||
                             (isMulticastUdp && (DestMac[in][23:0] == UdpMulticastFpga[23:0])) ? 1'b1 : 1'b0;
-  wire isMulticastFpgaUpstream;
-  assign isMulticastFpgaUpstream = ((DestMac[in][47:24] == `LCSR_CID_MULTICAST) && (DestMac[in][7:0] == 8'hf0)) ? 1'b1 : 1'b0;
   wire isLcsr;             // 1 -> destination MAC address is for LCSR (PS or RT), including raw Ethernet multicast
   assign isLcsr = ((DestMac[in][47:24]&(~`MULTICAST_BIT)) == `LCSR_CID) ? 1'b1 : 1'b0;
   wire isMulticastLcsr;    // 1 -> raw Ethernet multicast with destination MAC address for LCSR (RT)
@@ -549,11 +546,8 @@ for (in = 0; in < 4; in = in+1) begin : fifo_loop_in
       wire RxFwd;         // Whether to forward packet from port "in" to port "out"
       if (((out%4) == INDEX_ETH1) || ((out%4) == INDEX_ETH2)) begin
           wire isFpgaMatch;
-          wire  isUpstreamPort;
-          assign isUpstreamPort = ((out%4) == upstream_port) ? 1'b1 : 1'b0;
           assign isFpgaMatch = ((isLcsr & PortForwardFpgaAction[DestMac[in][3:0]][out%4]) |
-                                isMulticastLcsr | isMulticastFpga |
-                                (isMulticastFpgaUpstream & isUpstreamPort)) ? 1'b1 : 1'b0;
+                                isMulticastLcsr | isMulticastFpga) ? 1'b1 : 1'b0;
           wire  isNoMatch;
           assign isNoMatch = isNoPrimaryMatch & (~isFpgaMatch);
           // For ETH1 and ETH2, we forward all broadcast packets, all UDP multicast packets,
@@ -567,15 +561,13 @@ for (in = 0; in < 4; in = in+1) begin : fifo_loop_in
           // For PS, we forward all broadcast packets, any UDP multicast packets that are
           // not for RT (~isMulticastFpga), and packets that match the primary MAC address
           // (we do not need to check isLcsr because the primary MAC address covers that).
-          // Do not need to check isMulticastFpgaUpstream because it is not a UDP packet.
           assign RxFwd = RxValid_Int[in] & PortActive[out%4] &
                          (isBroadcast|(isMulticastUdp&(~isMulticastFpga))|isPrimaryMatch);
       end
       else if ((out%4) == INDEX_RT) begin
           // For RT, we forward all broadcast packets, any raw or UDP multicast packets for RT (isMulticastFpga),
-          // any raw multicast upstream packet (isMulticastFpgaUpstream) if this is the broadcast hub FPGA,
           // and packets that match the primary MAC address (which covers isLcsr).
-          assign RxFwd = RxValid_Int[in] & PortActive[out%4] & (isBroadcast|isMulticastFpga|isPrimaryMatch|(isMulticastFpgaUpstream&isBcHub));
+          assign RxFwd = RxValid_Int[in] & PortActive[out%4] & (isBroadcast|isMulticastFpga|isPrimaryMatch);
       end
 
       // fifo_overflow indicates that we could not write due to a full FIFO; once that has happened, there
