@@ -3,9 +3,9 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2011-2024 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2011-2026 Johns Hopkins University.
  *
- * This module contains common code for the QLA and used with all FPGA versions
+ * This module contains common code for the DRAC
  *
  * Revision history
  *     1/1/23    Keshuai Xu   Initial version adapted from QLA.v
@@ -28,8 +28,11 @@ module DRAC(
     inout[1:38]      IO2,
     inout wire[3:0]  io_extra,
 
+    // Number of real-time block read quadlets
+    output wire[6:0] num_rt_read_quads,
+
     // Read/Write bus
-    input wire[15:0]  reg_raddr,
+    input wire[15:0]  host_reg_raddr,
     input wire[15:0]  reg_waddr,
     output reg[31:0]  reg_rdata,
     input wire[31:0]  reg_wdata,
@@ -37,8 +40,8 @@ module DRAC(
     input wire reg_wen,
     input wire blk_wen,
     input wire blk_wstart,
-    input wire sample_start,        // now req_blk_rt_rd
-    input wire sample_read,         // now called blk_rt_rd
+    input wire req_blk_rt_rd,
+    input wire blk_rt_rd,
 
     // Timestamp
     output wire[31:0] timestamp,
@@ -55,7 +58,8 @@ module DRAC(
 
 // outputs
 wire MV_EN;
-wire EXTRA_IO;
+wire suj_brake_release_n;
+wire dsib_si_uart_tx;
 wire FRONT_PANEL_LED;
 wire ESPMV_EN;
 wire RELAY_EN;
@@ -82,7 +86,7 @@ wire[1:10] ADC_CUR_SDO;
 // wire MOSI_EEPROM = IO1[2];
 // wire SCLK_EEPROM = IO1[3];
 // wire CS_EEPROM = IO1[4];
-assign IO1[5] = EXTRA_IO;
+assign IO1[5] = 1'bz; // spare IO on P6
 assign IO1[6] = FRONT_PANEL_LED;
 assign ADC_CUR_SDO[6] = IO1[7];
 assign IO1[8] = PWM_P[6];
@@ -179,9 +183,93 @@ assign IO2[35] = 1'bz;
 assign IO2[37] = 1'bz;
 assign IO2[38] = 1'bz;
 assign io_extra[0] = 1'bz; // safety chain S sense
-assign io_extra[1] = EXTRA_IO; // dSIB RX
-assign io_extra[2] = 1'bz; // dSIB TX
-assign io_extra[3] = 1'bz; // dSIB INT
+assign io_extra[1] = dsib_si_uart_tx; // dSIB-Si UART TX
+assign io_extra[2] = 1'bz; // dSIB-Si UART RX
+assign io_extra[3] = suj_brake_release_n;
+
+// Number of motors and encoders
+localparam NUM_MOTORS = 10;
+localparam NUM_ENCODERS = 7;
+localparam[6:0] NUM_EXTRA = 5;
+
+localparam[6:0] NUM_RT_READ_QUADS = 4 + 2*NUM_MOTORS + 5*NUM_ENCODERS;
+
+assign num_rt_read_quads = has_suj_pots ? (NUM_RT_READ_QUADS + NUM_EXTRA) : NUM_RT_READ_QUADS;
+
+//*********************** Read Address Translation *******************************
+//
+// Read bus address translation (to support real-time block read).
+
+wire[15:0] reg_raddr;
+
+ReadAddressTranslation
+    #(.NUM_MOTORS(NUM_MOTORS), .NUM_ENCODERS(NUM_ENCODERS), .NUM_EXTRA(NUM_EXTRA))
+ReadAddr(
+    .reg_raddr_in(host_reg_raddr),
+    .reg_raddr_out(reg_raddr),
+    .blk_rt_rd(blk_rt_rd)
+);
+
+// --------------------------------------------------------------------------
+// dSIB-Si UART
+// --------------------------------------------------------------------------
+
+wire dsib_si_uart_rx = io_extra[2];
+wire[7:0] dsib_si_uart_rx_data;
+wire dsib_si_uart_rx_valid;
+wire dsib_si_uart_rx_ready = 1'b1;
+wire dsib_si_uart_tx_ready;
+
+dsib_si_uart dsib_si_uart_inst
+(
+    .clk(sysclk),
+    .rx_pin(dsib_si_uart_rx),
+    .rx_data(dsib_si_uart_rx_data),
+    .rx_data_valid(dsib_si_uart_rx_valid),
+    .rx_data_ready(dsib_si_uart_rx_ready),
+    .tx_data(8'd0),
+    .tx_data_valid(1'b0),
+    .tx_data_ready(dsib_si_uart_tx_ready),
+    .tx_pin(dsib_si_uart_tx)
+);
+
+reg dsib_si_present = 1'b0;
+wire[3:0] suj_z_id;
+wire dsib_z_si_present;
+wire[11:0] suj_z_pot1;
+wire[11:0] suj_z_pot2;
+wire dsib_packet_accept;
+
+dsib_si_parser dsib_si_parser_inst
+(
+    .clk(sysclk),
+    .rx_data(dsib_si_uart_rx_data),
+    .rx_data_valid(dsib_si_uart_rx_valid),
+    .packet_valid(dsib_packet_accept),
+    .suj_z_id(suj_z_id),
+    .dsib_z_si_present(dsib_z_si_present),
+    .suj_z_pot1(suj_z_pot1),
+    .suj_z_pot2(suj_z_pot2)
+);
+
+// dsib_si_present is detected by at least one valid dSIB-Si RX packet received in a 100 ms window.
+localparam[22:0] DSIB_PRESENT_WINDOW_LAST = 23'd4915199; // 100 ms at 49.152 MHz
+
+reg[22:0] dsib_present_window_count = 23'd0;
+reg[15:0] dsib_present_packet_count = 16'd0;
+
+always @(posedge sysclk) begin
+    if (dsib_present_window_count == DSIB_PRESENT_WINDOW_LAST) begin
+        dsib_present_window_count <= 23'd0;
+        dsib_si_present <= (dsib_present_packet_count != 16'd0) || dsib_packet_accept;
+        dsib_present_packet_count <= 16'd0;
+    end else begin
+        dsib_present_window_count <= dsib_present_window_count + 23'd1;
+        if (dsib_packet_accept && (dsib_present_packet_count != 16'hffff)) begin
+            dsib_present_packet_count <= dsib_present_packet_count + 16'd1;
+        end
+    end
+end
 
 // --------------------------------------------------------------------------
 // rdata mux
@@ -241,11 +329,15 @@ PwmAdcTiming PwmAdcTiming_instance
 // Motor channels
 // --------------------------------------------------------------------------
 
-wire[15:0] cur_fb[1:10]; // current feedback at raw rate, used by control loop
-wire[15:0] cur_fb_filtered[1:10]; // current feedback after filtering, used for PC read
+// Both current-feedback variants are staged into sysclk in MotorChannelDRAC
+// before reaching the register mux. The PWM-local raw sample remains private to
+// the motor-control loop.
+wire[15:0] cur_fb[1:10];
+wire[15:0] cur_fb_filtered[1:10];
+wire cur_fb_raw;         // 1 -> send cur_fb (instead of cur_fb_filtered) to PC
 wire [15:0] pot_data;
 
-wire[15:0] cur_cmd_fb[1:10]; // current setpoint
+wire[31:0] motor_cmd[1:10];  // Motor Command from PC
 
 // reg_rdata_motor_control_channel[i] for each channel are driven as zeros when the channel is not selected. So you can or them together.
 wire [31:0] reg_rdata_motor_control_channel [1:10];
@@ -286,10 +378,9 @@ generate
             .reg_rdata(reg_rdata_motor_control_channel[k]),
             .cur_fb(cur_fb[k]),
             .cur_fb_filtered(cur_fb_filtered[k]),
-            .cur_cmd_fb(cur_cmd_fb[k]),
+            .motor_cmd(motor_cmd[k]),
             .adc_sck(adc_sck),
             .adc_sdo(ADC_CUR_SDO[k]),
-            .adc_cnv(CONV_ADC),
             .adc_data_ready(adc_data_ready),
             .feedback_calculation_start(feedback_calculation_start),
             .otw_n(OTWn[channel_to_motor_driver[k]]),
@@ -340,13 +431,17 @@ PowerControl #(.NUM_INTERLOCKS(5)) PowerControl_instance
 // BoardRegs
 // --------------------------------------------------------------------------
 
-wire[31:0] reg_status;    // Status register
+wire mv_amp_disable;
+
 wire[31:0] reg_digin;     // Digital I/O register
-wire[15:0] tempsense;     // Temperature sensor
+// This board has no temperature-sensor source. XST previously tied the
+// undriven net low; make that implemented behavior explicit.
+wire[15:0] tempsense = 16'd0;
 wire[15:0] reg_databuf;   // Data collection status
 wire is_ecm;
+wire has_suj_pots;
 
-wire[11:0] reg_status12 = {8'b0, preload_good, ESPMV_GOOD, esii_escc_comm_good, espm_comm_good};
+wire[3:0] reg_status4 = {preload_good, ESPMV_GOOD, esii_escc_comm_good, espm_comm_good};
 BoardRegsDRAC chan0(
     .sysclk(sysclk),
     .pwr_enable(MV_EN),
@@ -358,14 +453,18 @@ BoardRegsDRAC chan0(
     .board_id(board_id),
     .temp_sense({(blk_rt_rd ? reg_databuf : 16'd0), tempsense}),
     .is_ecm(is_ecm),
-    .reg_status12(reg_status12),
+    .has_suj_pots(has_suj_pots),
+    .dsib_si_present(dsib_si_present),
+    .dsib_z_si_present(dsib_z_si_present),
+    .essj_present(suj_essj_status[0]),
+    .cur_fb_raw(cur_fb_raw),
+    .reg_status4(reg_status4),
     .reg_raddr(reg_raddr),
     .reg_waddr(reg_waddr),
     .reg_rdata(reg_rdata_chan0),
     .reg_rwait(reg_rwait_chan0),
     .reg_wdata(reg_wdata),
     .reg_wen(reg_wen),
-    .reg_status(reg_status),
     .reg_digin(reg_digin),
     .wdog_timeout(wdog_timeout)
 );
@@ -380,14 +479,14 @@ wire crc_good_espm_sysclk;
 reg [31:0] timestamp_espmcomm;
 reg [31:0] timestamp_espmcomm_counter;
 reg espm_bram_update_inhibit;
-reg sample_read_delay;
-wire sample_read_falling_edge = sample_read_delay & ~sample_read;
+reg blk_rt_rd_delay;
+wire blk_rt_rd_falling_edge = blk_rt_rd_delay & ~blk_rt_rd;
 
 always @(posedge sysclk) begin
     timestamp_espmcomm_counter <= timestamp_espmcomm_counter + 'b1;
-    sample_read_delay <= sample_read;
-    if (sample_start) espm_bram_update_inhibit <= 'b1;
-    if (sample_read_falling_edge) espm_bram_update_inhibit <= 'b0;
+    blk_rt_rd_delay <= blk_rt_rd;
+    if (req_blk_rt_rd) espm_bram_update_inhibit <= 'b1;
+    if (blk_rt_rd_falling_edge) espm_bram_update_inhibit <= 'b0;
 end
 
 assign timestamp = timestamp_espmcomm;
@@ -411,7 +510,8 @@ DataBuffer data_buffer(
     .chan(data_channel),
     // cpu interface
     .reg_waddr(reg_waddr),          // write address
-    .reg_wdata(reg_wdata),          // write data
+    .collect_bit(reg_wdata[30]),    // collect bit
+    .reg_wdata(reg_wdata[15:0]),    // write data
     .reg_wen(reg_wen),              // write enable
     .reg_raddr(reg_raddr),          // read address
     .reg_rdata(reg_rdata_databuf),  // read data
@@ -442,9 +542,9 @@ assign reg_digin = rdata_misc[1]; // buttons
 // Sends the content of espm_tx_ram to the ESPM all the time.
 // Except quadlet 'h10, which is for detecting loss of encoder preload due to ESPM reset.
 
-reg sysclk_div2;
+(* KEEP = "TRUE", EQUIVALENT_REGISTER_REMOVAL = "NO" *)
+reg sysclk_div2 = 1'b0;
 assign lvds_tx_clk = sysclk_div2;
-reg lvds_tx_clk_en = 'b1;
 wire [9:0] espm_tx_tdata_sel;
 reg [31:0] espm_tx_tdata;
 wire espm_tx_pkt_start;
@@ -497,13 +597,13 @@ end
 wire [31:0] rdata_espm;
 wire  [9:0] rdata_sel_espm;
 wire        load_rdata_espm;
-wire        framed_espm;   // Not used
 wire        crc_good_espm;
 wire        eof_espm;
-reg  [31:0] crc_err_count;
-reg  [31:0] crc_good_count;
+reg  [31:0] crc_err_count = 32'd0;
+reg  [31:0] crc_good_count = 32'd0;
 reg  [9:0] crc_good_count_prev = 'b1;
-wire [1:0] dvrk_rx_cfsm;
+wire crc_err_espm = eof_espm && !crc_good_espm;
+wire crc_err_espm_sysclk;
 
 
 reg espm_comm_wdt_fault;
@@ -511,18 +611,11 @@ assign espm_comm_good = ~espm_comm_wdt_fault;
 reg [18:0] espm_comm_wdt_clkdiv;
 always @(posedge sysclk) begin
     espm_comm_wdt_clkdiv = espm_comm_wdt_clkdiv + 19'd1;
+    if (crc_good_espm_sysclk) crc_good_count <= crc_good_count + 32'd1;
+    if (crc_err_espm_sysclk) crc_err_count <= crc_err_count + 32'd1;
     if (espm_comm_wdt_clkdiv == 'd0) begin // 10 ms
         crc_good_count_prev <= crc_good_count[9:0];
         espm_comm_wdt_fault <= crc_good_count[9:0] == crc_good_count_prev;
-    end
-end
-
-always @(posedge LVDS_RCLK) begin
-    if (crc_good_espm) begin
-        crc_good_count <= crc_good_count + 'd1;
-    end
-    if (eof_espm && !crc_good_espm) begin
-        crc_err_count <= crc_err_count + 'd1;
     end
 end
 
@@ -535,7 +628,6 @@ ESPMRX espm_rx(
     .rdata(rdata_espm),
     .load_rdata(load_rdata_espm),
     .rdata_sel(rdata_sel_espm),
-    .framed(framed_espm),
     .crc_good(crc_good_espm),
     .eof(eof_espm)
 );
@@ -550,7 +642,7 @@ always @(posedge LVDS_RCLK) begin
     if (espm_bram_pre_crc_we) espm_bram_pre_crc[espm_bram_pre_crc_waddr] <= espm_bram_pre_crc_wdata;
     if (load_rdata_espm) begin
         espm_bram_pre_crc_wdata <= rdata_espm;
-        espm_bram_pre_crc_waddr <= rdata_sel_espm;
+        espm_bram_pre_crc_waddr <= rdata_sel_espm[5:0];
         espm_bram_pre_crc_we <= 1'b1;
     end else begin
         espm_bram_pre_crc_we <= 1'b0;
@@ -563,10 +655,11 @@ reg [5:0] espm_bram_waddr;
 reg [31:0] espm_bram_wdata;
 reg [5:0] espm_bram_pre_crc_raddr;
 reg espm_bram_we;
+reg [95:0] suj_essj_adc;
+reg [1:0] suj_essj_status;
 cdc_pulse crc_good_espm_cdc (LVDS_RCLK, crc_good_espm, sysclk, crc_good_espm_sysclk);
+cdc_pulse crc_err_espm_cdc (LVDS_RCLK, crc_err_espm, sysclk, crc_err_espm_sysclk);
 reg copy_state;
-
-assign reg_rdata_espm_debug = 'd0;
 
 always @(posedge sysclk) begin
     if (espm_bram_we) begin
@@ -605,6 +698,10 @@ always @(posedge sysclk) begin
                 `ADDR_INST_MODEL: rdata_misc[4] <= espm_bram_wdata;  // instrument ID
                 `ADDR_INST_ID:    rdata_misc[5] <= espm_bram_wdata;  // instrument ID
                 `ADDR_ESPM_PRELOAD_VALID: preload_good <= espm_bram_wdata[0];
+                `ADDR_SUJ_ADC0: suj_essj_adc[31:0] <= espm_bram_wdata;
+                `ADDR_SUJ_ADC1: suj_essj_adc[63:32] <= espm_bram_wdata;
+                `ADDR_SUJ_ADC2: suj_essj_adc[95:64] <= espm_bram_wdata;
+                `ADDR_SUJ_STATUS: suj_essj_status <= espm_bram_wdata[1:0];
             endcase
         end
     endcase
@@ -637,18 +734,26 @@ end
 
 reg [4:0] preload_count;
 reg [4:0] preload_count_prev;
+wire [23:0] pos_plus_preload [1:7];
+genvar pos_i;
+generate
+for (pos_i = 1; pos_i < 8; pos_i = pos_i+1) begin : plus_loop
+    assign pos_plus_preload[pos_i] = rdata_pos[pos_i][23:0] + encoder_preload_offset[pos_i];
+end
+endgenerate
+
 integer encoder_overflow_i;
 always @(posedge sysclk)
 begin
     if (reg_wen && (reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[3:0]==`OFF_ENC_LOAD)) begin
         encoder_preload[reg_waddr[7:4]] <= reg_wdata[23:0];
-        encoder_preload_offset[reg_waddr[7:4]] <= reg_wdata[23:0] - rdata_pos[reg_waddr[7:4]];
+        encoder_preload_offset[reg_waddr[7:4]] <= reg_wdata[23:0] - rdata_pos[reg_waddr[7:4]][23:0];
         preload_count <= preload_count + 5'b1;
         encoder_overflow[reg_waddr[7:4]] <= 'b0;
     end else begin
         for (encoder_overflow_i = 1; encoder_overflow_i < 8; encoder_overflow_i = encoder_overflow_i + 1) begin
-            if ({rdata_pos[encoder_overflow_i][23:0] + encoder_preload_offset[encoder_overflow_i]}[23:12] == 'h0 ||
-             {rdata_pos[encoder_overflow_i][23:0] + encoder_preload_offset[encoder_overflow_i]}[23:12] == 'hfff) begin
+            if ((pos_plus_preload[encoder_overflow_i][23:12] == 'h0) ||
+                (pos_plus_preload[encoder_overflow_i][23:12] == 'hfff)) begin
                 encoder_overflow[encoder_overflow_i] <= 'b1;
             end
         end
@@ -659,22 +764,30 @@ end
 // MV
 // --------------------------------------------------------------------------
 
-wire [31:0] mv_adc_out;
+wire [15:0] mv_adc_out;
 reg[15:0] mv;
-integer mv_max = 36570 + 3657; // 48V + 4.8V
-integer mv_min = 36570 - 3657; // 48V - 4.8V
-assign mv_good = (mv < mv_max) && (mv > mv_min);
+reg[15:0] mv_sysclk;
+reg mv_good_pwm;
+localparam [15:0] MV_MAX = 16'd40227; // 48V + 4.8V
+localparam [15:0] MV_MIN = 16'd32913; // 48V - 4.8V
+assign mv_good = mv_good_pwm;
 AD4008 mv_adc
 (
     .sck(adc_sck),
     .sdo(ADC_MV_SDO),
-    .data_ready(adc_data_ready),
     .out(mv_adc_out)
 );
 always @(posedge pwmclk) begin
     if (adc_data_ready) begin
-        mv <= mv_adc_out[15:0];
+        mv <= mv_adc_out;
+        // Evaluate the same sample captured into mv so the power-interlock
+        // response is unchanged; only the diagnostic word crosses to sysclk.
+        mv_good_pwm <= (mv_adc_out < MV_MAX) &&
+                       (mv_adc_out > MV_MIN);
     end
+end
+always @(posedge sysclk) begin
+    mv_sysclk <= mv;
 end
 
 // --------------------------------------------------------------------------
@@ -686,13 +799,14 @@ begin
         // ADDR_BOARD_SPECIFIC 4'hB
         'h000: reg_rdata_board_specific = crc_err_count;
         'h001: reg_rdata_board_specific = crc_good_count;
-        'h002: reg_rdata_board_specific = mv;
+        'h002: reg_rdata_board_specific = mv_sysclk;
         'h004: reg_rdata_board_specific = {22'b0, OTWn, FAULTn};
         'h010: reg_rdata_board_specific = rdata_misc[2]; // esii status
         'h012: reg_rdata_board_specific = rdata_misc[4]; // instrument model
         'h013: reg_rdata_board_specific = rdata_misc[5]; // instrument version
         'h020: reg_rdata_board_specific = {reg_databuf, tempsense};      // TODO: Is this still needed?
         'h021: reg_rdata_board_specific = reg_digin;                     // TODO: Is this still needed?
+        'h030: reg_rdata_board_specific = {suj_z_id, suj_z_pot2, 2'b0, dsib_z_si_present, dsib_si_present, suj_z_pot1};
         'hfff: reg_rdata_board_specific = 'h100; // development build number
         default: reg_rdata_board_specific = 'hcccc;
     endcase
@@ -702,10 +816,38 @@ end
 // Main registers
 // --------------------------------------------------------------------------
 
+// SUJ real-time register map:
+// suj_pots[1]: [31] z_valid [30] dsib_z_si_present [29] dsib_si_present [28] reserved (0),
+//              [27:16] z_pot2,
+//              [15:12] suj_z_id,
+//              [ 11:0] z_pot1
+// suj_pots[N]: [31] r_valid [30] adc_valid [29] essj_present [28] reserved (0)
+// (N=2..5)     [27:16] rotN_pot2,
+//              [15:12] reserved (0000),
+//              [ 11:0] rotN_pot1
+
+wire suj_z_valid;   // SUJ Z axis pot data valid (from dSIB-Z-Si to dSIB-Si to FPGA via UART)
+wire suj_r_valid;   // SUJ rotary axis pot data valid (from ESSJ to FPGA via LVDS)
+assign suj_z_valid = dsib_si_present & dsib_z_si_present;
+assign suj_r_valid = suj_essj_status[0] & suj_essj_status[1];
+
+wire[31:0] suj_pots[1:NUM_EXTRA];
+assign suj_pots[1] = {suj_z_valid, dsib_z_si_present, dsib_si_present, 1'b0, suj_z_pot2,
+                      suj_z_id, suj_z_pot1};
+assign suj_pots[2] = {suj_r_valid, suj_essj_status, 1'b0, suj_essj_adc[59:48],
+                      4'b0, suj_essj_adc[11:0]};
+assign suj_pots[3] = {suj_r_valid, suj_essj_status, 1'b0, suj_essj_adc[71:60],
+                      4'b0, suj_essj_adc[23:12]};
+assign suj_pots[4] = {suj_r_valid, suj_essj_status, 1'b0, suj_essj_adc[83:72],
+                      4'b0, suj_essj_adc[35:24]};
+assign suj_pots[5] = {suj_r_valid, suj_essj_status, 1'b0, suj_essj_adc[95:84],
+                      4'b0, suj_essj_adc[47:36]};
+
 always @(*) begin
     case (reg_raddr[3:0])
-        `OFF_ADC_DATA: reg_rdata_main = {pot_data, cur_fb_filtered[reg_raddr[7:4]]};
-        `OFF_DAC_CTRL: reg_rdata_main = {16'h0000, cur_cmd_fb[reg_raddr[7:4]]};
+        `OFF_ADC_DATA: reg_rdata_main = {pot_data, cur_fb_raw ? cur_fb[reg_raddr[7:4]] : cur_fb_filtered[reg_raddr[7:4]]};
+        `OFF_MOTOR_CTRL: reg_rdata_main = motor_cmd[reg_raddr[7:4]];
+        `OFF_EXTRA_DATA: reg_rdata_main = suj_pots[reg_raddr[7:4]];
         `OFF_ENC_LOAD: reg_rdata_main = encoder_preload[reg_raddr[7:4]];
         `OFF_ENC_DATA: reg_rdata_main = {7'b0, encoder_overflow[reg_raddr[7:4]], rdata_pos[reg_raddr[7:4]][23:0] + encoder_preload_offset[reg_raddr[7:4]]};
         `OFF_PER_DATA: reg_rdata_main = espm_bram_rdata;
@@ -723,11 +865,11 @@ always @(*) begin
     endcase
 end
 
-reg extra_io_reg = 1'bz;
-assign EXTRA_IO = extra_io_reg;
+reg suj_brake_release_n_reg = 1'bz;
+assign suj_brake_release_n = suj_brake_release_n_reg;
 always @(posedge sysclk) begin
     if (reg_wen && (reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[7:4] == 4'd0) & (reg_waddr[3:0] == `REG_DIGIOUT)) begin
-        if (reg_wdata[8]) extra_io_reg <= reg_wdata[0] ? 1'bz : 1'b0;
+        if (reg_wdata[8]) suj_brake_release_n_reg <= reg_wdata[0] ? 1'bz : 1'b0;
     end
 end
 
@@ -741,8 +883,8 @@ reg blink_0_5hz;
 reg [25:0] blink_counter;
 reg blink_ovf;
 always @(posedge sysclk) begin
-    blink_counter <= blink_counter + 'd1;
-    blink_ovf <= blink_counter == 'd49_152_000 - 'd1;
+    blink_counter <= blink_counter + 26'd1;
+    blink_ovf <= blink_counter == 26'd49_152_000 - 26'd1;
     if (blink_ovf) begin
         blink_counter <= 'd0;
         blink_0_5hz <= ~blink_0_5hz;
@@ -752,71 +894,71 @@ end
 reg [7:0] led_red;
 reg [7:0] led_green;
 reg [7:0] led_blue;
-wire [3:0] led_address;
+wire [2:0] led_address;
 
 always @(posedge sysclk) begin
     case (led_address)
         'd1: begin // fpga prog ok
-            led_red <= 'd0;
-            led_green <= blink_0_5hz ? 'd50 : 'd8;
-            led_blue <= 'd0;
+            led_red <= 8'd0;
+            led_green <= blink_0_5hz ? 8'd50 : 8'd8;
+            led_blue <= 8'd0;
         end
         'd3: begin // ESPM comm
             if (espm_comm_good) begin
-                led_red <= esii_escc_comm_good ? 'd0 : 'd90;
-                led_green <= 'd50;
-                led_blue <= 'd0;
+                led_red <= esii_escc_comm_good ? 8'd0 : 8'd90;
+                led_green <= 8'd50;
+                led_blue <= 8'd0;
             end else begin
-                led_red <= 'd0;
-                led_green <= 'd0;
-                led_blue <= 'd0;
+                led_red <= 8'd0;
+                led_green <= 8'd0;
+                led_blue <= 8'd0;
             end
         end
         'd4: begin // eth/fw
-            led_red <= 'd0;
-            led_green <= 'd0;
-            led_blue <= 'd0;
+            led_red <= 8'd0;
+            led_green <= 8'd0;
+            led_blue <= 8'd0;
         end
         'd5: begin // 48v
             if (MV_EN && !SAFETY_CHAIN_GOOD) begin
-                led_red <= 'd60;
-                led_green <= 'd0;
-                led_blue <= 'd0;
+                led_red <= 8'd60;
+                led_green <= 8'd0;
+                led_blue <= 8'd0;
             end
             else if (MV_EN && !mv_good) begin
-                led_red <= blink_0_5hz ? 'd60 : 'd0;
-                led_green <= 'd0;
-                led_blue <= 'd0;
+                led_red <= blink_0_5hz ? 8'd60 : 8'd0;
+                led_green <= 8'd0;
+                led_blue <= 8'd0;
             end
             else begin
-                led_red <= 'd0;
-                led_green <= MV_EN? 'd50 : 'd0;
-                led_blue <= 'd0;
+                led_red <= 8'd0;
+                led_green <= MV_EN ? 8'd50 : 8'd0;
+                led_blue <= 8'd0;
             end
         end
         'd6: begin // motor driver
             if (|motor_channel_fault) begin
-                led_red <= 'd60;
-                led_green <= 'd0;
-                led_blue <= 'd0;
+                led_red <= 8'd60;
+                led_green <= 8'd0;
+                led_blue <= 8'd0;
             end else if (|(motor_channel_enable_requested ^ RESETn)) begin
-                led_red <= blink_0_5hz ? 'd60 : 'd0;
-                led_green <= 'd0;
-                led_blue <= 'd0;
+                led_red <= blink_0_5hz ? 8'd60 : 8'd0;
+                led_green <= 8'd0;
+                led_blue <= 8'd0;
             end else if (|RESETn) begin
-                led_red <= 'd0;
-                led_green <= 'd100;
-                led_blue <= 'd20;
+                led_red <= 8'd0;
+                led_green <= 8'd100;
+                led_blue <= 8'd20;
             end else begin
-                led_red <= 'd0;
-                led_green <= 'd0;
-                led_blue <= 'd0;
+                led_red <= 8'd0;
+                led_green <= 8'd0;
+                led_blue <= 8'd0;
             end
         end
         default: begin // 0, 2, unused
-            led_red <= 'd0;
-            led_green <= 'd0;
-            led_blue <= 'd0;
+            led_red <= 8'd0;
+            led_green <= 8'd0;
+            led_blue <= 8'd0;
         end
     endcase
 end
@@ -836,6 +978,8 @@ ws2811 #(.NUM_LEDS(7),.SYSTEM_CLOCK(49_152_000)) ws2811_instance (
 //    - TEMP version, interface subject to future change
 // --------------------------------------------------------------------------
 
+wire qla_prom_mosi;
+wire qla_prom_sclk;
 assign IO1[2] = qla_prom_mosi;
 assign IO1[3] = qla_prom_sclk;
 wire qla_prom_busy;
@@ -852,6 +996,8 @@ QLA25AA128 prom_qla(
     .reg_wen(reg_wen),
     .blk_wen(blk_wen),
     .blk_wstart(blk_wstart),
+
+    .cs_wait(1'b0),          // no additional wait
 
     // spi interface
     .prom_mosi(qla_prom_mosi),

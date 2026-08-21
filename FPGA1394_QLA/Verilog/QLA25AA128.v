@@ -7,11 +7,10 @@
  *
  * Module: QLA25AA128
  *
- * Purpose: Program the 25AA138 PROM on QLA board
+ * Purpose: Program the 25AA128 PROM on companion board (QLA or other)
  * 
  * NOTE: 
- *   - only supports byte read/write 
- *   - block read/write may be supported base on
+ *   - supports byte read/write and block read/write
  *   - 25AA128 address space (16-bit)
  *     - bit 15:12 == `ADDR_PROM_QLA 
  *     - bit 11:8 == 0: byte wise operation
@@ -22,16 +21,16 @@
  *         - since 1 page is 64 bytes, we only support 64 bytes read/write (16 quadlets)
  *         - 0x3100 to 0x310F  
  *     - bit 7:4 == channel
- *         - 0 for QLA
+ *         - 0 for QLA or DRAC
  *         - 1 for QLA #1 on DQLA
  *         - 2 for QLA #2 on DQLA
- *     - bit 3:0 == register number
+ *     - bit 3:0 == register number (or address for block read/write)
  *         - 0 for Command (write only)
  *         - 1 for Status (read only)
  *         - 2 for Result (read only)
  *   - Clock
- *     - 25AA128 Max 10 Mhz
- *     - sysclk 49.125 Mhz / 8 
+ *     - 25AA128 Max 10 MHz
+ *     - sysclk 49.152 MHz / 16  (~3 MHz)
  * 
  * Revision history
  *     12/31/12    Peter Kazanzides    Initial revision from M25P16
@@ -39,14 +38,10 @@
  */
 
 
-// ---------------------------------------------------
-// 25AA128 PROM SPI Command (Datasheet P7 Table 2-1)
-// 
-
 `include "Constants.v"
 
 // ---------------------------------------------------
-// 25AA128 PROM SPI Command (Datasheet P7 Table 2-1)
+// 25AA128 PROM SPI Commands
 // 
 `define CMD_READ_25AA128   8'h03    // Read
 `define CMD_WRIT_25AA128   8'h02    // Write
@@ -54,7 +49,10 @@
 `define CMD_WREN_25AA128   8'h06    // Write Enable
 `define CMD_RDSR_25AA128   8'h05    // Read STATUS register
 `define CMD_WRSR_25AA128   8'h01    // Write STATUS register
-`define CMD_RBLK_25AA128   8'hFE    // Read Block 
+// Following commands are not provided by 25AA128, but are handled
+// by the firmware. For example, Read Block calls Read and
+// Write Block calls Write.
+`define CMD_RBLK_25AA128   8'hFE    // Read Block
 `define CMD_WBLK_25AA128   8'hFF    // Write Block 
 `define CMD_IDLE_25AA128   8'h00    // IDLE N/A cmd 
 
@@ -71,8 +69,10 @@ module QLA25AA128(
     output reg[31:0]  reg_rdata,   // register read data
     input  wire[31:0] reg_wdata,   // register write data 
     input  wire reg_wen,           // reg write enable
-    input  wire blk_wen,           // block write enable
-    input  wire blk_wstart,        // block write start
+    input  wire blk_wen,           // block write enable (not used)
+    input  wire blk_wstart,        // block write start (not used)
+
+    input  wire cs_wait,           // 1 -> extra wait after /CS asserted
 
     // spi pins
     output prom_mosi,              // Serial out to 25AA128
@@ -89,17 +89,19 @@ initial prom_cs = 1'bz;
 localparam [2:0]
     ST_IDLE = 0,
     ST_CHIP_SELECT = 1,
-    ST_WRITE = 2,
-    ST_WRITE_BLOCK = 3,
-    ST_READ = 4,
-    ST_CHIP_DESELECT = 5,
-    ST_IO_DISABLE = 6;
+    ST_CS_WAIT = 2,
+    ST_WRITE = 3,
+    ST_WRITE_BLOCK = 4,
+    ST_READ = 5,
+    ST_CHIP_DESELECT = 6,
+    ST_IO_DISABLE = 7;
 
 reg       io_disabled;
 initial   io_disabled = 1'b1;
 reg[2:0]  state;
 initial   state = ST_IDLE;
 reg[8:0]  seqn;            // 9-bit counter for sequencing operation (clock)
+reg[6:0]  wait_cnt;        // 7-bit counter for wait
 reg[8:0]  SendCnt;         // (2*NumBits)*8-1
 reg[8:0]  RecvCnt;         // (2*NumBits)*8-1 (0 if no bits to receive)
 reg[3:0]  RecvQuadCnt;     // Number of quadlets to read, minus 1
@@ -133,7 +135,7 @@ assign prom_status[3] = blk_wrt;
 assign prom_status[2:0] = state;
 
 assign prom_mosi = prom_data[31];
-assign prom_sclk = seqn[3];    // sysclk/8
+assign prom_sclk = seqn[3];    // sysclk/16
 
 assign this_busy = ~io_disabled;
 
@@ -176,6 +178,7 @@ begin
 
       if (prom_reg_wen) begin
         seqn <= 9'd0;
+        wait_cnt <= 7'd0;
         blk_wrt <= 1'b0;
         wr_index <= 5'd0;
         rd_index <= 5'd0;
@@ -216,7 +219,7 @@ begin
            end
            `CMD_READ_25AA128: begin    // Read Data (64 bytes)
               SendCnt <= 9'd383;       // 1-byte cmd + 2-byte addr
-              RecvCnt <= 9'd127;       // 1-bype data
+              RecvCnt <= 9'd127;       // 1-byte data
               RecvQuadCnt <= 4'd0;
               WriteQuadCnt <= 5'd0;
               prom_data <= reg_wdata;
@@ -259,7 +262,19 @@ begin
        io_disabled <= other_busy;
        prom_cs     <= other_busy;
        prom_result <= 32'd0;
-       state <= other_busy ? ST_CHIP_SELECT : ST_WRITE;
+       // 25AA128 requires 100 ns between /CS asserted and SCLK rising edge.
+       // Going direct to ST_WRITE will give 180 ns (8 sysclks).
+       // The MFG TEST board requires 1.25 us, so in that case cs_wait is
+       // asserted and we instead go to ST_CS_WAIT.
+       state <= other_busy ? ST_CHIP_SELECT :
+                cs_wait ? ST_CS_WAIT : ST_WRITE;
+    end
+
+    ST_CS_WAIT: begin
+       // Wait for 64+32 counts (1.95 us)
+       wait_cnt <= wait_cnt + 7'd1;
+       if (wait_cnt[6] & wait_cnt[5])
+          state <= ST_WRITE;
     end
 
     ST_WRITE: begin
@@ -312,33 +327,5 @@ begin
 
     endcase // case (state)
 end
-
-
-//------------------------------
-// chipscope
-//------------------------------
-
-//`define USE_CHIPSCOPE
-`ifdef USE_CHIPSCOPE_QLA_PROM
-
-wire[35:0] control_prom;
-
-icon_prom icon_p(
-    .CONTROL0(control_prom)
-);
-
-wire[3:0] spi_debug;
-assign spi_debug = { prom_mosi, prom_miso, prom_sclk, prom_cs };
-
-ila_prom ila_p(
-    .CONTROL(control_prom),
-    .CLK(clk),
-    .TRIG0(spi_debug),         // 4-bit
-    .TRIG1(reg_raddr[15:0]),   // 16-bit
-    .TRIG2(reg_wdata),         // 32-bit
-    .TRIG3(prom_result)        // 32-bit
-);
-`endif
-
 
 endmodule

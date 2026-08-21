@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2011-2024 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2011-2026 ERC CISST, Johns Hopkins University.
  *
  * This module contains code for the DQLA (dual QLA) interface
  *
@@ -31,8 +31,11 @@ module DQLA(
     inout[0:33]      IO1,
     inout[0:39]      IO2,
 
+    // Number of real-time block read quadlets
+    output wire[6:0] num_rt_read_quads,
+
     // Read/Write bus
-    input wire[15:0]  reg_raddr,
+    input wire[15:0]  host_reg_raddr,
     input wire[15:0]  reg_waddr,
     output wire[31:0] reg_rdata,
     input wire[31:0]  reg_wdata,
@@ -40,6 +43,7 @@ module DQLA(
     input wire reg_wen,
     input wire blk_wen,
     input wire blk_wstart,
+    input wire blk_rt_rd,
 
     // Timestamp
     output reg[31:0] timestamp,
@@ -263,6 +267,27 @@ module DQLA(
 // hardware description
 //
 
+// Number of motors and encoders
+localparam NUM_MOTORS = 8;
+localparam NUM_ENCODERS = 8;
+
+localparam[6:0] NUM_RT_READ_QUADS = 4 + 2*NUM_MOTORS + 5*NUM_ENCODERS;
+assign num_rt_read_quads = NUM_RT_READ_QUADS;
+
+//*********************** Read Address Translation *******************************
+//
+// Read bus address translation (to support real-time block read).
+
+wire[15:0] reg_raddr;
+
+ReadAddressTranslation
+    #(.NUM_MOTORS(NUM_MOTORS), .NUM_ENCODERS(NUM_ENCODERS))
+ReadAddr(
+    .reg_raddr_in(host_reg_raddr),
+    .reg_raddr_out(reg_raddr),
+    .blk_rt_rd(blk_rt_rd)
+);
+
 wire[31:0] reg_rdata_prom_qla;   // reads from QLA prom
 wire[31:0] reg_rdata_prom_qla1;  // reads from QLA 1 prom
 wire[31:0] reg_rdata_prom_qla2;  // reads from QLA 2 prom
@@ -273,6 +298,7 @@ reg[31:0]  reg_rdata_ioexp;      // reads from MAX7317 I/O expander (QLA 1.5+)
 wire[31:0] reg_rdata_ioexp_1;    // reads from MAX7317 I/O expander (QLA 1.5+)
 wire[31:0] reg_rdata_ioexp_2;    // reads from MAX7317 I/O expander (QLA 1.5+)
 wire[31:0] reg_rdata_ioexp_3;    // reads from MAX7301 I/O expander (DQLA)
+wire[31:0] reg_rtable;
 
 assign reg_rdata_prom_qla = (reg_raddr[7:4] == 4'd1) ? reg_rdata_prom_qla1 :
                             (reg_raddr[7:4] == 4'd2) ? reg_rdata_prom_qla2 :
@@ -439,8 +465,8 @@ wire[1:8] disable_f_error;   // 1 -> output error in Max7317 I/O expander
 wire[1:8] amp_disable_error; // 1 -> output error in Max7301 I/O expander
 assign amp_disable_error = { Q1_IOP_Error[15:12], Q2_IOP_Error[15:12] };
 
-wire[15:0] cur_cmd[1:8];     // Commanded current per channel
-wire[3:0] ctrl_mode[1:8];    // Control mode per channel
+wire[31:0] motor_cmd[1:8];   // Motor Command per channel
+wire[15:0] cur_cmd[1:8];     // Commanded current (or voltage) per channel
 wire[1:8] cur_ctrl;          // 1 -> current control, 0 -> voltage control
 
 // Motor status feedback
@@ -492,12 +518,12 @@ generate
             .amp_disable_pin(amp_disable_pin[k]),
             .amp_disable_f(amp_disable_f[k]),
 
-            .cur_cmd(cur_cmd[k]),
-            .ctrl_mode(ctrl_mode[k]),
+            .motor_cmd(motor_cmd[k]),
             .cur_ctrl(cur_ctrl[k]),
 
             .cur_fb(cur_fb[k])
         );
+        assign cur_cmd[k] = motor_cmd[k][15:0];
     end
 endgenerate
 
@@ -520,7 +546,7 @@ assign reg_waddr_status = ((reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[7:4] == 
 // It would be even better to check that channel number is 1-4.
 wire reg_waddr_dac;
 assign reg_waddr_dac = ((reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[7:4] != 4'd0) &&
-                        (reg_waddr[3:0]==`OFF_DAC_CTRL)) ? 1'd1 : 1'd0;
+                        (reg_waddr[3:0]==`OFF_MOTOR_CTRL)) ? 1'd1 : 1'd0;
 
 // Following indicates whether at least one DAC has been updated (via a block write)
 // since the last write.
@@ -565,7 +591,7 @@ begin
     end
 end
 
-assign reg_rd[`OFF_DAC_CTRL] = cur_cmd[reg_raddr[7:4]];
+assign reg_rd[`OFF_MOTOR_CTRL] = motor_cmd[reg_raddr[7:4]];
 
 assign reg_rd[`OFF_MOTOR_STATUS] = motor_status[reg_raddr[7:4]];
 assign reg_rd[`OFF_MOTOR_CONFIG] = motor_config[reg_raddr[7:4]];
@@ -639,11 +665,12 @@ assign reg_rd[`OFF_RUN_DATA] = reg_run_data;     // running counter
 
 wire[31:0] reg_rdout;
 assign reg_rd[`OFF_DOUT_CTRL] = reg_rdout;
-wire[31:0] reg_rtable;
 
 // DOUT hardware configuration
-wire dout_config_valid;
-wire dout_config_bidir;
+wire Q1_dout_config_valid;
+wire Q2_dout_config_valid;
+wire Q1_dout_config_bidir;
+wire Q2_dout_config_bidir;
 wire dout_config_reset;
 wire[31:0] dout;
 wire Q1_dir12_cd;
@@ -780,6 +807,8 @@ QLA25AA128 Q1_prom_qla(
     .blk_wen(blk_wen),       // not used
     .blk_wstart(blk_wstart), // not used
 
+    .cs_wait(1'b0),          // no additional wait
+
     // spi interface
     .prom_mosi(Q1_prom_mosi),
     .prom_miso(miso1),
@@ -805,6 +834,8 @@ QLA25AA128 Q2_prom_qla(
     .reg_wen(reg_wen_prom_qla2),
     .blk_wen(blk_wen),       // not used
     .blk_wstart(blk_wstart), // not used
+
+    .cs_wait(1'b0),          // no additional wait
 
     // spi interface
     .prom_mosi(Q2_prom_mosi),
@@ -936,7 +967,7 @@ DS2505 ds_instrument(
     .clk(sysclk),
 
     // address & wen
-    .reg_raddr(reg_raddr),
+    .reg_raddr(reg_raddr[5:0]),
     .reg_waddr(reg_waddr),
     .reg_wdata(reg_wdata),
     .reg_rdata(reg_rdata_ds),
@@ -1010,7 +1041,7 @@ BoardRegsDQLA chan0(
 wire clk_12hz;
 ClkDiv divclk12(sysclk, clk_12hz); defparam divclk12.width = 22;  // 49.152 MHz / 2**22 ==> 11.71875 Hz
 
-CtrlLED Q1_led(
+CtrlLED qla_led(
     .sysclk(sysclk),
     .clk_12hz(clk_12hz),
     .wdog_period_led(wdog_period_led),
@@ -1022,16 +1053,10 @@ CtrlLED Q1_led(
     .led2_red(Q1_led2_red)
 );
 
-CtrlLED Q2_led(
-    .sysclk(sysclk),
-    .clk_12hz(clk_12hz),
-    .wdog_period_led(wdog_period_led),
-    .wdog_period_status(wdog_period_status),
-    .wdog_timeout(wdog_timeout),
-    .led1_grn(Q2_led1_grn),
-    .led1_red(Q2_led1_red),
-    .led2_grn(Q2_led2_grn),
-    .led2_red(Q2_led2_red)
-);
+// QLA 2 shows same LED pattern as QLA 1
+assign Q2_led1_grn = Q1_led1_grn;
+assign Q2_led1_red = Q1_led1_red;
+assign Q2_led2_grn = Q1_led2_grn;
+assign Q2_led2_red = Q1_led2_red;
 
 endmodule

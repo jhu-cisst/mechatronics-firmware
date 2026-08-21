@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2013-2024 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2013-2025 ERC CISST, Johns Hopkins University.
  *
  * Module: HubReg
  *
@@ -32,9 +32,9 @@ module HubReg
     output reg        write_trig,  // request to broadcast this board's info via FireWire
     input wire        write_trig_reset, // reset write_trig
     input wire        fw_idle,     // whether Firewire state machine is idle
-    output wire       updated,     // hub has been updated since last query (write to 0x1800)
-    output wire[8:0]  bc_quads,    // available data length (in quadlets)
-    output wire[15:0] board_mask_ext    // board mask (0 if this board not included)
+    output reg        updated,     // hub has been updated since last query (write to 0x1800)
+    output reg[8:0]   bc_quads,    // available data length (in quadlets)
+    output reg[15:0]  board_mask_ext    // board mask (0 if this board not included)
 );
 
 // Writing to hub register or memory
@@ -67,9 +67,6 @@ assign write_addr = ((reg_waddr[7:0] == 8'd0) && !offset_updated) ? (reg_waddr_o
 wire[8:0] num_written;
 assign num_written = reg_waddr_offset + {1'b0, block_size};
 
-// Add 1 for timing info
-assign bc_quads = num_written + 9'd1;
-
 // For timing measurements. Cleared when broadcast query command received (i.e., quadlet write to 0x1800).
 // Firmware Rev 9 increased timer from 14-bits to 16-bits
 // 16 bits measures up to 1333.3 us when sysclk is 49.152 MHz and up to 524.3 us when sysclk is 125 MHz
@@ -86,17 +83,14 @@ reg[15:0] board_mask;
 // Indicates whether board has been updated
 reg[15:0] board_updated;
 
-assign updated = (board_updated == board_mask) ? 1'b1 : 1'b0;
-
 wire[15:0] board_mask_lower;  // only boards with lower board ids
 if (USE_FW)
     assign board_mask_lower = ((16'b1 << board_id) - 16'b1) & board_mask;
 else
     assign board_mask_lower = 16'd0;
 
+wire board_selected;
 assign board_selected = board_mask[board_id];
-
-assign board_mask_ext = board_selected ? board_mask : 16'd0;
 
 wire hub_reg_raddr;
 // Hub register read address space is 0x1800 - 0x1803
@@ -114,6 +108,11 @@ assign {reg_rdata, reg_rwait} =
 always @(posedge(sysclk))
 begin
     bcTimer <=  bcTimer + 16'd1;
+    // Following three registered to improve timing
+    updated <= (board_updated == board_mask) ? 1'b1 : 1'b0;
+    board_mask_ext <= board_selected ? board_mask : 16'd0;
+    // Add 1 for timing info
+    bc_quads <= num_written + 9'd1;
     if (hub_reg_wen) begin
         sequence <= reg_wdata[31:16];
         board_mask <= reg_wdata[15:0];

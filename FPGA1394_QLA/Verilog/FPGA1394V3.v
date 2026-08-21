@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2011-2024 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2011-2026 Johns Hopkins University.
  *
  * This module contains common code for FPGA V3 and does not make any assumptions
  * about which board is connected.
@@ -15,8 +15,6 @@
 `include "Constants.v"
 
 module FPGA1394V3
-    #(parameter NUM_MOTORS = 4,
-      parameter NUM_ENCODERS = 4)
 (
     // global clock
     input wire       sysclk,
@@ -40,9 +38,9 @@ module FPGA1394V3
     // Ethernet PHYs (RTL8211F)
     output wire      E1_MDIO_C,   // eth1 MDIO clock
     output wire      E2_MDIO_C,   // eth2 MDIO clock
-    // Following two directly connected in GMII to RGMII core
-    // inout wire       E1_MDIO_D,   // eth1 MDIO data
-    // inout wire       E2_MDIO_D,   // eth2 MDIO data
+    // Following two directly connected in GMII to RGMII core (in ISE)
+    inout wire       E1_MDIO_D,   // eth1 MDIO data
+    inout wire       E2_MDIO_D,   // eth2 MDIO data
     output wire      E1_RSTn,     // eth1 PHY reset
     output wire      E2_RSTn,     // eth2 PHY reset
     input wire       E1_IRQn,     // eth1 IRQ (FPGA V3.1+)
@@ -62,11 +60,15 @@ module FPGA1394V3
     output wire      E2_TxEN,     // eth2 transmit enable
     output wire[3:0] E2_TxD,      // eth2 transmit data
 
-    // PS7 interface
-    inout[53:0]      MIO,
-    input            PS_SRSTB,
-    input            PS_CLK,
-    input            PS_PORB,
+`ifndef USE_VIVADO
+    inout wire[53:0] MIO,
+    input wire       PS_SRSTB,
+    input wire       PS_CLK,
+    input wire       PS_PORB,
+`endif
+
+    // Number of quadlets in real-time block read (not including Firewire header and CRC)
+    input wire[6:0]  num_rt_read_quads,
 
     // Read/Write bus
     output wire[15:0] reg_raddr,
@@ -90,10 +92,8 @@ module FPGA1394V3
     input  wire wdog_clear          // clear watchdog timeout (e.g., on powerup)
 );
 
-// Number of quadlets in real-time block read (not including Firewire header and CRC)
-localparam NUM_RT_READ_QUADS = (4 + 2*NUM_MOTORS + 5*NUM_ENCODERS);
 // Number of quadlets in broadcast real-time block; includes sequence number
-localparam NUM_BC_READ_QUADS = (1+NUM_RT_READ_QUADS);
+wire[6:0] num_bc_read_quads = num_rt_read_quads + 7'd1;
 
 // ETH_RT_FAST:
 //   0:   Use sysclk for Ethernet RT interface Rx/Tx
@@ -204,10 +204,9 @@ begin
     end
 end
 
-wire[15:0] host_reg_raddr;
-assign host_reg_raddr = ps_grant_read_bus  ? ps_reg_raddr  :
-                        eth_grant_read_bus ? eth_reg_raddr :
-                                             fw_reg_raddr;
+assign reg_raddr = ps_grant_read_bus  ? ps_reg_raddr  :
+                   eth_grant_read_bus ? eth_reg_raddr :
+                                        fw_reg_raddr;
 
 assign blk_rt_rd = ps_grant_read_bus ? ps_blk_rt_rd :
                    eth_grant_read_bus ? eth_blk_rt_rd :
@@ -218,20 +217,6 @@ assign blk_rt_rd = ps_grant_read_bus ? ps_blk_rt_rd :
 assign req_blk_rt_rd = (ps_grant_read_bus & ps_req_blk_rt_rd) |
                        (eth_grant_read_bus & eth_req_blk_rt_rd) |
                        fw_req_blk_rt_rd;
-
-//*********************** Read Address Translation *******************************
-//
-// Read bus address translation (to support real-time block read).
-// This could instead be instantiated in the either the FPGAV1 or QLA modules
-// (FPGAV1 module would need NUM_MOTORS and NUM_ENCODERS).
-
-ReadAddressTranslation
-    #(.NUM_MOTORS(NUM_MOTORS), .NUM_ENCODERS(NUM_ENCODERS))
-ReadAddr(
-    .reg_raddr_in(host_reg_raddr),
-    .reg_raddr_out(reg_raddr),
-    .blk_rt_rd(blk_rt_rd)
-);
 
 //***************************************************************************
 
@@ -246,13 +231,15 @@ wire[31:0] reg_rdata_vp;       // for eth memory access (low-level: VirtualPhy)
 wire[31:0] reg_rdata_esw;      // for eth memory access (EthSwitch)
 wire[31:0] reg_rdata_fw;       // for fw memory access
 wire[31:0] reg_rdata_chan0;    // for reads from board registers
+wire[31:0] reg_rdata_chan0_ext;
 
 wire reg_rwait;                // read wait state
 wire reg_rwait_chan0;
+wire reg_rwait_hub;
 wire reg_rvalid;               // reg_rdata is valid (based on reg_rwait)
 
 wire isAddrMain;
-assign isAddrMain = ((reg_raddr[15:12]==`ADDR_MAIN) && (reg_raddr[7:4]==4'd0)) ? 1'b1 : 1'b0;
+assign isAddrMain = ((!blk_rt_rd) && (reg_raddr[15:12]==`ADDR_MAIN) && (reg_raddr[7:4]==4'd0)) ? 1'b1 : 1'b0;
 
 // Mux routing read data based on read address
 //   See Constants.v for details
@@ -266,7 +253,7 @@ assign {reg_rdata, reg_rwait} =
                    ((reg_raddr[15:12]==`ADDR_HUB) ? {reg_rdata_hub, reg_rwait_hub} :
                     (reg_raddr[15:12]==`ADDR_PROM) ? {reg_rdata_prom, 1'b0} :
                     (reg_raddr[15:12]==`ADDR_ETH) ? {reg_rdata_eth|reg_rdata_eth_ll|reg_rdata_esw, 1'b1} :
-                    (reg_raddr[15:12]==`ADDR_FW) ? {reg_rdata_fw, 1'b1} :
+                    (reg_raddr[15:12]==`ADDR_FW) ? {reg_rdata_fw, 1'b0} :
                     isAddrMain ? {reg_rdata_chan0 | reg_rdata_chan0_ext, reg_rwait_chan0} :
                     {32'd0, 1'b0}) | {reg_rdata_ext, reg_rwait_ext};
 
@@ -274,7 +261,6 @@ assign {reg_rdata, reg_rwait} =
 // as coming from the external board (e.g., QLA).
 // It is not necessary to check isAddrMain in the following because it is done above.
 // Also, reg_rwait = 0 for all of these.
-wire[31:0] reg_rdata_chan0_ext;
 assign reg_rdata_chan0_ext =
                    (reg_raddr[3:0]==`REG_PROMSTAT) ? prom_status :
                    (reg_raddr[3:0]==`REG_PROMRES) ? prom_result :
@@ -392,17 +378,14 @@ wire[15:0] eth_host_fw_addr;
 wire eth_send_req;
 wire eth_send_ack;
 wire[8:0]  eth_send_addr;
+wire[31:0] eth_send_data;
 wire[15:0] eth_send_len;
 
 wire fw_bus_reset;
 
-wire[8:0] eth_send_addr_mux;
-assign eth_send_addr_mux = eth_send_ack ? eth_send_addr : reg_raddr[8:0];
-
 // phy-link interface
 PhyLinkInterface
-    #(.NUM_BC_READ_QUADS(NUM_BC_READ_QUADS),
-      .USE_ETH_CLK(ETH_RT_FAST))
+    #(.USE_ETH_CLK(ETH_RT_FAST))
 phy(
     .sysclk(sysclk),         // in: global clk  
     .ethclk(rt_clk),         // in: Ethernet clk
@@ -437,13 +420,15 @@ phy(
     .eth_fw_addr(eth_host_fw_addr),    // in: eth fw host address (e.g., ffd0)
 
     // Request from Firewire to send Ethernet packet
-    // Note that if !eth_send_ack, then the Firewire packet memory
-    // is accessible via reg_raddr/reg_rdata.
     .eth_send_req(eth_send_req),
     .eth_send_ack(eth_send_ack),
-    .eth_send_addr(eth_send_addr_mux),
-    .eth_send_data(reg_rdata_fw),
+    .eth_send_addr(eth_send_addr),
+    .eth_send_data(eth_send_data),
     .eth_send_len(eth_send_len),
+
+    // External interface (for debugging)
+    .reg_raddr_ext(reg_raddr[11:0]),
+    .reg_rdata_ext(reg_rdata_fw),
 
     // Signal indicating bus reset in process
     .fw_bus_reset(fw_bus_reset),
@@ -451,6 +436,7 @@ phy(
     .lreq_trig(fw_lreq_trig),  // out: phy request trigger
     .lreq_type(fw_lreq_type),  // out: phy request type
 
+    .num_bc_read_quads(num_bc_read_quads),  // in: number of broadcast read quads
     .rx_bc_sequence(bc_sequence),  // in: broadcast sequence num
     .write_trig(hub_write_trig),   // in: 1 -> broadcast write this board's hub data
     .write_trig_reset(hub_write_trig_reset),
@@ -515,6 +501,7 @@ assign Eth_IRQn[2] = E2_IRQn;
 
 wire[7:0] eth_status_phy[1:2];   // Status bits for Ethernet ports 1 and 2
 wire[7:0] eth_status_io;         // Status bits from EthernetIO
+wire      eth_active_ps;         // Whether PS Ethernet enabled
 assign Eth_Result = { 2'b01, 1'b0, eth_status_io[7:3],                          // 31:24
                       clk125_ok, eth_status_io[2], clk200_ok, eth_status_io[0], // 23:20
                       3'd0, eth_active_ps,                                      // 19:16
@@ -538,6 +525,7 @@ assign isV30 = (hasIRQ_e[1]|hasIRQ_e[2]) ? 1'b0 : 1'b1;
 // drive RxD[1] high during reset. The other three bits do not need
 // to be driven, but the code below drives them to their default values.
 //
+wire resetActive_e[1:2];        // Ethernet port reset active
 assign E1_RxD[3:0] = resetActive_e[1] ? 4'b1011 : 4'bzzzz;
 assign E2_RxD[3:0] = resetActive_e[2] ? 4'b1011 : 4'bzzzz;
 
@@ -559,15 +547,13 @@ wire       gmii_rx_clk[1:4];
 
 wire[1:0]  clock_speed[1:2];
 wire[1:0]  speed_mode[1:2];
+wire[1:0]  link_speed[1:2];     // Link speed
 
 wire eth_fast[1:2];             // Whether Eth1, Eth2 are fast (1 GB)
 assign eth_fast[1] = link_speed[1][1]&(~link_speed[1][0]);   // 2'b10 --> 1 GB
 assign eth_fast[2] = link_speed[2][1]&(~link_speed[2][0]);   // 2'b10 --> 1 GB
 
 wire       eth_active[1:2];     // Whether Eth1, Eth2 link is on
-wire       eth_active_ps;       // Whether PS Ethernet enabled
-
-wire[1:0]  link_speed[1:2];     // Link speed
 
 wire       eth_wdog_refresh;    // Additional watchdog refresh from Ethernet
 wire       eth_ctrl_wen;        // Write enable to Ethernet control register
@@ -578,6 +564,7 @@ wire       data_ready_rt;       // Whether RT providing valid data to switch
 wire[3:0]  txinfo_rt;           // Packet information from Ethernet Switch
 wire[1:0]  txsrc_rt;            // Source port from Ethernet Switch
 wire       isHub;               // 1 -> this board may be the Ethernet Hub
+wire       isBcHub;             // 1 -> this board is the Ethernet broadcast read hub
 
 // Ethernet 4-port switch
 EthSwitch eth_switch (
@@ -666,7 +653,6 @@ wire       mdio_clk_rt[1:2];    // OUT from RTL8211F module, IN to GMII core
 wire       mdio_clk_ps;         // OUT from Zynq PS, IN to VirtualPhy
 
 // Wires between EthRtInterface and EthernetIO
-wire resetActive_e[1:2];        // Ethernet port reset active
 wire eth_isForward;             // Indicates that FireWire receiver is forwarding to Ethernet
 wire eth_responseRequired;      // Indicates that the received packet requires a response
 wire[15:0] eth_responseByteCount;   // Number of bytes in required response
@@ -748,6 +734,7 @@ VirtualPhy VPhy(
     .mdio_t(mdio_t_ps),      // mdio_t from PS
     .mdc(mdio_clk_ps),       // mdc (clock) from PS
 
+    .sysclk(sysclk),
     .ctrl_wen(eth_ctrl_wen),
     .link_on_mask(reg_wdata[25]),
     .link_on_bit(reg_wdata[16]),
@@ -760,9 +747,9 @@ VirtualPhy VPhy(
 
 // Provide 125 MHz clock for gmii_rx_clk[3] and gmii_tx_clk[3].
 // Inverting clock to provide delay between Tx src and dest.
-// In the future, this can be replaced by a Tx clk with a 90 degree
-// phase shift, which can be obtained from a more recent gmii_to_rgmii
-// IP core (provided with Vivado).
+// In Vivado, this could be replaced by a Tx clk with a 90 degree
+// phase shift, which can be obtained from the gmii_to_rgmii
+// IP core (CONFIG.RGMII_TXC_SKEW 2).
 
 wire clk_125A;
 wire clk_125B;
@@ -833,7 +820,6 @@ assign ip_reg_wen = (reg_waddr == {`ADDR_MAIN, 8'h0, `REG_IPADDR}) ? reg_wen : 1
 
 EthernetIO
     #(.IPv4_CSUM(1), .IS_V3(1),
-      .NUM_BC_READ_QUADS(NUM_BC_READ_QUADS),
       .USE_RXTX_CLK(ETH_RT_FAST))
 EthernetTransfers(
     .sysclk(sysclk),          // in: global clock
@@ -883,7 +869,7 @@ EthernetTransfers(
     // Note that sendReq(eth_send_req) is in EthRtInterface
     .sendAck(eth_send_ack),
     .sendAddr(eth_send_addr),
-    .sendData(reg_rdata_fw),
+    .sendData(eth_send_data),
     .sendLen(eth_send_len),
 
     // Signal from Firewire indicating bus reset in process
@@ -905,6 +891,7 @@ EthernetTransfers(
     .sendBusy(eth_sendBusy),          // To KSZ8851
     .sendReady(eth_sendReady),        // Request EthernetIO to provide next send_word
     .send_word(eth_send_word),        // Word to send via Ethernet (SDRegDWR for KSZ8851)
+    .num_bc_read_quads(num_bc_read_quads), // Number of broadcast read quads
     .bcRespReady(bc_resp_ready),      // Broadcast read response is ready
     .bcResp(bc_resp),                 // Broadcast read response active
     .bcBoardMask(bc_board_mask),      // Broadcast read boardmask
@@ -1000,6 +987,156 @@ BoardRegs chan0(
 
 wire clk_200MHz;
 
+// For Vivado, need to add a register to improve timing; it appears that the
+// FIFO output is too slow. The FIFO can be configured to include an output
+// register (CONFIG.Use_Embedded_Registers true), with CONFIG.Output_Register_Type
+// set to Fabric_Reg (or Embedded_Reg or even Both), but since the FIFO is used
+// in many other places, we add the register here instead.
+// This seems to be necessary in ISE as well to avoid timing errors.
+
+reg gmii_tx_en_3;
+reg gmii_tx_err_3;
+reg[7:0] gmii_txd_3;
+
+always @(posedge gmii_tx_clk3_src)
+begin
+    gmii_tx_en_3 <= gmii_tx_en[3];
+    gmii_tx_err_3 <= gmii_tx_err[3];
+    gmii_txd_3 <= gmii_txd[3];
+end
+
+`ifdef USE_VIVADO
+
+// FpgaV31 block design
+FpgaV31_wrapper ps7_bd(
+    .GPIO_I_0(emio_ps_in),
+    .GPIO_O_0(emio_ps_out),
+    .GPIO_T_0(emio_ps_tri),
+    .FCLK_CLK0_0(clk_200MHz),
+    .FCLK_CLK1_0(clk_125MHz),
+    .FCLK_RESET0_N_0(PS_Eth_RSTn),
+
+    // Note that Rx and Tx are swapped
+    .ENET0_GMII_RX_CLK_0(gmii_tx_clk3_dest),
+    .ENET0_GMII_RX_DV_0(gmii_tx_en_3),
+    .ENET0_GMII_RX_ER_0(gmii_tx_err_3),
+    .ENET0_GMII_RXD_0(gmii_txd_3),
+    .ENET0_GMII_TX_EN_0(gmii_rx_dv[3]),
+    .ENET0_GMII_TX_ER_0(gmii_rx_err[3]),
+    .ENET0_GMII_TX_CLK_0(gmii_rx_clk[3]),
+    .ENET0_GMII_TXD_0(gmii_rxd[3]),
+    .ENET0_MDIO_MDC_0(mdio_clk_ps),
+    .ENET0_MDIO_I_0(mdio_i_ps),
+    .ENET0_MDIO_O_0(mdio_o_ps),
+    .ENET0_MDIO_T_0(mdio_t_ps),
+    .ENET0_EXT_INTIN_0(1'b0)   // No interrupts
+);
+
+// Following wires are for shared logic between gmii_to_rgmii_1
+// and gmii_to_rgmii_2.
+wire shared_clk_200;
+wire shared_mmcm_lock;
+wire shared_clk_125;
+wire shared_clk_25;
+wire shared_clk_2p5;
+
+// Eth1 MDIO
+wire E1_mdio_i;
+wire E1_mdio_o;
+wire E1_mdio_t;
+
+gmii_to_rgmii_1 g2r1(
+    .clkin(clk_200MHz),
+    .ref_clk_out(shared_clk_200),
+    .mmcm_locked_out(shared_mmcm_lock),
+    .gmii_clk_125m_out(shared_clk_125),
+    .gmii_clk_25m_out(shared_clk_25),
+    .gmii_clk_2_5m_out(shared_clk_2p5),
+    .rgmii_txd(E1_TxD),
+    .rgmii_tx_ctl(E1_TxEN),
+    .rgmii_txc(E1_TxCLK),
+    .rgmii_rxd(E1_RxD),
+    .rgmii_rx_ctl(E1_RxVAL),
+    .rgmii_rxc(E1_RxCLK),
+    .gmii_rxd(gmii_rxd[1]),
+    .gmii_rx_dv(gmii_rx_dv[1]),
+    .gmii_rx_er(gmii_rx_err[1]),
+    .gmii_rx_clk(gmii_rx_clk[1]),
+    .mdio_gem_mdc(mdio_clk_rt[1]),  // MDIO clock from RTL8211F module
+    .mdio_gem_i(mdio_i_rt[1]),      // OUT from GMII core, IN to RTL8211F module
+    .mdio_gem_o(mdio_o_rt[1]),      // IN to GMII core, OUT from RTL8211F module
+    .mdio_gem_t(mdio_t_rt[1]),      // Tristate control from RTL8211F module
+    .gmii_txd(gmii_txd[1]),
+    .gmii_tx_en(gmii_tx_en[1]),
+    .gmii_tx_clk(gmii_tx_clk[1]),
+    .gmii_tx_er(gmii_tx_err[1]),
+    .mdio_phy_mdc(E1_MDIO_C),       // MDIO clock from GMII core (derived from mdio_clk_rt[1])
+    .mdio_phy_i(E1_mdio_i),
+    .mdio_phy_o(E1_mdio_o),
+    .mdio_phy_t(E1_mdio_t),
+    .clock_speed(clock_speed[1]),   // Clock speed (Rx)
+    .speed_mode(speed_mode[1]),     // Speed mode (Tx)
+    .tx_reset(1'b0),
+    .rx_reset(1'b0)
+);
+
+// Note that I and O intentionally swapped
+IOBUF g2r1buf(
+    .I(E1_mdio_o),
+    .O(E1_mdio_i),
+    .T(E1_mdio_t),
+    .IO(E1_MDIO_D)
+);
+
+// Eth2 MDIO
+wire E2_mdio_i;
+wire E2_mdio_o;
+wire E2_mdio_t;
+
+gmii_to_rgmii_2 g2r2(
+    .ref_clk_in(shared_clk_200),
+    .mmcm_locked_in(shared_mmcm_lock),
+    .gmii_clk_125m_in(shared_clk_125),
+    .gmii_clk_25m_in(shared_clk_25),
+    .gmii_clk_2_5m_in(shared_clk_2p5),
+    .rgmii_txd(E2_TxD),
+    .rgmii_tx_ctl(E2_TxEN),
+    .rgmii_txc(E2_TxCLK),
+    .rgmii_rxd(E2_RxD),
+    .rgmii_rx_ctl(E2_RxVAL),
+    .rgmii_rxc(E2_RxCLK),
+    .gmii_rxd(gmii_rxd[2]),
+    .gmii_rx_dv(gmii_rx_dv[2]),
+    .gmii_rx_er(gmii_rx_err[2]),
+    .gmii_rx_clk(gmii_rx_clk[2]),
+    .mdio_gem_mdc(mdio_clk_rt[2]),  // MDIO clock from RTL8211F module
+    .mdio_gem_i(mdio_i_rt[2]),      // OUT from GMII core, IN to RTL8211F module
+    .mdio_gem_o(mdio_o_rt[2]),      // IN to GMII core, OUT from RTL8211F module
+    .mdio_gem_t(mdio_t_rt[2]),      // Tristate control from RTL8211F module
+    .gmii_txd(gmii_txd[2]),
+    .gmii_tx_en(gmii_tx_en[2]),
+    .gmii_tx_clk(gmii_tx_clk[2]),
+    .gmii_tx_er(gmii_tx_err[2]),
+    .mdio_phy_mdc(E2_MDIO_C),       // MDIO clock from GMII core (derived from mdio_clk_rt[2])
+    .mdio_phy_i(E2_mdio_i),
+    .mdio_phy_o(E2_mdio_o),
+    .mdio_phy_t(E2_mdio_t),
+    .clock_speed(clock_speed[2]),   // Clock speed (Rx)
+    .speed_mode(speed_mode[2]),     // Speed mode (Tx)
+    .tx_reset(1'b0),
+    .rx_reset(1'b0)
+);
+
+// Note that I and O intentionally swapped
+IOBUF g2r2buf(
+    .I(E2_mdio_o),
+    .O(E2_mdio_i),
+    .T(E2_mdio_t),
+    .IO(E2_MDIO_D)
+);
+
+`else  // Using ISE
+
 fpgav3 zynq_ps7(
     .processing_system7_0_MIO(MIO),
     .processing_system7_0_PS_SRSTB_pin(PS_SRSTB),
@@ -1035,9 +1172,9 @@ fpgav3 zynq_ps7(
 
     // Note that Rx and Tx are swapped
     .processing_system7_0_ENET0_GMII_RX_CLK_pin(gmii_tx_clk3_dest),
-    .processing_system7_0_ENET0_GMII_RX_DV_pin(gmii_tx_en[3]),
-    .processing_system7_0_ENET0_GMII_RX_ER_pin(gmii_tx_err[3]),
-    .processing_system7_0_ENET0_GMII_RXD_pin(gmii_txd[3]),
+    .processing_system7_0_ENET0_GMII_RX_DV_pin(gmii_tx_en_3),
+    .processing_system7_0_ENET0_GMII_RX_ER_pin(gmii_tx_err_3),
+    .processing_system7_0_ENET0_GMII_RXD_pin(gmii_txd_3),
     .processing_system7_0_ENET0_GMII_TX_EN_pin(gmii_rx_dv[3]),
     .processing_system7_0_ENET0_GMII_TX_ER_pin(gmii_rx_err[3]),
     .processing_system7_0_ENET0_GMII_TX_CLK_pin(gmii_rx_clk[3]),
@@ -1072,6 +1209,7 @@ fpgav3 zynq_ps7(
     .processing_system7_0_RESETn_PHY_0_pin(PS_Eth_RSTn)
 );
 
+`endif
 
 EmioBus PS_EMIO(
     .sysclk(sysclk),
@@ -1105,8 +1243,8 @@ EmioBus PS_EMIO(
 reg[7:0] cnt_200;     // Counter incremented by clk_200MHz
 reg[7:0] sysclk200;   // Counter increment by sysclk, sampled and cleared every 128 clk_200MHz
 reg[7:0] clk200per;   // Last measured half-period of 128*clk_200MHz (should be about 31 sysclks, 49.152*128/200)
-reg cur_msb_200;
-reg last_msb_200;
+(* ASYNC_REG="TRUE" *) reg cur_msb_200;
+(* ASYNC_REG="TRUE" *) reg last_msb_200;
 
 always @(posedge clk_200MHz)
 begin
@@ -1116,8 +1254,8 @@ end
 reg[7:0] cnt_125;     // Counter incremented by clk_125MHz
 reg[7:0] sysclk125;   // Counter increment by sysclk, sampled and cleared every 128 clk_125MHz
 reg[7:0] clk125per;   // Last measured half-period of 128*clk_125MHz (should be about 50 sysclks, 49.152*128/125)
-reg cur_msb_125;
-reg last_msb_125;
+(* ASYNC_REG="TRUE" *) reg cur_msb_125;
+(* ASYNC_REG="TRUE" *) reg last_msb_125;
 
 always @(posedge clk_125MHz)
 begin

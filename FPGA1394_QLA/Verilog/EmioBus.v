@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2023-2024 Johns Hopkins University.
+ * Copyright(C) 2023-2026 Johns Hopkins University.
  *
  * This module handles the PS EMIO bus interface.
  *
@@ -105,6 +105,10 @@ wire ps_req_bus;
 // adds significant overhead. Therefore, we instead use a separate line.
 wire ps_addr_lsb;
 
+wire ps_reg_wen;
+wire ps_blk_start;
+wire ps_blk_end;
+
 // Following are not synchronized with sysclk, but should be stable
 // since they are not used until the read or write bus is granted
 // (some are synchronized with sysclk below).
@@ -116,21 +120,101 @@ assign ps_blk_start = emio_ps_out[51];   // emio[51]
 assign ps_blk_end = emio_ps_out[52];     // emio[52]
 assign ps_addr_lsb = emio_ps_out[55];    // emio[55]
 
-// Following are synchronized with sysclk
-reg[15:0] ps_reg_addr_latched;
-reg ps_addr_lsb_latched;
-reg ps_blk_start_latched;
-reg ps_blk_end_latched;
-
 wire ps_op_done;                         // emio[49]
 wire ps_write;                           // emio[53]
+
+// Following are synchronized with sysclk
+wire[15:0] ps_reg_addr_sync;
+wire ps_addr_lsb_sync;
+wire ps_blk_start_sync;
+wire ps_blk_end_sync;
+wire ps_req_bus_sync;
+
+// For use in determining broadcast read request
+// (write to HUB register, with board mask bit set).
+wire[15:0] board_mask;
+wire isBoardMasked;
+assign board_mask = ps_reg_wdata[15:0];
+assign isBoardMasked = board_mask[board_id];
+
+`ifdef USE_VIVADO
+
+xpm_cdc_array_single
+    #(.DEST_SYNC_FF(2), .WIDTH(16), .SRC_INPUT_REG(0))
+addr_cdc(
+    .dest_out(ps_reg_addr_sync),
+    .dest_clk(sysclk),
+    .src_in(ps_reg_addr),
+    .src_clk(1'b0)
+);
+
+xpm_cdc_single
+    #(.DEST_SYNC_FF(2), .SRC_INPUT_REG(0))
+lsb_cdc(
+    .dest_out(ps_addr_lsb_sync),
+    .dest_clk(sysclk),
+    .src_in(ps_addr_lsb),
+    .src_clk(1'b0)
+);
+
+xpm_cdc_array_single
+    #(.DEST_SYNC_FF(2), .WIDTH(2), .SRC_INPUT_REG(0))
+blk_cdc(
+    .dest_out({ps_blk_start_sync, ps_blk_end_sync}),
+    .dest_clk(sysclk),
+    .src_in({ps_blk_start, ps_blk_end}),
+    .src_clk(1'b0)
+);
+
+// ps_req_bus needs to be delayed by at least one sysclk with
+// respect to other signals, so using 3 SYNC_FF instead of 2.
+xpm_cdc_single
+    #(.DEST_SYNC_FF(3), .SRC_INPUT_REG(0))
+req_cdc(
+    .dest_out(ps_req_bus_sync),
+    .dest_clk(sysclk),
+    .src_in(ps_req_bus),
+    .src_clk(1'b0)
+);
+
+`else  // Xilinx ISE
+
+(* ASYNC_REG="TRUE" *) reg[15:0] ps_reg_addr_latched;
+(* ASYNC_REG="TRUE" *) reg ps_addr_lsb_latched;
+(* ASYNC_REG="TRUE" *) reg ps_blk_start_latched;
+(* ASYNC_REG="TRUE" *) reg ps_blk_end_latched;
+(* ASYNC_REG="TRUE" *) reg ps_req_bus_1;
+(* ASYNC_REG="TRUE" *) reg ps_req_bus_2;
+
+
+assign ps_reg_addr_sync = ps_reg_addr_latched;
+assign ps_addr_lsb_sync = ps_addr_lsb_latched;
+assign ps_blk_start_sync = ps_blk_start_latched;
+assign ps_blk_end_sync = ps_blk_end_latched;
+assign ps_req_bus_sync = ps_req_bus_2;
+
+always @(posedge sysclk)
+begin
+    // Synchronize read/write address with sysclk
+    ps_reg_addr_latched <= ps_reg_addr;
+    ps_addr_lsb_latched <= ps_addr_lsb;
+    // Synchronize blk_start with sysclk
+    ps_blk_start_latched <= ps_blk_start;
+    // Synchronize blk_end with sysclk
+    ps_blk_end_latched <= ps_blk_end;
+    // Synchronize ps_req_bus with sysclk
+    ps_req_bus_1 <= ps_req_bus;
+    ps_req_bus_2 <= ps_req_bus_1;
+end
+
+`endif
 
 reg  reg_op_done;
 
 // There are three address registers:
 //   ps_reg_addr          output from PS (not sync with sysclk)
-//   ps_reg_addr_latched  latched version of ps_reg_addr
-//   reg_addr             latched version of ps_reg_addr_latched, used externally
+//   ps_reg_addr_sync     ps_reg_addr synchronized to sysclk
+//   reg_addr             latched version of ps_reg_addr_sync, used externally
 //                        (becomes reg_raddr or reg_waddr)
 //
 // Note that this module drives both the read and write address register (reg_raddr and
@@ -150,8 +234,8 @@ reg  reg_op_done;
 
 wire ps_addr_equal;
 wire reg_addr_lsb_equal;
-assign ps_addr_equal = (ps_reg_addr == ps_reg_addr_latched) ? 1'b1 : 1'b0;
-assign reg_addr_lsb_equal = (ps_addr_lsb_latched == reg_addr_lsb) ? 1'b1 : 1'b0;
+assign ps_addr_equal = (ps_reg_addr == ps_reg_addr_sync) ? 1'b1 : 1'b0;
+assign reg_addr_lsb_equal = (ps_addr_lsb_sync == reg_addr_lsb) ? 1'b1 : 1'b0;
 
 // addr_next indicates when the next address has been written by the PS.
 // It is only necessary for the PS to write the least-significant bit.
@@ -210,11 +294,6 @@ localparam[2:0]
 reg[2:0] state;
 initial state = ST_IDLE;
 
-// For synchronizing ps_req_bus with sysclk and generating triggers
-// on the rising and falling edges.
-reg ps_req_bus_1;
-reg ps_req_bus_2;
-
 reg req_read_bus_next;
 reg reg_wen_next;
 reg reg_op_done_next;
@@ -223,10 +302,10 @@ reg[1:0] blk_cnt;         // for block write timing
 reg first_quad;           // first quadlet
 
 wire addrMain;
-assign addrMain = (ps_reg_addr_latched[15:12] == `ADDR_MAIN) ? 1'b1 : 1'b0;
+assign addrMain = (ps_reg_addr_sync[15:12] == `ADDR_MAIN) ? 1'b1 : 1'b0;
 
 wire addrHubReg;
-assign addrHubReg = (ps_reg_addr_latched == {`ADDR_HUB, 12'h800 }) ? 1'b1 : 1'b0;
+assign addrHubReg = (ps_reg_addr_sync == {`ADDR_HUB, 12'h800 }) ? 1'b1 : 1'b0;
 
 wire timestamp_rd;
 assign timestamp_rd = (blk_rt_rd && (reg_addr[7:0] == 8'd0)) ? 1'd1 : 1'd0;
@@ -235,24 +314,18 @@ assign timestamp_rd = (blk_rt_rd && (reg_addr[7:0] == 8'd0)) ? 1'd1 : 1'd0;
 reg[31:0] timestamp_latched;
 reg[31:0] timestamp_prev;
 
+// For detecting rising and falling edges
+reg ps_req_bus_prev;
+
 always @(posedge sysclk)
 begin
-    // Synchronize ps_req_bus with sysclk
-    ps_req_bus_1 <= ps_req_bus;
-    ps_req_bus_2 <= ps_req_bus_1;
-
-    // Synchronize read/write address with sysclk
-    ps_reg_addr_latched <= ps_reg_addr;
-    ps_addr_lsb_latched <= ps_addr_lsb;
-    // Synchronize blk_start with sysclk
-    ps_blk_start_latched <= ps_blk_start;
-    // Synchronize blk_end with sysclk
-    ps_blk_end_latched <= ps_blk_end;
+    // For detecting rising and falling edges
+    ps_req_bus_prev <= ps_req_bus_sync;
 
     // req_blk_rt_rd is asserted for just one sysclk
     req_blk_rt_rd <= 1'b0;
 
-    if ((~ps_req_bus_1) & ps_req_bus_2) begin
+    if ((~ps_req_bus_sync) & ps_req_bus_prev) begin
         // Falling edge of ps_req_bus causes system to transition to ST_IDLE,
         // which provides a way for the PS to abort a bus transfer.
         // Note that ST_READ and ST_WRITE_FINISH also rely on this state transition.
@@ -270,12 +343,12 @@ begin
         blk_cnt <= 2'd0;
         reg_rdata_valid <= 1'b0;
         // Wait for rising edge of ps_req_bus
-        if (ps_req_bus_1 & (~ps_req_bus_2)) begin
+        if (ps_req_bus_sync & (~ps_req_bus_prev)) begin
             first_quad <= 1'b1;
-            if ((~ps_write & ps_blk_start_latched & addrMain) ||
-                (ps_write & addrHubReg)) begin
+            if ((~ps_write & ps_blk_start_sync & addrMain) ||
+                (ps_write & addrHubReg & isBoardMasked)) begin
                 // Set req_blk_rt_rd if real-time block read or
-                // if write to Hub register 800
+                // if write to Hub register 800 and board mask bit set
                 req_blk_rt_rd <= 1'b1;
                 timestamp_latched <= (timestamp-timestamp_prev)-32'd1;
                 timestamp_prev <= timestamp;
@@ -283,11 +356,11 @@ begin
             if (~ps_write) begin
                 // Request read bus on rising edge of ps_req_bus
                 req_read_bus <= 1'b1;
-                req_read_bus_next <= ps_blk_start_latched & (~ps_blk_end_latched);
-                reg_addr <= ps_reg_addr_latched;
+                req_read_bus_next <= ps_blk_start_sync & (~ps_blk_end_sync);
+                reg_addr <= ps_reg_addr_sync;
                 // Save least-sigificant bit, since block read will check for changes
-                reg_addr_lsb <= ps_addr_lsb_latched;
-                blk_rt_rd <= ps_blk_start_latched & addrMain;
+                reg_addr_lsb <= ps_addr_lsb_sync;
+                blk_rt_rd <= ps_blk_start_sync & addrMain;
                 state <= ST_READ;
             end
             else begin
@@ -295,13 +368,13 @@ begin
                 req_write_bus <= 1'b1;
                 // For consistency with Firewire/Ethernet, real-time block write
                 // always starts at address 0.
-                reg_addr[15:12] <= ps_reg_addr_latched[15:12];
-                reg_addr[11:0] <= (ps_blk_start_latched & addrMain) ? 12'd0 : ps_reg_addr_latched[11:0];
+                reg_addr[15:12] <= ps_reg_addr_sync[15:12];
+                reg_addr[11:0] <= (ps_blk_start_sync & addrMain) ? 12'd0 : ps_reg_addr_sync[11:0];
                 // Save least-sigificant bit, since block write will check for changes
-                reg_addr_lsb <= ps_addr_lsb_latched;
-                blk_rt_wr <= ps_blk_start_latched & addrMain;
+                reg_addr_lsb <= ps_addr_lsb_sync;
+                blk_rt_wr <= ps_blk_start_sync & addrMain;
                 reg_wdata <= ps_reg_wdata;
-                state <= ps_blk_start_latched ? ST_WRITE_BLOCK_START : ST_WRITE_QUAD;
+                state <= ps_blk_start_sync ? ST_WRITE_BLOCK_START : ST_WRITE_QUAD;
             end
         end
         else begin
@@ -318,14 +391,14 @@ begin
             if (addr_next) begin
                 reg_rdata_valid <= 1'b0;
                 reg_op_done <= 1'b0;
-                req_read_bus_next <= ps_blk_start_latched & (~ps_blk_end_latched);
+                req_read_bus_next <= ps_blk_start_sync & (~ps_blk_end_sync);
                 // Check for ~reg_op_done to delay setting reg_addr_lsb, which
                 // causes addr_next to be cleared. This ensures that reg_op_done is
                 // cleared before addr_next is cleared.
                 if (~reg_op_done) begin
                     // Latch next address (for block read)
                     reg_addr[11:0] <= reg_addr[11:0] + 12'd1;
-                    reg_addr_lsb <= ps_addr_lsb_latched;
+                    reg_addr_lsb <= ps_addr_lsb_sync;
                 end
             end
             else begin
@@ -376,7 +449,7 @@ begin
                 first_quad <= 1'b0;
                 reg_wen <= 1'b1;
                 reg_wen_next <= 1'b0;
-                reg_op_done_next <= ~ps_blk_end_latched;
+                reg_op_done_next <= ~ps_blk_end_sync;
                 blk_cnt <= 2'd1;
             end
             else if (addr_next) begin
@@ -385,14 +458,14 @@ begin
                 reg_wen <= 1'b0;
                 reg_wen_next <= 1'b1;
                 reg_op_done <= 1'b0;
-                reg_op_done_next <= ~ps_blk_end_latched;
+                reg_op_done_next <= ~ps_blk_end_sync;
                 blk_cnt <= 2'd0;
                 // Check for ~reg_op_done to delay setting reg_addr_lsb, which
                 // causes addr_next to be cleared. This ensures that reg_op_done is
                 // cleared before addr_next is cleared.
                 if (~reg_op_done) begin
                     reg_addr[11:0] <= reg_addr[11:0] + 12'd1;
-                    reg_addr_lsb <= ps_addr_lsb_latched;
+                    reg_addr_lsb <= ps_addr_lsb_sync;
                 end
             end
             else begin

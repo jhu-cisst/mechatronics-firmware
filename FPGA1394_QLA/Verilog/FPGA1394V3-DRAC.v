@@ -3,7 +3,7 @@
 
 /*******************************************************************************    
  *
- * Copyright(C) 2011-2023 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2011-2026 ERC CISST, Johns Hopkins University.
  *
  * This is the top level module for the FPGA1394V3-DRAC motor controller interface.
  *
@@ -42,12 +42,21 @@ module FPGA1394V3DRAC
     inout [0:39]     IO2,
     output wire      LED,
 
+`ifndef USE_VIVADO
+    inout wire[53:0] MIO,
+    input wire       PS_SRSTB,
+    input wire       PS_CLK,
+    input wire       PS_PORB,
+`endif
+
     // Ethernet PHYs (RTL8211F)
     output wire      E1_MDIO_C,   // eth1 MDIO clock
     output wire      E2_MDIO_C,   // eth2 MDIO clock
-    // Following are directly connected via constraint file
-    // inout wire    E1_MDIO_D,   // eth1 MDIO data
-    // inout wire    E2_MDIO_D,   // eth2 MDIO data
+    // Following are directly connected via constraint file (in ISE)
+`ifdef USE_VIVADO
+    inout wire       E1_MDIO_D,   // eth1 MDIO data
+    inout wire       E2_MDIO_D,   // eth2 MDIO data
+`endif
     output wire      E1_RSTn,     // eth1 PHY reset
     output wire      E2_RSTn,     // eth2 PHY reset
     input wire       E1_IRQn,     // eth1 IRQ (FPGA V3.1+)
@@ -65,18 +74,8 @@ module FPGA1394V3DRAC
     inout wire[3:0]  E2_RxD,      // eth2 data bits
     output wire      E2_TxCLK,    // eth2 transmit clock
     output wire      E2_TxEN,     // eth2 transmit enable
-    output wire[3:0] E2_TxD,      // eth2 transmit data
-
-    // PS7 interface
-    inout[53:0]      MIO,
-    input            PS_SRSTB,
-    input            PS_CLK,
-    input            PS_PORB
+    output wire[3:0] E2_TxD       // eth2 transmit data
 );
-
-    // Number of motors and encoders
-    parameter NUM_MOTORS = 10;
-    parameter NUM_ENCODERS = 7;
 
     // System clock
     wire sysclk;
@@ -89,6 +88,8 @@ module FPGA1394V3DRAC
     assign board_id = ~wenid;
     wire LED_Out;
     wire isV30;
+
+    wire[6:0] num_rt_read_quads;  // Number of real-time block read quadlets
 
     wire[15:0] reg_raddr;       // 16-bit reg read address
     wire[15:0] reg_waddr;       // 16-bit reg write address
@@ -127,9 +128,8 @@ assign LED = isV30 ? 1'bz : LED_Out;        // FPGA V3.1 (pin U13)
 //******************************* FPGA Module *************************************
 
 // FPGA module, including Firewire and Ethernet
-FPGA1394V3
-    #(.NUM_MOTORS(NUM_MOTORS), .NUM_ENCODERS(NUM_ENCODERS))
-fpga(
+FPGA1394V3 fpga
+(
     .sysclk(sysclk),
     .board_id(board_id),
     .LED(LED_Out),
@@ -145,7 +145,9 @@ fpga(
     .E1_RSTn(E1_RSTn),
     .E1_IRQn(E1_IRQn),
     .E1_MDIO_C(E1_MDIO_C),
-    // .E1_MDIO_D(E1_MDIO_D),
+`ifdef USE_VIVADO
+    .E1_MDIO_D(E1_MDIO_D),
+`endif
     .E1_RxCLK(E1_RxCLK),
     .E1_RxVAL(E1_RxVAL),
     .E1_RxD(E1_RxD),
@@ -157,7 +159,9 @@ fpga(
     .E2_RSTn(E2_RSTn),
     .E2_IRQn(E2_IRQn),
     .E2_MDIO_C(E2_MDIO_C),
-    // .E2_MDIO_D(E2_MDIO_D),
+`ifdef USE_VIVADO
+    .E2_MDIO_D(E2_MDIO_D),
+`endif
     .E2_RxCLK(E2_RxCLK),
     .E2_RxVAL(E2_RxVAL),
     .E2_RxD(E2_RxD),
@@ -165,11 +169,15 @@ fpga(
     .E2_TxEN(E2_TxEN),
     .E2_TxD(E2_TxD),
 
-    // PS7 interface
+`ifndef USE_VIVADO
     .MIO(MIO),
     .PS_SRSTB(PS_SRSTB),
     .PS_CLK(PS_CLK),
     .PS_PORB(PS_PORB),
+`endif
+
+    // Size of real-time block read packet
+    .num_rt_read_quads(num_rt_read_quads),
 
     // Read/write bus
     .reg_raddr(reg_raddr),
@@ -223,8 +231,11 @@ DRAC drac(
     .IO2(IO2[1:38]),
     .io_extra({IO2[39], IO2[0], IO1[33], IO1[0]}),
 
+    // Size of real-time block read packet
+    .num_rt_read_quads(num_rt_read_quads),
+
     // Read/write bus
-    .reg_raddr(reg_raddr),
+    .host_reg_raddr(reg_raddr),
     .reg_waddr(reg_waddr),
     .reg_rdata(reg_rdata),
     .reg_wdata(reg_wdata),
@@ -232,8 +243,8 @@ DRAC drac(
     .reg_wen(reg_wen),
     .blk_wen(blk_wen),
     .blk_wstart(blk_wstart),
-    .sample_start(req_blk_rt_rd),
-    .sample_read(blk_rt_rd),
+    .req_blk_rt_rd(req_blk_rt_rd),
+    .blk_rt_rd(blk_rt_rd),
 
     // Timestamp
     .timestamp(timestamp),

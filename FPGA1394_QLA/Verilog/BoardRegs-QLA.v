@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2008-2023 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2008-2026 Johns Hopkins University.
  *
  * This module contains a register file dedicated to general board parameters
  * for the QLA.
@@ -64,7 +64,7 @@ module BoardRegsQLA
     input  wire[11:0] reg_status12, // lowest 12-bits of status register (amplifier-related)
 
     // register file interface
-    input  wire[15:0] reg_raddr,     // register read address
+    input  wire[3:0] reg_raddr,      // register read address (lowest 4 bits)
     input  wire[15:0] reg_waddr,     // register write address
     output reg[31:0] reg_rdata,      // register read data
     output wire reg_rwait,           // register read wait state
@@ -77,8 +77,6 @@ module BoardRegsQLA
     // Signals used to clear error flags
     output wire pwr_enable_cmd,
 
-    output wire[31:0] reg_status,  // Status register (for reading)
-    output wire[31:0] reg_digin,   // Digital I/O register (for reading)
     input wire wdog_timeout        // Watchdog timeout status flag
 );
 
@@ -86,9 +84,11 @@ module BoardRegsQLA
     // define wires and registers
     //
 
+    // Status register (for reading)
     // PROGRAMMER NOTE: The higher-level software requires board_id to be in bits [27:24]
     //                  and wdog_timeout to be bit 23. By convention, bits [31:28] specify
     //                  the number of channels. Other bits are board-specific.
+    wire [31:0] reg_status;
     assign reg_status = {
                 // Byte 3: num channels, board id
                 NUM_CHAN, board_id,
@@ -96,11 +96,13 @@ module BoardRegsQLA
                 wdog_timeout, isQuadDac, dout_cfg_valid, dout_cfg_bidir,
                 // mv_good, power enable, safety relay state, safety relay control
                 mv_good, pwr_enable, ~relay, relay_on,
-                // mv_fault, unused (00), ioexp_present
+                // mv_fault, safety_fb, unused (0), ioexp_present
                 ~mv_faultn, safety_fb, 1'b0, ioexp_present,
                 // lowest 12-bits are for amplifier feedback
                 reg_status12 };
 
+    // Digital I/O register (for reading)
+    wire [31:0]  reg_digin;
     // dout[31] indicates that waveform table is driving at least one DOUT
     assign reg_digin = {v_fault, 1'b0, dout[31], mv_fb, enc_a, enc_b, enc_i, dout[3:0], neg_limit, pos_limit, home};
 
@@ -109,7 +111,7 @@ module BoardRegsQLA
 //
 
 wire write_main;
-assign write_main = ((reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[7:4]==4'd0) && reg_wen) ? 1'b1 : 1'b0;
+assign write_main = ((reg_waddr[15:4]=={`ADDR_MAIN,8'd0}) && reg_wen) ? 1'b1 : 1'b0;
 wire write_status;
 assign write_status = (write_main && (reg_waddr[3:0] == `REG_STATUS)) ? 1'b1 : 1'b0;
 

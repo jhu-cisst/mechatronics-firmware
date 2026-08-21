@@ -1,12 +1,15 @@
 # CMake module to create the specified version file
 #
 # This module is invoked using "cmake -P"; the caller should first define:
+#   GIT_EXECUTABLE    path to git executable; if not specified, will call find_package(Git)
 #   SOURCE_DIR        path to the git source directory
 #   FIRMWARE_VERSION  the firmware version number
 #   OUTPUT_FILE       full path to the output file
 
 
-find_package (Git REQUIRED QUIET)
+if (NOT GIT_EXECUTABLE)
+  find_package (Git REQUIRED QUIET)
+endif ()
 
 execute_process (COMMAND ${GIT_EXECUTABLE} describe --tags --match Rev*
                                            --long --dirty=-d --abbrev=7

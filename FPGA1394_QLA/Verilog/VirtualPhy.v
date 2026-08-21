@@ -3,7 +3,7 @@
 
 /*******************************************************************************    
  *
- * Copyright(C) 2024 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2024-2025 Johns Hopkins University.
  *
  * This module implements a virtual Ethernet PHY.
  *
@@ -19,6 +19,7 @@ module VirtualPhy(
     input  wire mdio_t,   // mdio_t from PS
     input  wire mdc,      // mdc (clock) from PS
 
+    input  wire sysclk,           // System clock
     input  wire ctrl_wen,         // write to Ethernet control register
     input  wire link_on_mask,     // mask for setting link_on
     input  wire link_on_bit,      // value for setting link_on
@@ -30,9 +31,9 @@ module VirtualPhy(
     output wire[31:0] reg_rdata    // register read data
 );
 
-always @(posedge ctrl_wen)
+always @(posedge sysclk)
 begin
-    if (link_on_mask) link_on <= link_on_bit;
+    if (ctrl_wen & link_on_mask) link_on <= link_on_bit;
 end
 
 // Default register values, obtained by reading RTL8211F when cable connnected and then simplifying.
@@ -74,6 +75,7 @@ initial mdioState = ST_MDIO_IDLE;
 
 reg[4:0] cnt;         // 5-bit counter (0-31)
 
+wire[31:0] replyData;
 assign mdio_i = replyData[~cnt];
 
 reg[31:0] mdio_data;  // save MDIO data
@@ -104,7 +106,6 @@ reg[4:0] regNew;       // Register not yet supported (for debugging)
 // and bits 15:0 correspond to the register data. It should not hurt to write
 // it all the time, since the tri-state control from the host (mdio_t) should
 // prevent it from interfering during a register write.
-wire[31:0] replyData;
 assign replyData[31:16] = 16'd0;
 assign replyData[15:0] = isRegStandard ? regValue[regAddr[3:0]] :
                          (isReg17 & link_on) ? 16'hac00 :   // 1GB, full-duplex, link_on

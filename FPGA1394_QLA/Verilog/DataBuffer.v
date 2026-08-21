@@ -3,7 +3,7 @@
 
 /*******************************************************************************    
  *
- * Copyright(C) 2020-2024 Johns Hopkins University.
+ * Copyright(C) 2020-2026 Johns Hopkins University.
  *
  * This module implements a data collection buffer.
  *
@@ -23,7 +23,8 @@ module DataBuffer(
     output reg[3:0]   chan,         // selected data channel
     // CPU interface
     input  wire[15:0] reg_waddr,    // register write address
-    input  wire[31:0] reg_wdata,    // register write
+    input  wire       collect_bit,  // reg_wdata[30]
+    input  wire[15:0] reg_wdata,    // register write (LSW)
     input  wire       reg_wen,      // register write enable
     input  wire[15:0] reg_raddr,    // register read address
     output wire[31:0] reg_rdata,    // read data
@@ -55,9 +56,9 @@ assign   ts_over14 = (ts[31:14] == 18'd0) ? 1'b0 : 1'b1;
 // Note that the data collection bit (30) is used to start/stop data collection.
 wire cur_cmd_wen;    // Write enable for commanded current
 // Write the command current to the buffer when:
-//   1) Collection bit set (reg_wdata[30]), but not already collecting
+//   1) Collection bit set (collect_bit, which is reg_wdata[30]), but not already collecting
 //   2) Collection in process and writing current to the correct channel
-assign cur_cmd_wen = reg_wen && (reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[3:0]==`OFF_DAC_CTRL);
+assign cur_cmd_wen = reg_wen && (reg_waddr[15:8]=={`ADDR_MAIN,4'd0}) && (reg_waddr[3:0]==`OFF_MOTOR_CTRL);
 
 wire[31:0] mem_read;
 // Read data:
@@ -89,24 +90,24 @@ DPRAM_32x1024_sclk DPRAM_32x1024(
 always @(posedge clk)
 begin
     if (cur_cmd_wen) begin     // if new cmd values which fit criteria
-        if (!collecting && reg_wdata[30]) begin  // rising edge collecting
+        if (!collecting && collect_bit) begin  // rising edge collecting
             chan <= reg_waddr[7:4];   // update channel
             buf_wr_addr <= 10'd0;     // reset address
             collecting <= 1;
         end
         else if (reg_waddr[7:4] == chan) begin
-            buf_wr_addr <= buf_wr_addr+reg_wdata[30];
-            collecting <= reg_wdata[30];
+            buf_wr_addr <= buf_wr_addr+collect_bit;
+            collecting <= collect_bit;
         end
-        buf_wr <= reg_wdata[30];
-        buf_wr_data <= {1'b0, ts_over14, ts[13:0], reg_wdata[15:0]};
-        if (reg_wdata[30]&cur_fb_trigger)
+        buf_wr <= collect_bit;
+        buf_wr_data <= {1'b0, ts_over14, ts[13:0], reg_wdata};
+        if (collect_bit&cur_fb_trigger)
             cur_fb_pending <= 1;
     end
     else if ((collecting&cur_fb_trigger)|cur_fb_pending) begin
         buf_wr_data <= {1'b1, ts_over14, ts[13:0], cur_fb};
         buf_wr <= 1;
-        buf_wr_addr <= buf_wr_addr+1;
+        buf_wr_addr <= buf_wr_addr + 1'b1;
         cur_fb_pending <= 0;
     end
     else begin

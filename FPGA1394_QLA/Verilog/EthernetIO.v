@@ -3,17 +3,16 @@
 
 /*******************************************************************************    
  *
- * Copyright(C) 2014-2024 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2014-2026 Johns Hopkins University.
  *
  * This module implements the higher-level (network layer) Ethernet I/O, which
  * interfaces to the link layer for the KSZ8851 MAC/PHY chip (FPGA V2) or the
  * link layer for the RTL8211F PHY chip (FPGA V3).
  *
- * There are two parameters to the module:
- *   IPv4_CSUM    Default is 0 (FPGA V2), set to 1 for FPGA V3
- *   IS_V3        Default is 0 (FPGA V2), set to 1 for FPGA V3
- * Since both parameter settings are based on FPGA version, they could be combined,
- * but are kept separate for greater flexibility in the future.
+ * There are four parameters to the module:
+ *   IPv4_CSUM          Default is 0 (FPGA V2), set to 1 for FPGA V3
+ *   IS_V3              Default is 0 (FPGA V2), set to 1 for FPGA V3
+ *   USE_RXTX_CLK       Whether to use Rx/Tx clock instead of sysclk (default 0)
  *
  * Revision history
  *     12/21/15    Peter Kazanzides    Initial Revision
@@ -45,7 +44,6 @@
 module EthernetIO
     #(parameter IPv4_CSUM = 0,     // Set to 1 to generate IPv4 (and ICMP) header checksum
       parameter IS_V3 = 0,         // Set to 1 to indicate FPGA V3
-      parameter NUM_BC_READ_QUADS = 33,
       parameter USE_RXTX_CLK = 1'b0)
 (
     // global clock
@@ -111,8 +109,8 @@ module EthernetIO
     // Note that these are assumed to be in the RxTxClk domain
     input wire resetActive,          // Indicates that reset is active
     input wire isForward,            // Indicates that FireWire receiver is forwarding to Ethernet
-    output wire responseRequired,    // Indicates that the received packet requires a response
-    output wire[15:0] responseByteCount,  // Number of bytes in required response
+    output reg responseRequired,     // Indicates that the received packet requires a response
+    output reg[15:0] responseByteCount,  // Number of bytes in required response
     // Ethernet receive
     input wire recvRequest,          // Request EthernetIO to start receiving
     output reg recvBusy,             // To KSZ8851
@@ -124,6 +122,7 @@ module EthernetIO
     input wire sendReady,            // Request EthernetIO to provide next send_word
     output reg[15:0] send_word,      // Word to send via Ethernet (SDRegDWR for KSZ8851)
     // Broadcast response (FPGA V3 only)
+    input wire[6:0] num_bc_read_quads,  // number of quadlets in broadcast block read
     output wire bcRespReady,         // Broadcast read response is ready to be sent
     input wire bcResp,               // Broadcast read response is active
     output wire[15:0] bcBoardMask,   // Board mask for broadcast read
@@ -144,6 +143,7 @@ module EthernetIO
 );
 
 // Clocks for Rx and Tx processes
+// There is no CDC between the Rx and Tx clocks, since they are assumed to be equal
 wire RxClk;
 wire TxClk;
 if (USE_RXTX_CLK) begin
@@ -156,6 +156,10 @@ else begin
 end
 
 `define send_word_swapped {send_word[7:0], send_word[15:8]}
+
+`ifdef HAS_DEBUG_DATA
+wire[31:0] DebugData[0:15];
+`endif
 
 // Error flags
 reg ethFrameError;     // 1 -> Frame is not Raw, IPv4 or ARP
@@ -193,13 +197,6 @@ assign fpga_mac = { `LCSR_CID, `FPGA_RT_MAC, 4'd0, board_id };
 wire[47:0] multicast_mac;
 assign multicast_mac = { `LCSR_CID_MULTICAST, `FPGA_RT_MAC, 8'hff };
 
-`ifdef HAS_DEBUG_DATA
-wire eth_send_isIdle;
-assign eth_send_isIdle = (sendState == ST_SEND_DMA_IDLE) ? 1'd1 : 1'd0;
-wire eth_recv_isIdle;
-assign eth_recv_isIdle = (recvState == ST_RECEIVE_DMA_IDLE) ? 1'd1 : 1'd0;
-`endif
-
 // Following flags are set based on the destination address. Note that a FireWire
 // broadcast packet will set both isLocal and isRemote, unless noForwardFlag is set.
 wire isLocal;            // 1 -> FireWire packet should be processed locally
@@ -211,6 +208,7 @@ wire blockRead;
 wire blockWrite;
 
 wire addrMain;
+wire addrFwMem;
 
 wire isRebootCmd;   // 1 -> Reboot FPGA command received
 
@@ -232,7 +230,7 @@ initial bcUseUDP = 1'b1;
 wire[15:0] bc_resp_length;      // Block read response size, in bytes
 
 // Data length for response packets (bc_resp_length or block_data_length)
-wire [15:0] reply_data_length;
+wire[15:0] reply_data_length;
 
 assign eth_status[7] = ethFrameError;      // 1 -> Ethernet frame unsupported
 assign eth_status[6] = ethIPv4Error;       // 1 -> IPv4 header error
@@ -254,6 +252,11 @@ assign sendExtra = fwPacketDropped;
 
 wire[15:0] Eth_EtherType;
 wire[15:0] UDP_Length; // UDP packet length (bytes)
+wire isUDP;
+wire isEcho;
+wire sendARP;
+wire ipWrite;
+wire hubSend;
 
 wire[9:0] maxCountFW;  // Maximum count (of words) when reading FireWire packets
 // Maximum count, in words, is (nBytes/2-1), assuming nBytes is an even number
@@ -269,10 +272,6 @@ wire[15:0] LengthFW;   // Firewire packet length in bytes
 assign LengthFW = isUDP ? (UDP_Length-8'd10) : (Eth_EtherType-8'd2);
 
 assign eth_fwpkt_len = LengthFW;
-
-// real-time feedback broadcast packet size, in quadlets and bytes, not including Firewire header/CRC
-localparam[7:0] SZ_BBC_QUADS = NUM_BC_READ_QUADS;
-localparam[15:0] SZ_BBC_BYTES = (4*NUM_BC_READ_QUADS);
 
 //************************ Large buffer to hold various packets **************************
 // Note that it is fine for some buffers to overlap. Below, the UDP, ICMP and ARP buffers
@@ -339,6 +338,8 @@ localparam[4:0]
 
 reg[15:0] PacketBuffer[0:31];
 
+reg FireWirePacketFresh;   // 1 -> FireWirePacket data is valid (fresh)
+
 // Following is data that is used when constructing the Reply packet
 localparam[3:0]
    ID_Reply_Begin       = 0,                 // ****** Start of Reply Data (0) *********
@@ -362,15 +363,20 @@ localparam[3:0]
    ID_Reply_End         = ID_Reply_Begin+15; // ******** End of all data (15) ***********
 
 wire[15:0] ReplyBuffer[0:15];
+wire[15:0] IPv4_Length;
 
 // Following elements of ReplyBuffer are variable
-wire[15:0] Reply_Frame_Length;
-wire[15:0] Reply_IPv4_Length;
+// Note that several signals are registered to improve timing
+wire[15:0] Reply_Frame_LenWire;
+reg[15:0]  Reply_Frame_Length;
+wire[15:0] Reply_IPv4_LenWire;
+reg[15:0]  Reply_IPv4_Length;
 wire[15:0] Reply_IPv4_Csum;
 wire[15:0] Reply_IPv4_Address0;
 wire[15:0] Reply_IPv4_Address1;
 reg[15:0]  Reply_UDP_hostPort;
-wire[15:0] Reply_UDP_Length;
+wire[15:0] Reply_UDP_LenWire;
+reg[15:0]  Reply_UDP_Length;
 wire[15:0] Reply_ICMP_Checksum;
 
 assign Reply_IPv4_Address0 = { ip_address[7:0],   ip_address[15:8]  };
@@ -382,24 +388,25 @@ assign fw_resp_udp = (isUDP & (quadRead | blockRead)) | (fwUseUDP & isForward);
 wire sendUDP;
 assign sendUDP = (isEcho | fw_resp_udp | (bcResp & bcUseUDP));
 
-assign Reply_UDP_Length = isForward ? (`UDP_EXTRA_SIZE + sendLen) :
-                          sendExtra ? `UDP_EXTRA_SIZE :
-                          quadRead  ? (`UDP_EXTRA_SIZE + `FW_QRESP_SIZE)
-                                    : (`UDP_EXTRA_SIZE + `FW_BRESP_SIZE) + reply_data_length;
+assign Reply_UDP_LenWire = isForward ? (`UDP_EXTRA_SIZE + sendLen) :
+                           sendExtra ? `UDP_EXTRA_SIZE :
+                           quadRead  ? (`UDP_EXTRA_SIZE + `FW_QRESP_SIZE)
+                                     : (`UDP_EXTRA_SIZE + `FW_BRESP_SIZE) + reply_data_length;
 
-assign Reply_IPv4_Length = isEcho   ? IPv4_Length       // Same length as request
-                                    : (`IPv4_HDR_SIZE + Reply_UDP_Length);
+assign Reply_IPv4_LenWire = isEcho   ? IPv4_Length       // Same length as request
+                                     : (`IPv4_HDR_SIZE + Reply_UDP_Length);
 
-assign Reply_Frame_Length = sendARP                ? 16'h0806 :
-                            sendUDP                ? 16'h0800 :
-                            // Forwarding raw data from FireWire
-                            isForward              ? sendLen + `FW_EXTRA_SIZE :
-                            // Local raw packet
-                            ipWrite                ? (`FW_CTRL_SIZE + `FW_QWRITE_SIZE) :
-                            hubSend                ? (`FW_CTRL_SIZE + `FW_BWRITE_SIZE + SZ_BBC_BYTES) :
-                            sendExtra              ? `FW_EXTRA_SIZE :
-                            quadRead               ? (`FW_QRESP_SIZE + `FW_EXTRA_SIZE)
-                                                   : (`FW_BRESP_SIZE + `FW_EXTRA_SIZE) + reply_data_length;
+assign Reply_Frame_LenWire = sendARP                ? 16'h0806 :
+                             sendUDP                ? 16'h0800 :
+                             // Forwarding raw data from FireWire
+                             isForward              ? sendLen + `FW_EXTRA_SIZE :
+                             // Local raw packet
+                             ipWrite                ? (`FW_CTRL_SIZE + `FW_QWRITE_SIZE) :
+                             hubSend                ? (`FW_CTRL_SIZE + `FW_BWRITE_SIZE + { 7'd0, num_bc_read_quads, 2'd0}) :
+                             sendExtra              ? `FW_EXTRA_SIZE :
+                             quadRead               ? (`FW_QRESP_SIZE + `FW_EXTRA_SIZE)
+                                                    : (`FW_BRESP_SIZE + `FW_EXTRA_SIZE) + reply_data_length;
+
 integer i;
 initial begin
    for (i = ID_Packet_Begin; i <= ID_Packet_End; i=i+1) PacketBuffer[i] = 16'd0;
@@ -425,8 +432,12 @@ assign ReplyBuffer[ID_Rep_ARP_Oper]      = 16'h0002;                     // ARP 
 
 generate
 if (IPv4_CSUM) begin
-    wire[18:0] Rep_IPv4_Csum19;
-    assign Rep_IPv4_Csum19 = {3'd0, ReplyBuffer[ID_Rep_IPv4_Word0]} +
+    // Several registers used to improve timing
+    reg[18:0]  Rep_IPv4_Csum19;
+    wire[18:0] Rep_IPv4_Csum19_Wire;
+
+    assign Rep_IPv4_Csum19_Wire =
+                             {3'd0, ReplyBuffer[ID_Rep_IPv4_Word0]} +
                              {3'd0, ReplyBuffer[ID_Rep_IPv4_Length]} +
                              {3'd0, ReplyBuffer[ID_Rep_IPv4_Flags]} +
                              {3'd0, ReplyBuffer[ID_Rep_IPv4_Prot]} +
@@ -440,7 +451,14 @@ if (IPv4_CSUM) begin
     assign Rep_IPv4_Csum17 = { 1'd0, Rep_IPv4_Csum19[15:0]} + {14'd0, Rep_IPv4_Csum19[18:16]};
 
     // Second part of IPv4 checksum carry, with ones complement of result
-    assign Reply_IPv4_Csum = ~(Rep_IPv4_Csum17[15:0] + {15'd0, Rep_IPv4_Csum17[16]});
+    reg[15:0] Reply_IPv4_Csum_Reg;
+    always @(posedge TxClk)
+    begin
+       Rep_IPv4_Csum19 <= Rep_IPv4_Csum19_Wire;
+       Reply_IPv4_Csum_Reg <= ~(Rep_IPv4_Csum17[15:0] + {15'd0, Rep_IPv4_Csum17[16]});
+    end
+
+    assign Reply_IPv4_Csum = Reply_IPv4_Csum_Reg;
 end
 else begin
     assign Reply_IPv4_Csum = 16'd0;
@@ -489,11 +507,11 @@ assign isARPValid = (PacketBuffer[ID_ARP_HTYPE] == 16'h0001) &&
                     (PacketBuffer[ID_ARP_Oper] == 16'h0001);
 
 // Whether ARP IP address matches this board
+wire is_ip_unassigned;
 wire isARP_ip_equal = (!is_ip_unassigned && (ip_address == ARP_fpgaIP)) ? 1'd1 : 1'd0;
 
 // Whether we should send an ARP response. This will be valid before it is first used in ST_RECEIVE_FLUSH_WAIT,
 // and should not get checked in ST_SEND states if isForward is 1.
-wire sendARP;
 assign sendARP = isARP & isARPValid & isARP_ip_equal;
 
 //******************************** IPv4 HEADER *************************************
@@ -515,7 +533,6 @@ assign IPv4_Version = PacketBuffer[ID_IPv4_Word0][15:12];
 wire [3:0] IPv4_IHL;
 assign IPv4_IHL = PacketBuffer[ID_IPv4_Word0][11:8];
 `endif
-wire[15:0] IPv4_Length;
 assign IPv4_Length = PacketBuffer[ID_IPv4_Length];
 wire[7:0] IPv4_Protocol;
 assign IPv4_Protocol = PacketBuffer[ID_IPv4_Protocol][7:0];
@@ -530,7 +547,6 @@ wire is_IPv4_Short;
 assign is_IPv4_Short = (isIPv4 && !is_IPv4_Long && (IPv4_IHL != 4'd5)) ? 1'd1 : 1'd0;
 `endif
 
-wire isUDP;
 assign isUDP = (isIPv4 && (IPv4_Protocol == 8'd17)) ? 1'd1 : 1'd0;
 
 wire isICMP;
@@ -542,6 +558,13 @@ assign UDP_Length = PacketBuffer[ID_UDP_Length];
 wire isPortValid;
 assign isPortValid = (PacketBuffer[ID_UDP_destPort] == 16'd1394) ? 1'd1 : 1'd0;
 
+// List of known ports
+// Port 123 is used by ntp.
+// Port 1534 is used by tcf-agent, which is enabled by default in Petalinux.
+wire isPortKnown;
+assign isPortKnown = ((PacketBuffer[ID_UDP_destPort] != 16'd123)) ||
+                      (PacketBuffer[ID_UDP_destPort] != 16'd1534) ? 1'b1 : 1'b0;
+
 reg[15:0] Port_Unknown;
 
 //********************************* ICMP Header ***************************************
@@ -550,7 +573,6 @@ reg[15:0] Port_Unknown;
 // (i.e., IPv4_Length includes 20 bytes for IPv4 Header and 12 bytes for ICMP Header).
 // This data is received in ST_RECEIVE_DMA_ICMP_Data.
 
-wire isEcho;
 // Echo request (ping) has Type=8, Code=0
 assign isEcho = (isICMP && (PacketBuffer[ID_ICMP_TypeCode] == 16'h0800)) ? 1'd1 : 1'd0;
 
@@ -578,19 +600,11 @@ else begin
     assign Reply_ICMP_Checksum = 16'd0;
 end
 
-// Special case handling of write to IP address register.
-wire ipWrite;
-assign ipWrite = FireWirePacketFresh && quadWrite && (fw_dest_offset == {`ADDR_MAIN, 8'h0, `REG_IPADDR}) ? 1'b1 : 1'b0;
-
 // Special case for broadcast read on an Ethernet-only network: writing to the Hub register
 // (0x1800) causes this module to send an Ethernet multicast write packet to update the
 // hub memory on this board and other FPGA boards.
-wire hubSend;
 wire[15:0] board_mask;                        // Board mask sent with quadlet write to Hub register
-assign board_mask = FireWireQuadlet[15:0];    // Only valid for a limited time
 reg isBoardMasked;
-
-assign hubSend = FireWirePacketFresh & quadWrite & addrHubReg & isLocal & (~isRemote) & isBoardMasked;
 
 //**************************** Firewire Control Word ************************************
 // The Raw or UDP header is followed by one control word, which includes the expected Firewire
@@ -601,6 +615,26 @@ wire noForwardFlag;
 assign noForwardFlag = fw_ctrl[8];
 wire[7:0] host_fw_bus_gen;
 assign host_fw_bus_gen = fw_ctrl[7:0];
+
+// Data from Firewire packet header
+// Quadlet 0
+reg[9:0] dest_bus_id;         // FireWire destination bus (first 10 bits)
+reg[5:0] dest_node_id;        // FireWire destination node (last 6 bits)
+reg[5:0] fw_tl;               // FireWire transaction label
+reg[3:0] fw_tcode;            // FireWire transaction code
+reg[3:0] fw_pri;              // FireWire priority field
+// Quadlet 1
+reg[15:0] fw_src_id;          // FireWire source id
+// Quadlet 2
+reg[15:0] fw_dest_offset;     // FireWire destination offset (only lowest 16 bits used)
+// Quadlet 3
+reg[15:0] block_data_length;  // Data length (in bytes) for block read/write requests
+
+reg[31:0] fw_quadlet_data;    // Quadlet data to write
+
+reg[31:0] FireWireQuadlet;    // the current quadlet being read
+
+assign board_mask = FireWireQuadlet[15:0];    // Only valid for a limited time
 
 //******************************* Reply packets *****************************************
 // The reply packets can mostly be constructed by returning data from the incoming packets
@@ -695,6 +729,9 @@ assign Write_Reply_Addr = (hubSend | bcResp) ? { `ADDR_HUB, 12'd0 } :
 wire[31:0] Write_Reply_Data;
 assign Write_Reply_Data = 32'd9;
 
+// Firewire transaction label for reply packet
+wire[5:0] fw_tl_reply;
+
 // Firewire transaction code for reply packet
 wire[3:0] fw_tcode_reply;
 assign fw_tcode_reply = ipWrite  ? `TC_QWRITE :
@@ -759,7 +796,6 @@ reg[7:0] numMulticastWrite;  // Number of multicast packets written (ipWrite or 
 
 reg[7:0] numPacketError;     // Number of packet errors (Frame, IPv4 or UDP error)
 
-wire is_ip_unassigned;
 assign is_ip_unassigned = (ip_address == IP_UNASSIGNED) ? 1'd1 : 1'd0;
 
 // Variables used by block write process. Originally, this was only for the RT block
@@ -771,6 +807,9 @@ reg[8:0] bwLen;        // Number of quadlets in the block write data
 wire[8:0] bwEnd;       // Ending offset in bw_packet for block write data
 
 assign bwEnd = bwStart + bwLen;
+
+reg bw_active_sys;          // register write active in sysclk domain
+// output wire bw_active (actually in RxTxClk domain)
 
 // Word number at which to request a block write and Firewire packet forward, so that
 // reader and writer can overlap. See explanation below (search for writeRequestTrigger).
@@ -807,6 +846,7 @@ else begin
 end
 endgenerate
 
+`ifdef HAS_DEBUG_DATA
 reg      bw_err;     // Block write error (block write not active when expected)
 reg[8:0] bw_left;    // Number of quadlets left to write when processing last Firewire quadlet
 
@@ -814,8 +854,23 @@ reg      fw_err;     // Firewire forward error (Firewire forward not active when
 reg[8:0] fw_left;    // Number of quadlets left to forward when processing last quadlet
 
 reg[7:0] fw_wait_cnt;   // Number of clocks waiting for Firewire forward to finish
+`endif
 
 reg[1:0] srcPortReg;    // Source port from Ethernet Switch (FPGA V3); 0 for FPGA V2
+
+wire addrHub;
+assign addrHub = (fw_dest_offset[15:12] == `ADDR_HUB) ? 1'b1 : 1'b0;
+
+wire addrHubReg;
+assign addrHubReg = (addrHub && (fw_dest_offset[11:0] == 12'h800)) ? 1'b1 : 1'b0;
+
+wire addrHubMem;
+assign addrHubMem = (addrHub && (fw_dest_offset[11:8] == 4'd0)) ? 1'b1 : 1'b0;
+
+// Special case handling of write to IP address register.
+assign ipWrite = FireWirePacketFresh && quadWrite && (fw_dest_offset == {`ADDR_MAIN, 8'h0, `REG_IPADDR}) ? 1'b1 : 1'b0;
+
+assign hubSend = FireWirePacketFresh & quadWrite & addrHubReg & isLocal & (~isRemote) & isBoardMasked;
 
 // -----------------------------------------------
 // Extra data sent to PC with every Firewire packet
@@ -830,37 +885,6 @@ assign ExtraData[1] = {8'd0, numPacketError};
 `endif
 assign ExtraData[2] = timeReceive;
 assign ExtraData[3] = timeNow;
-
-// -----------------------------------------------
-// Debug data
-// -----------------------------------------------
-`ifdef HAS_DEBUG_DATA
-wire[31:0] DebugData[0:15];
-assign DebugData[0]  = "2GBD";  // DBG2 byte-swapped
-assign DebugData[1]  = timestamp;
-assign DebugData[2]  = { writeRequest, 1'd0, bw_active_sys, eth_send_isIdle,                     // 31:28
-                         eth_recv_isIdle, ethUDPError, 1'b0, ethIPv4Error,                       // 27:24
-                         sendBusy, sendRequest, eth_send_fw_ack, eth_send_fw_req,                // 23:20
-                         recvBusy, recvRequest, isLocal, isRemote,                               // 19:16
-                         FireWirePacketFresh, isForward, sendARP, isUDP,                         // 15:12
-                         isICMP, isEcho, is_IPv4_Long, is_IPv4_Short,                            // 11:8
-                         fw_bus_reset, ipWrite, hubSend, bcResp,                                 //  7:4
-                         4'd0 };                                                                 //  3:0
-assign DebugData[3]  = { node_id, maxCountFW, LengthFW };                  // 6, 10, 16
-assign DebugData[4]  = { fw_ctrl, host_fw_addr };                          // 16, 16
-assign DebugData[5]  = { sendState, 12'd0,                                 // 16
-                         1'd0, recvState, 1'd0, nextRecvState, 2'd0, recvCnt };     // 3, 3, 6
-assign DebugData[6]  = { 6'd0, numUDP, 6'd0, numIPv4 };                    // 6, 10, 6, 10
-assign DebugData[7]  = { br_wait_cnt, numICMP, fw_bus_gen, numARP };       // 8, 8, 8, 8
-assign DebugData[8]  = { 7'd0, bw_left, bw_err, 4'd0, bwState, numPacketError };   // 7, 9, 1, 4, 3, 8
-assign DebugData[9]  = { 7'd0, fw_left, fw_err, 7'd0, fw_wait_cnt };       // (7,9) (1,7) 8
-assign DebugData[10] = { 8'd0, numMulticastWrite, Port_Unknown };
-assign DebugData[11] = 32'd0;
-assign DebugData[12] = 32'd0;
-assign DebugData[13] = 32'd0;
-assign DebugData[14] = 32'd0;
-assign DebugData[15] = 32'd0;
-`endif
 
 // Firewire packets received from host:
 //    - 16 bytes (4 quadlets) for quadlet read request
@@ -889,7 +913,8 @@ wire[31:0] mem_rdata;
 reg[8:0] local_raddr;
 reg      icmp_read_en;    // 1 -> ICMP needs to read from memory
 
-reg[31:0] FireWireQuadlet;   // the current quadlet being read
+reg[9:0] rfw_count;     // Counts words in received FireWire packets (max is 1024 words, or 2048 bytes)
+reg[9:0] sfw_count;     // Counts words in sent FireWire packets (max is 1024 words, or 2048 bytes)
 
 reg mem_wen;   // memory write enable
 
@@ -961,15 +986,6 @@ else begin
                               );
 end
 
-wire addrHub;
-assign addrHub = (fw_dest_offset[15:12] == `ADDR_HUB) ? 1'b1 : 1'b0;
-
-wire addrHubReg;
-assign addrHubReg = (addrHub && (fw_dest_offset[11:0] == 12'h800)) ? 1'b1 : 1'b0;
-
-wire addrHubMem;
-assign addrHubMem = (addrHub && (fw_dest_offset[11:8] == 4'd0)) ? 1'b1 : 1'b0;
-
 // Local hub memory; only used by Ethernet-only network (i.e., when not using
 // Ethernet/Firewire bridge), which is only possible with FPGA V3 (IS_V3).
 // Since this file is also used for FPGA V2, we define some registers
@@ -1010,7 +1026,8 @@ reg reg_wen_hub_local;
 
 reg reg_wen_hub_quad;
 
-wire[5:0] fw_tl_reply;
+// Accessing br_packet memory
+wire[31:0] br_data_out;
 
 if (IS_V3) begin
 
@@ -1117,8 +1134,11 @@ if (IS_V3) begin
    assign bcResponseHeader[UDP_Reply_End]       = 16'd0;
 
    if (IPv4_CSUM) begin
-       wire[18:0] bcResp_IPv4_Csum19;
-       assign bcResp_IPv4_Csum19 = {3'd0, bcResponseHeader[IPv4_Reply_Begin]} +
+       // Several registers used to improve timing
+       reg[18:0] bcResp_IPv4_Csum19;
+       wire[18:0] bcResp_IPv4_Csum19_Wire;
+       assign bcResp_IPv4_Csum19_Wire =
+                                   {3'd0, bcResponseHeader[IPv4_Reply_Begin]} +
                                    {3'd0, bcResponseHeader[IPv4_Reply_Begin+1]} +
                                    {3'd0, bcResponseHeader[IPv4_Reply_Begin+3]} +
                                    {3'd0, bcResponseHeader[IPv4_Reply_Begin+4]} +
@@ -1132,7 +1152,14 @@ if (IS_V3) begin
        assign bcResp_IPv4_Csum17 = { 1'd0, bcResp_IPv4_Csum19[15:0]} + {14'd0, bcResp_IPv4_Csum19[18:16]};
 
        // Second part of IPv4 checksum carry, with ones complement of result
-       assign bcResp_IPv4_Csum = ~(bcResp_IPv4_Csum17[15:0] + {15'd0, bcResp_IPv4_Csum17[16]});
+       reg[15:0] bcResp_IPv4_Csum_Reg;
+       always @(posedge TxClk)
+       begin
+           bcResp_IPv4_Csum19 <= bcResp_IPv4_Csum19_Wire;
+           bcResp_IPv4_Csum_Reg <= ~(bcResp_IPv4_Csum17[15:0] + {15'd0, bcResp_IPv4_Csum17[16]});
+       end
+
+       assign bcResp_IPv4_Csum = bcResp_IPv4_Csum_Reg;
    end
    else begin
        assign bcResp_IPv4_Csum = 16'd0;
@@ -1191,8 +1218,6 @@ else begin
    assign fw_tl_reply = fw_tl;
 end
 
-reg FireWirePacketFresh;   // 1 -> FireWirePacket data is valid (fresh)
-
 // Following data is accessible via block read from address `ADDR_ETH (0x4000),
 // where 'x' specifies the port number.
 //   FPGA V2 (1 Ethernet port):  Set x=0
@@ -1236,22 +1261,6 @@ begin
    end
 end
 
-// Data from Firewire packet header
-// Quadlet 0
-reg[9:0] dest_bus_id;         // FireWire destination bus (first 10 bits)
-reg[5:0] dest_node_id;        // FireWire destination node (last 6 bits)
-reg[5:0] fw_tl;               // FireWire transaction label
-reg[3:0] fw_tcode;            // FireWire transaction code
-reg[3:0] fw_pri;              // FireWire priority field
-// Quadlet 1
-reg[15:0] fw_src_id;          // FireWire source id
-// Quadlet 2
-reg[15:0] fw_dest_offset;     // FireWire destination offset (only lowest 16 bits used)
-// Quadlet 3
-reg[15:0] block_data_length;  // Data length (in bytes) for block read/write requests
-
-reg[31:0] fw_quadlet_data;    // Quadlet data to write
-
 wire isFwBroadcast = (dest_node_id == 6'h3f) ? 1'd1 : 1'd0;
 
 // Whether dest_node_id matches this board. Prior to Rev 9, this would be true if equal
@@ -1283,6 +1292,9 @@ assign blockWrite = (FireWirePacketFresh && (fw_tcode == `TC_BWRITE)) ? 1'd1 : 1
 assign reply_data_length = bcResp ? bc_resp_length : block_data_length;
 
 assign addrMain = (fw_dest_offset[15:12] == `ADDR_MAIN) ? 1'd1 : 1'd0;
+// Special case for reading packet memory in Firewire.v because that memory
+// is in the Ethernet clock domain (RxTxClk)
+assign addrFwMem = (fw_dest_offset[15:9] == {`ADDR_FW, 3'd0}) ? 1'd1 : 1'd0;
 
 // For local use
 reg[15:0] reg_waddr;
@@ -1314,6 +1326,8 @@ assign eth_reg_waddr[15:8] = reg_waddr[15:8];
 
 //*********************************************************************************
 
+reg bwAddrMain;        // 1 -> real-time block write
+
 // Following signal indicates whether real-time block write in process
 assign blk_rt_wr = bwAddrMain & req_write_bus;
 
@@ -1327,6 +1341,8 @@ reg[31:0] timestamp_prev;
 //*****************************************************************
 //  Write to Ethernet IP register or control register
 //*****************************************************************
+
+wire[31:0] desired_ip_address;
 
 always @(posedge sysclk)
 begin
@@ -1375,9 +1391,6 @@ reg sendAck_rxtx;
 reg  writeRequest_rxtx;     // request register write from RxTxClk domain
 wire writeRequest;          // request register write in sysclk domain
 
-reg bw_active_sys;          // register write active in sysclk domain
-// output wire bw_active (actually in RxTxClk domain)
-
 reg  br_request_rxtx;       // request register read into br_packet memory from RxTxClk domain
 wire br_request;            // request register read into br_packet memory in sysclk domain
 
@@ -1388,10 +1401,10 @@ wire br_ack_rxtx;           // br_ack in RxTxClk domain
 
 if (USE_RXTX_CLK) begin
    // Synchronize signals from sysclk to RxTxClk
-   reg clearErrors_latched;
-   reg eth_send_fw_ack_latched;
-   reg bw_active_sys_latched;
-   reg br_ack_latched;
+   (* ASYNC_REG="TRUE" *) reg clearErrors_latched;
+   (* ASYNC_REG="TRUE" *) reg eth_send_fw_ack_latched;
+   (* ASYNC_REG="TRUE" *) reg bw_active_sys_latched;
+   (* ASYNC_REG="TRUE" *) reg br_ack_latched;
    always @(posedge RxTxClk)
    begin
       clearErrors_latched <= clearErrors;
@@ -1404,11 +1417,11 @@ if (USE_RXTX_CLK) begin
    assign bw_active = bw_active_sys_latched;
    assign br_ack_rxtx = br_ack_latched;
    // Synchronize signals from RxTxClk to sysclk
-   reg eth_send_fw_req_rxtx_latched;
-   reg sendAck_rxtx_latched;
-   reg writeRequest_rxtx_latched;
-   reg br_request_rxtx_latched;
-   reg reg_wen_hub_quad_latched;
+   (* ASYNC_REG="TRUE" *) reg eth_send_fw_req_rxtx_latched;
+   (* ASYNC_REG="TRUE" *) reg sendAck_rxtx_latched;
+   (* ASYNC_REG="TRUE" *) reg writeRequest_rxtx_latched;
+   (* ASYNC_REG="TRUE" *) reg br_request_rxtx_latched;
+   (* ASYNC_REG="TRUE" *) reg reg_wen_hub_quad_latched;
    always @(posedge sysclk)
    begin
       eth_send_fw_req_rxtx_latched <= eth_send_fw_req_rxtx;
@@ -1465,18 +1478,20 @@ wire recvFinish;
 assign recvFinish = ((~recvRequest) & ~(recvReady|dataValid|recvTransition)) ? 1'b1 : 1'b0;
 
 reg[5:0] recvCnt;       // Index into PacketBuffer
-reg[9:0] rfw_count;     // Counts words in FireWire packets (max is 1024 words, or 2048 bytes)
 reg[5:0] rebootCnt;     // Counter used to delay reboot command (could reuse recvCnt)
 
+`ifdef HAS_DEBUG_DATA
 reg[7:0] br_wait_cnt;   // Number of clocks waiting for block read to finish
+`endif
 
-assign responseRequired = ((FireWirePacketFresh &
-                            ((quadRead | blockRead) & (isLocal | sendExtra)) | ((ipWrite | hubSend) & isLocal))
-                           | sendARP | isEcho);
+wire responseRequiredWire;
+assign responseRequiredWire = ((FireWirePacketFresh &
+                              ((quadRead | blockRead) & (isLocal | sendExtra)) | ((ipWrite | hubSend) & isLocal))
+                              | sendARP | isEcho);
+wire[15:0] responseByteCountWire;
 
 // Previously (up to Firmware Rev 8), set all bits of ip_address (e.g., 169.254.0.100)
 // Firmware 9+: Add board_id to last 8 bits (e.g., 169.254.0.{100+board_id})
-wire[31:0] desired_ip_address;
 assign desired_ip_address = { (reg_wdata_in == IP_UNASSIGNED) ? reg_wdata_in[31:24]
                                                               : (reg_wdata_in[31:24] + {4'd0, board_id}),
                               reg_wdata_in[23:0] };
@@ -1493,6 +1508,10 @@ begin
 
    // req_blk_rt_rd is asserted for just one sysclk
    req_blk_rt_rd <= 1'b0;
+
+   // Following registered to improve timing
+   responseRequired <= responseRequiredWire;
+   responseByteCount <= responseByteCountWire;
 
    if (resetActive|clearErrors_rxtx) begin
       numPacketError <= 8'd0;
@@ -1571,9 +1590,8 @@ begin
          end
          else if ((recvCnt == ID_UDP_End) && isUDP) begin
             if (!isPortValid) begin
-               // Port 1534 is used by tcf-agent, which is enabled by default in Petalinux;
-               // thus, we just ignore it and do not consider it an unexpected UDP port.
-               if (PacketBuffer[ID_UDP_destPort] != 16'd1534) begin
+               // Check for any known ports (e.g., ntp, tcf-agent)
+               if (!isPortKnown) begin
                    ethUDPError <= 1'd1;
                    numPacketError <= numPacketError + 8'd1;
                    Port_Unknown <= PacketBuffer[ID_UDP_destPort];
@@ -1720,13 +1738,14 @@ begin
             nextRecvState <= ST_RECEIVE_DMA_WAIT_START;  // was ST_RECEIVE_DMA_FRAME_CRC;
             if (isLocal & ((addrMain & blockRead) | (addrHubReg & quadWrite & isBoardMasked))) begin
                // Latch timestamp if a block read from ADDR_MAIN or a broadcast read request
-               // (quadlet write to ADDR_HUB).
-               // TODO: Subtracting 1 for backward compatibility; may eliminate that for Firmware Rev 9
+               // (quadlet write to ADDR_HUB and board mask bit set).
+               // Subtracting 1 for backward compatibility
                timestamp_latched <= (timestamp-timestamp_prev)-32'd1;
                timestamp_prev <= timestamp;
                req_blk_rt_rd <= 1'b1;
             end
             if (isLocal & blockWrite & (~(addrHub & (~isRemote)))) begin
+`ifdef HAS_DEBUG_DATA
                // writeRequest should have been set earlier (using writeRequestTrigger) for all
                // local block writes (even broadcast). We expect write to still be active.
                // The one exception is when we receive a multicast write to the Hub memory.
@@ -1734,15 +1753,19 @@ begin
                // Number of quadlets left to write to registers; should be greater than 1,
                // otherwise the register writer may have overtaken the Ethernet reader.
                bw_left <= bwEnd - local_raddr;
+`endif
             end
-            else if (isLocal & (quadRead | blockRead | hubSend)) begin
+            else if (isLocal & (quadRead | (blockRead & (~addrFwMem)) | hubSend)) begin
                br_request_rxtx <= 1'b1;
+`ifdef HAS_DEBUG_DATA
                br_wait_cnt <= 8'd0;
+`endif
             end
             if (hubSend) begin
                // Set block_data_length to the size of the hubSend packet
-               block_data_length <= SZ_BBC_BYTES;
+               block_data_length <= { 7'd0, num_bc_read_quads, 2'd0 };
             end
+`ifdef HAS_DEBUG_DATA
             if (isRemote) begin
                // Request to forward should already have been set (using fwRequestTrigger).
                // We expect that it would still be active.
@@ -1751,6 +1774,7 @@ begin
                // otherwise the Firewire writer may have overtaken the Ethernet reader.
                fw_left <= eth_fwpkt_len[10:2] - eth_fwpkt_raddr;
             end
+`endif
          end
          else begin
             nextRecvState <= ST_RECEIVE_DMA_FIREWIRE_PACKET;
@@ -1761,8 +1785,10 @@ begin
          end
          if ((rfw_count == fwRequestTrigger) && isRemote) begin
             eth_send_fw_req_rxtx <= 1'b1;
-            fw_wait_cnt <= 8'd0;
             host_fw_addr <= fw_src_id;
+`ifdef HAS_DEBUG_DATA
+            fw_wait_cnt <= 8'd0;
+`endif
          end
          else if (eth_send_fw_ack_rxtx) begin
             eth_send_fw_req_rxtx <= 1'b0;
@@ -1775,16 +1801,20 @@ begin
       if (eth_send_fw_req_rxtx | eth_send_fw_ack_rxtx | br_request_rxtx | br_ack_rxtx) begin
          // Clear eth_send_fw_req if eth_send_fw_ack asserted
          if (eth_send_fw_ack_rxtx) eth_send_fw_req_rxtx <= 1'b0;
+`ifdef HAS_DEBUG_DATA
          if (eth_send_fw_req_rxtx | eth_send_fw_ack_rxtx) begin
             // Waiting for Ethernet forward to finish
             fw_wait_cnt <= fw_wait_cnt + 8'd1;
          end
+`endif
          // Clear br_request if br_ack asserted
          if (br_ack_rxtx) br_request_rxtx <= 1'b0;
+`ifdef HAS_DEBUG_DATA
          if (br_request_rxtx | br_ack_rxtx) begin
             // Wait until read from registers finished
             br_wait_cnt <= br_wait_cnt + 8'd1;
          end
+`endif
       end
       else begin
 `ifdef HAS_DEBUG_DATA
@@ -1890,14 +1920,9 @@ localparam[3:0]
 
 reg[3:0] sendState = ST_SEND_DMA_IDLE;
 
-// Accessing br_packet memory
-wire[31:0] br_data_out;
-
-reg[9:0] sfw_count;     // Counts words in FireWire packets (max is 1024 words, or 2048 bytes)
 reg[1:0] xcnt;          // Counts words in extra packet
 
-// Following needed by KSZ8851
-assign responseByteCount =
+assign responseByteCountWire =
              sendARP ? (`ETH_FRAME_SIZE + 16'd28) :                 // ARP response: 14 + 28
              sendUDP ? (`ETH_FRAME_SIZE + Reply_IPv4_Length)        // UDP or ICMP Echo packet
                      : (`ETH_FRAME_SIZE + Reply_Frame_Length);      // Raw packet
@@ -1908,6 +1933,11 @@ begin
    if (resetActive|clearErrors_rxtx) begin
       ethSendStateError <= 0;
    end
+
+   // Following registered to improve timing
+   Reply_UDP_Length <= Reply_UDP_LenWire;
+   Reply_IPv4_Length <= Reply_IPv4_LenWire;
+   Reply_Frame_Length <= Reply_Frame_LenWire;
 
    case (sendState)
 
@@ -2034,6 +2064,7 @@ begin
          else if (sfw_count[3:0] == 4'd9) begin  // block read
             if (blockRead | hubSend | bcResp) begin
                sfw_count <= 10'd0;
+               sendAddr <= 9'd0;
                sendState <= ST_SEND_DMA_PACKETDATA_BLOCK;
             end
             else  // Should not happen
@@ -2070,12 +2101,17 @@ begin
 
       if (sendReady) begin
          sfw_count <= sfw_count + 10'd1;
+         if (addrFwMem & sfw_count[0]) sendAddr <= sendAddr + 9'd1;
          if (sfw_count[0] == 0) begin   // even count (upper word)
-            `send_word_swapped <= localHubRead ? reg_rdata_hub[31:16] : br_data_out[31:16];
+            `send_word_swapped <= localHubRead ? reg_rdata_hub[31:16] :
+                                  addrFwMem    ? sendData[31:16] :
+                                  br_data_out[31:16];
             reg_wen_hub_local <= 1'b0;
          end
          else begin   // odd count (lower word)
-            `send_word_swapped <= localHubRead ? reg_rdata_hub[15:0] : br_data_out[15:0];
+            `send_word_swapped <= localHubRead ? reg_rdata_hub[15:0] :
+                                  addrFwMem    ? sendData[15:0] :
+                                  br_data_out[15:0];
             reg_wen_hub_local <= hubSend;
             // sfw_count is in words and reply_data_length is in bytes, but we compare in quadlets
             if ((sfw_count[9:1] + 9'd1) == reply_data_length[10:2])
@@ -2208,7 +2244,6 @@ localparam[2:0]
 
 reg[2:0] bwState = BW_IDLE;
 reg[1:0] bwCnt;
-reg bwAddrMain;        // 1 -> real-time block write
 
 always @(posedge sysclk)
 begin
@@ -2344,7 +2379,7 @@ assign timestamp_rd = (blk_rt_rd && (reg_raddr[7:0] == 8'd0)) ? 1'd1 : 1'd0;
 
 reg hubSendHeader;       // 1 -> write hub header
 wire[31:0] hub_header;   // header quadlet for Hub data block
-assign hub_header = { bc_sequence, 8'd0, SZ_BBC_QUADS };
+assign hub_header = { bc_sequence, 8'd0, 1'd0, num_bc_read_quads };
 
 reg[8:0] br_addr_in;
 wire[31:0] br_data_in;
@@ -2448,5 +2483,40 @@ begin
 
    endcase // case (brState)
 end
+
+// -----------------------------------------------
+// Debug data
+// -----------------------------------------------
+`ifdef HAS_DEBUG_DATA
+wire eth_send_isIdle;
+assign eth_send_isIdle = (sendState == ST_SEND_DMA_IDLE) ? 1'd1 : 1'd0;
+wire eth_recv_isIdle;
+assign eth_recv_isIdle = (recvState == ST_RECEIVE_DMA_IDLE) ? 1'd1 : 1'd0;
+
+assign DebugData[0]  = "2GBD";  // DBG2 byte-swapped
+assign DebugData[1]  = timestamp;
+assign DebugData[2]  = { writeRequest, 1'd0, bw_active_sys, eth_send_isIdle,                     // 31:28
+                         eth_recv_isIdle, ethUDPError, 1'b0, ethIPv4Error,                       // 27:24
+                         sendBusy, sendRequest, eth_send_fw_ack, eth_send_fw_req,                // 23:20
+                         recvBusy, recvRequest, isLocal, isRemote,                               // 19:16
+                         FireWirePacketFresh, isForward, sendARP, isUDP,                         // 15:12
+                         isICMP, isEcho, is_IPv4_Long, is_IPv4_Short,                            // 11:8
+                         fw_bus_reset, ipWrite, hubSend, bcResp,                                 //  7:4
+                         4'd0 };                                                                 //  3:0
+assign DebugData[3]  = { node_id, maxCountFW, LengthFW };                  // 6, 10, 16
+assign DebugData[4]  = { fw_ctrl, host_fw_addr };                          // 16, 16
+assign DebugData[5]  = { sendState, 12'd0,                                 // 16
+                         1'd0, recvState, 1'd0, nextRecvState, 2'd0, recvCnt };     // 3, 3, 6
+assign DebugData[6]  = { 6'd0, numUDP, 6'd0, numIPv4 };                    // 6, 10, 6, 10
+assign DebugData[7]  = { br_wait_cnt, numICMP, fw_bus_gen, numARP };       // 8, 8, 8, 8
+assign DebugData[8]  = { 7'd0, bw_left, bw_err, 4'd0, bwState, numPacketError };   // 7, 9, 1, 4, 3, 8
+assign DebugData[9]  = { 7'd0, fw_left, fw_err, 7'd0, fw_wait_cnt };       // (7,9) (1,7) 8
+assign DebugData[10] = { 8'd0, numMulticastWrite, Port_Unknown };
+assign DebugData[11] = 32'd0;
+assign DebugData[12] = 32'd0;
+assign DebugData[13] = 32'd0;
+assign DebugData[14] = 32'd0;
+assign DebugData[15] = 32'd0;
+`endif
 
 endmodule
