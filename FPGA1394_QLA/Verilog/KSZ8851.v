@@ -365,11 +365,12 @@ reg[7:0] FrameCount;   // Number of received frames
 reg[11:0] rxPktWords;  // Num of words in receive queue
 reg[11:0] txPktWords;  // Num of words sent in response
 
-`ifdef HAS_DEBUG_DATA
-reg[15:0] timeSend;          // Time when send portion finished
 reg[15:0] numPacketValid;    // Number of valid Ethernet frames received
 reg[7:0]  numPacketInvalid;  // Number of invalid Ethernet frames received
 reg[7:0] numPacketSent;      // Number of packets sent to host PC
+
+`ifdef HAS_DEBUG_DATA
+reg[15:0] timeSend;          // Time when send portion finished
 reg[9:0] bw_wait;
 `endif
 
@@ -768,10 +769,10 @@ always @(posedge sysclk) begin
       FrameValid <= 0;
       isForward <= 0;
       ethStateError <= 0;
-`ifdef HAS_DEBUG_DATA
-      RegISROther <= 16'd0;
       numPacketValid <= 16'd0;
       numPacketInvalid <= 8'd0;
+`ifdef HAS_DEBUG_DATA
+      RegISROther <= 16'd0;
 `endif
    end
 
@@ -814,10 +815,8 @@ always @(posedge sysclk) begin
          if (ksz_wdata[28]) begin
             ethFwReqError <= 0;
             ethStateError <= 0;
-`ifdef HAS_DEBUG_DATA
             numPacketValid <= 16'd0;
             numPacketInvalid <= 8'd0;
-`endif
          end
          if (!ksz_wdata[26] && (ksz_wdata[31:28] == 4'd0)) begin
             // if not reset or upper bits set
@@ -1032,26 +1031,20 @@ always @(posedge sysclk) begin
       if (~ReadData[15] || (ReadData&16'b0011110000010011 != 16'h0)) begin
          // Error detected, so flush frame
          FrameValid <= 0;
-`ifdef HAS_DEBUG_DATA
          numPacketInvalid <= numPacketInvalid + 8'd1;
-`endif
          runPC <= ID_FLUSH_FRAME;
       end
       else begin
          // Valid frame, so start processing
          FrameValid <= 1;
-`ifdef HAS_DEBUG_DATA
          numPacketValid <= numPacketValid + 16'd1;
-`endif
       end
    end
 
    ST_RECEIVE_FRAME_LENGTH:
    begin
       if (ReadData[11:0] == 12'd0) begin
-`ifdef HAS_DEBUG_DATA
          numPacketInvalid <= numPacketInvalid + 8'd1;
-`endif
          runPC <= ID_FLUSH_FRAME;
       end
       else begin
@@ -1220,8 +1213,8 @@ always @(posedge sysclk) begin
 
    ST_SEND_END:
    begin
-`ifdef HAS_DEBUG_DATA
       numPacketSent <= numPacketSent + 8'd1;
+`ifdef HAS_DEBUG_DATA
       timeSend <= timeSinceIRQ;
 `endif
       if ((isInIRQ) && (FrameCount != 8'd0))

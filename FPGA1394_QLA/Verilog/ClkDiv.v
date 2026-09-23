@@ -45,8 +45,8 @@ module ClkDivI(clkin, clkout);
 
     input wire clkin;              // input clock to derive from
     output reg clkout;             // divided down output clock
-    reg[clogb2(div):0] counter;    // counter for clock divider
     parameter div = 100;           // adjustable divisor parameter
+    reg[clogb2(div):0] counter;    // counter for clock divider
 
 // counter from 0 to (div/2)-1, each interval creates half a clkout
 always @(posedge(clkin))

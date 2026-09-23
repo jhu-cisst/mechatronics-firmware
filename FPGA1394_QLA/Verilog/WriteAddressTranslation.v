@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2023 Johns Hopkins University.
+ * Copyright(C) 2023-2026 Johns Hopkins University.
  *
  * This module performs address translation for the write address to support the
  * the real-time block write.
@@ -69,11 +69,11 @@ assign channel = reg_waddr_in - RtStart;
 //    reg_waddr_in           if not a local block write
 //    REG_FVERSION           if header (ignored: reg_wen=0 and REG_FVERSION not writeable)
 //    { 4'd0, REG_STATUS }   if power control quadlet
-//    { CH, OFF_DAC_CTRL }   otherwise, where CH is channel number
+//    { CH, OFF_MOTOR_CTRL }   otherwise, where CH is channel number
 assign reg_waddr_out = (~blk_rt_wr) ? reg_waddr_in :
                        isHeader     ? { 4'd0, `REG_FVERSION } :  // Ignored
                        isPowerCtrl  ? { 4'd0, `REG_STATUS } :
-                       { channel[3:0], `OFF_DAC_CTRL };
+                       { channel[3:0], `OFF_MOTOR_CTRL };
 
 // Set reg_wen_out to:
 //    0            if real-time block write and is header quadlet or is not local

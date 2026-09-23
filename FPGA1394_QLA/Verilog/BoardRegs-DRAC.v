@@ -3,7 +3,7 @@
 
 /*******************************************************************************
  *
- * Copyright(C) 2008-2023 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2008-2026 Johns Hopkins University.
  *
  * This module contains a register file dedicated to general board parameters
  * for the DRAC.
@@ -43,9 +43,14 @@ module BoardRegsDRAC
     input  wire safety_fb,          // whether voltage present on safety line
     input  wire[3:0] board_id,      // board id (rotary switch)
     input  wire[31:0] temp_sense,   // temperature sensor reading
-    input  wire[11:0] reg_status12, // lowest 12-bits of status register (amplifier-related)
+    input  wire[3:0] reg_status4,   // lowest 4-bits of status register
     input  wire[31:0] reg_digin,
     input  wire is_ecm,
+    output reg has_suj_pots,        // board will send SUJ pot values in RT read packet
+    input  wire dsib_si_present,    // dSIB-Si is present (communication active)
+    input  wire dsib_z_si_present,  // dSIB-Z-Si is present (communication active)
+    input  wire essj_present,       // ESSJ is present
+    output reg cur_fb_raw = 1'b0,   // 0: filtered current (default), 1: raw current
 
     // register file interface
     input  wire[15:0] reg_raddr,     // register read address
@@ -55,28 +60,37 @@ module BoardRegsDRAC
     input  wire[31:0] reg_wdata,     // register write data
     input  wire reg_wen,             // write enable from FireWire module
 
-    output wire[31:0] reg_status,  // Status register (for reading)
-    input wire wdog_timeout        // Watchdog timeout status flag
+    input wire wdog_timeout          // Watchdog timeout status flag
 );
+
+reg enable_suj_check = 1'b1;
 
     // -------------------------------------------------------------------------
     // define wires and registers
     //
 
+    // Status register (for reading)
     // PROGRAMMER NOTE: The higher-level software requires board_id to be in bits [27:24]
     //                  and wdog_timeout to be bit 23. By convention, bits [31:28] specify
     //                  the number of channels. Other bits are board-specific.
+    // DRAC NOTE: dsib_si_present and dsib_z_si_present reflect the real-time status of
+    //            communication with the dSIB-Si and dSIB-Z-Si, respectively.
+    //            essj_present indicates whether the ESSJ is present.
+    //            has_suj_pots is a "sticky" bit; if set, the real-time read packet will contain
+    //            the potentiometer values from the SUJ (5 extra quadlets).
+    wire [31:0] reg_status;
     assign reg_status = {
-                // Byte 3: num channels, board id
+                // [31:28] num channels, [27:24] board id
                 NUM_CHAN, board_id,
-                // Byte 2: wdog timeout, is ecm, unused (0), unused (0)
-                wdog_timeout, is_ecm, 1'b0, 1'b0,
-                // mv_good, power enable, safety relay state, safety relay control
+                // [23:20] wdog timeout, is ecm, dSIB-Si present, dSIB-Z-Si present
+                wdog_timeout, is_ecm, dsib_si_present, dsib_z_si_present,
+                // [19:16] mv_good, power enable, safety relay state, safety relay control
                 mv_good, pwr_enable, ~relay, relay_on,
-                // unused (0000)
-                1'b0, 1'b0, 1'b0, 1'b0,
-                // lowest 12-bits are for amplifier feedback
-                reg_status12 };
+                // [15:12] essj_present, safety_fb, has_suj_pots, enable_suj_check
+                essj_present, safety_fb,  has_suj_pots, enable_suj_check,
+                // [11] unused (0), [10] cur_fb_raw, [9:8] unused (00),
+                // [7:4] unused (0000), [3:0] other board-specific feedback
+                1'd0, cur_fb_raw, 6'd0, reg_status4 };
 
 
 //------------------------------------------------------------------------------
@@ -95,8 +109,23 @@ always @(posedge(sysclk))
         `REG_STATUS: begin
             // mask reg_wdata[17] with [16] for safety relay control
             relay_on <= reg_wdata[17] ? reg_wdata[16] : relay_on;
+            // mask reg_wdata[15] with [13] for has_suj_pots
+            has_suj_pots <= reg_wdata[15] ? reg_wdata[13] : has_suj_pots;
+            // mask reg_wdata[14] with [12] for enable_suj_check
+            enable_suj_check <= reg_wdata[14] ? reg_wdata[12] : enable_suj_check;
+            // mask reg_wdata[11] with [10] for cur_fb_raw
+            cur_fb_raw <= reg_wdata[11] ? reg_wdata[10] : cur_fb_raw;
         end
         endcase
+    end
+    else if (enable_suj_check & dsib_si_present & dsib_z_si_present & essj_present) begin
+        // Set has_suj_pots if dsib_si_present, dsib_z_si_present, and essj_present
+        // are all true.
+        // Note that this bit remains set, even if either later become false,
+        // but can be cleared by writing to the status register (see above).
+        has_suj_pots <= 1'b1;
+        // No need to check again
+        enable_suj_check <= 1'b0;
     end
 end
 

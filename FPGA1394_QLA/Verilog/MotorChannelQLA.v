@@ -3,7 +3,7 @@
 
 /*******************************************************************************    
  *
- * Copyright(C) 2022-2023 Johns Hopkins University.
+ * Copyright(C) 2022-2026 Johns Hopkins University.
  *
  * This module handles a motor channel for the QLA
  *
@@ -38,14 +38,18 @@ module MotorChannelQLA
     output wire amp_disable_pin,     // signal to drive FPGA pin
     output wire amp_disable_f,       // disable follower op amp (QLA Rev 1.5+)
 
-    output reg[15:0] cur_cmd,        // Commanded current (or voltage)
-    output reg[3:0] ctrl_mode,       // Control mode
+    output reg[31:0] motor_cmd,      // Motor Command from PC
     output wire cur_ctrl,            // 1 -> current control, 0 -> voltage control
 
     input wire[15:0] cur_fb          // Measured current
 );
 
-initial cur_cmd = 16'h8000;
+initial motor_cmd = 32'h80008000;
+
+wire[15:0] cur_cmd;     // current (or voltage) command from PC
+wire[3:0] ctrl_mode;    // Control mode
+assign cur_cmd = motor_cmd[15:0];
+assign ctrl_mode = motor_cmd[27:24];
 
 // Specified delay, resolution is 20.83 us
 // With 8 bits, maximum possible delay is 5.3 ms
@@ -86,6 +90,9 @@ assign motor_config = { disable_safety, force_disable_f, 4'd0, ioexp_present, 1'
 // Also, can only have voltage control if ioexp_present (QLA 1.5+).
 assign cur_ctrl = (ioexp_present && (ctrl_mode == 4'd1)) ? 1'b0 : 1'b1;
 
+wire safety_amp_disable;   // from SafetyCheck module
+wire amp_disable;
+
 // If we are attempting to enable power (amp_disable == 0) and an amplifier fault
 // has occurred (amp_fault == 0)
 wire amp_fault_fb;
@@ -101,12 +108,10 @@ reg[7:0] amp_enable_cnt;
 reg reg_disable;
 initial reg_disable = 1'b1;
 
-wire safety_amp_disable;   // from SafetyCheck module
-
 // Safety-related disable (updates reg_disable)
+wire safety_disable;
 assign safety_disable = wdog_timeout | safety_amp_disable;
 
-wire amp_disable;
 assign amp_disable = reg_disable|mv_amp_disable;
 
 // Signal to disable follower op amp (QLA Rev 1.5+)
@@ -121,7 +126,7 @@ wire status_reg_wen;
 
 // Write to DAC register
 wire dac_reg_wen;
-assign dac_reg_wen = (reg_waddr[15:0] == {`ADDR_MAIN, 4'd0, CHANNEL, `OFF_DAC_CTRL}) ? reg_wen : 1'd0;
+assign dac_reg_wen = (reg_waddr[15:0] == {`ADDR_MAIN, 4'd0, CHANNEL, `OFF_MOTOR_CTRL}) ? reg_wen : 1'd0;
 
 // Write to motor configuration register
 wire motor_reg_wen;
@@ -184,11 +189,9 @@ always @(posedge clk)
 begin
     if (dac_reg_wen_int) begin
         // If the valid bit (reg_wdata[31]) is set AND the specified control mode
-        // (reg_wdata[27:24]) is valid, save the commanded value (reg_wdata[15:0])
-        // and control mode.
+        // (reg_wdata[27:24]) is valid, save the motor command value.
         if (reg_wdata_int[31] && valid_ctrl_mode) begin
-            cur_cmd <= reg_wdata_int[15:0];
-            ctrl_mode <= reg_wdata_int[27:24];
+            motor_cmd <= reg_wdata_int;
         end
         reg_disable <= (~pwr_enable) | safety_disable | (reg_wdata_int[29] ? ~reg_wdata_int[28] : reg_disable);
     end

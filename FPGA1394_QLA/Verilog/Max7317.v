@@ -91,6 +91,7 @@ reg[15:0] read_data_saved;         // Saved copy for host PC to read
 reg thisActive;                    // 1 -> this device most recently addressed
 
 // Externally-generated write (e.g., from PC)
+wire ioexp_reg_wen;
 assign ioexp_reg_wen = (reg_waddr == {`ADDR_MAIN, 8'd0, `REG_IO_EXP}) ? reg_wen : 1'b0;
 
 // Locally-generated write

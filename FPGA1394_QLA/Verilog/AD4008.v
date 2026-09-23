@@ -6,14 +6,17 @@
 module AD4008(
                 input wire         sck,	            // sck signal to all the ADCs 
                 input wire         sdo,             // AD4008 output  
-                input wire         data_ready,          // latch ADC data for Torque Control Module to process
-                output wire[31:0]   out             // ADC values captured from the  ADC
+                output wire[15:0]   out             // ADC values captured from the ADC
              );
 //TODO: add SDI interface
-reg[31:0] adc_data = 0; 
+reg[15:0] adc_data = 0;
 
+// SCK is forwarded to the ADC through an ODDR. The first internal falling edge
+// captures the already-valid D15; each later edge captures the bit launched by
+// the previous physical falling edge. The newly forwarded edge reaches the ADC
+// afterward and advances SDO.
 always @(negedge sck)
-    adc_data <= {adc_data[30:0], sdo};
+    adc_data <= {adc_data[14:0], sdo};
 
 
 assign out = adc_data;

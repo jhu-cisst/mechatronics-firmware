@@ -315,6 +315,7 @@ integer k;
 initial begin
     // Initialize diagonals to avoid some compiler warnings
     for (k = 0; k < 4; k = k + 1) begin
+        NumPacketFwd[k][k] = 8'd0;
         PacketDropped[k][k] = 1'b0;
         PacketTruncated[k][k] = 1'b0;
     end
@@ -859,10 +860,8 @@ assign SwitchData[29] = 32'd0;
 assign SwitchData[30] = 32'd0;
 assign SwitchData[31] = 32'd0;
 
-reg[31:0] SwitchData_latched;
 always @(posedge sysclk)
 begin
-    SwitchData_latched <= SwitchData[reg_raddr[4:0]];
     if (reg_wen_ctrl) begin
        clearErrors <= clearErrorBit;
     end
@@ -872,6 +871,6 @@ begin
 end
 
 // Switch data: 4090-40bf (currently, only 40a0-40bf used)
-assign reg_rdata = (reg_raddr[11:5] == 7'b0000101) ? SwitchData_latched : 32'd0;
+assign reg_rdata = (reg_raddr[11:5] == 7'b0000101) ? SwitchData[reg_raddr[4:0]] : 32'd0;
 
 endmodule

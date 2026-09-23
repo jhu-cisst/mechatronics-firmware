@@ -1,7 +1,7 @@
 `timescale 1ns / 1ps
 /*******************************************************************************
  *
- * Copyright(C) 2013-2021 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2013-2025 Johns Hopkins University.
  *
  * This module drives the QLA LEDs. By default, it generates a characteristic
  * flashing pattern. If wdog_period_led is set (when writing wdog_period),
@@ -49,24 +49,33 @@ end
 // boards are functioning. If wdog_period_led is set, the LEDs will instead indicate
 // watchdog period status.
 
-reg[31:0] ROM_PWM[0:1023];    // pwm period lookup table
+wire[31:0] ROM_PWM[0:1023];    // pwm period lookup table
 
 // Initialization
-integer i;
-initial begin
+genvar i;
+generate
     // initialize lookup table here
-    for (i=  0; i<  1; i=i+1) ROM_PWM[i] = 20; // first element
-    for (i=  1; i<100; i=i+1) ROM_PWM[i] = ROM_PWM[i-1] + 20;
-    for (i=100; i<200; i=i+1) ROM_PWM[i] = ROM_PWM[i-1] - 20;
-    for (i=200; i<300; i=i+1) ROM_PWM[i] = 0;
-    for (i=300; i<400; i=i+1) ROM_PWM[i] = 0;
-    for (i=400; i<500; i=i+1) ROM_PWM[i] = ROM_PWM[i-1] + 20;
-    for (i=500; i<600; i=i+1) ROM_PWM[i] = ROM_PWM[i-1] - 20;
-    for (i=600; i<700; i=i+1) ROM_PWM[i] = ROM_PWM[i-1] + 20;
-    for (i=700; i<800; i=i+1) ROM_PWM[i] = ROM_PWM[i-1] - 20;
-    for (i=800; i<900; i=i+1) ROM_PWM[i] = 0;
-    for (i=900; i<=1023; i=i+1) ROM_PWM[i] = 0;
-end
+    for (i = 0; i <= 1023; i=i+1) begin : rom_loop
+        if (i < 1)
+            assign ROM_PWM[i] = 20; // first element
+        else if (i < 100)
+            assign ROM_PWM[i] = 20*i + 20;
+        else if (i < 200)
+            assign ROM_PWM[i] = 2000 - 20*(i-99);
+        else if (i < 400)
+            assign ROM_PWM[i] = 0;
+        else if (i < 500)
+            assign ROM_PWM[i] = 20*(i-400) + 20;
+        else if (i < 600)
+            assign ROM_PWM[i] = 2000 - 20*(i-499);
+        else if (i < 700)
+            assign ROM_PWM[i] = 20*(i-600) + 20;
+        else if (i < 800)
+            assign ROM_PWM[i] = 2000 - 20*(i-699);
+        else
+            assign ROM_PWM[i] = 0;
+    end
+endgenerate
 
 // generate clocks
 wire clk_768khz;  // clk 768khz

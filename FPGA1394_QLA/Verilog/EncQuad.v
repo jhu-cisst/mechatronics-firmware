@@ -1,6 +1,9 @@
+/* -*- Mode: Verilog; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*-   */
+/* ex: set filetype=v softtabstop=4 shiftwidth=4 tabstop=4 cindent expandtab:      */
+
 /*******************************************************************************
  *
- * Copyright(C) 2008-2021 ERC CISST, Johns Hopkins University.
+ * Copyright(C) 2008-2025 ERC CISST, Johns Hopkins University.
  *
  * This module decodes a pair of quadrature encoder inputs, a and b, analyzing
  * them via a state machine and outputting transition ticks and direction flag.
@@ -59,24 +62,20 @@ end
 
 // -----------------------------------------------------------------------------
 // count encoder transitions, using an up/down counter with asynchronous preset
+// overflow flag set by counter carryout, cleared by encoder preload
 //
 always @(posedge(clk))
 begin
-    if (set_enc)
-        counter <= preload;
-    else if (code_changed)
-        counter <= counter + (dir ? 25'd1 : -25'd1);
-end
-
-// -----------------------------------------------------------------------------
-// overflow flag set by counter carryout, cleared by encoder preload
-//
-always @(posedge(counter[24]))
-begin
-    if (set_enc)
+    if (set_enc) begin
+        counter <= {1'b0, preload};
         overflow <= 0;
-    else
-        overflow <= 1;
+    end
+    else begin
+        if (code_changed)
+            counter <= counter + (dir ? 25'd1 : -25'd1);
+        if (counter[24])
+            overflow <= 1;
+    end
 end
 
 endmodule

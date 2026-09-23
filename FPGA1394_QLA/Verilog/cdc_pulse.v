@@ -15,9 +15,15 @@ module cdc_pulse(
 );
 
 reg toggle_a = 0;
-reg [2:0] sync_b = 0;
+(* ASYNC_REG = "TRUE", SHREG_EXTRACT = "NO" *) reg sync_b_0 = 0;
+(* ASYNC_REG = "TRUE", SHREG_EXTRACT = "NO" *) reg sync_b_1 = 0;
+(* ASYNC_REG = "TRUE", SHREG_EXTRACT = "NO" *) reg sync_b_2 = 0;
 
 always @(posedge clk_a) toggle_a <= toggle_a ^ data_a;
-always @(posedge clk_b) sync_b <= {sync_b[1:0], toggle_a};
-assign data_b = (sync_b[2] ^ sync_b[1]);
+always @(posedge clk_b) begin
+    sync_b_0 <= toggle_a;
+    sync_b_1 <= sync_b_0;
+    sync_b_2 <= sync_b_1;
+end
+assign data_b = (sync_b_2 ^ sync_b_1);
 endmodule
