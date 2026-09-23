@@ -24,7 +24,9 @@ module dsib_si_parser
     output reg[3:0]  suj_z_id = 4'd0,
     output reg       dsib_z_si_present = 1'b0,
     output reg[11:0] suj_z_pot1 = 12'd0,
-    output reg[11:0] suj_z_pot2 = 12'd0
+    output reg[11:0] suj_z_pot2 = 12'd0,
+    output reg[15:0] err_count_bad_header = 16'd0,
+    output reg[15:0] err_count_bad_crc = 16'd0
 );
 
 localparam[3:0] DSIB_PARSE_HEADER_D = 4'd0;
@@ -80,7 +82,10 @@ always @(posedge clk) begin
                 if (rx_data == "S") begin
                     dsib_parse_state <= DSIB_PARSE_HEADER_I;
                 end else begin
-                    dsib_parse_state <= DSIB_PARSE_HEADER_D;
+                    dsib_parse_state <= (rx_data == "d") ? DSIB_PARSE_HEADER_S : DSIB_PARSE_HEADER_D;
+                    if (rx_data != "d") begin
+                        err_count_bad_header <= err_count_bad_header + 16'd1;
+                    end
                 end
             end
 
@@ -88,7 +93,10 @@ always @(posedge clk) begin
                 if (rx_data == "I") begin
                     dsib_parse_state <= DSIB_PARSE_HEADER_B;
                 end else begin
-                    dsib_parse_state <= DSIB_PARSE_HEADER_D;
+                    dsib_parse_state <= (rx_data == "d") ? DSIB_PARSE_HEADER_S : DSIB_PARSE_HEADER_D;
+                    if (rx_data != "d") begin
+                        err_count_bad_header <= err_count_bad_header + 16'd1;
+                    end
                 end
             end
 
@@ -97,7 +105,10 @@ always @(posedge clk) begin
                     dsib_parse_state <= DSIB_PARSE_FLAGS;
                     dsib_crc_init <= 1'b1;
                 end else begin
-                    dsib_parse_state <= DSIB_PARSE_HEADER_D;
+                    dsib_parse_state <= (rx_data == "d") ? DSIB_PARSE_HEADER_S : DSIB_PARSE_HEADER_D;
+                    if (rx_data != "d") begin
+                        err_count_bad_header <= err_count_bad_header + 16'd1;
+                    end
                 end
             end
 
@@ -149,12 +160,15 @@ always @(posedge clk) begin
                     suj_z_pot1 <= suj_z_pot1_staged;
                     suj_z_pot2 <= suj_z_pot2_staged;
                     packet_valid <= 1'b1;
+                end else begin
+                    err_count_bad_crc <= err_count_bad_crc + 16'd1;
                 end
-                dsib_parse_state <= (rx_data == "d") ? DSIB_PARSE_HEADER_S : DSIB_PARSE_HEADER_D;
+                dsib_parse_state <= DSIB_PARSE_HEADER_D;
             end
 
             default: begin
                 dsib_parse_state <= DSIB_PARSE_HEADER_D;
+                err_count_bad_header <= err_count_bad_header + 16'd1;
             end
         endcase
     end

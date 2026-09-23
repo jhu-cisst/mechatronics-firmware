@@ -19,8 +19,11 @@ module tb_dsib_si_uart_loopback;
     wire dsib_z_si_present;
     wire[11:0] suj_z_pot1;
     wire[11:0] suj_z_pot2;
+    wire[15:0] err_count_bad_header;
+    wire[15:0] err_count_bad_crc;
 
     integer packet_count = 0;
+    integer repeat_index;
 
     always #1 clk = ~clk;
 
@@ -46,7 +49,9 @@ module tb_dsib_si_uart_loopback;
         .suj_z_id(suj_z_id),
         .dsib_z_si_present(dsib_z_si_present),
         .suj_z_pot1(suj_z_pot1),
-        .suj_z_pot2(suj_z_pot2)
+        .suj_z_pot2(suj_z_pot2),
+        .err_count_bad_header(err_count_bad_header),
+        .err_count_bad_crc(err_count_bad_crc)
     );
 
     always @(posedge clk) begin
@@ -122,6 +127,23 @@ module tb_dsib_si_uart_loopback;
         end
     endtask
 
+    task automatic send_crc_header_packet;
+        begin
+            // All bytes arrive correctly, including the CRC high byte 'd'.
+            loopback_byte("d");
+            loopback_byte("S");
+            loopback_byte("I");
+            loopback_byte("B");
+            loopback_byte(8'h1a);
+            loopback_byte(8'h3e);
+            loopback_byte(8'h01);
+            loopback_byte(8'hbc);
+            loopback_byte(8'h0a);
+            loopback_byte(8'hdb);
+            loopback_byte(8'h64);
+        end
+    endtask
+
     initial begin
         tick_cycles(4);
 
@@ -146,6 +168,22 @@ module tb_dsib_si_uart_loopback;
         end
         if (suj_z_pot2 !== 12'habc) begin
             $fatal(1, "suj_z_pot2 mismatch: expected abc, got %03x", suj_z_pot2);
+        end
+
+        for (repeat_index = 0; repeat_index < 8; repeat_index = repeat_index + 1) begin
+            send_crc_header_packet();
+            tick_cycles(4);
+            if (packet_count != repeat_index + 2) begin
+                $fatal(1, "lost repeated CRC-header packet %0d", repeat_index);
+            end
+            if ({suj_z_id, dsib_z_si_present, suj_z_pot1, suj_z_pot2} !==
+                {4'ha, 1'b1, 12'h13e, 12'habc}) begin
+                $fatal(1, "CRC-header packet fields mismatch");
+            end
+        end
+
+        if ({err_count_bad_header, err_count_bad_crc} !== 32'd0) begin
+            $fatal(1, "valid loopback packets incremented error counters");
         end
 
         $display("dsib_si_uart loopback Verilator test passed");
