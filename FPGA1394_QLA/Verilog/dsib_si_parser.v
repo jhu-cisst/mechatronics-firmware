@@ -83,9 +83,7 @@ always @(posedge clk) begin
                     dsib_parse_state <= DSIB_PARSE_HEADER_I;
                 end else begin
                     dsib_parse_state <= (rx_data == "d") ? DSIB_PARSE_HEADER_S : DSIB_PARSE_HEADER_D;
-                    if (rx_data != "d") begin
-                        err_count_bad_header <= err_count_bad_header + 16'd1;
-                    end
+                    err_count_bad_header <= err_count_bad_header + 16'd1;
                 end
             end
 
@@ -94,9 +92,7 @@ always @(posedge clk) begin
                     dsib_parse_state <= DSIB_PARSE_HEADER_B;
                 end else begin
                     dsib_parse_state <= (rx_data == "d") ? DSIB_PARSE_HEADER_S : DSIB_PARSE_HEADER_D;
-                    if (rx_data != "d") begin
-                        err_count_bad_header <= err_count_bad_header + 16'd1;
-                    end
+                    err_count_bad_header <= err_count_bad_header + 16'd1;
                 end
             end
 
@@ -106,9 +102,7 @@ always @(posedge clk) begin
                     dsib_crc_init <= 1'b1;
                 end else begin
                     dsib_parse_state <= (rx_data == "d") ? DSIB_PARSE_HEADER_S : DSIB_PARSE_HEADER_D;
-                    if (rx_data != "d") begin
-                        err_count_bad_header <= err_count_bad_header + 16'd1;
-                    end
+                    err_count_bad_header <= err_count_bad_header + 16'd1;
                 end
             end
 
@@ -168,7 +162,6 @@ always @(posedge clk) begin
 
             default: begin
                 dsib_parse_state <= DSIB_PARSE_HEADER_D;
-                err_count_bad_header <= err_count_bad_header + 16'd1;
             end
         endcase
     end

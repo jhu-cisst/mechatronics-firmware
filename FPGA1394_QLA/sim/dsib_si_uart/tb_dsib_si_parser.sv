@@ -251,6 +251,7 @@ module tb_dsib_si_parser;
         integer prefix;
         integer index;
         integer rollover_index;
+        integer count_before;
         begin
             expected_header = err_count_bad_header;
             expected_crc = err_count_bad_crc;
@@ -275,15 +276,22 @@ module tb_dsib_si_parser;
                 expect_error_counts(expected_header, expected_crc);
             end
 
-            // Overlapping 'd' restarts at HEADER_S, not HEADER_D.
+            // ddSIB, dSdSIB, and dSIdSIB each count one mismatch, then accept
+            // the complete packet using the unexpected 'd' as its header start.
             for (prefix = 1; prefix <= 3; prefix = prefix + 1) begin
+                count_before = packet_count;
                 for (index = 0; index < prefix; index = index + 1) begin
                     send_byte(crc_header_packet[index]);
                 end
                 send_byte("d");
-                expect_error_counts(expected_header, expected_crc);
-                send_byte("x");
                 expected_header = expected_header + 16'd1;
+                expect_error_counts(expected_header, expected_crc);
+                send_byte("S");
+                send_byte("I");
+                send_byte("B");
+                send_packet_fields(3'b000, 1'b1, 4'ha, 12'h13e, 12'habc, 4'h0, 4'h0, 1'b0);
+                expect_packet_count(count_before + 1);
+                expect_fields(4'ha, 1'b1, 12'h13e, 12'habc);
                 expect_error_counts(expected_header, expected_crc);
             end
 
@@ -310,11 +318,13 @@ module tb_dsib_si_parser;
             send_packet(3'b000, 1'b1, 4'ha, 12'h13e, 12'habc, 4'h0, 4'h0, 1'b0);
             expect_error_counts(expected_header, expected_crc);
 
-            // Exercise the defensive fallback from an invalid state.
+            // Defensive state recovery is not a received header mismatch.
             @(negedge clk);
             dut.dsib_parse_state = 4'hf;
             send_byte("x");
-            expected_header = expected_header + 16'd1;
+            if (dut.dsib_parse_state !== dut.DSIB_PARSE_HEADER_D) begin
+                $fatal(1, "invalid parser state did not recover to HEADER_D");
+            end
             expect_error_counts(expected_header, expected_crc);
 
             // A full cycle checks rollover without forcing counter registers.

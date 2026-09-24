@@ -125,35 +125,38 @@ module tb_dsib_si_drac_registers;
         send_byte("x");
         expect_register(16'hb031, 32'h00030000);
 
-        // Overlapping 'd' in each header state must not increment bad_header.
+        // Each unexpected 'd' increments bad_header but restarts the header.
         send_byte("d");
         send_byte("d");
+        expect_register(16'hb031, 32'h00040000);
         send_byte("S");
         send_byte("d");
+        expect_register(16'hb031, 32'h00050000);
         send_byte("S");
         send_byte("I");
         send_byte("d");
+        expect_register(16'hb031, 32'h00060000);
         send_byte("S");
         send_byte("I");
         send_byte("B");
         for (index = 4; index < 11; index = index + 1) begin
             send_byte(packet_bytes[index]);
         end
-        expect_register(16'hb031, 32'h00030000);
+        expect_register(16'hb031, 32'h00060000);
 
         send_packet(1'b1);
-        expect_register(16'hb031, 32'h00030001);
+        expect_register(16'hb031, 32'h00060001);
         send_packet(1'b1);
-        expect_register(16'hb031, 32'h00030002);
+        expect_register(16'hb031, 32'h00060002);
         send_packet(1'b0);
-        expect_register(16'hb031, 32'h00030002);
+        expect_register(16'hb031, 32'h00060002);
 
         // Reads are non-destructive, and the neighboring decode is unchanged.
-        expect_register(16'hb031, 32'h00030002);
+        expect_register(16'hb031, 32'h00060002);
         expect_register(16'hb030, 32'haabc213e);
         expect_register(16'hb032, 32'h0000cccc);
         expect_register(16'hc031, 32'd0);
-        expect_register(16'hb031, 32'h00030002);
+        expect_register(16'hb031, 32'h00060002);
 
         $display("dsib_si DRAC register test passed");
         $finish;
