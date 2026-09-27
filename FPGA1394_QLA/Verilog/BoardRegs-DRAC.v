@@ -46,7 +46,7 @@ module BoardRegsDRAC
     input  wire[3:0] reg_status4,   // lowest 4-bits of status register
     input  wire[31:0] reg_digin,
     input  wire is_ecm,
-    output reg has_suj_pots,        // board will send SUJ pot values in RT read packet
+    output reg has_suj_pots = 1'b0, // board will send SUJ pot values in RT read packet
     input  wire dsib_si_present,    // dSIB-Si is present (communication active)
     input  wire dsib_z_si_present,  // dSIB-Z-Si is present (communication active)
     input  wire essj_present,       // ESSJ is present
