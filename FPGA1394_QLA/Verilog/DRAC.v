@@ -239,6 +239,8 @@ wire dsib_z_si_present;
 wire[11:0] suj_z_pot1;
 wire[11:0] suj_z_pot2;
 wire dsib_packet_accept;
+wire[15:0] dsib_err_count_bad_header;
+wire[15:0] dsib_err_count_bad_crc;
 
 dsib_si_parser dsib_si_parser_inst
 (
@@ -249,7 +251,9 @@ dsib_si_parser dsib_si_parser_inst
     .suj_z_id(suj_z_id),
     .dsib_z_si_present(dsib_z_si_present),
     .suj_z_pot1(suj_z_pot1),
-    .suj_z_pot2(suj_z_pot2)
+    .suj_z_pot2(suj_z_pot2),
+    .err_count_bad_header(dsib_err_count_bad_header),
+    .err_count_bad_crc(dsib_err_count_bad_crc)
 );
 
 // dsib_si_present is detected by at least one valid dSIB-Si RX packet received in a 100 ms window.
@@ -807,6 +811,7 @@ begin
         'h020: reg_rdata_board_specific = {reg_databuf, tempsense};      // TODO: Is this still needed?
         'h021: reg_rdata_board_specific = reg_digin;                     // TODO: Is this still needed?
         'h030: reg_rdata_board_specific = {suj_z_id, suj_z_pot2, 2'b0, dsib_z_si_present, dsib_si_present, suj_z_pot1};
+        'h031: reg_rdata_board_specific = {dsib_err_count_bad_header, dsib_err_count_bad_crc}; // 16-bit wrapping counters
         'hfff: reg_rdata_board_specific = 'h100; // development build number
         default: reg_rdata_board_specific = 'hcccc;
     endcase
