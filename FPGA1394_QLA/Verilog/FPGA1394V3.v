@@ -81,6 +81,7 @@ module FPGA1394V3
     output reg blk_wstart,
     output wire req_blk_rt_rd,    // request for real-time block read
     output wire blk_rt_rd,        // real-time block read in process
+    output reg  blk_rt_wr,        // real-time block write in process
 
     // Timestamp
     input wire[31:0] timestamp,
@@ -307,8 +308,6 @@ begin
        ps_grant_write_bus <= 1'b0;
     end
 end
-
-reg blk_rt_wr;             // real-time block write (not currently used)
 
 // Multiplexing of write bus between PS, FW and ETH
 always @(*)

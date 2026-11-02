@@ -101,6 +101,7 @@ module FPGA1394V3DQLA
     wire blk_wen;               // block write enable
     wire blk_wstart;            // block write start
     wire blk_rt_rd;             // real-time block read
+    wire blk_rt_wr;             // real-time block write
 
     // Timestamp
     wire[31:0] timestamp;
@@ -182,6 +183,7 @@ FPGA1394V3 fpga
     .blk_wen(blk_wen),
     .blk_wstart(blk_wstart),
     .blk_rt_rd(blk_rt_rd),
+    .blk_rt_wr(blk_rt_wr),
 
     // Timestamp
     .timestamp(timestamp),
@@ -236,6 +238,7 @@ DQLA dqla(
     .blk_wen(blk_wen),
     .blk_wstart(blk_wstart),
     .blk_rt_rd(blk_rt_rd),
+    .blk_rt_wr(blk_rt_wr),
 
     // Timestamp
     .timestamp(timestamp),

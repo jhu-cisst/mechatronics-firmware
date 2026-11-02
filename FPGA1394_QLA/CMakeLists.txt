@@ -152,6 +152,8 @@ set (VERILOG_SOURCE_QLA_DQLA
                            "${VERILOG_SOURCE_DIR}/CtrlDout.v"
                            "${VERILOG_SOURCE_DIR}/MotorChannelQLA.v"
                            "${VERILOG_SOURCE_DIR}/CtrlDac.v"
+                           "${VERILOG_SOURCE_DIR}/CtrlCur.v"
+                           "${VERILOG_SOURCE_DIR}/PID_Controller.v"
                            "${VERILOG_SOURCE_DIR}/DS2505.v")
 
 # Source files used by QLA
@@ -159,8 +161,6 @@ set (VERILOG_SOURCE_QLA    ${VERILOG_SOURCE_QLA_DQLA}
                            "${VERILOG_SOURCE_DIR}/CtrlAdc.v"
                            "${VERILOG_SOURCE_DIR}/BoardRegs-QLA.v"
                            "${VERILOG_SOURCE_DIR}/DataBuffer.v"
-                           "${VERILOG_SOURCE_DIR}/CtrlCur.v"
-                           "${VERILOG_SOURCE_DIR}/PID_Controller.v"
                            "${VERILOG_SOURCE_DIR}/QLA.v")
 
 # Source files used by DQLA

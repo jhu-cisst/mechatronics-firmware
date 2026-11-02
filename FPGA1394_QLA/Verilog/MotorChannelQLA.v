@@ -21,6 +21,8 @@ module MotorChannelQLA
     input  wire[15:0] reg_waddr,     // write address
     input  wire[31:0] reg_wdata,     // register write data
     input  wire reg_wen,             // reg write enable
+    input  wire[15:0] reg_raddr,     // read address
+    output wire[31:0] reg_rdata,     // register read data
     output wire[31:0] motor_status,  // motor status feedback
     output wire[31:0] motor_config,  // motor configuration register
 
@@ -40,16 +42,47 @@ module MotorChannelQLA
 
     output reg[31:0] motor_cmd,      // Motor Command from PC
     output wire cur_ctrl,            // 1 -> current control, 0 -> voltage control
+    output wire[15:0] dac_cmd,       // Value to be sent to DAC
+    output wire dac_cmd_updated,     // Whether DAC command has been updated (self-clearing)
+    output wire dig_cur_ctrl,        // Whether digital current control enabled
 
-    input wire[15:0] cur_fb          // Measured current
+    input wire[15:0] cur_fb,         // Measured current
+    input wire cur_fb_ready,         // New current feedback available
+    input wire[24:0] enc_fb          // Encoder feedback
 );
 
 initial motor_cmd = 32'h80008000;
 
-wire[15:0] cur_cmd;     // current (or voltage) command from PC
+// Whether motor_cmd has been updated (self-clearing)
+reg motor_cmd_updated;
+
+// Whether analog or digital current control
+// For now, hard-code to 0
+assign dig_cur_ctrl = 1'b0;
+
 wire[3:0] ctrl_mode;    // Control mode
-assign cur_cmd = motor_cmd[15:0];
 assign ctrl_mode = motor_cmd[27:24];
+
+// Current or voltage control
+//   (ctrl_mode == 0) --> current control, set cur_ctrl = 1
+//   (ctrl_mode == 1) --> voltage control, set cur_ctrl = 0
+// For any other value of ctrl_mode, assume current control.
+// Also, can only have voltage control if ioexp_present (QLA 1.5+).
+assign cur_ctrl = (ioexp_present && (ctrl_mode == 4'd1)) ? 1'b0 : 1'b1;
+
+// Output from digital controller
+wire[15:0] cur_cont;     // Current controller output
+wire cont_out_ready;     // Controller output available
+
+// Value sent to dac can be:
+//   - commanded current specified by host (motor_cmd), using QLA analog current control
+//   - commanded voltage specified by host (motor_cmd), QLA 1.5+
+//   - voltage output from digital current controller (cur_cont), QLA 1.5+ because it
+//     uses voltage control
+assign dac_cmd = (cur_ctrl & dig_cur_ctrl) ? cur_cont : motor_cmd[15:0];
+
+// Whether a new value is available
+assign dac_cmd_updated = (cur_ctrl & dig_cur_ctrl) ? cont_out_ready : motor_cmd_updated;
 
 // Specified delay, resolution is 20.83 us
 // With 8 bits, maximum possible delay is 5.3 ms
@@ -82,13 +115,6 @@ reg disable_safety;
 
 assign motor_config = { disable_safety, force_disable_f, 4'd0, ioexp_present, 1'b1,
                         delay_cnt, cur_lim };
-
-// Current or voltage control
-//   (ctrl_mode == 0) --> current control, set cur_ctrl = 1
-//   (ctrl_mode == 1) --> voltage control, set cur_ctrl = 0
-// For any other value of ctrl_mode, assume current control.
-// Also, can only have voltage control if ioexp_present (QLA 1.5+).
-assign cur_ctrl = (ioexp_present && (ctrl_mode == 4'd1)) ? 1'b0 : 1'b1;
 
 wire safety_amp_disable;   // from SafetyCheck module
 wire amp_disable;
@@ -132,6 +158,10 @@ assign dac_reg_wen = (reg_waddr[15:0] == {`ADDR_MAIN, 4'd0, CHANNEL, `OFF_MOTOR_
 wire motor_reg_wen;
 assign motor_reg_wen = (reg_waddr[15:0] == {`ADDR_MAIN, 4'd0, CHANNEL, `OFF_MOTOR_CONFIG}) ? reg_wen : 1'd0;
 
+// write to CTRL address space for this channel
+wire ctrl_wen;
+assign ctrl_wen = (reg_waddr[15:4] == {`ADDR_CTRL, 4'd0, CHANNEL} ) ? reg_wen : 1'd0;
+
 generate
 if (USE_STATUS_REG) begin
     assign status_reg_wen = (reg_waddr[15:0] == {`ADDR_MAIN, 8'd0, `REG_STATUS}) ? reg_wen : 1'd0;
@@ -149,6 +179,8 @@ reg[31:0] reg_wdata_int;
 reg dac_reg_wen_int;
 reg motor_reg_wen_int;
 reg status_reg_wen_int;
+reg ctrl_wen_int;
+reg[3:0] ctrl_waddr_int;
 
 always @(posedge clk)
 begin
@@ -156,6 +188,8 @@ begin
     dac_reg_wen_int <= dac_reg_wen;
     motor_reg_wen_int <= motor_reg_wen;
     status_reg_wen_int <= status_reg_wen;
+    ctrl_wen_int <= ctrl_wen;
+    ctrl_waddr_int <= reg_waddr[3:0];
 end
 
 // Motor Status
@@ -171,12 +205,12 @@ end
 //      18   disable_f_error (I/O expander error)
 //      17   safety_amp_disable
 //      16   amp_fault_fb
-//    15:0   cur_cmd (last setpoint)
+//    15:0   dac_cmd (last value sent to DAC)
 //
 // NOTE: if bit assignments changed, check if QLA.v needs to be updated
 assign motor_status = { 1'b0, amp_disable_error, amp_fault, ~reg_disable, ctrl_mode, 3'd0, cur_ctrl,
                         cur_ctrl_error, disable_f_error, safety_amp_disable, amp_fault_fb,
-                        cur_cmd};
+                        dac_cmd};
 
 // Valid control modes:
 //    0: current control (always)
@@ -192,6 +226,7 @@ begin
         // (reg_wdata[27:24]) is valid, save the motor command value.
         if (reg_wdata_int[31] && valid_ctrl_mode) begin
             motor_cmd <= reg_wdata_int;
+            motor_cmd_updated <= 1'b1;
         end
         reg_disable <= (~pwr_enable) | safety_disable | (reg_wdata_int[29] ? ~reg_wdata_int[28] : reg_disable);
     end
@@ -206,6 +241,7 @@ begin
     end
     else begin
         reg_disable <= reg_disable | safety_disable;
+        motor_cmd_updated <= 1'b0;
     end
 end
 
@@ -225,12 +261,31 @@ assign amp_disable_pin = ((amp_enable_cnt == delay_cnt) || !ioexp_present) ? amp
 SafetyCheck safe(
     .clk(clk),
     .cur_in(cur_fb),
-    .dac_in(cur_cmd),
+    .dac_in(dac_cmd),
     .cur_lim(cur_lim),
     .enable_check((~disable_safety) & cur_ctrl),
     .enable_limit(~cur_ctrl),             // Check current limit in voltage mode
     .clear_disable(clr_safety_disable),
     .amp_disable(safety_amp_disable)
+);
+
+// --------------------------------------------------------------------------
+// Digital current (and position) controller
+// --------------------------------------------------------------------------
+
+Controller_block CtrlCur(
+   .clk(clk),                    // Clock
+   .val_ready(cur_fb_ready),     // ADC values available (longer than 1 clk cycle!)
+   .reg_wdata(reg_wdata),        // Incoming register data
+   .reg_waddr(ctrl_waddr_int),   // Register write address (4 lsb)
+   .ctrl_wen(ctrl_wen_int),      // CTRL register write enable
+   .reg_rdata(reg_rCtrl),        // Outgoing register data
+   .reg_raddr(reg_raddr[3:0]),   // Register read address (4 lsb)
+   .bits_cmd(motor_cmd[15:0]),   // Commanded current from host
+   .bits_fb(cur_fb),             // ADC value (measured motor current)
+   .enc_fb(enc_fb),              // ENC value (position)
+   .cont_out(cur_cont),          // Controller output
+   .out_ready(cont_out_ready)    // Flag to indicate new values ready (new controller values every 8.667us)
 );
 
 endmodule

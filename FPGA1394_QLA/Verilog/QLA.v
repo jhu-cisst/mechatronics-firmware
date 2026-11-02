@@ -45,6 +45,7 @@ module QLA(
     input wire blk_wen,
     input wire blk_wstart,
     input wire blk_rt_rd,
+    input wire blk_rt_wr,
 
     // Timestamp
     output reg[31:0] timestamp,
@@ -55,12 +56,6 @@ module QLA(
     input wire wdog_timeout,        // watchdog timeout status flag
     output wire wdog_clear          // clear watchdog timeout (e.g., on powerup)
 );
-
-    // Whether analog or digital current control
-    // For now, hard-code for digital current control
-    // TODO: integrate with code for QLA 1.5+
-    wire dig_cur_ctrl;
-    assign dig_cur_ctrl = 1'b1;
 
     // SPI interface to QLA PROM and I/O Expander
     // IO1[1] is MISO (input to FPGA), so can be shared between QLA PROM and I/O Expander
@@ -113,8 +108,8 @@ wire[31:0] reg_rdata_databuf;
 wire reg_rwait_databuf;
 wire[31:0] reg_rtable;
 
-//Reading back the commanded current value from the controller block
-wire[31:0] reg_rCtrlCurr; //reg_rdata output of CtrlCurr module block
+// Reading back the commanded current value from the controller block
+wire[31:0] reg_rCtrl[1:4];
 
 // Mux routing read data based on read address
 //   See Constants.v for details
@@ -128,7 +123,7 @@ assign {reg_rdata, reg_rwait} =
                    (reg_raddr[15:12]==`ADDR_DS) ? {reg_rdata_ds, 1'b1} :
                    (reg_raddr[15:12]==`ADDR_DATA_BUF) ? {reg_rdata_databuf, reg_rwait_databuf} :
                    (reg_raddr[15:12]==`ADDR_WAVEFORM) ? {reg_rtable, 1'b1} :
-                   (reg_raddr[15:12]==`ADDR_CTRL)     ? {reg_rCtrlCurr, 1'b0} :
+                   (reg_raddr[15:12]==`ADDR_CTRL)     ? {reg_rCtrl[reg_raddr[7:4]], 1'b0} :
                    ((reg_raddr[15:12]==`ADDR_MAIN) && (reg_raddr[7:4]!=4'd0)) ? {reg_rd[reg_raddr[3:0]], 1'b0} :
                    ((reg_raddr[15:12]==`ADDR_MAIN) && (reg_raddr[3:0]==`REG_IO_EXP)) ? {reg_rdata_ioexp, 1'b0} :
                    (reg_raddr[15:12]==`ADDR_MAIN) ? {reg_rdata_chan0, reg_rwait_chan0} :
@@ -137,7 +132,7 @@ assign {reg_rdata, reg_rwait} =
 // Unused channel offsets
 assign reg_rd[`OFF_UNUSED_02] = 32'd0;
 assign reg_rd[`OFF_UNUSED_03] = 32'd0;
-//assign reg_rd[`OFF_UNUSED_13] = 32'd0;
+assign reg_rd[`OFF_UNUSED_13] = 32'd0;
 assign reg_rd[`OFF_UNUSED_14] = 32'd0;
 assign reg_rd[`OFF_UNUSED_15] = 32'd0;
 
@@ -182,11 +177,6 @@ CtrlAdc adc(
 assign reg_rd[`OFF_ADC_DATA] = {pot_fb[reg_raddr[7:4]], cur_fb[reg_raddr[7:4]]};
 
 // ----------------------------------------------------------------------------
-// Read/Write of commanded current (cur_cmd) and amplifier enable
-//
-// This is now done in MotorChannelQLA (rather than CtrlDac) to support digital
-// control implementations.
-// ----------------------------------------------------------------------------
 
 wire ioexp_cfg_reset;       // 1 -> Check if I/O expander (MAX7317) present
 wire ioexp_cfg_present;     // 1 -> I/O expander (MAX7317) detected
@@ -210,8 +200,15 @@ wire[1:4] cur_ctrl_error;
 wire[1:4] disable_f_error;
 
 wire[31:0] motor_cmd[1:4];   // Motor Command per channel
-wire[15:0] cur_cmd[1:4];     // Commanded current (or voltage) per channel
+wire[15:0] dac_cmd[1:4];     // Commanded current or voltage per channel
+wire dac_cmd_updated[1:4];   // Whether dac_cmd updated
 wire[1:4] cur_ctrl;          // 1 -> current control, 0 -> voltage control
+
+wire dig_cur_ctrl[1:4];      // 1 -> digital current control active
+
+// All 4 channels of quadrature data (encoder position).
+// Used for digital control.
+wire[24:0] enc_fb[1:4];
 
 // Motor status feedback
 wire[31:0] motor_status[1:4];
@@ -245,6 +242,8 @@ generate
             .reg_waddr(reg_waddr),
             .reg_wdata(reg_wdata),
             .reg_wen(reg_wen),
+            .reg_raddr(reg_raddr),
+            .reg_rdata(reg_rCtrl[k]),
             .motor_status(motor_status[k]),
             .motor_config(motor_config[k]),
 
@@ -264,10 +263,14 @@ generate
 
             .motor_cmd(motor_cmd[k]),
             .cur_ctrl(cur_ctrl[k]),
+            .dac_cmd(dac_cmd[k]),
+            .dac_cmd_updated(dac_cmd_updated[k]),
+            .dig_cur_ctrl(dig_cur_ctrl[k]),
 
-            .cur_fb(cur_fb[k])
+            .cur_fb(cur_fb[k]),
+            .cur_fb_ready(wen),
+            .enc_fb(enc_fb[k])
         );
-        assign cur_cmd[k] = motor_cmd[k][15:0];
     end
 endgenerate
 
@@ -290,112 +293,37 @@ assign reg_status12 = {
        motor_status[4][29], motor_status[3][29], motor_status[2][29], motor_status[1][29]
        };
 
-// Write to global status register
-wire reg_waddr_status;
-assign reg_waddr_status = ((reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[7:4] == 4'd0) &&
-                           (reg_waddr[3:0]==`REG_STATUS)) ? 1'd1 : 1'd0;
+wire any_dac_write;
+assign any_dac_write = dac_cmd_updated[1] | dac_cmd_updated[2] | dac_cmd_updated[3] | dac_cmd_updated[4];
 
-// Check for non-zero channel number (reg_waddr[7:4]) to ignore write to global register.
-// It would be even better to check that channel number is 1-4.
-wire reg_waddr_dac;
-assign reg_waddr_dac = ((reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[7:4] != 4'd0) &&
-                        (reg_waddr[3:0]==`OFF_MOTOR_CTRL)) ? 1'd1 : 1'd0;
+reg any_dac_write_latched = 1'b0;
 
-// Following indicates whether at least one DAC has been updated (via a block write)
-// since the last write.
-reg dac_update;
-
-// Following indicates whether DAC value is valid (bit 31 set), assuming
-// reg_waddr_dac is 1. This will work for either a block write or a single quadlet
-// write because in both cases reg_wen is set.
-wire dac_valid;
-assign dac_valid = reg_wen & reg_wdata[31];
+wire any_dig_ctrl;
+assign any_dig_ctrl = dig_cur_ctrl[1] | dig_cur_ctrl[2] | dig_cur_ctrl[3] | dig_cur_ctrl[4];
 
 wire dac_busy;
-reg  cur_cmd_req;
-reg  cur_cmd_updated;
+reg dac_cmd_ready = 1'b0;
 
 always @(posedge(sysclk))
 begin
-    // We check both reg_waddr_dac and reg_waddr_status because in a block write, the last
-    // write is to the status/control register.
-    if (reg_waddr_dac | reg_waddr_status) begin
-        // For block write, dac_update will be set if any DAC was valid prior to blk_wen
-        // For quadlet write, need to check (dac_valid&reg_waddr_dac) because blk_wen and
-        // reg_wen occur at the same time
-        if (blk_wen) begin
-            dac_update <= 1'b0;
-            if (dac_update|(dac_valid&reg_waddr_dac)) begin
-                cur_cmd_req <= dac_busy;
-                cur_cmd_updated <= ~dac_busy;
-            end
-        end
-        else if (dac_valid) begin
-            // This condition is only possible for block write
-            dac_update <= 1'b1;
-        end
+    if (any_dac_write) begin
+        // Latch any_dac_write since the signal is self-clearing
+        any_dac_write_latched <= 1'b1;
     end
-    if (cur_cmd_req&(~dac_busy)) begin
-        cur_cmd_req <= 0;
-        cur_cmd_updated <= 1;
+    if (any_dac_write_latched & (~blk_rt_wr | any_dig_ctrl) & (~dac_busy)) begin
+        // Check for ~blk_rt_wr so that we wait until the real-time block write is finished
+        // before updating the DAC (i.e., so that all DAC values can be written at same time).
+        // We OR with any_dig_ctrl to disable this when any channel is digitally controlled.
+        dac_cmd_ready <= 1'b1;
     end
-    else if (cur_cmd_updated&dac_busy) begin
-        cur_cmd_updated <= 1'b0;
+    if (dac_cmd_ready & dac_busy) begin
+        any_dac_write_latched <= 1'b0;
+        dac_cmd_ready <= 1'b0;
     end
 end
 
-// OFF_CMD_CUR same as OFF_MOTOR_CTRL
-assign reg_rd[`OFF_CMD_CUR] = cur_cmd[reg_raddr[7:4]];
+assign reg_rd[`OFF_MOTOR_CTRL] = motor_cmd[reg_raddr[7:4]];
 
-// --------------------------------------------------------------------------
-// current controller
-// --------------------------------------------------------------------------
-
-//outputs
-wire[15:0] cur_cont[1:4];      // current controller output
-wire       cont_out_ready;     // controller values available
-
-//Instantiation
-Controller_block CtrlCur(
-   .clk(sysclk),              // clock
-   .val_ready(cur_fb_wen),    // ADC values available (longer than 1 clk cycle!)
-   .reg_wdata(reg_wdata),     // incoming register data
-   .reg_waddr(reg_waddr),     // register write address
-   .reg_wen(reg_wen),         // register write enable
-   .reg_rdata(reg_rCtrlCurr),    // outgoing register data
-   .reg_raddr(reg_raddr),     // register read address
-   .bits_cmd1(cur_cmd[1]),    // commanded current from host
-   .bits_cmd2(cur_cmd[2]),
-   .bits_cmd3(cur_cmd[3]),
-   .bits_cmd4(cur_cmd[4]),
-   .bits_fb1(cur_fb[1]),      // ADC values
-   .bits_fb2(cur_fb[2]),
-   .bits_fb3(cur_fb[3]),
-   .bits_fb4(cur_fb[4]),
-   .enc_fb1(enc_fb[1]),       // ENC values
-   .enc_fb2(enc_fb[2]),
-   .enc_fb3(enc_fb[3]),
-   .enc_fb4(enc_fb[4]),
-   .cont_out1(cur_cont[1]),   // controller output
-   .cont_out2(cur_cont[2]),
-   .cont_out3(cur_cont[3]),
-   .cont_out4(cur_cont[4]),
-   .out_ready(cont_out_ready) //flag to show new values ready (AND of 4 separate ready-flags being '1' for 1 clock cycle only when new controller values have been calculated every 8.667us)
-);
-
-// Value sent to dac is either output of digital current controller (cur_cont)
-// or commanded current specified by host (cur_cmd). The latter case corresponds
-// to analog current control, as implemented by the QLA hardware.
-wire[15:0] dac_cmd[1:4];
-assign dac_cmd[1] = dig_cur_ctrl ? cur_cont[1] : cur_cmd[1];
-assign dac_cmd[2] = dig_cur_ctrl ? cur_cont[2] : cur_cmd[2];
-assign dac_cmd[3] = dig_cur_ctrl ? cur_cont[3] : cur_cmd[3];
-assign dac_cmd[4] = dig_cur_ctrl ? cur_cont[4] : cur_cmd[4];
-
-assign reg_rd[`OFF_DAC_VOLT] = dac_cmd[reg_raddr[7:4]];
-
-wire dac_cmd_ready;
-assign dac_cmd_ready = dig_cur_ctrl ? cont_out_ready : cur_cmd_updated;
 
 //-------------------------------------------------------------------------
 
@@ -437,10 +365,6 @@ wire[31:0] reg_perd_data;
 wire[31:0] reg_qtr1_data;
 wire[31:0] reg_qtr5_data;
 wire[31:0] reg_run_data;
-
-// All 4 channels of quadrature data (encoder position).
-// Used for digital control.
-wire[24:0] enc_fb[1:4];
 
 // encoder controller: the thing that manages encoder reads and preloads
 CtrlEnc enc(

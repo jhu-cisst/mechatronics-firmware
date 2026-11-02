@@ -44,6 +44,7 @@ module DQLA(
     input wire blk_wen,
     input wire blk_wstart,
     input wire blk_rt_rd,
+    input wire blk_rt_wr,
 
     // Timestamp
     output reg[31:0] timestamp,

@@ -63,6 +63,7 @@ module FPGA1394V2
     output reg blk_wstart,
     output wire req_blk_rt_rd,    // request for real-time block read
     output wire blk_rt_rd,        // real-time block read in process
+    output reg  blk_rt_wr,        // real-time block write in process
 
     // Timestamp
     input wire[31:0] timestamp,
@@ -210,8 +211,6 @@ begin
     fw_grant_write_bus <= fw_req_write_bus | (~eth_req_write_bus);
     eth_grant_write_bus <= (~fw_req_write_bus) & eth_req_write_bus;
 end
-
-reg blk_rt_wr;             // real-time block write (not currently used)
 
 always @(*)
 begin

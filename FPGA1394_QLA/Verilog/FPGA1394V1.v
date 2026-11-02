@@ -59,6 +59,7 @@ module FPGA1394V1
     output wire blk_wstart,
     output wire req_blk_rt_rd,    // request for real-time block read
     output wire blk_rt_rd,        // real-time block read in process
+    output wire blk_rt_wr,        // real-time block write in process
 
     // Timestamp
     input wire[31:0] timestamp,
@@ -109,6 +110,7 @@ assign ip_address = 32'hffffffff;
 assign reg_raddr = fw_reg_raddr;
 assign req_blk_rt_rd = fw_req_blk_rt_rd;
 assign blk_rt_rd = fw_blk_rt_rd;
+assign blk_rt_wr = fw_blk_rt_wr;
 
 wire[31:0] reg_rdata;
 wire[31:0] reg_rdata_hub;      // reg_rdata_hub is for hub memory
