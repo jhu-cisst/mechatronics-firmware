@@ -44,7 +44,7 @@ module MotorChannelQLA
     output wire cur_ctrl,            // 1 -> current control, 0 -> voltage control
     output wire[15:0] dac_cmd,       // Value to be sent to DAC
     output wire dac_cmd_updated,     // Whether DAC command has been updated (self-clearing)
-    output wire dig_cur_ctrl,        // Whether digital current control enabled
+    output reg dig_cur_ctrl,         // Whether digital current control enabled
 
     input wire[15:0] cur_fb,         // Measured current
     input wire cur_fb_ready,         // New current feedback available
@@ -53,12 +53,14 @@ module MotorChannelQLA
 
 initial motor_cmd = 32'h80008000;
 
+// Whether analog (0) or digital (1) current control active
+initial dig_cur_ctrl = 1'b0;
+
+// Whether digital current controller configured (parameters updated)
+wire dig_cur_config;
+
 // Whether motor_cmd has been updated (self-clearing)
 reg motor_cmd_updated;
-
-// Whether analog or digital current control
-// For now, hard-code to 0
-assign dig_cur_ctrl = 1'b0;
 
 wire[3:0] ctrl_mode;    // Control mode
 assign ctrl_mode = motor_cmd[27:24];
@@ -68,7 +70,8 @@ assign ctrl_mode = motor_cmd[27:24];
 //   (ctrl_mode == 1) --> voltage control, set cur_ctrl = 0
 // For any other value of ctrl_mode, assume current control.
 // Also, can only have voltage control if ioexp_present (QLA 1.5+).
-assign cur_ctrl = (ioexp_present && (ctrl_mode == 4'd1)) ? 1'b0 : 1'b1;
+// Set voltage control when using digital current control (dig_cur_ctrl)
+assign cur_ctrl = (ioexp_present && ((ctrl_mode == 4'd1) || dig_cur_ctrl)) ? 1'b0 : 1'b1;
 
 // Output from digital controller
 wire[15:0] cur_cont;     // Current controller output
@@ -107,13 +110,20 @@ reg disable_safety;
 // Motor configuration register (some bits are read-only)
 //    31:   disable_safety
 //    30:   force_disable_f
-// 29-26:   0 (R/O)
+// 29-28:   0 (R/O)
+//    27:   1 -> digital current controller available and configured (R/O)
+//    26:   1 -> digital current controller active
 //    25:   1 -> voltage control available (R/O)
 //    24:   1 -> (analog) current control available (R/O)
 // 23-16:   delay (20.83 us resolution)
 //  15-0:   motor current limit (0.19 mA resolution, always positive)
 
-assign motor_config = { disable_safety, force_disable_f, 4'd0, ioexp_present, 1'b1,
+// For bit 27: digital current control is only available when the QLA provides voltage control.
+// This is currently available in QLA 1.5+ (ioexp_present true). The code should be changed
+// if an earlier QLA is modified (via cut & jump) to provide voltage control.
+
+assign motor_config = { disable_safety, force_disable_f, 2'd0,
+                        ioexp_present & dig_cur_config, dig_cur_ctrl, ioexp_present, 1'b1,
                         delay_cnt, cur_lim };
 
 wire safety_amp_disable;   // from SafetyCheck module
@@ -160,7 +170,7 @@ assign motor_reg_wen = (reg_waddr[15:0] == {`ADDR_MAIN, 4'd0, CHANNEL, `OFF_MOTO
 
 // write to CTRL address space for this channel
 wire ctrl_wen;
-assign ctrl_wen = (reg_waddr[15:4] == {`ADDR_CTRL, 4'd0, CHANNEL} ) ? reg_wen : 1'd0;
+assign ctrl_wen = (reg_waddr[15:4] == {`ADDR_MOTOR_CONTROL, 4'd0, CHANNEL} ) ? reg_wen : 1'd0;
 
 generate
 if (USE_STATUS_REG) begin
@@ -233,6 +243,7 @@ begin
     else if (motor_reg_wen_int) begin
         disable_safety <= reg_wdata_int[31];
         force_disable_f <= reg_wdata_int[30];
+        dig_cur_ctrl <= reg_wdata_int[27] ? reg_wdata_int[26] : dig_cur_ctrl;
         delay_cnt <= reg_wdata_int[25] ? reg_wdata_int[23:16] : delay_cnt;
         cur_lim <= reg_wdata_int[24] ? {1'b0, reg_wdata_int[14:0]} : cur_lim;
     end
@@ -279,11 +290,13 @@ Controller_block CtrlCur(
    .reg_wdata(reg_wdata),        // Incoming register data
    .reg_waddr(ctrl_waddr_int),   // Register write address (4 lsb)
    .ctrl_wen(ctrl_wen_int),      // CTRL register write enable
-   .reg_rdata(reg_rCtrl),        // Outgoing register data
+   .reg_rdata(reg_rdata),        // Outgoing register data
    .reg_raddr(reg_raddr[3:0]),   // Register read address (4 lsb)
+   .cur_ctrl_cfg(dig_cur_config), // Whether digital current control configured
    .bits_cmd(motor_cmd[15:0]),   // Commanded current from host
    .bits_fb(cur_fb),             // ADC value (measured motor current)
    .enc_fb(enc_fb),              // ENC value (position)
+   .cur_lim(cur_lim),            // Motor current limit
    .cont_out(cur_cont),          // Controller output
    .out_ready(cont_out_ready)    // Flag to indicate new values ready (new controller values every 8.667us)
 );

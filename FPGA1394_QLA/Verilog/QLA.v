@@ -123,7 +123,7 @@ assign {reg_rdata, reg_rwait} =
                    (reg_raddr[15:12]==`ADDR_DS) ? {reg_rdata_ds, 1'b1} :
                    (reg_raddr[15:12]==`ADDR_DATA_BUF) ? {reg_rdata_databuf, reg_rwait_databuf} :
                    (reg_raddr[15:12]==`ADDR_WAVEFORM) ? {reg_rtable, 1'b1} :
-                   (reg_raddr[15:12]==`ADDR_CTRL)     ? {reg_rCtrl[reg_raddr[7:4]], 1'b0} :
+                   (reg_raddr[15:12]==`ADDR_MOTOR_CONTROL) ? {reg_rCtrl[reg_raddr[7:4]], 1'b0} :
                    ((reg_raddr[15:12]==`ADDR_MAIN) && (reg_raddr[7:4]!=4'd0)) ? {reg_rd[reg_raddr[3:0]], 1'b0} :
                    ((reg_raddr[15:12]==`ADDR_MAIN) && (reg_raddr[3:0]==`REG_IO_EXP)) ? {reg_rdata_ioexp, 1'b0} :
                    (reg_raddr[15:12]==`ADDR_MAIN) ? {reg_rdata_chan0, reg_rwait_chan0} :

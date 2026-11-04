@@ -41,10 +41,8 @@
 `define ADDR_DS       4'h6         // Dallas 1-wire memory (dV instrument)
 `define ADDR_DATA_BUF 4'h7         // Data buffer address space
 `define ADDR_WAVEFORM 4'h8         // Waveform table address space (DOUT waveforms)
-`define ADDR_CTRL     4'h9         // Closed-loop control
-
-`define ADDR_MOTOR_CONTROL  4'h9 
-`define ADDR_ESPM      4'hA         // buffer for commands intended for the ESPM
+`define ADDR_MOTOR_CONTROL 4'h9    // Motor control
+`define ADDR_ESPM      4'hA        // buffer for commands intended for the ESPM
 `define ADDR_BOARD_SPECIFIC 4'hB
 
 // channel 0 (board) registers
@@ -86,7 +84,7 @@
 `define OFF_UNUSED_15 4'hF
 
 
-// Controller register fields, offsets within ADDR_CTRL
+// Controller register fields, offsets within ADDR_MOTOR_CONTROL (for QLA/DQLA)
 `define OFF_CO_CMD_FB               4'h0  // conversion offsets bits to amps for cur_cmd (high 16 bits) and cur_fb (low 16 bits)
 `define OFF_CTRL_CURR_Kp_KiT        4'h1  // Kp and Ki*T both *2^N_shift for CL current PID controller
 `define OFF_CTRL_CURR_KdT           4'h2  // Kd/T *2^N_shift for CL current PID controller

@@ -31,10 +31,15 @@ module Controller_block(
     output wire[31:0] reg_rdata,    // outgoing register data
     input  wire[3:0]  reg_raddr,    // register read address
 
+    // whether controller parameters configured (by host)
+    output wire cur_ctrl_cfg,       // Digital current controller configured
+
     // controller inputs
     input  wire[15:0] bits_fb,     // current feedback bits
     input  wire[24:0] enc_fb,      // position feedback bits
     input  wire[15:0] bits_cmd,    // commanded current from host
+
+    input  wire[15:0] cur_lim,     // motor current limit
 
     // output
     output wire[15:0] cont_out,    // controller output in bits
@@ -59,27 +64,49 @@ wire[15:0] wire_cont_out;     // wire leading from current controller to outputs
 wire[15:0] wire_pos_cont_out; // output of position controller, used as reference input of current controller module
 wire[15:0] wire_cur_cont_in;  // input of current control (either commanded current or position controller output)
 
-//parameters
-reg[15:0] co_cmd;
-reg[15:0] co_fbBits;
-reg[15:0] Kp_Curr;
-reg[15:0] KiT_Curr;
-reg[15:0] KdT_Curr;
-reg[3:0]  N_shift_Curr_Kp;
-reg[3:0]  N_shift_Curr_KiT;
-reg[3:0]  N_shift_Curr_KdT;
-reg[15:0] sat_max_Curr;
+// Parameters for motor current control
+reg[15:0] co_cmd;             // Offset on motor current command (TODO: this should be moved elsewhere)
+reg[15:0] co_fbBits;          // Offset on motor current feedback (TODO: this should be moved elsewhere)
+reg[15:0] Kp_Curr;            // P (proportional) gain for motor current control
+reg[15:0] KiT_Curr;           // I (integral) gain for motor current control
+reg[15:0] KdT_Curr;           // D (derivative) gain for motor current control
+reg[3:0]  N_shift_Curr_Kp;    // Shift for P gain (current)
+reg[3:0]  N_shift_Curr_KiT;   // Shift for I gain (current)
+reg[3:0]  N_shift_Curr_KdT;   // Shift for D gain (current)
+reg[15:0] sat_max_Curr;       // Maximum output voltage to motor (TODO: perhaps configure from host)
 
-reg[15:0] Kp_Pos;
-reg[15:0] KiT_Pos;
-reg[15:0] KdT_Pos;
+// Parameters for position control
+reg[15:0] Kp_Pos;             // P (proportional) gain for motor position control
+reg[15:0] KiT_Pos;            // I (integral) gain for motor position control
+reg[15:0] KdT_Pos;            // D (derivative) gain for motor position control
+reg[3:0]  N_shift_Pos_Kp;     // Shift for P gain (position)
+reg[3:0]  N_shift_Pos_KiT;    // Shift for I gain (position)
+reg[3:0]  N_shift_Pos_KdT;    // Shift for D gain (position)
+reg[15:0] co_out_Pos;         // TODO: Figure out if we need this
+reg[15:0] cf_out_Pos;         // TODO: Figure out if we need this
 
-reg[3:0]  N_shift_Pos_Kp;
-reg[3:0]  N_shift_Pos_KiT;
-reg[3:0]  N_shift_Pos_KdT;
-reg[15:0] sat_max_Pos;
-reg[15:0] co_out_Pos;
-reg[15:0] cf_out_Pos;
+initial begin
+   // Nominal values
+   co_cmd = 16'h8000;
+   co_fbBits = 16'h8000;
+   Kp_Curr = 16'h0;
+   KiT_Curr = 16'h0;
+   KdT_Curr = 16'h0;
+   N_shift_Curr_Kp = 4'd13;
+   N_shift_Curr_KiT = 4'd13;
+   N_shift_Curr_KdT = 4'd13;
+   // V_motor_max = 5.179V --> (5.179V / 38.2) * (2^15/1.25V) / 5 = 711 bits [original (cut & jump)]
+   // V_motor_max = 5.179V --> (5.179V / 36.4) * (2^15/1.25V) / 5 = 746 bits [QLA 1.5+]
+   sat_max_Curr = 16'd746;
+   Kp_Pos = 16'h0;
+   KiT_Pos = 16'h0;
+   KdT_Pos = 16'h0;
+   N_shift_Pos_Kp = 4'd10;
+   N_shift_Pos_KiT = 4'd15;
+   N_shift_Pos_KdT = 4'd6;
+   co_out_Pos = 16'h8000;
+   cf_out_Pos = 16'd1;
+end
 
 // assignments for current controller input
 assign wire_cur_cont_in = pos_cont_en ? wire_pos_cont_out : bits_cmd;
@@ -99,15 +126,15 @@ begin
 
    if (~val_ready_last & val_ready_now) begin //edge detection
 
-      if (cnt >= 4'd9) begin
+      if (cnt >= 8'd9) begin
          pos_val_ready <= 1;
-         cnt <= 4'b0;
+         cnt <= 8'b0;
          // update registers
          pos_fb <= enc_fb;
       end
       else begin
          pos_val_ready <= 0;
-         cnt <= cnt + 1;
+         cnt <= cnt + 8'd1;
       end
 
    end
@@ -126,7 +153,17 @@ begin
    pos_controller_output <= wire_pos_cont_out;
 end
 
+// Tracks which registers have been written
+reg[7:0] reg_written = 8'd0;
 
+// Whether all parameters for motor current control have been written
+assign cur_ctrl_cfg = (reg_written[`OFF_CO_CMD_FB] & reg_written[`OFF_CTRL_CURR_Kp_KiT] &
+                       reg_written[`OFF_CTRL_CURR_KdT] & reg_written[`OFF_CTRL_SHIFTS]) ? 1'b1 : 1'b0;
+
+// Whether all parameters for motor position control have been written
+// TODO:  `OFF_OUT_POS_CMD not included because it should be written via motor_cmd register
+//assign pos_ctrl_cfg = (reg_written[`OFF_CTRL_POS_Kp_KiT] & reg_written[`OFF_CTRL_POS_KdT_CF_OUT] &
+//                       reg_written[`OFF_CTRL_SHIFTS]) ? 1'b1 : 1'b0;
 
 // Register write
 always @(posedge(clk))
@@ -142,34 +179,40 @@ begin
          // converted to a 16 bit value
          co_cmd <= reg_wdata[31:16];
          co_fbBits <= reg_wdata[15:0];
+         reg_written[`OFF_CO_CMD_FB] = 1;
       end
 
       `OFF_CTRL_CURR_Kp_KiT: begin
          // Write controller gains Kp and Ki*T of CL current controller
          Kp_Curr <= reg_wdata[31:16];
          KiT_Curr <= reg_wdata[15:0];
+         reg_written[`OFF_CTRL_CURR_Kp_KiT] = 1;
       end
 
       `OFF_CTRL_CURR_KdT: begin
          // Write controller gain Kd/T of CL current controller
          KdT_Curr <= reg_wdata[31:16];
+         reg_written[`OFF_CTRL_CURR_KdT] = 1;
       end
 
       `OFF_CTRL_POS_Kp_KiT: begin
          // Write controller gains Kp and Ki*T of CL position controller
          Kp_Pos <= reg_wdata[31:16];
          KiT_Pos <= reg_wdata[15:0];
+         reg_written[`OFF_CTRL_POS_Kp_KiT] = 1;
       end
 
       `OFF_CTRL_POS_KdT_CF_OUT: begin
          // Write controller gain Kd/T of CL position controller and conversion offset
          KdT_Pos <= reg_wdata[31:16];
          cf_out_Pos <= reg_wdata[15:0];
+         reg_written[`OFF_CTRL_POS_KdT_CF_OUT] = 1;
       end
 
       `OFF_OUT_POS_CMD: begin
-          // Write commanded position
-          pos_cmd <= reg_wdata[24:0];
+         // Write commanded position
+         pos_cmd <= reg_wdata[24:0];
+         reg_written[`OFF_OUT_POS_CMD] = 1;
       end
 
       // not intended to be written to:
@@ -180,13 +223,15 @@ begin
 
       `OFF_CTRL_SHIFTS: begin
          // Write shifts and position control enable bits
-         pos_cont_en      <= reg_wdata[31];
+         // TODO: position control disabled for now (needs more work)
+         // pos_cont_en      <= reg_wdata[31];
          N_shift_Curr_Kp  <= reg_wdata[23:20];
          N_shift_Curr_KiT <= reg_wdata[19:16];
          N_shift_Curr_KdT <= reg_wdata[15:12];
          N_shift_Pos_Kp   <= reg_wdata[11: 8];
          N_shift_Pos_KiT  <= reg_wdata[ 7: 4];
          N_shift_Pos_KdT  <= reg_wdata[ 3: 0];
+         reg_written[`OFF_CTRL_SHIFTS] = 1;
       end
 
       endcase
@@ -260,7 +305,7 @@ pid_pos(
    .N_shift_Kp(N_shift_Pos_Kp),
    .N_shift_KiT(N_shift_Pos_KiT),
    .N_shift_KdT(N_shift_Pos_KdT),
-   .sat_max(sat_max_Pos),
+   .sat_max(cur_lim),
    .cont_out(wire_pos_cont_out),
    .out_ready(out_pos_ready)
 );
