@@ -324,9 +324,6 @@ end
 
 assign reg_rd[`OFF_MOTOR_CTRL] = motor_cmd[reg_raddr[7:4]];
 
-
-//-------------------------------------------------------------------------
-
 assign reg_rd[`OFF_MOTOR_STATUS] = motor_status[reg_raddr[7:4]];
 assign reg_rd[`OFF_MOTOR_CONFIG] = motor_config[reg_raddr[7:4]];
 
@@ -386,6 +383,7 @@ CtrlEnc enc(
     .enc_data2(enc_fb[2]),
     .enc_data3(enc_fb[3]),
     .enc_data4(enc_fb[4])
+    // TODO: would need enc 5-8 for digital position control
 );
 
 assign reg_rd[`OFF_ENC_LOAD] = reg_preload;      // preload

@@ -317,9 +317,12 @@ begin
     endcase
 end          
 
+// Reading back the commanded current value from the controller block
+wire[31:0] reg_rCtrl[1:8];
+
 // Mux routing read data based on read address
 //   See Constants.v for details
-//     addr[15:12]  main | hub | prom | prom_qla | eth | firewire | dallas | waveform
+//     addr[15:12]  main | hub | prom | prom_qla | eth | firewire | dallas | waveform | ctrl
 // reg_rwait indicates when reg_rdata is valid
 //   0 --> same sysclk as reg_raddr (e.g., register read)
 //   1 --> one sysclk after reg_raddr set (e.g., reading from memory)
@@ -328,6 +331,7 @@ assign {reg_rdata, reg_rwait} =
                    (reg_raddr[15:12]==`ADDR_PROM_QLA) ? {reg_rdata_prom_qla, 1'b0} :
                    (reg_raddr[15:12]==`ADDR_DS) ? {reg_rdata_ds, 1'b1} :
                    (reg_raddr[15:12]==`ADDR_WAVEFORM) ? {reg_rtable, 1'b1} :
+                   (reg_raddr[15:12]==`ADDR_MOTOR_CONTROL) ? {reg_rCtrl[reg_raddr[7:4]], 1'b0} :
                    ((reg_raddr[15:12]==`ADDR_MAIN) && (reg_raddr[7:4]!=4'd0)) ? {reg_rd[reg_raddr[3:0]], 1'b0} :
                    ((reg_raddr[15:12]==`ADDR_MAIN) && (reg_raddr[3:0]==`REG_IO_EXP)) ? {reg_rdata_ioexp, 1'b0} :
                    (reg_raddr[15:12]==`ADDR_MAIN) ? {reg_rdata_chan0, reg_rwait_chan0} :
@@ -434,13 +438,6 @@ Ltc1864x4 Q2_adc_cur(
 
 assign reg_rd[`OFF_ADC_DATA] = {pot_fb[reg_raddr[7:4]], cur_fb[reg_raddr[7:4]]};
 
-// ----------------------------------------------------------------------------
-// Read/Write of commanded current (cur_cmd) and amplifier enable
-//
-// This is now done in MotorChannelQLA (rather than CtrlDac) to support digital
-// control implementations.
-// ----------------------------------------------------------------------------
-
 wire ioexp_cfg_reset;          // 1 -> Check if I/O expander (MAX7317) present
 wire Q1_ioexp_cfg_present;     // 1 -> I/O expander (MAX7317) detected
 wire Q2_ioexp_cfg_present;     // 1 -> I/O expander (MAX7317) detected
@@ -467,8 +464,15 @@ wire[1:8] amp_disable_error; // 1 -> output error in Max7301 I/O expander
 assign amp_disable_error = { Q1_IOP_Error[15:12], Q2_IOP_Error[15:12] };
 
 wire[31:0] motor_cmd[1:8];   // Motor Command per channel
-wire[15:0] cur_cmd[1:8];     // Commanded current (or voltage) per channel
+wire[15:0] dac_cmd[1:8];     // Commanded current or voltage per channel
+wire dac_cmd_updated[1:8];   // Whether dac_cmd updated
 wire[1:8] cur_ctrl;          // 1 -> current control, 0 -> voltage control
+
+wire dig_cur_ctrl[1:8];      // 1 -> digital current control active
+
+// All 8 channels of quadrature data (encoder position).
+// Used for digital control.
+wire[24:0] enc_fb[1:8];
 
 // Motor status feedback
 wire[31:0] motor_status[1:8];
@@ -502,6 +506,8 @@ generate
             .reg_waddr(reg_waddr),
             .reg_wdata(reg_wdata),
             .reg_wen(reg_wen),
+            .reg_raddr(reg_raddr),
+            .reg_rdata(reg_rCtrl[k]),
             .motor_status(motor_status[k]),
             .motor_config(motor_config[k]),
 
@@ -521,10 +527,14 @@ generate
 
             .motor_cmd(motor_cmd[k]),
             .cur_ctrl(cur_ctrl[k]),
+            .dac_cmd(dac_cmd[k]),
+            .dac_cmd_updated(dac_cmd_updated[k]),
+            .dig_cur_ctrl(dig_cur_ctrl[k]),
 
-            .cur_fb(cur_fb[k])
+            .cur_fb(cur_fb[k]),
+            .cur_fb_ready(wen),
+            .enc_fb(enc_fb[k])
         );
-        assign cur_cmd[k] = motor_cmd[k][15:0];
     end
 endgenerate
 
@@ -538,57 +548,32 @@ assign Q2_disable[2] = amp_disable_pin[6];
 assign Q2_disable[3] = amp_disable_pin[7];
 assign Q2_disable[4] = amp_disable_pin[8];
 
-// Write to global status register
-wire reg_waddr_status;
-assign reg_waddr_status = ((reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[7:4] == 4'd0) &&
-                           (reg_waddr[3:0]==`REG_STATUS)) ? 1'd1 : 1'd0;
+wire any_dac_write;
+assign any_dac_write = dac_cmd_updated[1] | dac_cmd_updated[2] | dac_cmd_updated[3] | dac_cmd_updated[4];
 
-// Check for non-zero channel number (reg_waddr[7:4]) to ignore write to global register.
-// It would be even better to check that channel number is 1-4.
-wire reg_waddr_dac;
-assign reg_waddr_dac = ((reg_waddr[15:12]==`ADDR_MAIN) && (reg_waddr[7:4] != 4'd0) &&
-                        (reg_waddr[3:0]==`OFF_MOTOR_CTRL)) ? 1'd1 : 1'd0;
+reg any_dac_write_latched = 1'b0;
 
-// Following indicates whether at least one DAC has been updated (via a block write)
-// since the last write.
-reg dac_update;
-
-// Following indicates whether DAC value is valid (bit 31 set), assuming
-// reg_waddr_dac is 1. This will work for either a block write or a single quadlet
-// write because in both cases reg_wen is set.
-wire dac_valid;
-assign dac_valid = reg_wen & reg_wdata[31];
+wire any_dig_ctrl;
+assign any_dig_ctrl = dig_cur_ctrl[1] | dig_cur_ctrl[2] | dig_cur_ctrl[3] | dig_cur_ctrl[4];
 
 wire dac_busy;
-reg  cur_cmd_req;
-reg  cur_cmd_updated;
+reg dac_cmd_ready = 1'b0;
 
 always @(posedge(sysclk))
 begin
-    // We check both reg_waddr_dac and reg_waddr_status because in a block write, the last
-    // write is to the status/control register.
-    if (reg_waddr_dac | reg_waddr_status) begin
-        // For block write, dac_update will be set if any DAC was valid prior to blk_wen
-        // For quadlet write, need to check (dac_valid&reg_waddr_dac) because blk_wen and
-        // reg_wen occur at the same time
-        if (blk_wen) begin
-            dac_update <= 1'b0;
-            if (dac_update|(dac_valid&reg_waddr_dac)) begin
-                cur_cmd_req <= dac_busy;
-                cur_cmd_updated <= ~dac_busy;
-            end
-        end
-        else if (dac_valid) begin
-            // This condition is only possible for block write
-            dac_update <= 1'b1;
-        end
+    if (any_dac_write) begin
+        // Latch any_dac_write since the signal is self-clearing
+        any_dac_write_latched <= 1'b1;
     end
-    if (cur_cmd_req&(~dac_busy)) begin
-        cur_cmd_req <= 0;
-        cur_cmd_updated <= 1;
+    if (any_dac_write_latched & (~blk_rt_wr | any_dig_ctrl) & (~dac_busy)) begin
+        // Check for ~blk_rt_wr so that we wait until the real-time block write is finished
+        // before updating the DAC (i.e., so that all DAC values can be written at same time).
+        // We OR with any_dig_ctrl to disable this when any channel is digitally controlled.
+        dac_cmd_ready <= 1'b1;
     end
-    else if (cur_cmd_updated&dac_busy) begin
-        cur_cmd_updated <= 1'b0;
+    if (dac_cmd_ready & dac_busy) begin
+        any_dac_write_latched <= 1'b0;
+        dac_cmd_ready <= 1'b0;
     end
 end
 
@@ -601,7 +586,7 @@ assign reg_rd[`OFF_MOTOR_CONFIG] = motor_config[reg_raddr[7:4]];
 // dacs
 //
 // Note that there are two DAC chains, but they are both driven by the same
-// SCLK and cur_cmd_updated, so should remain synchronized.
+// SCLK and dac_cmd_ready, so should remain synchronized.
 // --------------------------------------------------------------------------
 
 wire Q1_is_quad_dac;      // type of DAC: 0 = 4xLTC2601, 1 = 1xLTC2604
@@ -613,12 +598,12 @@ CtrlDac #(.NUM_CS(2)) dac(
     .sclk(dac_sclk),
     .mosi({Q2_dac_mosi, Q1_dac_mosi}),
     .csel({Q2_dac_CSn, Q1_dac_CSn}),
-    .dac1({cur_cmd[5], cur_cmd[1]}),
-    .dac2({cur_cmd[6], cur_cmd[2]}),
-    .dac3({cur_cmd[7], cur_cmd[3]}),
-    .dac4({cur_cmd[8], cur_cmd[4]}),
+    .dac1({dac_cmd[5], dac_cmd[1]}),
+    .dac2({dac_cmd[6], dac_cmd[2]}),
+    .dac3({dac_cmd[7], dac_cmd[3]}),
+    .dac4({dac_cmd[8], dac_cmd[4]}),
     .busy(dac_busy),
-    .data_ready(cur_cmd_updated),
+    .data_ready(dac_cmd_ready),
     .mosi_read({Q2_dac_mosi_fb, Q1_dac_mosi_fb}),
     .isQuadDac({Q2_is_quad_dac, Q1_is_quad_dac}),
     .dac_test_reset(dac_test_reset)
@@ -650,7 +635,11 @@ CtrlEnc #(.NUM_ENC(8)) enc(
     .reg_perd_data(reg_perd_data),
     .reg_qtr1_data(reg_qtr1_data),
     .reg_qtr5_data(reg_qtr5_data),
-    .reg_run_data(reg_run_data)
+    .reg_run_data(reg_run_data),
+    .enc_data1(enc_fb[1]),
+    .enc_data2(enc_fb[2]),
+    .enc_data3(enc_fb[3]),
+    .enc_data4(enc_fb[4])
 );
 
 assign reg_rd[`OFF_ENC_LOAD] = reg_preload;      // preload
