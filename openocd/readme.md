@@ -23,7 +23,7 @@ sudo udevadm control --reload-rules
 
 Disconnect the JTAG adapter from USB. Reconnect it to apply the rules.
 
-## Download the bitstream (*.bit) and programming file (*.mcs)
+## Download the bitstream (`.bit`) and programming file (`.mcs`)
 
 From the repository root, enter the `openocd` directory:
 
@@ -49,8 +49,8 @@ wget -O FPGA1394V2-QLA.mcs https://github.com/jhu-cisst/mechatronics-firmware/re
 
 ## Load the temporary firmware
 
-OpenOCD loads the bitstream into the FPGA. It does not write the PROM.
-The FPGA loses this bitstream when you remove power.
+OpenOCD loads the bitstream into the FPGA. It does not write the PROM (that will be done using `pgm1394`).
+The FPGA loses this bitstream if you remove power.
 
 1. Connect the JTAG adapter to the board.
 2. Turn on the board or controller power.
@@ -74,9 +74,9 @@ Keep the board powered until PROM programming is complete.
 Use FireWire for V1. For V2, use FireWire or Ethernet.
 
 1. Run `pgm1394 <n>`, where `<n>` is the FPGA board number (rotary switch).
-  - For Ethernet, it may be necessary to specify the `-pudpfw` or `-pudp` option.
-  - If you are using ROS, `pgm1394` should be in your path; otherwise, it can be found in the `mechatronics-software` build tree.
-  - Note that the `mcs` file you downloaded earlier must be in the current working directory.
+   - For Ethernet, it may be necessary to specify the `-pudpfw` or `-pudp` option.
+   - If you are using ROS, `pgm1394` should be in your path; otherwise, it can be found in the `mechatronics-software` build tree.
+   - Note that the `mcs` file you downloaded earlier must be in the current working directory.
 2. Press `1` to program the PROM.
 3. Press `2` to verify the programming.
 4. Press `0` to exit (or `8` to exit and reboot).
