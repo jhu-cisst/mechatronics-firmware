@@ -502,7 +502,13 @@ assign Eth_IRQn[2] = E2_IRQn;
 wire[7:0] eth_status_phy[1:2];   // Status bits for Ethernet ports 1 and 2
 wire[7:0] eth_status_io;         // Status bits from EthernetIO
 wire      eth_active_ps;         // Whether PS Ethernet enabled
-assign Eth_Result = { 2'b01, 1'b0, eth_status_io[7:3],                          // 31:24
+wire      is_vivado;             // 1 -> built with Vivado; 0 -> built with ISE
+`ifdef USE_VIVADO
+assign    is_vivado = 1'b1;
+`else
+assign    is_vivado = 1'b0;
+`endif
+assign Eth_Result = { 2'b01, is_vivado, eth_status_io[7:3],                     // 31:24
                       clk125_ok, eth_status_io[2], clk200_ok, eth_status_io[0], // 23:20
                       3'd0, eth_active_ps,                                      // 19:16
                       eth_status_phy[2], eth_status_phy[1] };                   // 15:0

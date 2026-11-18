@@ -222,7 +222,10 @@ localparam[4:0]
         ADDR_BMCR = 5'd0,       // Basic Mode Control Register, page 0
         ADDR_PHYID1 = 5'd2,     // PHY Identifier Register 1, page 0
         ADDR_PHYID2 = 5'd3,     // PHY Identifier Register 2, page 0
+        ADDR_MACR = 5'd13,      // MMD Access Control Register, page 0
+        ADDR_MAADR = 5'd14,     // MMD Access Address Data Register, page 0
         ADDR_INER = 5'd18,      // Interrupt Enable Register, page 0xa42
+        ADDR_PHYCR2 = 5'd25,    // PHY Specific Control Register 2, page 0xa43
         ADDR_PHYSR = 5'd26,     // PHY Specific Status Register, page 0xa43
         ADDR_INSR = 5'd29,      // Interrupt Status Register, page 0xa43
         ADDR_PAGSR = 5'd31;     // Page Select Register, 0xa43
@@ -255,38 +258,48 @@ localparam CMD_WRITE = 1'b0,        // Write to register
 localparam[4:0] PHY_RTL  = 5'd1,    // PHY address for RTL8211F
                 PHY_GMII = 5'd8;    // PHY address for GMII core
 
-// Program for initialization (0-9) and IRQ handler (4-9)
-wire[26:0] RunProgram[0:9];
+// Program for initialization (0-13) and IRQ handler (8-13)
+wire[26:0] RunProgram[0:13];
 reg[3:0] runPC;    // Program counter for RunProgram
 
 // Data to write to GMII register (to set speed)
 reg[15:0] phy_gmii_data;
 
 localparam[3:0] PC_RESET_BEGIN = 4'd0,   // Program counter for starting reset handler
-                PC_IRQ_BEGIN = 4'd4,     // Program counter for starting IRQ handler
-                PC_END = 4'd9;           // End (also used for MDIO requests from PC)
+                PC_IRQ_BEGIN = 4'd8,     // Program counter for starting IRQ handler
+                PC_END = 4'd13;          // End (also used for MDIO requests from PC)
 
 // Read Chip ID1 (should be 001c)
 assign RunProgram[0] = {CMD_READ,  PHY_RTL, ADDR_PHYID1, 12'd0, ST_INIT_CHECK_CHIPID1};
 // Read Chip ID2 (should be c916)
 assign RunProgram[1] = {CMD_READ,  PHY_RTL, ADDR_PHYID2, 12'd0, ST_INIT_CHECK_CHIPID2};
+// Next four commands disable Energy Efficient Ethernet (EEE) via the EEEAR (EEE Advertisement
+// Register). It should also be possible to disable EEE via PHYCR2, but that does not seem to work.
+// Write to MACR, function 00 (address), device 7
+assign RunProgram[2] = {CMD_WRITE, PHY_RTL, ADDR_MACR, 16'h0007};
+// Write to MAADR, address of EEEAR (60)
+assign RunProgram[3] = {CMD_WRITE, PHY_RTL, ADDR_MAADR, 16'd60};
+// Write to MACR, function 01 (data), device 7
+assign RunProgram[4] = {CMD_WRITE, PHY_RTL, ADDR_MACR, 16'h4007};
+// Write to MAADR, set EEEAR to 0 (do not advertise EEE)
+assign RunProgram[5] = {CMD_WRITE, PHY_RTL, ADDR_MAADR, 16'd0};
 // Change page to 0xa42 to access INER
-assign RunProgram[2] = {CMD_WRITE, PHY_RTL, ADDR_PAGSR, 16'h0a42};
+assign RunProgram[6] = {CMD_WRITE, PHY_RTL, ADDR_PAGSR, 16'h0a42};
 // Enable link change interrupt; could also enable auto-negotiation complete interrupt,
 // but it does not seem to be necessary (i.e., we get the correct speed in PHYSR)
-assign RunProgram[3] = {CMD_WRITE, PHY_RTL, ADDR_INER, 16'h0010};
+assign RunProgram[7] = {CMD_WRITE, PHY_RTL, ADDR_INER, 16'h0010};
 // Change page to 0xa43 to access INSR
-assign RunProgram[4] = {CMD_WRITE, PHY_RTL, ADDR_PAGSR, 16'h0a43};
+assign RunProgram[8] = {CMD_WRITE, PHY_RTL, ADDR_PAGSR, 16'h0a43};
 // Read interrupt status register (clears interrupt)
-assign RunProgram[5] = {CMD_READ,  PHY_RTL, ADDR_INSR, 12'd0, ST_RUN_PROGRAM_EXECUTE};
+assign RunProgram[9] = {CMD_READ,  PHY_RTL, ADDR_INSR, 12'd0, ST_RUN_PROGRAM_EXECUTE};
 // Read PHYSR to get link status
-assign RunProgram[6] = {CMD_READ,  PHY_RTL, ADDR_PHYSR, 12'd0, ST_GET_PHYSR_DATA};
+assign RunProgram[10] = {CMD_READ,  PHY_RTL, ADDR_PHYSR, 12'd0, ST_GET_PHYSR_DATA};
 // Change page to 0 to access BMCR (might not be necessary)
-assign RunProgram[7] = {CMD_WRITE, PHY_RTL, ADDR_PAGSR, 16'd0};
+assign RunProgram[11] = {CMD_WRITE, PHY_RTL, ADDR_PAGSR, 16'd0};
 // Write speed bits to GMII core register 16 (ST_GET_PHYSR_DATA updates the data field)
-assign RunProgram[8] = {CMD_WRITE, PHY_GMII, 5'd16, phy_gmii_data};
+assign RunProgram[12] = {CMD_WRITE, PHY_GMII, 5'd16, phy_gmii_data};
 // Change page to 0xa42 since that is the default page (probably not necessary)
-assign RunProgram[9] = {CMD_WRITE, PHY_RTL, ADDR_PAGSR, 16'h0a42};
+assign RunProgram[13] = {CMD_WRITE, PHY_RTL, ADDR_PAGSR, 16'h0a42};
 
 reg[23:0] initCount;
 reg resetRequest;            // 1 -> Request PHY reset
